@@ -8897,9 +8897,9 @@ void ofApp::drawGame() {
 				glEnable(GL_DEPTH_TEST);
 				glDepthMask(GL_FALSE);
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-				blobShadowTex.bind();
+				shadowTexture.bind();
 				sq.draw();
-				blobShadowTex.unbind();
+				shadowTexture.unbind();
 				ofDisableBlendMode();
 				glDepthMask(GL_TRUE);
 			}
@@ -9723,7 +9723,9 @@ void ofApp::drawGame() {
 			ofRotateXDeg(90);
 			float shadowSize = TILE_SIZE * 0.8f;
 			if (player.isDemon) shadowSize *= 1.5f;
+			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
+			ofDisableBlendMode();
 			ofPopMatrix();
 
 			// --- REGENERATION (Tiny Pixel Heart) ---
@@ -31229,6 +31231,11 @@ void ofApp::onCardPicked(int optionIndex) {
 }
 //--------------------------------------------------------------
 void ofApp::drawInitiativeRoll() {
+	static int lastDrawFrame = -1;
+	const int currentDrawFrame = ofGetFrameNum();
+	if (lastDrawFrame == currentDrawFrame) return;
+	lastDrawFrame = currentDrawFrame;
+
 	if (activeDiceRolls.size() >= 2) {
 
 		// Position labels so that the local player is always on the left
@@ -31246,23 +31253,7 @@ void ofApp::drawInitiativeRoll() {
 		// Standardized Text Drawer (Smaller scale)
 		auto drawLabel = [&](string text, float x, float y, ofColor col) {
 			float fontScale = 0.7f; // Smaller size
-			ofRectangle bbox = titleFont.getStringBoundingBox(text, 0, 0);
-			float tx = x - (bbox.width * fontScale / 2.0f);
-			float ty = y;
-
-			ofPushMatrix();
-			ofTranslate(tx, ty);
-			ofScale(fontScale, fontScale);
-
-			// Shadow
-			ofSetColor(0, 0, 0, 255);
-			titleFont.drawString(text, 3, 3);
-
-			// Main Text (Standard UI White/Gold/Grey scheme)
-			ofSetColor(col);
-			titleFont.drawString(text, 0, 0);
-
-			ofPopMatrix();
+			drawPixelTextCentered(titleFont, text, x, y, fontScale, col, 1, ofColor(0, 0, 0, 255));
 		};
 
 		// Draw local player on left, opponent on right
@@ -31299,15 +31290,26 @@ void ofApp::drawInitiativeRoll() {
 }
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
+	ofPushStyle();
+	// Isolate UI drawing state so other render paths aren't affected.
+	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
 	ofDisableLighting();
 	ofDisableDepthTest();
-	ofEnableAlphaBlending();
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(255, 255, 255, 255);
+	// Dim the world behind draft cards (modal overlay)
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 	if (draftOptions.empty()) {
 		ofPushStyle();
-		ofSetColor(0, 0, 0, 140);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(0, 0, 0, 180);
+		float boxW = std::min(540.0f, ofGetWidth() * 0.72f);
+		float boxH = 96.0f;
+		float boxX = ofGetWidth() * 0.5f - boxW * 0.5f;
+		float boxY = ofGetHeight() * 0.5f - boxH * 0.5f;
+		ofDrawRectRounded(boxX, boxY, boxW, boxH, 12.0f);
 		ofSetColor(ofColor::white);
 		std::string msg = (waitingForDraftOptionsStartTime > 0.0f) ? "Waiting for draft options..." : "Preparing draft...";
 		ofRectangle msgBox = titleFont.getStringBoundingBox(msg, 0, 0);
@@ -31327,6 +31329,9 @@ void ofApp::drawDraftScreen() {
 								  << " class1Cards=" << class1Cards.size()
 								  << " class2Cards=" << class2Cards.size()
 								  << " class3Cards=" << class3Cards.size();
+		ofDisableBlendMode();
+		ofPopStyle();
+		ofDisableBlendMode();
 		ofPopStyle();
 		return;
 	}
@@ -31656,1396 +31661,1399 @@ void ofApp::drawDraftScreen() {
 	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
 		drawPileViewFor(currentPileViewPlayerIndex, currentPileView);
 	}
-}
 
-// Draw and advance active draft-picked move animations (visual only)
-void ofApp::drawActiveDraftPickedMoves() {
-	// Use layout math consistent with drawDraftScreen (cardW/cardH computed there)
-	float cardW, cardH, spacing, startX, startY;
-	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
+	// Restore blend mode & style before exiting
+	ofDisableBlendMode();
+	ofPopStyle();
 
-	float nowSec = ofGetElapsedTimef();
-	for (auto & mv : activeDraftPickedMoves) {
-		if (mv.finished) continue;
-		float startSec = mv.startFrame / (float)turnTimerFramesPerSecond;
-		float delaySec = mv.delayFrames / (float)turnTimerFramesPerSecond;
-		float durationSec = mv.durationFrames / (float)turnTimerFramesPerSecond;
-		if (nowSec < startSec + delaySec) {
-			float drawW = cardW;
-			float drawH = cardH;
-			float dx = mv.startPos.x - drawW / 2.0f;
-			float dy = mv.startPos.y - drawH / 2.0f;
-			ofSetColor(255);
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
-				mv.card.textureRect.x, mv.card.textureRect.y,
-				mv.card.textureRect.width, mv.card.textureRect.height);
-		} else {
-			float elapsedSec = nowSec - (startSec + delaySec);
-			float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
-			if (t >= 1.0f) t = 1.0f;
-			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
-			float scale = 1.0f * (1.0f - t) + mv.endScale * t;
-			float drawW = cardW * scale;
-			float drawH = cardH * scale;
-			float dx = pos.x - drawW / 2.0f;
-			float dy = pos.y - drawH / 2.0f;
-			ofSetColor(255);
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
-				mv.card.textureRect.x, mv.card.textureRect.y,
-				mv.card.textureRect.width, mv.card.textureRect.height);
-			if (t >= 1.0f) {
-				mv.finished = true;
-				// Only flash main player decks; minion targets use their own shuffle visuals
-				if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size() && !players[mv.ownerIndex].isMinion) {
-					deckFlashStartFrame = (int)simulationFrame;
-					deckFlashOwnerIndex = mv.ownerIndex;
+	// Draw and advance active draft-picked move animations (visual only)
+	void ofApp::drawActiveDraftPickedMoves() {
+		// Use layout math consistent with drawDraftScreen (cardW/cardH computed there)
+		float cardW, cardH, spacing, startX, startY;
+		getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
+
+		float nowSec = ofGetElapsedTimef();
+		for (auto & mv : activeDraftPickedMoves) {
+			if (mv.finished) continue;
+			float startSec = mv.startFrame / (float)turnTimerFramesPerSecond;
+			float delaySec = mv.delayFrames / (float)turnTimerFramesPerSecond;
+			float durationSec = mv.durationFrames / (float)turnTimerFramesPerSecond;
+			if (nowSec < startSec + delaySec) {
+				float drawW = cardW;
+				float drawH = cardH;
+				float dx = mv.startPos.x - drawW / 2.0f;
+				float dy = mv.startPos.y - drawH / 2.0f;
+				ofSetColor(255);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
+					mv.card.textureRect.x, mv.card.textureRect.y,
+					mv.card.textureRect.width, mv.card.textureRect.height);
+			} else {
+				float elapsedSec = nowSec - (startSec + delaySec);
+				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+				if (t >= 1.0f) t = 1.0f;
+				glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
+				float scale = 1.0f * (1.0f - t) + mv.endScale * t;
+				float drawW = cardW * scale;
+				float drawH = cardH * scale;
+				float dx = pos.x - drawW / 2.0f;
+				float dy = pos.y - drawH / 2.0f;
+				ofSetColor(255);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
+					mv.card.textureRect.x, mv.card.textureRect.y,
+					mv.card.textureRect.width, mv.card.textureRect.height);
+				if (t >= 1.0f) {
+					mv.finished = true;
+					// Only flash main player decks; minion targets use their own shuffle visuals
+					if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size() && !players[mv.ownerIndex].isMinion) {
+						deckFlashStartFrame = (int)simulationFrame;
+						deckFlashOwnerIndex = mv.ownerIndex;
+					}
 				}
 			}
 		}
-	}
 
-	// Remove finished moves
-	for (size_t i = activeDraftPickedMoves.size(); i-- > 0;) {
-		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
-	}
-}
-
-// (moved to UI Helpers earlier)
-// Draw the pile view panel for a given player and view mode (consolidated helper)
-void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
-	if (viewPlayerIndex < 0 || viewPlayerIndex >= (int)players.size()) return;
-	Player & viewPlayer = players[viewPlayerIndex];
-	string viewTitle;
-	std::vector<Card> cardsToShow;
-
-	float handBaseCardWidth = kCardPixelWidth;
-	float baseCardHeight = kCardPixelHeight;
-
-	if (viewMode == VIEW_DECK) {
-		viewTitle = "Deck";
-		cardsToShow = viewPlayer.deck;
-		std::sort(cardsToShow.begin(), cardsToShow.end(), [](const Card & a, const Card & b) {
-			if (a.cost != b.cost) return a.cost < b.cost;
-			return a.name < b.name;
-		});
-	} else {
-		viewTitle = "Discard Pile";
-		cardsToShow = viewPlayer.discardPile;
-		std::reverse(cardsToShow.begin(), cardsToShow.end());
-	}
-
-	// Prefer human-friendly names. For minions, prefer the same numbering used in the Minion UI
-	if (viewPlayer.isMinion) {
-		// Find the matching MinionUI to reuse its displayNumber (ensures Assistant 1/2 match the side UI)
-		int foundNumber = 0;
-		for (const auto & mui : activeMinionUIs) {
-			if (mui.playerIndex == viewPlayerIndex) {
-				foundNumber = mui.displayNumber;
-				break;
-			}
+		// Remove finished moves
+		for (size_t i = activeDraftPickedMoves.size(); i-- > 0;) {
+			if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
 		}
-		std::string prefix = "Minion";
-		if (viewPlayer.isFaerie)
-			prefix = "Faerie";
-		else if (viewPlayer.isWallUnit)
-			prefix = "Wall";
-		else if (viewPlayer.isKobold)
-			prefix = "Kobold";
-		else if (viewPlayer.isAssistant)
-			prefix = "Assistant";
-		else if (viewPlayer.isWolf)
-			prefix = "Wolf";
-		else if (viewPlayer.isHellhound)
-			prefix = "Hellhound";
-		else if (viewPlayer.isGolem)
-			prefix = "Golem";
-		else if (viewPlayer.isSkeleton)
-			prefix = "Skeleton";
-		else if (viewPlayer.isDemon)
-			prefix = "Demon";
+	}
 
-		if (foundNumber > 0) {
-			viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
+	// (moved to UI Helpers earlier)
+	// Draw the pile view panel for a given player and view mode (consolidated helper)
+	void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
+		if (viewPlayerIndex < 0 || viewPlayerIndex >= (int)players.size()) return;
+		Player & viewPlayer = players[viewPlayerIndex];
+		string viewTitle;
+		std::vector<Card> cardsToShow;
+
+		float handBaseCardWidth = kCardPixelWidth;
+		float baseCardHeight = kCardPixelHeight;
+
+		if (viewMode == VIEW_DECK) {
+			viewTitle = "Deck";
+			cardsToShow = viewPlayer.deck;
+			std::sort(cardsToShow.begin(), cardsToShow.end(), [](const Card & a, const Card & b) {
+				if (a.cost != b.cost) return a.cost < b.cost;
+				return a.name < b.name;
+			});
 		} else {
-			// Fallback to existing display-name logic
-			viewTitle = getPlayerDisplayName(viewPlayerIndex) + "'s " + viewTitle;
+			viewTitle = "Discard Pile";
+			cardsToShow = viewPlayer.discardPile;
+			std::reverse(cardsToShow.begin(), cardsToShow.end());
 		}
-	} else {
-		int vpIdx = -1;
-		for (int i = 0; i < (int)players.size(); ++i) {
-			if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
-				vpIdx = i;
-				break;
+
+		// Prefer human-friendly names. For minions, prefer the same numbering used in the Minion UI
+		if (viewPlayer.isMinion) {
+			// Find the matching MinionUI to reuse its displayNumber (ensures Assistant 1/2 match the side UI)
+			int foundNumber = 0;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == viewPlayerIndex) {
+					foundNumber = mui.displayNumber;
+					break;
+				}
 			}
+			std::string prefix = "Minion";
+			if (viewPlayer.isFaerie)
+				prefix = "Faerie";
+			else if (viewPlayer.isWallUnit)
+				prefix = "Wall";
+			else if (viewPlayer.isKobold)
+				prefix = "Kobold";
+			else if (viewPlayer.isAssistant)
+				prefix = "Assistant";
+			else if (viewPlayer.isWolf)
+				prefix = "Wolf";
+			else if (viewPlayer.isHellhound)
+				prefix = "Hellhound";
+			else if (viewPlayer.isGolem)
+				prefix = "Golem";
+			else if (viewPlayer.isSkeleton)
+				prefix = "Skeleton";
+			else if (viewPlayer.isDemon)
+				prefix = "Demon";
+
+			if (foundNumber > 0) {
+				viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
+			} else {
+				// Fallback to existing display-name logic
+				viewTitle = getPlayerDisplayName(viewPlayerIndex) + "'s " + viewTitle;
+			}
+		} else {
+			int vpIdx = -1;
+			for (int i = 0; i < (int)players.size(); ++i) {
+				if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
+					vpIdx = i;
+					break;
+				}
+			}
+			viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
 		}
-		viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
-	}
 
-	if (cardsToShow.empty()) {
-		isShowingPileView = false;
-		return;
-	}
+		if (cardsToShow.empty()) {
+			isShowingPileView = false;
+			return;
+		}
 
-	float panelPadding = 20.0f;
-	float titleHeight = 40.0f;
-	float viewCardScale = 1.0f;
-	float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
-	float availableWidth = ofGetWidth() * 0.7f;
+		float panelPadding = 20.0f;
+		float titleHeight = 40.0f;
+		float viewCardScale = 1.0f;
+		float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
+		float availableWidth = ofGetWidth() * 0.7f;
 
-	while (viewCardScale > 0.5f) {
-		float cardW = handBaseCardWidth * viewCardScale;
-		float cardH = baseCardHeight * viewCardScale;
+		while (viewCardScale > 0.5f) {
+			float cardW = handBaseCardWidth * viewCardScale;
+			float cardH = baseCardHeight * viewCardScale;
+			float padding = 15.0f * viewCardScale;
+			int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
+			int rows = ceil((float)cardsToShow.size() / cols);
+			if (rows * (cardH + padding) - padding <= availableHeight) break;
+			viewCardScale -= 0.1f;
+		}
+
+		float viewCardWidth = handBaseCardWidth * viewCardScale;
+		float viewCardHeight = baseCardHeight * viewCardScale;
 		float padding = 15.0f * viewCardScale;
-		int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
-		int rows = ceil((float)cardsToShow.size() / cols);
-		if (rows * (cardH + padding) - padding <= availableHeight) break;
-		viewCardScale -= 0.1f;
-	}
+		int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+		gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
+		if (gridWidthInCards <= 0) gridWidthInCards = 1;
+		int gridHeightInCards = ceil((float)cardsToShow.size() / gridWidthInCards);
+		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
+		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 
-	float viewCardWidth = handBaseCardWidth * viewCardScale;
-	float viewCardHeight = baseCardHeight * viewCardScale;
-	float padding = 15.0f * viewCardScale;
-	int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-	gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
-	if (gridWidthInCards <= 0) gridWidthInCards = 1;
-	int gridHeightInCards = ceil((float)cardsToShow.size() / gridWidthInCards);
-	float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
-	float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
-
-	float startX;
-	bool anchored = false;
-	if (viewPlayer.isMinion) {
-		for (const auto & mui : activeMinionUIs) {
-			if (mui.playerIndex == viewPlayerIndex) {
-				float rightSpace = ofGetWidth() - mui.deckRect.getRight();
-				if (rightSpace > totalContentWidth + 60.0f) {
-					startX = mui.deckRect.getRight() + 30.0f;
-				} else {
-					startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+		float startX;
+		bool anchored = false;
+		if (viewPlayer.isMinion) {
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == viewPlayerIndex) {
+					float rightSpace = ofGetWidth() - mui.deckRect.getRight();
+					if (rightSpace > totalContentWidth + 60.0f) {
+						startX = mui.deckRect.getRight() + 30.0f;
+					} else {
+						startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+					}
+					anchored = true;
+					break;
 				}
-				anchored = true;
-				break;
 			}
 		}
-	}
-	if (!anchored) {
-		bool viewingLocal = (viewPlayer.playerID == myLocalPlayerID);
-		if (viewingLocal)
-			startX = p0_deckRect.getRight() + 30.0f;
-		else
-			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
-	}
-	float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
+		if (!anchored) {
+			bool viewingLocal = (viewPlayer.playerID == myLocalPlayerID);
+			if (viewingLocal)
+				startX = p0_deckRect.getRight() + 30.0f;
+			else
+				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+		}
+		float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
 
-	pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
+		pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
 
-	ofSetColor(20, 20, 20, 220);
-	ofDrawRectRounded(pileViewRect, 15);
-	ofSetColor(ofColor::white);
-	uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", startX + panelPadding, startY - 15);
+		ofSetColor(20, 20, 20, 220);
+		ofDrawRectRounded(pileViewRect, 15);
+		ofSetColor(ofColor::white);
+		uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", startX + panelPadding, startY - 15);
 
-	for (size_t i = 0; i < cardsToShow.size(); ++i) {
-		int row = i / gridWidthInCards;
-		int col = i % gridWidthInCards;
-		float drawX = startX + panelPadding + col * (viewCardWidth + padding);
-		float drawY = startY + row * (viewCardHeight + padding);
-		const Card & card = cardsToShow[i];
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-	}
-}
-
-// Simple layout helper for draft card metrics (keeps UI compiling).
-void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
-	float scale = settingsUIScale;
-	outCardW = kCardPixelWidth * 0.28f * scale;
-	outCardH = kCardPixelHeight * 0.28f * scale;
-	outSpacing = outCardW * 0.12f;
-	float totalWidth = outCardW * 3 + outSpacing * 2;
-	outStartX = ofGetWidth() / 2.0f - totalWidth / 2.0f + outCardW / 2.0f;
-	outStartY = ofGetHeight() * 0.55f;
-}
-
-void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
-	activeDraftPickedMoves.push_back(mv);
-}
-
-void ofApp::updateDraftUiAnimations() {
-	// Minimal placeholder: allow drawActiveDraftPickedMoves to manage cleanup.
-}
-
-void ofApp::drawPauseMenu() {
-	// Minimal placeholder for pause menu drawing to satisfy link.
-}
-//--------------------------------------------------------------
-void ofApp::drawTrainMenuUI() {
-	drawMenuOverlay();
-
-	// Title & Desc
-	string title = "Train";
-	string desc = "Choose your training path:";
-
-	// Colors: Yellow for AP, Bronze/Orange for Class 1 Draft
-	ofColor apColor(255, 215, 0);
-	ofColor draftColor(205, 127, 50);
-
-	// Ensure buttons are positioned if not already set (safety check)
-	if (trainMenuRect.width == 0) {
-		float w = 600, h = 300;
-		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-		trainMenuRect.set(x, y, w, h);
-		float btnW = 260, btnH = 80, spacing = 30;
-		float startX = x + (w - (btnW * 2 + spacing)) / 2;
-		float btnY = y + 130;
-		trainBtnAP.set(startX, btnY, btnW, btnH);
-		trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
-	}
-
-	drawCardChoicePanel(trainMenuRect, title, desc, trainBtnAP, trainBtnDraft,
-		"+3 AP Next Turn", "Draft Class 1",
-		apColor, draftColor, true, true);
-}
-//--------------------------------------------------------------
-void ofApp::exit() {
-	// Save settings on exit
-	saveSettings();
-	steamManager.cleanup();
-	// Ensure the Steam API is fully shut down on app exit
-	steamManager.shutdownAPI();
-}
-// --------------------------------------------------------------
-void ofApp::updateAndSendHover(HoverType type, int gridX, int gridY, int cardIndex) {
-	// Check if hover state changed
-	if (type != localHoverType || gridX != localHoverGridX || gridY != localHoverGridY || cardIndex != localHoverCardIndex) {
-
-		// Update local hover state
-		localHoverType = type;
-		localHoverGridX = gridX;
-		localHoverGridY = gridY;
-		localHoverCardIndex = cardIndex;
-
-		// Send hover packet to opponent if in multiplayer
-		if (isMultiplayer && steamManager.isConnected()) {
-			HoverPacket pkt = {};
-			pkt.type = PKT_HOVER;
-			pkt.playerID = myLocalPlayerID;
-			pkt.hoverType = static_cast<uint8_t>(type);
-			pkt.gridX = static_cast<int8_t>(gridX);
-			pkt.gridY = static_cast<int8_t>(gridY);
-			pkt.cardIndex = static_cast<int8_t>(cardIndex);
-			steamManager.sendPacket(&pkt, sizeof(pkt));
+		for (size_t i = 0; i < cardsToShow.size(); ++i) {
+			int row = i / gridWidthInCards;
+			int col = i % gridWidthInCards;
+			float drawX = startX + panelPadding + col * (viewCardWidth + padding);
+			float drawY = startY + row * (viewCardHeight + padding);
+			const Card & card = cardsToShow[i];
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 		}
 	}
-}
-// Networking / player helpers
-int ofApp::getLocalPlayerIndex() const {
-	for (int i = 0; i < (int)players.size(); ++i) {
-		if (players[i].playerID == myLocalPlayerID) return i;
-	}
-	return -1;
-}
 
-bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
-	if (!isMultiplayer) return true;
-	int localIdx = getLocalPlayerIndex();
-	// Accept if either the slot index matches or the playerID at the slot matches local ID.
-	if (localIdx >= 0 && localIdx == draftIndex) return true;
-	if (draftIndex >= 0 && draftIndex < (int)players.size()) {
-		const Player & draftActor = players[draftIndex];
-		if (draftActor.playerID == myLocalPlayerID) return true;
-		// In-game key drafts can target minions: ownership should gate local control.
-		if (draftActor.isMinion && draftActor.ownerID == myLocalPlayerID) return true;
+	// Simple layout helper for draft card metrics (keeps UI compiling).
+	void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
+		float scale = settingsUIScale;
+		outCardW = kCardPixelWidth * 0.28f * scale;
+		outCardH = kCardPixelHeight * 0.28f * scale;
+		outSpacing = outCardW * 0.12f;
+		float totalWidth = outCardW * 3 + outSpacing * 2;
+		outStartX = ofGetWidth() / 2.0f - totalWidth / 2.0f + outCardW / 2.0f;
+		outStartY = ofGetHeight() * 0.55f;
 	}
-	return false;
-}
-// --------------------------------------------------------------
-void ofApp::processNetworkPackets() {
-	// Diagnostic: report incoming queue size so we can see if packets are piling up
-	if (!steamManager.packetQueue.empty()) {
-		ofLogNotice("NetTrace") << "processNetworkPackets: queueSize=" << steamManager.packetQueue.size();
-	}
-	// Temporary reusable packet used for state syncs (declare when needed)
-	while (!steamManager.packetQueue.empty()) {
-		std::vector<char> buffer = steamManager.packetQueue.front();
-		steamManager.packetQueue.pop();
 
-		// --- FIX: Only handle REQ_SEED (8 bytes) ---
-		if (buffer.size() == 8) {
-			string msg(buffer.begin(), buffer.end());
-			if (msg == "REQ_SEED" && steamManager.isHost()) {
-				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
-				HandshakePacket pkt = {};
-				pkt.type = PKT_HANDSHAKE;
+	void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
+		activeDraftPickedMoves.push_back(mv);
+	}
+
+	void ofApp::updateDraftUiAnimations() {
+		// Minimal placeholder: allow drawActiveDraftPickedMoves to manage cleanup.
+	}
+
+	void ofApp::drawPauseMenu() {
+		// Minimal placeholder for pause menu drawing to satisfy link.
+	}
+	//--------------------------------------------------------------
+	void ofApp::drawTrainMenuUI() {
+		drawMenuOverlay();
+
+		// Title & Desc
+		string title = "Train";
+		string desc = "Choose your training path:";
+
+		// Colors: Yellow for AP, Bronze/Orange for Class 1 Draft
+		ofColor apColor(255, 215, 0);
+		ofColor draftColor(205, 127, 50);
+
+		// Ensure buttons are positioned if not already set (safety check)
+		if (trainMenuRect.width == 0) {
+			float w = 600, h = 300;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			trainMenuRect.set(x, y, w, h);
+			float btnW = 260, btnH = 80, spacing = 30;
+			float startX = x + (w - (btnW * 2 + spacing)) / 2;
+			float btnY = y + 130;
+			trainBtnAP.set(startX, btnY, btnW, btnH);
+			trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
+		}
+
+		drawCardChoicePanel(trainMenuRect, title, desc, trainBtnAP, trainBtnDraft,
+			"+3 AP Next Turn", "Draft Class 1",
+			apColor, draftColor, true, true);
+	}
+	//--------------------------------------------------------------
+	void ofApp::exit() {
+		// Save settings on exit
+		saveSettings();
+		steamManager.cleanup();
+		// Ensure the Steam API is fully shut down on app exit
+		steamManager.shutdownAPI();
+	}
+	// --------------------------------------------------------------
+	void ofApp::updateAndSendHover(HoverType type, int gridX, int gridY, int cardIndex) {
+		// Check if hover state changed
+		if (type != localHoverType || gridX != localHoverGridX || gridY != localHoverGridY || cardIndex != localHoverCardIndex) {
+
+			// Update local hover state
+			localHoverType = type;
+			localHoverGridX = gridX;
+			localHoverGridY = gridY;
+			localHoverCardIndex = cardIndex;
+
+			// Send hover packet to opponent if in multiplayer
+			if (isMultiplayer && steamManager.isConnected()) {
+				HoverPacket pkt = {};
+				pkt.type = PKT_HOVER;
 				pkt.playerID = myLocalPlayerID;
-				pkt.seq = 0;
-				pkt.seed = currentMapSeed;
+				pkt.hoverType = static_cast<uint8_t>(type);
+				pkt.gridX = static_cast<int8_t>(gridX);
+				pkt.gridY = static_cast<int8_t>(gridY);
+				pkt.cardIndex = static_cast<int8_t>(cardIndex);
 				steamManager.sendPacket(&pkt, sizeof(pkt));
-				continue; // Done with this packet
 			}
 		}
-		// -------------------------------------------------------------------
+	}
+	// Networking / player helpers
+	int ofApp::getLocalPlayerIndex() const {
+		for (int i = 0; i < (int)players.size(); ++i) {
+			if (players[i].playerID == myLocalPlayerID) return i;
+		}
+		return -1;
+	}
 
-		if (buffer.size() < sizeof(PacketHeader)) continue;
+	bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
+		if (!isMultiplayer) return true;
+		int localIdx = getLocalPlayerIndex();
+		// Accept if either the slot index matches or the playerID at the slot matches local ID.
+		if (localIdx >= 0 && localIdx == draftIndex) return true;
+		if (draftIndex >= 0 && draftIndex < (int)players.size()) {
+			const Player & draftActor = players[draftIndex];
+			if (draftActor.playerID == myLocalPlayerID) return true;
+			// In-game key drafts can target minions: ownership should gate local control.
+			if (draftActor.isMinion && draftActor.ownerID == myLocalPlayerID) return true;
+		}
+		return false;
+	}
+	// --------------------------------------------------------------
+	void ofApp::processNetworkPackets() {
+		// Diagnostic: report incoming queue size so we can see if packets are piling up
+		if (!steamManager.packetQueue.empty()) {
+			ofLogNotice("NetTrace") << "processNetworkPackets: queueSize=" << steamManager.packetQueue.size();
+		}
+		// Temporary reusable packet used for state syncs (declare when needed)
+		while (!steamManager.packetQueue.empty()) {
+			std::vector<char> buffer = steamManager.packetQueue.front();
+			steamManager.packetQueue.pop();
 
-		PacketHeader * header = (PacketHeader *)buffer.data();
+			// --- FIX: Only handle REQ_SEED (8 bytes) ---
+			if (buffer.size() == 8) {
+				string msg(buffer.begin(), buffer.end());
+				if (msg == "REQ_SEED" && steamManager.isHost()) {
+					ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
+					HandshakePacket pkt = {};
+					pkt.type = PKT_HANDSHAKE;
+					pkt.playerID = myLocalPlayerID;
+					pkt.seq = 0;
+					pkt.seed = currentMapSeed;
+					steamManager.sendPacket(&pkt, sizeof(pkt));
+					continue; // Done with this packet
+				}
+			}
+			// -------------------------------------------------------------------
 
-		// Mark that we're actively processing a network packet. This allows us to
-		// enforce the "Zombie Client" rule: clients must not execute authoritative
-		// logic (draws, dice, turn starts) except while handling host packets.
-		{
-			struct PacketProcessingGuard {
-				bool * flag;
-				PacketProcessingGuard(bool * f)
-					: flag(f) { *flag = true; }
-				~PacketProcessingGuard() { *flag = false; }
-			} packetGuard(&processingNetworkPacket);
+			if (buffer.size() < sizeof(PacketHeader)) continue;
 
-			// PKT_DRAFT_OPTIONS handling removed: draft options are applied deterministically
-			// via the canonical input command stream. This legacy fast-path was deleted
-			// to avoid UI races and duplicate processing.
+			PacketHeader * header = (PacketHeader *)buffer.data();
 
-			// Verbose packet tracing for debugging desyncs: only log canonical lockstep packets
-			if (header->type == PKT_INPUT_COMMAND || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_PLACE_SUMMONED_BEGIN) {
-				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
+			// Mark that we're actively processing a network packet. This allows us to
+			// enforce the "Zombie Client" rule: clients must not execute authoritative
+			// logic (draws, dice, turn starts) except while handling host packets.
+			{
+				struct PacketProcessingGuard {
+					bool * flag;
+					PacketProcessingGuard(bool * f)
+						: flag(f) { *flag = true; }
+					~PacketProcessingGuard() { *flag = false; }
+				} packetGuard(&processingNetworkPacket);
+
+				// PKT_DRAFT_OPTIONS handling removed: draft options are applied deterministically
+				// via the canonical input command stream. This legacy fast-path was deleted
+				// to avoid UI races and duplicate processing.
+
+				// Verbose packet tracing for debugging desyncs: only log canonical lockstep packets
+				if (header->type == PKT_INPUT_COMMAND || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+					ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
+					if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
+						InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
+						ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
+					}
+				}
+				// ACK handling removed; rely on SteamNetworkingSockets reliability.
+
+				// Only check duplicates for input command style packets (card plays / input commands)
+				// STRICT: rely solely on clientActionID for deduplication on the host.
+				// Network seq numbers are not used for dedupe because they can be
+				// unrelated and much larger than client-local monotonic IDs.
 				if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
-					InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
-				}
-			}
-			// ACK handling removed; rely on SteamNetworkingSockets reliability.
-
-			// Only check duplicates for input command style packets (card plays / input commands)
-			// STRICT: rely solely on clientActionID for deduplication on the host.
-			// Network seq numbers are not used for dedupe because they can be
-			// unrelated and much larger than client-local monotonic IDs.
-			if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
-				InputCommandPacket * ip = (InputCommandPacket *)buffer.data();
-				uint32_t clientActionID = ip->clientActionID;
-				int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
-				if (sender >= 0 && isHost()) {
-					if (clientActionID != 0) {
-						if (clientActionID <= lastReceivedSeqByPlayer[sender]) {
-							ofLogNotice("Network") << "DROPPED DUPLICATE INPUT COMMAND (clientActionID): clientActionID=" << clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
-							// Re-ACK the clientActionID so the originating client stops resending
-							AckPacket ack = {};
-							ack.type = PKT_ACK;
-							ack.playerID = myLocalPlayerID;
-							ack.ackSeq = clientActionID; // echo the client ID
-							ack.ackType = PKT_INPUT_COMMAND;
-							steamManager.sendPacket(&ack, sizeof(ack));
-							ofLogNotice("NetTrace") << "Host: re-sent ACK for clientActionID=" << ack.ackSeq;
-							continue;
+					InputCommandPacket * ip = (InputCommandPacket *)buffer.data();
+					uint32_t clientActionID = ip->clientActionID;
+					int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
+					if (sender >= 0 && isHost()) {
+						if (clientActionID != 0) {
+							if (clientActionID <= lastReceivedSeqByPlayer[sender]) {
+								ofLogNotice("Network") << "DROPPED DUPLICATE INPUT COMMAND (clientActionID): clientActionID=" << clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
+								// Re-ACK the clientActionID so the originating client stops resending
+								AckPacket ack = {};
+								ack.type = PKT_ACK;
+								ack.playerID = myLocalPlayerID;
+								ack.ackSeq = clientActionID; // echo the client ID
+								ack.ackType = PKT_INPUT_COMMAND;
+								steamManager.sendPacket(&ack, sizeof(ack));
+								ofLogNotice("NetTrace") << "Host: re-sent ACK for clientActionID=" << ack.ackSeq;
+								continue;
+							}
+							lastReceivedSeqByPlayer[sender] = clientActionID;
+						} else {
+							// No clientActionID present: cannot safely dedupe. Accept packet but
+							// do not update lastReceivedSeqByPlayer to avoid corrupting the ID timeline.
+							ofLogNotice("NetTrace") << "Host: Received input command without clientActionID; skipping dedupe.";
 						}
-						lastReceivedSeqByPlayer[sender] = clientActionID;
-					} else {
-						// No clientActionID present: cannot safely dedupe. Accept packet but
-						// do not update lastReceivedSeqByPlayer to avoid corrupting the ID timeline.
-						ofLogNotice("NetTrace") << "Host: Received input command without clientActionID; skipping dedupe.";
 					}
 				}
-			}
 
-			// Legacy TurnStart handling removed; clients now derive AP/turn-start
-			// from deterministic command processing (CMD_END_TURN/CMD_PSEUDO_ACTION).
+				// Legacy TurnStart handling removed; clients now derive AP/turn-start
+				// from deterministic command processing (CMD_END_TURN/CMD_PSEUDO_ACTION).
 
-			if (header->type == PKT_SNAPSHOT_BEGIN) {
-				SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;
-				incomingSnapshotId = bp->snapshotId;
-				incomingSnapshotExpectedSize = bp->totalSize;
-				incomingSnapshotReceivedSize = 0;
-				incomingSnapshotBuffer.assign(bp->totalSize, '\0');
-				ofLogNotice("Network") << "Snapshot begin (id=" << incomingSnapshotId << ", bytes=" << incomingSnapshotExpectedSize << ")";
-				continue;
-			}
-
-			if (header->type == PKT_SNAPSHOT_CHUNK) {
-				SnapshotChunkPacket * cp = (SnapshotChunkPacket *)header;
-				if (cp->snapshotId == incomingSnapshotId && !incomingSnapshotBuffer.empty()) {
-					uint32_t end = cp->offset + cp->chunkSize;
-					if (end <= incomingSnapshotBuffer.size()) {
-						memcpy(&incomingSnapshotBuffer[cp->offset], cp->data, cp->chunkSize);
-						incomingSnapshotReceivedSize += cp->chunkSize;
-					}
-				}
-				continue;
-			}
-
-			if (header->type == PKT_SNAPSHOT_END) {
-				SnapshotEndPacket * ep = (SnapshotEndPacket *)header;
-				if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
-					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
-					applySnapshotString(incomingSnapshotBuffer);
-					if (waitingForReconnect) {
-						if (reconnectTurnTimerPausedByDisconnect) {
-							turnTimerPaused = false;
-							turnStartFrame = (int)simulationFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
-							turnTimerPausedRemainingFrames = 0;
-							reconnectTurnTimerPausedByDisconnect = false;
-							reconnectTurnTimerPausedRemainingFrames = 0;
-						}
-						waitingForReconnect = false;
-						reconnectForfeitStartTime = -1.0f;
-						currentState = STATE_GAMEPLAY;
-						// Defer authoritative turn start until simulation tick
-						requestStartNewTurn();
-						addGameLog("Reconnect complete. Resuming match.");
-					}
-					// Clear waiting flag if we had requested this snapshot
-					waitingForSnapshotStartTime = 0.0f;
-					addGameLog("Recovered game state from host snapshot");
-					queueFloatingTextVisual(glm::vec3(0, 5, 0), "Snapshot Applied", ofColor::green);
-					incomingSnapshotBuffer.clear();
-					incomingSnapshotExpectedSize = 0;
+				if (header->type == PKT_SNAPSHOT_BEGIN) {
+					SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;
+					incomingSnapshotId = bp->snapshotId;
+					incomingSnapshotExpectedSize = bp->totalSize;
 					incomingSnapshotReceivedSize = 0;
+					incomingSnapshotBuffer.assign(bp->totalSize, '\0');
+					ofLogNotice("Network") << "Snapshot begin (id=" << incomingSnapshotId << ", bytes=" << incomingSnapshotExpectedSize << ")";
+					continue;
 				}
-				continue;
-			}
 
-			if (header->type == PKT_SNAPSHOT_REQUEST) {
-				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
-				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
-				if (isHost()) {
-					// Send the authoritative snapshot to the requesting client
-					sendSnapshotToClient();
-					ofLogNotice("Network") << "Host: Sent authoritative snapshot to client.";
-				}
-				continue;
-			}
-
-			if (header->type == PKT_HANDSHAKE) {
-				HandshakePacket * pkt = (HandshakePacket *)header;
-				ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed << " platform=" << MAGEFIGHT_PLATFORM;
-				if (hasReceivedHandshake) {
-					// The map seed must never change during a session. If we receive a later
-					// handshake with a different seed, ignore it and log an error.
-					if (pkt->seed != currentMapSeed) {
-						ofLogError("Net") << "Handshake seed changed after initialization! previous=" << currentMapSeed << " new=" << pkt->seed << " -- IGNORING new seed.";
-					} else {
-						ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
+				if (header->type == PKT_SNAPSHOT_CHUNK) {
+					SnapshotChunkPacket * cp = (SnapshotChunkPacket *)header;
+					if (cp->snapshotId == incomingSnapshotId && !incomingSnapshotBuffer.empty()) {
+						uint32_t end = cp->offset + cp->chunkSize;
+						if (end <= incomingSnapshotBuffer.size()) {
+							memcpy(&incomingSnapshotBuffer[cp->offset], cp->data, cp->chunkSize);
+							incomingSnapshotReceivedSize += cp->chunkSize;
+						}
 					}
 					continue;
 				}
 
-				// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
-				gameplayRNG.seed(pkt->seed);
-				gameplayRngAdvanceCount = 0;
-				currentMapSeed = pkt->seed;
-				hasReceivedHandshake = true;
-				gameplaySeededByHost = true;
-				handshakeRequestInterval = 1.0f;
-				isMultiplayer = true;
-				myLocalPlayerID = 1;
-
-				// Get Steam names
-				player0SteamName = steamManager.getOpponentName(); // Host is opponent for client
-				player1SteamName = steamManager.getLocalPlayerName(); // Client is player 1
-
-				// Only initialize game if we're not already in a game (reconnection case)
-				if (currentState == STATE_MAIN_MENU) {
-					// Initialize game state for the client now that we have the seed.
-					// NOTE: Do NOT force a state transition here; the host will
-					// send authoritative DraftState/Initiative packets when it's
-					// time to move into drafting or gameplay. Forcing a leave
-					// from the main menu caused clients to miss the proper
-					// sequence on reconnects.
-					ofLogNotice("Network") << "Client: Handshake received. Initializing game (seed=" << currentMapSeed << ") - staying in main menu until host signals next state.";
-					setupGame();
-
-					// Client: notify host that we've finished local setup and are ready to see the board
-					if (!clientSentReady) {
-						ClientReadyPacket r = {};
-						r.type = PKT_CLIENT_READY;
-						r.playerID = myLocalPlayerID;
-						r.ready = 1;
-						steamManager.sendPacket(&r, sizeof(r));
-						clientSentReady = true;
-						ofLogNotice("Network") << "Client: Sent ClientReady to host.";
+				if (header->type == PKT_SNAPSHOT_END) {
+					SnapshotEndPacket * ep = (SnapshotEndPacket *)header;
+					if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
+						ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
+						applySnapshotString(incomingSnapshotBuffer);
+						if (waitingForReconnect) {
+							if (reconnectTurnTimerPausedByDisconnect) {
+								turnTimerPaused = false;
+								turnStartFrame = (int)simulationFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
+								turnTimerPausedRemainingFrames = 0;
+								reconnectTurnTimerPausedByDisconnect = false;
+								reconnectTurnTimerPausedRemainingFrames = 0;
+							}
+							waitingForReconnect = false;
+							reconnectForfeitStartTime = -1.0f;
+							currentState = STATE_GAMEPLAY;
+							// Defer authoritative turn start until simulation tick
+							requestStartNewTurn();
+							addGameLog("Reconnect complete. Resuming match.");
+						}
+						// Clear waiting flag if we had requested this snapshot
+						waitingForSnapshotStartTime = 0.0f;
+						addGameLog("Recovered game state from host snapshot");
+						queueFloatingTextVisual(glm::vec3(0, 5, 0), "Snapshot Applied", ofColor::green);
+						incomingSnapshotBuffer.clear();
+						incomingSnapshotExpectedSize = 0;
+						incomingSnapshotReceivedSize = 0;
 					}
-				} else {
-					ofLogNotice("Network") << "Client: Handshake received on reconnect. Staying in current game state: " << currentState;
+					continue;
 				}
-				continue;
-			}
-			// Handle ClientReady: Host receives client confirmation that it's ready to start
-			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
-				ClientReadyPacket * cr = (ClientReadyPacket *)header;
-				ofLogNotice("Network") << "ClientReady received from playerID=" << cr->playerID;
-				if (isHost() && hostWaitingForClientsReadyStartTime > 0.0f) {
-					clientsReady.insert(cr->playerID);
-					// For 2-player matches, start when we have any client ready
-					if (!clientsReady.empty()) {
-						ofLogNotice("Network") << "All clients ready - starting initiative phase.";
-						hostWaitingForClientsReadyStartTime = 0.0f;
-						startInitiativePhase();
+
+				if (header->type == PKT_SNAPSHOT_REQUEST) {
+					SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
+					ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
+					if (isHost()) {
+						// Send the authoritative snapshot to the requesting client
+						sendSnapshotToClient();
+						ofLogNotice("Network") << "Host: Sent authoritative snapshot to client.";
 					}
+					continue;
 				}
-				continue;
-			}
-			if (header->type == PKT_INPUT_COMMAND) {
-				if (buffer.size() < sizeof(InputCommandPacket)) continue;
-				InputCommandPacket * cmd = (InputCommandPacket *)header;
 
-				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
-
-				// If this is an echo of a command we sent and we're a client
-				// which already applied it optimistically, skip re-applying it
-				// when the authoritative packet arrives. Also clear provisional
-				// snapshots/commands for this id so we don't leak memory.
-				if (!isHost() && cmd->playerID == (uint32_t)myLocalPlayerID) {
-					uint32_t cid = cmd->commandId;
-					if (provisionalSnapshots.find(cid) != provisionalSnapshots.end() || provisionalCommands.find(cid) != provisionalCommands.end()) {
-						ofLogNotice("NetTrace") << "Dropping echoed own input command cmdId=" << cid;
-						provisionalSnapshots.erase(cid);
-						provisionalCommands.erase(cid);
+				if (header->type == PKT_HANDSHAKE) {
+					HandshakePacket * pkt = (HandshakePacket *)header;
+					ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed << " platform=" << MAGEFIGHT_PLATFORM;
+					if (hasReceivedHandshake) {
+						// The map seed must never change during a session. If we receive a later
+						// handshake with a different seed, ignore it and log an error.
+						if (pkt->seed != currentMapSeed) {
+							ofLogError("Net") << "Handshake seed changed after initialization! previous=" << currentMapSeed << " new=" << pkt->seed << " -- IGNORING new seed.";
+						} else {
+							ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
+						}
 						continue;
 					}
-				}
 
-				queueInputCommand(*cmd);
-				continue;
-			}
+					// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
+					gameplayRNG.seed(pkt->seed);
+					gameplayRngAdvanceCount = 0;
+					currentMapSeed = pkt->seed;
+					hasReceivedHandshake = true;
+					gameplaySeededByHost = true;
+					handshakeRequestInterval = 1.0f;
+					isMultiplayer = true;
+					myLocalPlayerID = 1;
 
-			// Handle MenuState visualization from opponents (open/close/hover)
-			if (header->type == PKT_MENU_STATE) {
-				if (buffer.size() < sizeof(MenuStatePacket)) continue;
-				MenuStatePacket * msp = (MenuStatePacket *)header;
-				// Map incoming playerID to local player index
-				int mappedIdx = -1;
-				for (int i = 0; i < (int)players.size(); ++i) {
-					if (players[i].playerID == (int)msp->playerID) {
-						mappedIdx = i;
-						break;
-					}
-				}
-				// Only update visualization for remote players
-				if (mappedIdx >= 0 && mappedIdx != getLocalPlayerIndex()) {
-					if (msp->menuType == 0) {
-						opponentInteraction.open = false;
-						opponentInteraction.type = 0;
-						opponentInteraction.targetIndex = -1;
-						opponentInteraction.hoveredChoice = -1;
-						opponentInteraction.cardIndex = -1;
-					} else {
-						opponentInteraction.open = true;
-						opponentInteraction.type = msp->menuType;
-						opponentInteraction.targetIndex = msp->targetIndex;
-						opponentInteraction.hoveredChoice = msp->hoveredChoice;
-						opponentInteraction.cardIndex = msp->cardIndex;
-					}
-					ofLogNotice("Network") << "Received MenuState from playerID=" << msp->playerID << " type=" << msp->menuType << " hover=" << msp->hoveredChoice;
-				}
-				continue;
-			}
-			if (header->type == PKT_CHECKSUM_CHECK) {
-				ChecksumPacket * pkt = (ChecksumPacket *)header;
-				if (skipChecksumValidation) continue;
+					// Get Steam names
+					player0SteamName = steamManager.getOpponentName(); // Host is opponent for client
+					player1SteamName = steamManager.getLocalPlayerName(); // Client is player 1
 
-				long long mySum = calculateChecksum();
+					// Only initialize game if we're not already in a game (reconnection case)
+					if (currentState == STATE_MAIN_MENU) {
+						// Initialize game state for the client now that we have the seed.
+						// NOTE: Do NOT force a state transition here; the host will
+						// send authoritative DraftState/Initiative packets when it's
+						// time to move into drafting or gameplay. Forcing a leave
+						// from the main menu caused clients to miss the proper
+						// sequence on reconnects.
+						ofLogNotice("Network") << "Client: Handshake received. Initializing game (seed=" << currentMapSeed << ") - staying in main menu until host signals next state.";
+						setupGame();
 
-				if (mySum != pkt->checksum) {
-					ofLogError("Net") << "DESYNC DETECTED! Rewinding to start of turn...";
-
-					if (isHost()) {
-						// 1. Host rewinds ITSELF to the start of the turn
-						if (!turnStartBackupSnapshot.empty()) {
-							applySnapshotString(turnStartBackupSnapshot);
-							ofLogNotice("Network") << "Host rewound local state.";
+						// Client: notify host that we've finished local setup and are ready to see the board
+						if (!clientSentReady) {
+							ClientReadyPacket r = {};
+							r.type = PKT_CLIENT_READY;
+							r.playerID = myLocalPlayerID;
+							r.ready = 1;
+							steamManager.sendPacket(&r, sizeof(r));
+							clientSentReady = true;
+							ofLogNotice("Network") << "Client: Sent ClientReady to host.";
 						}
-
-						// 2. Host forcefully pushes this restored state to the Client
-						sendSnapshotToClient();
-
-						// 3. Visual notification
-						queueFloatingTextVisual(glm::vec3(0, 5, 0), "SYNC ERROR: TURN REWOUND", ofColor::red);
 					} else {
-						// Client detected a desync on its own end. Request the host to fix it.
-						SnapshotRequestPacket req = {};
-						req.type = PKT_SNAPSHOT_REQUEST;
-						req.playerID = myLocalPlayerID;
-						req.requestedTurn = pkt->turnNumber;
-						steamManager.sendPacket(&req, sizeof(req));
-
-						waitingForSnapshotStartTime = ofGetElapsedTimef();
-						queueFloatingTextVisual(glm::vec3(0, 5, 0), "Requesting Resync...", ofColor::yellow);
+						ofLogNotice("Network") << "Client: Handshake received on reconnect. Staying in current game state: " << currentState;
 					}
-				} else {
-					// If checksums match mid-turn, update the backup so we don't lose progress on a good move!
-					if (isHost()) {
-						turnStartBackupSnapshot = buildSnapshotString();
-					}
-				}
-			}
-			// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
-			// will detect key pickups locally. Legacy packet handling deleted to avoid
-			// UI races and double-processing.
-			else if (header->type == PKT_CHAT_MESSAGE) {
-				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
-				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
-
-				ChatMessage msg;
-				// Find player index for this playerID
-				int senderIndex = -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == static_cast<int>(pkt->playerID) && !players[i].isMinion) {
-						senderIndex = i;
-						break;
-					}
-				}
-				msg.playerName = (senderIndex >= 0) ? getPlayerSteamName(senderIndex) : ("Player " + ofToString(pkt->playerID));
-				msg.message = pkt->message;
-				msg.timestamp = ofGetElapsedTimef();
-				chatHistory.push_back(msg);
-				if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
-					chatHistory.erase(chatHistory.begin());
-				}
-				// Show chat for 5 seconds when message received
-				lastChatInteractionTime = ofGetElapsedTimef();
-			} else if (header->type == PKT_HOVER) {
-				// Ignore hover packets in singleplayer builds
-				if (!isMultiplayer) continue;
-				HoverPacket * pkt = (HoverPacket *)header;
-				int hoverTypeInt = static_cast<int>(pkt->hoverType);
-				if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_UNIT_SELECTED) {
-					opponentHoverType = static_cast<HoverType>(hoverTypeInt);
-				}
-				opponentHoverGridX = static_cast<int>(pkt->gridX);
-				opponentHoverGridY = static_cast<int>(pkt->gridY);
-				opponentHoverCardIndex = static_cast<int>(pkt->cardIndex);
-
-				// If opponent selected a unit for movement, show their movement highlights
-				if (opponentHoverType == HOVER_UNIT_SELECTED) {
-					// Store current player state to restore after
-					int savedPlayerX = -1, savedPlayerY = -1;
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
-						savedPlayerX = players[currentPlayerIndex].x;
-						savedPlayerY = players[currentPlayerIndex].y;
-						// Temporarily move current player to opponent's selected position
-						players[currentPlayerIndex].x = opponentHoverGridX;
-						players[currentPlayerIndex].y = opponentHoverGridY;
-						calculateHighlights();
-						// Restore position
-						players[currentPlayerIndex].x = savedPlayerX;
-						players[currentPlayerIndex].y = savedPlayerY;
-					}
-				}
-				// If opponent is hovering a card, show their targeting highlights
-				else if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex >= 0) {
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
-						Player & currentPlayer = players[currentPlayerIndex];
-						if (opponentHoverCardIndex < static_cast<int>(currentPlayer.hand.size())) {
-							calculateTargetHighlights(opponentHoverCardIndex);
-						}
-					}
-				}
-				// If opponent cleared hover, clear highlights
-				else if (opponentHoverType == HOVER_NONE) {
-					clearHighlights();
-				}
-			}
-
-			// Legacy draft packet handlers removed: PKT_DRAFT_ACK, PKT_DRAFT_ACTION and
-			// PKT_DRAFT_OPTIONS are no longer processed here. Drafting is driven
-			// deterministically through the canonical input command stream.
-		}
-
-		// Legacy resend watchdogs removed: lockstep input commands are reliable.
-
-		// Close processNetworkPackets() scope
-	}
-}
-
-// --- Networking helper implementations ---
-void ofApp::sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace) {
-	PlaceSummonedBeginPacket bp = {};
-	bp.type = PKT_PLACE_SUMMONED_BEGIN;
-	bp.playerID = myLocalPlayerID;
-	bp.minionType = (uint8_t)minionType;
-	bp.ownerPlayerID = ownerPlayerID;
-	bp.sourceX = sourceX;
-	bp.sourceY = sourceY;
-	bp.numToPlace = numToPlace;
-	steamManager.sendPacket(&bp, sizeof(bp));
-	ofLogNotice("Network") << "Host sent PlaceSummonedBegin (helper): type=" << (int)bp.minionType << " owner=" << bp.ownerPlayerID << " source=(" << bp.sourceX << "," << bp.sourceY << ") num=" << bp.numToPlace;
-}
-
-void ofApp::sendPlaceSummonedMinion(int minionType, int ownerPlayerID, int targetX, int targetY, int minionHP, int minionAP, int minionPlayerID) {
-	PlaceSummonedMinionPacket pkt = {};
-	pkt.type = PKT_PLACE_SUMMONED_MINION;
-	pkt.playerID = myLocalPlayerID;
-	pkt.minionType = (uint8_t)minionType;
-	pkt.ownerPlayerID = ownerPlayerID;
-	pkt.targetX = targetX;
-	pkt.targetY = targetY;
-	pkt.minionHP = minionHP;
-	pkt.minionAP = minionAP;
-	// In deterministic lockstep mode we no longer broadcast individual minion
-	// placement packets. Both peers spawn minions locally via the command
-	// execution path. Suppress network send to avoid duplicate spawns.
-	ofLogNotice("Network") << "Suppressed PlaceSummonedMinion send in lockstep mode: type=" << pkt.minionType << " owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
-}
-
-void ofApp::sendCardActionBegin(int cardType, int actorIndex, int targetX, int targetY, int p0, int p1, int p2, int p3, const std::string & label) {
-	// Suppressed under deterministic lockstep migration: keep call sites, but
-	// do not construct or send a CardActionBegin packet anymore.
-	ofLogNotice("Network") << "Suppressed sendCardActionBegin (no packet): card=" << cardType << " actor=" << actorIndex << " target=(" << targetX << "," << targetY << ") p0=" << p0 << " p1=" << p1 << " label=" << label;
-}
-
-// Send menu state for opponent visualization
-void ofApp::sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex) {
-	if (!isMultiplayer) return;
-
-	MenuStatePacket pkt = {};
-	pkt.type = PKT_MENU_STATE;
-	pkt.playerID = myLocalPlayerID;
-	pkt.seq = 0; // steamManager will stamp a seq
-	pkt.menuType = menuType;
-	pkt.targetIndex = targetIndex;
-	pkt.hoveredChoice = hoveredChoice;
-	pkt.cardIndex = cardIndex;
-
-	// Send to opponent for visualization (host/client both forward/receive as needed)
-	steamManager.sendPacket(&pkt, sizeof(pkt));
-	ofLogNotice("Network") << "Sent MenuState: type=" << menuType << " target=" << targetIndex << " hover=" << hoveredChoice << " cardIndex=" << cardIndex;
-}
-
-// When I click a card
-void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuChoice, const std::string & cardNameOverride) {
-	// 1. Check if it's my turn or my minion's turn
-	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
-	const Player & currentPlayer = players[currentPlayerIndex];
-	int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-	if (controlledPlayerID != myLocalPlayerID) {
-		ofLogNotice("Network") << "sendActionPacket: abort - not controlling this player (controlledPlayerID=" << controlledPlayerID << " myLocalPlayerID=" << myLocalPlayerID << ")";
-		return;
-	}
-
-	// 2. Create deterministic InputCommandPacket representing this play
-	InputCommandPacket pkt = {};
-	pkt.type = PKT_INPUT_COMMAND;
-	pkt.playerID = myLocalPlayerID;
-	pkt.commandId = nextCommandId++;
-	pkt.turnNumber = globalTurnCounter;
-	pkt.commandType = CMD_PLAY_CARD;
-	pkt.params[0] = cardIndex;
-	pkt.params[1] = tx;
-	pkt.params[2] = ty;
-	pkt.params[3] = menuChoice;
-	// store card name (for validation on host)
-	if (!cardNameOverride.empty()) {
-		strncpy(pkt.stringData, cardNameOverride.c_str(), sizeof(pkt.stringData) - 1);
-		pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
-	}
-
-	bool validSend = false;
-	// If no name yet, try to resolve from cardIndex
-	if (pkt.stringData[0] == '\0') {
-		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			strncpy(pkt.stringData, currentPlayer.hand[cardIndex].name.c_str(), sizeof(pkt.stringData) - 1);
-			pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
-			validSend = true;
-		}
-	} else {
-		// If we have a name, try to find it in our hand and sync index if found
-		bool foundInHand = false;
-		for (int i = 0; i < (int)currentPlayer.hand.size(); ++i) {
-			if (currentPlayer.hand[i].name == pkt.stringData) {
-				// Found the named card in hand
-				validSend = true;
-				foundInHand = true;
-				if (cardIndex != i) pkt.params[0] = i;
-				break;
-			}
-		}
-		// If name not found in hand, allow name-only sends (caller may have removed card locally
-		// before sending; permit sending as long as a name was provided).
-		if (!foundInHand) {
-			validSend = true; // permit name-only send
-		}
-	}
-
-	if (!validSend) {
-		ofLogWarning("Network") << "sendActionPacket: Aborting send - card not found in hand: cardIndex=" << cardIndex << " name='" << pkt.stringData << "' menuChoice=" << menuChoice;
-		return;
-	}
-
-	ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.stringData << "' (cardIndex=" << pkt.params[0] << ") to target=(" << tx << "," << ty << ") cost=" << cost;
-
-	// 3. Send to Network
-	// If we're a client, attach a clientActionID for ACK matching and record for resend
-	if (isClient()) {
-		pkt.clientActionID = ++actionClientActionCounter;
-		lastSentActionPacket = pkt;
-		lastSentActionValid = true;
-		lastSentActionTime = ofGetElapsedTimef();
-		lastSentActionResendCount = 0;
-	}
-	steamManager.sendPacket(&pkt, sizeof(pkt));
-
-	// Local execution is handled by the caller (playCard + result handling).
-}
-
-void ofApp::sendMagicHandResolutionPacket(int choice) {
-	if (!isMultiplayer) return;
-	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
-	const Player & currentPlayer = players[currentPlayerIndex];
-	int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-	if (controlledPlayerID != myLocalPlayerID) return;
-	if (interactingCardIndex < 0 || interactingCardIndex >= (int)currentPlayer.hand.size()) return;
-
-	InputCommandPacket pkt = {};
-	pkt.type = PKT_INPUT_COMMAND;
-	pkt.playerID = myLocalPlayerID;
-	pkt.commandId = nextCommandId++;
-	pkt.turnNumber = globalTurnCounter;
-	pkt.commandType = CMD_MENU_CHOICE;
-	pkt.params[0] = interactingCardIndex;
-	pkt.params[1] = magicHandTargetTile.x;
-	pkt.params[2] = magicHandTargetTile.y;
-	pkt.params[3] = choice;
-	strncpy(pkt.stringData, currentPlayer.hand[interactingCardIndex].name.c_str(), sizeof(pkt.stringData) - 1);
-	pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
-
-	ofLogNotice("Network") << "sendMagicHandResolutionPacket: Sending '" << pkt.stringData << "' choice=" << choice
-						   << " target=(" << pkt.params[1] << "," << pkt.params[2] << ")";
-	steamManager.sendPacket(&pkt, sizeof(pkt));
-}
-
-// executeAction/executeOpponentCardPlay removed: incoming ActionPacket are now converted
-// into `InputCommandPacket` inside `processNetworkPackets()` and queued for lockstep processing.
-
-// Host-side validation for incoming ActionPackets (card plays).
-// Ensures the chosen target(s) are still valid under the host's authoritative
-// board state (e.g. non-self targets required for certain damage cards).
-// Legacy ActionPacket validation removed as ActionPacket is deprecated under lockstep.
-
-// Verify sync
-long long ofApp::calculateChecksum() {
-	// FNV-1a 64-bit
-	const uint64_t FNV_OFFSET = 14695981039346656037ULL;
-	const uint64_t FNV_PRIME = 1099511628211ULL;
-	uint64_t h = FNV_OFFSET;
-	auto mix = [&](uint64_t v) {
-		h ^= v;
-		h *= FNV_PRIME;
-	};
-
-	// Global counters
-	mix((uint64_t)globalTurnCounter);
-	mix((uint64_t)currentPlayerIndex);
-	mix((uint64_t)currentAP);
-
-	for (int y = 0; y < BOARD_HEIGHT; ++y) {
-		for (int x = 0; x < BOARD_WIDTH; ++x) {
-			mix((uint64_t)(board[x][y].hasWall ? 1 : 0));
-			mix((uint64_t)(board[x][y].isMagicWall ? 1 : 0));
-		}
-	}
-
-	// Player state (only shared state - decks differ per player)
-	for (const auto & p : players) {
-		mix((uint64_t)p.playerID);
-		mix((uint64_t)p.x);
-		mix((uint64_t)p.y);
-		mix((uint64_t)p.health);
-		mix((uint64_t)p.maxHealth);
-		mix((uint64_t)p.block);
-		mix((uint64_t)p.ward);
-		mix((uint64_t)p.fortification);
-		mix((uint64_t)p.barrier);
-		mix((uint64_t)p.holyBlock);
-		mix((uint64_t)p.luck);
-		mix((uint64_t)p.bonusTurns);
-		mix((uint64_t)p.ap);
-		mix((uint64_t)p.onFire);
-		mix((uint64_t)p.isParalyzed);
-		mix((uint64_t)p.paralysisHeadsCount);
-		mix((uint64_t)p.isPoisoned);
-		mix((uint64_t)p.poisonReduction);
-		mix((uint64_t)p.nextTurnAPBonus);
-		mix((uint64_t)p.nextAttackAddPoison);
-		mix((uint64_t)p.nextTurnD10AP);
-		mix((uint64_t)p.nextTurnExtraDraw);
-		mix((uint64_t)p.replicateQueued);
-		mix((uint64_t)p.nextTurnBonusDiceFromMinions);
-		mix((uint64_t)p.strengthenElementsTurnsRemaining);
-		mix((uint64_t)p.sleepTurnsRemaining);
-		mix((uint64_t)p.freeHandCardTurns);
-		mix((uint64_t)p.summonedOnTurnCycle);
-		mix((uint64_t)p.inTortoiseForm);
-		mix((uint64_t)p.tortoiseDamageTaken);
-		mix((uint64_t)p.inGhostForm);
-		mix((uint64_t)p.ghostDamageTaken);
-		mix((uint64_t)p.freeKickTurns);
-
-		// NOTE: We do NOT include deck/discard/hand sizes in checksum because:
-		// 1. Network packet timing causes desyncs (DrawCards packets arrive after checksum)
-		// 2. Opponent's deck/hand are hidden information anyway
-		// 3. Cards are synchronized via explicit DrawCards/PlayCard packets
-	}
-
-	// NOTE: Do NOT include visual/timing-dependent arrays (like activeDiceRolls)
-	// in the deterministic checksum. Dice are removed based on real-world
-	// elapsed time and would cause non-deterministic checksum mismatches.
-	// The authoritative game state is represented by `players`, `board`, and
-	// `currentAP`, which are already included above.
-
-	return (long long)h;
-}
-// Public harness wrapper
-bool ofApp::harnessLoadAndPrintChecksum(const std::string & path) {
-	if (loadGameStateFromFile(path)) {
-		long long chk = calculateChecksum();
-		std::cout << "Loaded " << path << " checksum=" << chk << std::endl;
-		return true;
-	}
-	return false;
-}
-// Auto-advance a small number of turns by sending deterministic CMD_END_TURN
-// commands as the current player. This runs simulation ticks until the
-// turn advances or a safety cap is reached for each advancement.
-void ofApp::harnessAutoAdvanceTurns(int turns) {
-	for (int t = 0; t < turns; ++t) {
-		int startTurn = globalTurnCounter;
-		// Determine current owner index
-		int ownerIdx = currentPlayerIndex;
-		if (ownerIdx < 0 || ownerIdx >= (int)players.size()) {
-			ofLogNotice("Harness") << "No valid current player; stopping harness advance.";
-			break;
-		}
-
-		int ownerPlayerID = players[ownerIdx].playerID;
-
-		// Temporarily set local player id so sendInputCommand stamps the packet correctly
-		int prevLocal = myLocalPlayerID;
-		myLocalPlayerID = ownerPlayerID;
-
-		InputCommandPacket endCmd = {};
-		endCmd.type = PKT_INPUT_COMMAND;
-		endCmd.playerID = ownerPlayerID; // will be overwritten by sendInputCommand, but keep for clarity
-		endCmd.seq = 0;
-		endCmd.commandId = 0; // let sendInputCommand assign canonical id
-		endCmd.turnNumber = globalTurnCounter;
-		endCmd.commandType = CMD_END_TURN;
-
-		// Try smart actions: 1) attempt to play any hand card at likely targets
-		// 2) attempt to move toward nearest enemy 3) fallback to END_TURN
-		bool actionIssued = false;
-		Player & owner = players[ownerIdx];
-
-		// Build candidate targets: self tile, enemy tiles, adjacent tiles around enemies
-		std::vector<std::pair<int, int>> candidates;
-		candidates.emplace_back(owner.x, owner.y);
-		for (size_t i = 0; i < players.size(); ++i) {
-			if ((int)i == ownerIdx) continue;
-			if (players[i].health <= 0) continue;
-			candidates.emplace_back(players[i].x, players[i].y);
-			// adjacents
-			const int dx[4] = { 0, 1, 0, -1 };
-			const int dy[4] = { -1, 0, 1, 0 };
-			for (int k = 0; k < 4; ++k) {
-				int nx = players[i].x + dx[k];
-				int ny = players[i].y + dy[k];
-				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) candidates.emplace_back(nx, ny);
-			}
-		}
-
-		// Try to play multiple cards per turn (up to a small cap).
-		// Build a small loop: pick the best-scoring playable card+target, play it, resolve menus, and repeat.
-		int playsThisTurn = 0;
-		const int kMaxPlaysPerTurn = 4;
-		while (playsThisTurn < kMaxPlaysPerTurn) {
-			// Refresh owner reference (hand may have changed)
-			int curOwnerIdx = findPlayerIndexByID(owner.playerID);
-			if (curOwnerIdx < 0) break;
-			Player & curOwner = players[curOwnerIdx];
-
-			struct CandidatePlay {
-				int cardIndex;
-				int tx;
-				int ty;
-				double score;
-			};
-			std::vector<CandidatePlay> candidatesPlays;
-
-			// Consider each card and candidate target; validate using calculateTargetHighlights
-			for (int ci = 0; ci < (int)curOwner.hand.size(); ++ci) {
-				const Card & c = curOwner.hand[ci];
-				int cost = getEffectiveCardCostForPlayer(curOwner, c);
-				if (cost > curOwner.ap) continue;
-
-				// Run target highlight calc in harness context to set board[x][y].isTargetable
-				int prevCardIndex = interactingCardIndex;
-				int prevState = (int)cardInteractionState;
-				interactingCardIndex = ci;
-				calculateTargetHighlights(ci);
-				// Score heuristic: prefer damage/heal/block/draw
-				double baseScore = 0.0;
-				baseScore += (double)c.baseDamage;
-				baseScore += 0.5 * (double)c.damageDiceNum * (double)(c.damageDiceSides > 0 ? (c.damageDiceSides + 1) / 2.0 : 0.0);
-				baseScore += 1.2 * (double)(c.healAmount + c.baseHeal);
-				baseScore += 0.8 * (double)c.blockAmount + 0.8 * (double)c.wardAmount + 0.6 * (double)c.apGain;
-				baseScore += 0.4 * (double)c.drawCount;
-
-				// If card is self-targeting and caster is valid, add candidate
-				if (c.targeting == TARGET_SELF) {
-					candidatesPlays.push_back({ ci, curOwner.x, curOwner.y, baseScore * 0.9 + 0.1 });
-				}
-
-				// Add any board tile previously computed as targetable
-				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
-					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-						if (!board[tx][ty].isTargetable) continue;
-						double score = baseScore;
-						// prefer enemy-occupied targets
-						if (board[tx][ty].hasPlayer) score += 2.0;
-						candidatesPlays.push_back({ ci, tx, ty, score });
-					}
-				}
-
-				// restore
-				interactingCardIndex = prevCardIndex;
-				cardInteractionState = (CardInteractionState)prevState;
-			}
-
-			if (candidatesPlays.empty()) break;
-
-			// pick best candidate
-			std::sort(candidatesPlays.begin(), candidatesPlays.end(), [](const CandidatePlay & a, const CandidatePlay & b) { return a.score > b.score; });
-			CandidatePlay best = candidatesPlays.front();
-
-			// Re-validate owner still has that card index (hand may have shifted). If not, try to find card by type.
-			int playCardIndex = best.cardIndex;
-			if (playCardIndex < 0 || playCardIndex >= (int)players[ownerIdx].hand.size()) {
-				// try to find equivalent type in hand
-				bool found = false;
-				for (int i = 0; i < (int)players[ownerIdx].hand.size(); ++i) {
-					if (players[ownerIdx].hand[i].type == players[ownerIdx].hand[best.cardIndex < (int)players[ownerIdx].hand.size() ? best.cardIndex : 0].type) {
-						playCardIndex = i;
-						found = true;
-						break;
-					}
-				}
-				if (!found) break;
-			}
-
-			InputCommandPacket playCmd = {};
-			playCmd.type = PKT_INPUT_COMMAND;
-			playCmd.seq = 0;
-			playCmd.commandId = 0;
-			playCmd.turnNumber = globalTurnCounter;
-			playCmd.commandType = CMD_PLAY_CARD;
-			playCmd.params[0] = playCardIndex; // card index
-			playCmd.params[1] = best.tx;
-			playCmd.params[2] = best.ty;
-
-			ofLogNotice("Harness") << "Harness: choosing PLAY_CARD idx=" << playCmd.params[0] << " target=(" << best.tx << "," << best.ty << ") score=" << best.score;
-			sendInputCommand(playCmd, true);
-
-			// Run ticks to let play resolve. Also auto-resolve simple menus deterministically.
-			int safety = 0;
-			while (safety < 60 && globalTurnCounter == startTurn) {
-				simulationTick();
-				// If a menu appeared, auto-resolve it with a deterministic choice
-				if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-					int choice = 1; // default choice id
-					switch (interactingCardType) {
-					case CARD_BURST_OF_LIGHT:
-						// prefer damage unless target is self
-						if (interactionTargetIndex == currentPlayerIndex)
-							choice = 2;
-						else
-							choice = 1;
-						break;
-					case CARD_WISDOM_BOON:
-						choice = 1;
-						break; // prefer damage
-					case CARD_DOUBLE_HANDED:
-						choice = 1;
-						break; // prefer punches
-					case CARD_AMNESIA:
-						choice = 1;
-						break; // self-path
-					case CARD_DISPEL:
-						choice = 2;
-						break; // purge by default
-					case CARD_MAGIC_BLAST:
-						choice = 1;
-						break;
-					default:
-						choice = 1;
-						break;
-					}
-
-					InputCommandPacket menuCmd = {};
-					menuCmd.type = PKT_INPUT_COMMAND;
-					menuCmd.playerID = myLocalPlayerID;
-					menuCmd.seq = 0;
-					menuCmd.commandId = nextCommandId++;
-					menuCmd.turnNumber = globalTurnCounter;
-					menuCmd.commandType = CMD_MENU_CHOICE;
-					menuCmd.params[0] = interactingCardType;
-					menuCmd.params[1] = interactionTargetIndex;
-					menuCmd.params[2] = choice;
-					menuCmd.params[3] = interactingCardIndex;
-					strncpy(menuCmd.stringData, interactingCardName.c_str(), sizeof(menuCmd.stringData) - 1);
-					menuCmd.stringData[sizeof(menuCmd.stringData) - 1] = '\0';
-					ofLogNotice("Harness") << "Harness: auto-resolving menu for card=" << interactingCardType << " choice=" << choice;
-					sendInputCommand(menuCmd, true);
-				}
-				safety++;
-			}
-
-			// Check if play had observable effect (hand/AP changed or player moved/died)
-			int newOwnerIdx = findPlayerIndexByID(owner.playerID);
-			if (newOwnerIdx >= 0) {
-				Player & newOwner = players[newOwnerIdx];
-				if ((int)newOwner.hand.size() < (int)curOwner.hand.size() || newOwner.ap != curOwner.ap) {
-					playsThisTurn++;
-					actionIssued = true;
-					// continue attempting more plays
 					continue;
 				}
-			} else {
-				// owner removed
-				actionIssued = true;
+				// Handle ClientReady: Host receives client confirmation that it's ready to start
+				if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
+					ClientReadyPacket * cr = (ClientReadyPacket *)header;
+					ofLogNotice("Network") << "ClientReady received from playerID=" << cr->playerID;
+					if (isHost() && hostWaitingForClientsReadyStartTime > 0.0f) {
+						clientsReady.insert(cr->playerID);
+						// For 2-player matches, start when we have any client ready
+						if (!clientsReady.empty()) {
+							ofLogNotice("Network") << "All clients ready - starting initiative phase.";
+							hostWaitingForClientsReadyStartTime = 0.0f;
+							startInitiativePhase();
+						}
+					}
+					continue;
+				}
+				if (header->type == PKT_INPUT_COMMAND) {
+					if (buffer.size() < sizeof(InputCommandPacket)) continue;
+					InputCommandPacket * cmd = (InputCommandPacket *)header;
+
+					ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
+
+					// If this is an echo of a command we sent and we're a client
+					// which already applied it optimistically, skip re-applying it
+					// when the authoritative packet arrives. Also clear provisional
+					// snapshots/commands for this id so we don't leak memory.
+					if (!isHost() && cmd->playerID == (uint32_t)myLocalPlayerID) {
+						uint32_t cid = cmd->commandId;
+						if (provisionalSnapshots.find(cid) != provisionalSnapshots.end() || provisionalCommands.find(cid) != provisionalCommands.end()) {
+							ofLogNotice("NetTrace") << "Dropping echoed own input command cmdId=" << cid;
+							provisionalSnapshots.erase(cid);
+							provisionalCommands.erase(cid);
+							continue;
+						}
+					}
+
+					queueInputCommand(*cmd);
+					continue;
+				}
+
+				// Handle MenuState visualization from opponents (open/close/hover)
+				if (header->type == PKT_MENU_STATE) {
+					if (buffer.size() < sizeof(MenuStatePacket)) continue;
+					MenuStatePacket * msp = (MenuStatePacket *)header;
+					// Map incoming playerID to local player index
+					int mappedIdx = -1;
+					for (int i = 0; i < (int)players.size(); ++i) {
+						if (players[i].playerID == (int)msp->playerID) {
+							mappedIdx = i;
+							break;
+						}
+					}
+					// Only update visualization for remote players
+					if (mappedIdx >= 0 && mappedIdx != getLocalPlayerIndex()) {
+						if (msp->menuType == 0) {
+							opponentInteraction.open = false;
+							opponentInteraction.type = 0;
+							opponentInteraction.targetIndex = -1;
+							opponentInteraction.hoveredChoice = -1;
+							opponentInteraction.cardIndex = -1;
+						} else {
+							opponentInteraction.open = true;
+							opponentInteraction.type = msp->menuType;
+							opponentInteraction.targetIndex = msp->targetIndex;
+							opponentInteraction.hoveredChoice = msp->hoveredChoice;
+							opponentInteraction.cardIndex = msp->cardIndex;
+						}
+						ofLogNotice("Network") << "Received MenuState from playerID=" << msp->playerID << " type=" << msp->menuType << " hover=" << msp->hoveredChoice;
+					}
+					continue;
+				}
+				if (header->type == PKT_CHECKSUM_CHECK) {
+					ChecksumPacket * pkt = (ChecksumPacket *)header;
+					if (skipChecksumValidation) continue;
+
+					long long mySum = calculateChecksum();
+
+					if (mySum != pkt->checksum) {
+						ofLogError("Net") << "DESYNC DETECTED! Rewinding to start of turn...";
+
+						if (isHost()) {
+							// 1. Host rewinds ITSELF to the start of the turn
+							if (!turnStartBackupSnapshot.empty()) {
+								applySnapshotString(turnStartBackupSnapshot);
+								ofLogNotice("Network") << "Host rewound local state.";
+							}
+
+							// 2. Host forcefully pushes this restored state to the Client
+							sendSnapshotToClient();
+
+							// 3. Visual notification
+							queueFloatingTextVisual(glm::vec3(0, 5, 0), "SYNC ERROR: TURN REWOUND", ofColor::red);
+						} else {
+							// Client detected a desync on its own end. Request the host to fix it.
+							SnapshotRequestPacket req = {};
+							req.type = PKT_SNAPSHOT_REQUEST;
+							req.playerID = myLocalPlayerID;
+							req.requestedTurn = pkt->turnNumber;
+							steamManager.sendPacket(&req, sizeof(req));
+
+							waitingForSnapshotStartTime = ofGetElapsedTimef();
+							queueFloatingTextVisual(glm::vec3(0, 5, 0), "Requesting Resync...", ofColor::yellow);
+						}
+					} else {
+						// If checksums match mid-turn, update the backup so we don't lose progress on a good move!
+						if (isHost()) {
+							turnStartBackupSnapshot = buildSnapshotString();
+						}
+					}
+				}
+				// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
+				// will detect key pickups locally. Legacy packet handling deleted to avoid
+				// UI races and double-processing.
+				else if (header->type == PKT_CHAT_MESSAGE) {
+					ChatMessagePacket * pkt = (ChatMessagePacket *)header;
+					ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
+
+					ChatMessage msg;
+					// Find player index for this playerID
+					int senderIndex = -1;
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == static_cast<int>(pkt->playerID) && !players[i].isMinion) {
+							senderIndex = i;
+							break;
+						}
+					}
+					msg.playerName = (senderIndex >= 0) ? getPlayerSteamName(senderIndex) : ("Player " + ofToString(pkt->playerID));
+					msg.message = pkt->message;
+					msg.timestamp = ofGetElapsedTimef();
+					chatHistory.push_back(msg);
+					if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
+						chatHistory.erase(chatHistory.begin());
+					}
+					// Show chat for 5 seconds when message received
+					lastChatInteractionTime = ofGetElapsedTimef();
+				} else if (header->type == PKT_HOVER) {
+					// Ignore hover packets in singleplayer builds
+					if (!isMultiplayer) continue;
+					HoverPacket * pkt = (HoverPacket *)header;
+					int hoverTypeInt = static_cast<int>(pkt->hoverType);
+					if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_UNIT_SELECTED) {
+						opponentHoverType = static_cast<HoverType>(hoverTypeInt);
+					}
+					opponentHoverGridX = static_cast<int>(pkt->gridX);
+					opponentHoverGridY = static_cast<int>(pkt->gridY);
+					opponentHoverCardIndex = static_cast<int>(pkt->cardIndex);
+
+					// If opponent selected a unit for movement, show their movement highlights
+					if (opponentHoverType == HOVER_UNIT_SELECTED) {
+						// Store current player state to restore after
+						int savedPlayerX = -1, savedPlayerY = -1;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
+							savedPlayerX = players[currentPlayerIndex].x;
+							savedPlayerY = players[currentPlayerIndex].y;
+							// Temporarily move current player to opponent's selected position
+							players[currentPlayerIndex].x = opponentHoverGridX;
+							players[currentPlayerIndex].y = opponentHoverGridY;
+							calculateHighlights();
+							// Restore position
+							players[currentPlayerIndex].x = savedPlayerX;
+							players[currentPlayerIndex].y = savedPlayerY;
+						}
+					}
+					// If opponent is hovering a card, show their targeting highlights
+					else if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex >= 0) {
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
+							Player & currentPlayer = players[currentPlayerIndex];
+							if (opponentHoverCardIndex < static_cast<int>(currentPlayer.hand.size())) {
+								calculateTargetHighlights(opponentHoverCardIndex);
+							}
+						}
+					}
+					// If opponent cleared hover, clear highlights
+					else if (opponentHoverType == HOVER_NONE) {
+						clearHighlights();
+					}
+				}
+
+				// Legacy draft packet handlers removed: PKT_DRAFT_ACK, PKT_DRAFT_ACTION and
+				// PKT_DRAFT_OPTIONS are no longer processed here. Drafting is driven
+				// deterministically through the canonical input command stream.
+			}
+
+			// Legacy resend watchdogs removed: lockstep input commands are reliable.
+
+			// Close processNetworkPackets() scope
+		}
+	}
+
+	// --- Networking helper implementations ---
+	void ofApp::sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace) {
+		PlaceSummonedBeginPacket bp = {};
+		bp.type = PKT_PLACE_SUMMONED_BEGIN;
+		bp.playerID = myLocalPlayerID;
+		bp.minionType = (uint8_t)minionType;
+		bp.ownerPlayerID = ownerPlayerID;
+		bp.sourceX = sourceX;
+		bp.sourceY = sourceY;
+		bp.numToPlace = numToPlace;
+		steamManager.sendPacket(&bp, sizeof(bp));
+		ofLogNotice("Network") << "Host sent PlaceSummonedBegin (helper): type=" << (int)bp.minionType << " owner=" << bp.ownerPlayerID << " source=(" << bp.sourceX << "," << bp.sourceY << ") num=" << bp.numToPlace;
+	}
+
+	void ofApp::sendPlaceSummonedMinion(int minionType, int ownerPlayerID, int targetX, int targetY, int minionHP, int minionAP, int minionPlayerID) {
+		PlaceSummonedMinionPacket pkt = {};
+		pkt.type = PKT_PLACE_SUMMONED_MINION;
+		pkt.playerID = myLocalPlayerID;
+		pkt.minionType = (uint8_t)minionType;
+		pkt.ownerPlayerID = ownerPlayerID;
+		pkt.targetX = targetX;
+		pkt.targetY = targetY;
+		pkt.minionHP = minionHP;
+		pkt.minionAP = minionAP;
+		// In deterministic lockstep mode we no longer broadcast individual minion
+		// placement packets. Both peers spawn minions locally via the command
+		// execution path. Suppress network send to avoid duplicate spawns.
+		ofLogNotice("Network") << "Suppressed PlaceSummonedMinion send in lockstep mode: type=" << pkt.minionType << " owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
+	}
+
+	void ofApp::sendCardActionBegin(int cardType, int actorIndex, int targetX, int targetY, int p0, int p1, int p2, int p3, const std::string & label) {
+		// Suppressed under deterministic lockstep migration: keep call sites, but
+		// do not construct or send a CardActionBegin packet anymore.
+		ofLogNotice("Network") << "Suppressed sendCardActionBegin (no packet): card=" << cardType << " actor=" << actorIndex << " target=(" << targetX << "," << targetY << ") p0=" << p0 << " p1=" << p1 << " label=" << label;
+	}
+
+	// Send menu state for opponent visualization
+	void ofApp::sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex) {
+		if (!isMultiplayer) return;
+
+		MenuStatePacket pkt = {};
+		pkt.type = PKT_MENU_STATE;
+		pkt.playerID = myLocalPlayerID;
+		pkt.seq = 0; // steamManager will stamp a seq
+		pkt.menuType = menuType;
+		pkt.targetIndex = targetIndex;
+		pkt.hoveredChoice = hoveredChoice;
+		pkt.cardIndex = cardIndex;
+
+		// Send to opponent for visualization (host/client both forward/receive as needed)
+		steamManager.sendPacket(&pkt, sizeof(pkt));
+		ofLogNotice("Network") << "Sent MenuState: type=" << menuType << " target=" << targetIndex << " hover=" << hoveredChoice << " cardIndex=" << cardIndex;
+	}
+
+	// When I click a card
+	void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuChoice, const std::string & cardNameOverride) {
+		// 1. Check if it's my turn or my minion's turn
+		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+		const Player & currentPlayer = players[currentPlayerIndex];
+		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		if (controlledPlayerID != myLocalPlayerID) {
+			ofLogNotice("Network") << "sendActionPacket: abort - not controlling this player (controlledPlayerID=" << controlledPlayerID << " myLocalPlayerID=" << myLocalPlayerID << ")";
+			return;
+		}
+
+		// 2. Create deterministic InputCommandPacket representing this play
+		InputCommandPacket pkt = {};
+		pkt.type = PKT_INPUT_COMMAND;
+		pkt.playerID = myLocalPlayerID;
+		pkt.commandId = nextCommandId++;
+		pkt.turnNumber = globalTurnCounter;
+		pkt.commandType = CMD_PLAY_CARD;
+		pkt.params[0] = cardIndex;
+		pkt.params[1] = tx;
+		pkt.params[2] = ty;
+		pkt.params[3] = menuChoice;
+		// store card name (for validation on host)
+		if (!cardNameOverride.empty()) {
+			strncpy(pkt.stringData, cardNameOverride.c_str(), sizeof(pkt.stringData) - 1);
+			pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
+		}
+
+		bool validSend = false;
+		// If no name yet, try to resolve from cardIndex
+		if (pkt.stringData[0] == '\0') {
+			if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+				strncpy(pkt.stringData, currentPlayer.hand[cardIndex].name.c_str(), sizeof(pkt.stringData) - 1);
+				pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
+				validSend = true;
+			}
+		} else {
+			// If we have a name, try to find it in our hand and sync index if found
+			bool foundInHand = false;
+			for (int i = 0; i < (int)currentPlayer.hand.size(); ++i) {
+				if (currentPlayer.hand[i].name == pkt.stringData) {
+					// Found the named card in hand
+					validSend = true;
+					foundInHand = true;
+					if (cardIndex != i) pkt.params[0] = i;
+					break;
+				}
+			}
+			// If name not found in hand, allow name-only sends (caller may have removed card locally
+			// before sending; permit sending as long as a name was provided).
+			if (!foundInHand) {
+				validSend = true; // permit name-only send
+			}
+		}
+
+		if (!validSend) {
+			ofLogWarning("Network") << "sendActionPacket: Aborting send - card not found in hand: cardIndex=" << cardIndex << " name='" << pkt.stringData << "' menuChoice=" << menuChoice;
+			return;
+		}
+
+		ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.stringData << "' (cardIndex=" << pkt.params[0] << ") to target=(" << tx << "," << ty << ") cost=" << cost;
+
+		// 3. Send to Network
+		// If we're a client, attach a clientActionID for ACK matching and record for resend
+		if (isClient()) {
+			pkt.clientActionID = ++actionClientActionCounter;
+			lastSentActionPacket = pkt;
+			lastSentActionValid = true;
+			lastSentActionTime = ofGetElapsedTimef();
+			lastSentActionResendCount = 0;
+		}
+		steamManager.sendPacket(&pkt, sizeof(pkt));
+
+		// Local execution is handled by the caller (playCard + result handling).
+	}
+
+	void ofApp::sendMagicHandResolutionPacket(int choice) {
+		if (!isMultiplayer) return;
+		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+		const Player & currentPlayer = players[currentPlayerIndex];
+		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		if (controlledPlayerID != myLocalPlayerID) return;
+		if (interactingCardIndex < 0 || interactingCardIndex >= (int)currentPlayer.hand.size()) return;
+
+		InputCommandPacket pkt = {};
+		pkt.type = PKT_INPUT_COMMAND;
+		pkt.playerID = myLocalPlayerID;
+		pkt.commandId = nextCommandId++;
+		pkt.turnNumber = globalTurnCounter;
+		pkt.commandType = CMD_MENU_CHOICE;
+		pkt.params[0] = interactingCardIndex;
+		pkt.params[1] = magicHandTargetTile.x;
+		pkt.params[2] = magicHandTargetTile.y;
+		pkt.params[3] = choice;
+		strncpy(pkt.stringData, currentPlayer.hand[interactingCardIndex].name.c_str(), sizeof(pkt.stringData) - 1);
+		pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
+
+		ofLogNotice("Network") << "sendMagicHandResolutionPacket: Sending '" << pkt.stringData << "' choice=" << choice
+							   << " target=(" << pkt.params[1] << "," << pkt.params[2] << ")";
+		steamManager.sendPacket(&pkt, sizeof(pkt));
+	}
+
+	// executeAction/executeOpponentCardPlay removed: incoming ActionPacket are now converted
+	// into `InputCommandPacket` inside `processNetworkPackets()` and queued for lockstep processing.
+
+	// Host-side validation for incoming ActionPackets (card plays).
+	// Ensures the chosen target(s) are still valid under the host's authoritative
+	// board state (e.g. non-self targets required for certain damage cards).
+	// Legacy ActionPacket validation removed as ActionPacket is deprecated under lockstep.
+
+	// Verify sync
+	long long ofApp::calculateChecksum() {
+		// FNV-1a 64-bit
+		const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+		const uint64_t FNV_PRIME = 1099511628211ULL;
+		uint64_t h = FNV_OFFSET;
+		auto mix = [&](uint64_t v) {
+			h ^= v;
+			h *= FNV_PRIME;
+		};
+
+		// Global counters
+		mix((uint64_t)globalTurnCounter);
+		mix((uint64_t)currentPlayerIndex);
+		mix((uint64_t)currentAP);
+
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			for (int x = 0; x < BOARD_WIDTH; ++x) {
+				mix((uint64_t)(board[x][y].hasWall ? 1 : 0));
+				mix((uint64_t)(board[x][y].isMagicWall ? 1 : 0));
+			}
+		}
+
+		// Player state (only shared state - decks differ per player)
+		for (const auto & p : players) {
+			mix((uint64_t)p.playerID);
+			mix((uint64_t)p.x);
+			mix((uint64_t)p.y);
+			mix((uint64_t)p.health);
+			mix((uint64_t)p.maxHealth);
+			mix((uint64_t)p.block);
+			mix((uint64_t)p.ward);
+			mix((uint64_t)p.fortification);
+			mix((uint64_t)p.barrier);
+			mix((uint64_t)p.holyBlock);
+			mix((uint64_t)p.luck);
+			mix((uint64_t)p.bonusTurns);
+			mix((uint64_t)p.ap);
+			mix((uint64_t)p.onFire);
+			mix((uint64_t)p.isParalyzed);
+			mix((uint64_t)p.paralysisHeadsCount);
+			mix((uint64_t)p.isPoisoned);
+			mix((uint64_t)p.poisonReduction);
+			mix((uint64_t)p.nextTurnAPBonus);
+			mix((uint64_t)p.nextAttackAddPoison);
+			mix((uint64_t)p.nextTurnD10AP);
+			mix((uint64_t)p.nextTurnExtraDraw);
+			mix((uint64_t)p.replicateQueued);
+			mix((uint64_t)p.nextTurnBonusDiceFromMinions);
+			mix((uint64_t)p.strengthenElementsTurnsRemaining);
+			mix((uint64_t)p.sleepTurnsRemaining);
+			mix((uint64_t)p.freeHandCardTurns);
+			mix((uint64_t)p.summonedOnTurnCycle);
+			mix((uint64_t)p.inTortoiseForm);
+			mix((uint64_t)p.tortoiseDamageTaken);
+			mix((uint64_t)p.inGhostForm);
+			mix((uint64_t)p.ghostDamageTaken);
+			mix((uint64_t)p.freeKickTurns);
+
+			// NOTE: We do NOT include deck/discard/hand sizes in checksum because:
+			// 1. Network packet timing causes desyncs (DrawCards packets arrive after checksum)
+			// 2. Opponent's deck/hand are hidden information anyway
+			// 3. Cards are synchronized via explicit DrawCards/PlayCard packets
+		}
+
+		// NOTE: Do NOT include visual/timing-dependent arrays (like activeDiceRolls)
+		// in the deterministic checksum. Dice are removed based on real-world
+		// elapsed time and would cause non-deterministic checksum mismatches.
+		// The authoritative game state is represented by `players`, `board`, and
+		// `currentAP`, which are already included above.
+
+		return (long long)h;
+	}
+	// Public harness wrapper
+	bool ofApp::harnessLoadAndPrintChecksum(const std::string & path) {
+		if (loadGameStateFromFile(path)) {
+			long long chk = calculateChecksum();
+			std::cout << "Loaded " << path << " checksum=" << chk << std::endl;
+			return true;
+		}
+		return false;
+	}
+	// Auto-advance a small number of turns by sending deterministic CMD_END_TURN
+	// commands as the current player. This runs simulation ticks until the
+	// turn advances or a safety cap is reached for each advancement.
+	void ofApp::harnessAutoAdvanceTurns(int turns) {
+		for (int t = 0; t < turns; ++t) {
+			int startTurn = globalTurnCounter;
+			// Determine current owner index
+			int ownerIdx = currentPlayerIndex;
+			if (ownerIdx < 0 || ownerIdx >= (int)players.size()) {
+				ofLogNotice("Harness") << "No valid current player; stopping harness advance.";
 				break;
 			}
 
-			// If we reach here no meaningful change occurred; stop attempting plays
-			break;
-		}
+			int ownerPlayerID = players[ownerIdx].playerID;
 
-		// If no card played, try to move toward nearest enemy
-		if (!actionIssued) {
-			int bestDist = 100000;
-			int tx = -1, ty = -1;
+			// Temporarily set local player id so sendInputCommand stamps the packet correctly
+			int prevLocal = myLocalPlayerID;
+			myLocalPlayerID = ownerPlayerID;
+
+			InputCommandPacket endCmd = {};
+			endCmd.type = PKT_INPUT_COMMAND;
+			endCmd.playerID = ownerPlayerID; // will be overwritten by sendInputCommand, but keep for clarity
+			endCmd.seq = 0;
+			endCmd.commandId = 0; // let sendInputCommand assign canonical id
+			endCmd.turnNumber = globalTurnCounter;
+			endCmd.commandType = CMD_END_TURN;
+
+			// Try smart actions: 1) attempt to play any hand card at likely targets
+			// 2) attempt to move toward nearest enemy 3) fallback to END_TURN
+			bool actionIssued = false;
+			Player & owner = players[ownerIdx];
+
+			// Build candidate targets: self tile, enemy tiles, adjacent tiles around enemies
+			std::vector<std::pair<int, int>> candidates;
+			candidates.emplace_back(owner.x, owner.y);
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == ownerIdx) continue;
 				if (players[i].health <= 0) continue;
-				int d = abs(players[i].x - owner.x) + abs(players[i].y - owner.y);
-				if (d < bestDist) {
-					bestDist = d;
-					tx = players[i].x;
-					ty = players[i].y;
+				candidates.emplace_back(players[i].x, players[i].y);
+				// adjacents
+				const int dx[4] = { 0, 1, 0, -1 };
+				const int dy[4] = { -1, 0, 1, 0 };
+				for (int k = 0; k < 4; ++k) {
+					int nx = players[i].x + dx[k];
+					int ny = players[i].y + dy[k];
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) candidates.emplace_back(nx, ny);
 				}
 			}
-			if (tx != -1) {
-				InputCommandPacket mv = {};
-				mv.type = PKT_INPUT_COMMAND;
-				mv.seq = 0;
-				mv.commandId = 0;
-				mv.turnNumber = globalTurnCounter;
-				mv.commandType = CMD_MOVE_UNIT;
-				mv.params[0] = owner.x;
-				mv.params[1] = owner.y;
-				mv.params[2] = tx;
-				mv.params[3] = ty;
-				ofLogNotice("Harness") << "Harness: attempting MOVE_UNIT to (" << tx << "," << ty << ")";
-				sendInputCommand(mv, true);
+
+			// Try to play multiple cards per turn (up to a small cap).
+			// Build a small loop: pick the best-scoring playable card+target, play it, resolve menus, and repeat.
+			int playsThisTurn = 0;
+			const int kMaxPlaysPerTurn = 4;
+			while (playsThisTurn < kMaxPlaysPerTurn) {
+				// Refresh owner reference (hand may have changed)
+				int curOwnerIdx = findPlayerIndexByID(owner.playerID);
+				if (curOwnerIdx < 0) break;
+				Player & curOwner = players[curOwnerIdx];
+
+				struct CandidatePlay {
+					int cardIndex;
+					int tx;
+					int ty;
+					double score;
+				};
+				std::vector<CandidatePlay> candidatesPlays;
+
+				// Consider each card and candidate target; validate using calculateTargetHighlights
+				for (int ci = 0; ci < (int)curOwner.hand.size(); ++ci) {
+					const Card & c = curOwner.hand[ci];
+					int cost = getEffectiveCardCostForPlayer(curOwner, c);
+					if (cost > curOwner.ap) continue;
+
+					// Run target highlight calc in harness context to set board[x][y].isTargetable
+					int prevCardIndex = interactingCardIndex;
+					int prevState = (int)cardInteractionState;
+					interactingCardIndex = ci;
+					calculateTargetHighlights(ci);
+					// Score heuristic: prefer damage/heal/block/draw
+					double baseScore = 0.0;
+					baseScore += (double)c.baseDamage;
+					baseScore += 0.5 * (double)c.damageDiceNum * (double)(c.damageDiceSides > 0 ? (c.damageDiceSides + 1) / 2.0 : 0.0);
+					baseScore += 1.2 * (double)(c.healAmount + c.baseHeal);
+					baseScore += 0.8 * (double)c.blockAmount + 0.8 * (double)c.wardAmount + 0.6 * (double)c.apGain;
+					baseScore += 0.4 * (double)c.drawCount;
+
+					// If card is self-targeting and caster is valid, add candidate
+					if (c.targeting == TARGET_SELF) {
+						candidatesPlays.push_back({ ci, curOwner.x, curOwner.y, baseScore * 0.9 + 0.1 });
+					}
+
+					// Add any board tile previously computed as targetable
+					for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+						for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+							if (!board[tx][ty].isTargetable) continue;
+							double score = baseScore;
+							// prefer enemy-occupied targets
+							if (board[tx][ty].hasPlayer) score += 2.0;
+							candidatesPlays.push_back({ ci, tx, ty, score });
+						}
+					}
+
+					// restore
+					interactingCardIndex = prevCardIndex;
+					cardInteractionState = (CardInteractionState)prevState;
+				}
+
+				if (candidatesPlays.empty()) break;
+
+				// pick best candidate
+				std::sort(candidatesPlays.begin(), candidatesPlays.end(), [](const CandidatePlay & a, const CandidatePlay & b) { return a.score > b.score; });
+				CandidatePlay best = candidatesPlays.front();
+
+				// Re-validate owner still has that card index (hand may have shifted). If not, try to find card by type.
+				int playCardIndex = best.cardIndex;
+				if (playCardIndex < 0 || playCardIndex >= (int)players[ownerIdx].hand.size()) {
+					// try to find equivalent type in hand
+					bool found = false;
+					for (int i = 0; i < (int)players[ownerIdx].hand.size(); ++i) {
+						if (players[ownerIdx].hand[i].type == players[ownerIdx].hand[best.cardIndex < (int)players[ownerIdx].hand.size() ? best.cardIndex : 0].type) {
+							playCardIndex = i;
+							found = true;
+							break;
+						}
+					}
+					if (!found) break;
+				}
+
+				InputCommandPacket playCmd = {};
+				playCmd.type = PKT_INPUT_COMMAND;
+				playCmd.seq = 0;
+				playCmd.commandId = 0;
+				playCmd.turnNumber = globalTurnCounter;
+				playCmd.commandType = CMD_PLAY_CARD;
+				playCmd.params[0] = playCardIndex; // card index
+				playCmd.params[1] = best.tx;
+				playCmd.params[2] = best.ty;
+
+				ofLogNotice("Harness") << "Harness: choosing PLAY_CARD idx=" << playCmd.params[0] << " target=(" << best.tx << "," << best.ty << ") score=" << best.score;
+				sendInputCommand(playCmd, true);
+
+				// Run ticks to let play resolve. Also auto-resolve simple menus deterministically.
 				int safety = 0;
-				while (safety < 30 && globalTurnCounter == startTurn) {
+				while (safety < 60 && globalTurnCounter == startTurn) {
 					simulationTick();
+					// If a menu appeared, auto-resolve it with a deterministic choice
+					if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+						int choice = 1; // default choice id
+						switch (interactingCardType) {
+						case CARD_BURST_OF_LIGHT:
+							// prefer damage unless target is self
+							if (interactionTargetIndex == currentPlayerIndex)
+								choice = 2;
+							else
+								choice = 1;
+							break;
+						case CARD_WISDOM_BOON:
+							choice = 1;
+							break; // prefer damage
+						case CARD_DOUBLE_HANDED:
+							choice = 1;
+							break; // prefer punches
+						case CARD_AMNESIA:
+							choice = 1;
+							break; // self-path
+						case CARD_DISPEL:
+							choice = 2;
+							break; // purge by default
+						case CARD_MAGIC_BLAST:
+							choice = 1;
+							break;
+						default:
+							choice = 1;
+							break;
+						}
+
+						InputCommandPacket menuCmd = {};
+						menuCmd.type = PKT_INPUT_COMMAND;
+						menuCmd.playerID = myLocalPlayerID;
+						menuCmd.seq = 0;
+						menuCmd.commandId = nextCommandId++;
+						menuCmd.turnNumber = globalTurnCounter;
+						menuCmd.commandType = CMD_MENU_CHOICE;
+						menuCmd.params[0] = interactingCardType;
+						menuCmd.params[1] = interactionTargetIndex;
+						menuCmd.params[2] = choice;
+						menuCmd.params[3] = interactingCardIndex;
+						strncpy(menuCmd.stringData, interactingCardName.c_str(), sizeof(menuCmd.stringData) - 1);
+						menuCmd.stringData[sizeof(menuCmd.stringData) - 1] = '\0';
+						ofLogNotice("Harness") << "Harness: auto-resolving menu for card=" << interactingCardType << " choice=" << choice;
+						sendInputCommand(menuCmd, true);
+					}
 					safety++;
 				}
-				int newIdx = findPlayerIndexByID(owner.playerID);
-				if (newIdx >= 0) {
-					Player & newOwner = players[newIdx];
-					if (newOwner.x != owner.x || newOwner.y != owner.y) {
+
+				// Check if play had observable effect (hand/AP changed or player moved/died)
+				int newOwnerIdx = findPlayerIndexByID(owner.playerID);
+				if (newOwnerIdx >= 0) {
+					Player & newOwner = players[newOwnerIdx];
+					if ((int)newOwner.hand.size() < (int)curOwner.hand.size() || newOwner.ap != curOwner.ap) {
+						playsThisTurn++;
 						actionIssued = true;
-						ofLogNotice("Harness") << "Harness: MOVE_UNIT succeeded.";
+						// continue attempting more plays
+						continue;
 					}
 				} else {
-					actionIssued = true; // owner removed
+					// owner removed
+					actionIssued = true;
+					break;
+				}
+
+				// If we reach here no meaningful change occurred; stop attempting plays
+				break;
+			}
+
+			// If no card played, try to move toward nearest enemy
+			if (!actionIssued) {
+				int bestDist = 100000;
+				int tx = -1, ty = -1;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if ((int)i == ownerIdx) continue;
+					if (players[i].health <= 0) continue;
+					int d = abs(players[i].x - owner.x) + abs(players[i].y - owner.y);
+					if (d < bestDist) {
+						bestDist = d;
+						tx = players[i].x;
+						ty = players[i].y;
+					}
+				}
+				if (tx != -1) {
+					InputCommandPacket mv = {};
+					mv.type = PKT_INPUT_COMMAND;
+					mv.seq = 0;
+					mv.commandId = 0;
+					mv.turnNumber = globalTurnCounter;
+					mv.commandType = CMD_MOVE_UNIT;
+					mv.params[0] = owner.x;
+					mv.params[1] = owner.y;
+					mv.params[2] = tx;
+					mv.params[3] = ty;
+					ofLogNotice("Harness") << "Harness: attempting MOVE_UNIT to (" << tx << "," << ty << ")";
+					sendInputCommand(mv, true);
+					int safety = 0;
+					while (safety < 30 && globalTurnCounter == startTurn) {
+						simulationTick();
+						safety++;
+					}
+					int newIdx = findPlayerIndexByID(owner.playerID);
+					if (newIdx >= 0) {
+						Player & newOwner = players[newIdx];
+						if (newOwner.x != owner.x || newOwner.y != owner.y) {
+							actionIssued = true;
+							ofLogNotice("Harness") << "Harness: MOVE_UNIT succeeded.";
+						}
+					} else {
+						actionIssued = true; // owner removed
+					}
 				}
 			}
-		}
 
-		if (!actionIssued) {
-			ofLogNotice("Harness") << "Harness: no action possible; sending END_TURN for playerID=" << ownerPlayerID << " at turn=" << globalTurnCounter;
-			sendInputCommand(endCmd, true);
-		}
+			if (!actionIssued) {
+				ofLogNotice("Harness") << "Harness: no action possible; sending END_TURN for playerID=" << ownerPlayerID << " at turn=" << globalTurnCounter;
+				sendInputCommand(endCmd, true);
+			}
 
-		// Restore local player id
-		myLocalPlayerID = prevLocal;
+			// Restore local player id
+			myLocalPlayerID = prevLocal;
 
-		// Run deterministic ticks until turn increments or safety cap (500 ticks)
-		int safety = 0;
-		while (globalTurnCounter == startTurn && safety < 500) {
-			simulationTick();
-			safety++;
+			// Run deterministic ticks until turn increments or safety cap (500 ticks)
+			int safety = 0;
+			while (globalTurnCounter == startTurn && safety < 500) {
+				simulationTick();
+				safety++;
+			}
+			ofLogNotice("Harness") << "Harness: advanced from turn " << startTurn << " to " << globalTurnCounter << " (ticks=" << safety << ")";
+			// Small deterministic post-advance tick to stabilize effects
+			for (int k = 0; k < 3; ++k)
+				simulationTick();
 		}
-		ofLogNotice("Harness") << "Harness: advanced from turn " << startTurn << " to " << globalTurnCounter << " (ticks=" << safety << ")";
-		// Small deterministic post-advance tick to stabilize effects
-		for (int k = 0; k < 3; ++k)
-			simulationTick();
 	}
-}
-//--------------------------------------------------------------
-void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride) {
-	if (playerIndex < 0 || playerIndex >= (int)players.size()) return;
-	Player & p = players[playerIndex];
-	if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return;
+	//--------------------------------------------------------------
+	void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride) {
+		if (playerIndex < 0 || playerIndex >= (int)players.size()) return;
+		Player & p = players[playerIndex];
+		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return;
 
-	const int prevX = p.x;
-	const int prevY = p.y;
+		const int prevX = p.x;
+		const int prevY = p.y;
 
-	// Log the movement
-	addGameLog(getPlayerSteamName(playerIndex) + " moved to (" + ofToString(targetX) + "," + ofToString(targetY) + ")");
+		// Log the movement
+		addGameLog(getPlayerSteamName(playerIndex) + " moved to (" + ofToString(targetX) + "," + ofToString(targetY) + ")");
 
-	// Safety: Prevent ending movement on a tile occupied by another unit.
-	// Movement selection should normally prevent this, but enforce here
-	// to avoid overlapping units (which can happen with networked packets
-	// or edge cases). Allow if target == previous position (no-op).
-	if (!(targetX == prevX && targetY == prevY) && board[targetX][targetY].hasPlayer) {
-		ofLogWarning("Movement") << "applyMovement blocked: target (" << targetX << "," << targetY << ") is occupied; movement aborted.";
-		return;
-	}
-
-	board[prevX][prevY].hasPlayer = false;
-
-	if (newAP >= 0) {
-		ofLogNotice("APDebug") << "applyMovement: playerIndex=" << playerIndex << " prev_currentAP=" << currentAP << " newAP=" << newAP << " p.ap(before)=" << p.ap;
-		currentAP = newAP;
-		p.ap = newAP;
-		ofLogNotice("APDebug") << "applyMovement: p.ap(after)=" << p.ap << " currentAP(after)=" << currentAP;
-	}
-
-	// Build animation path
-	animationPath.clear();
-	currentPathIndex = 0;
-	glm::vec3 startPos = gridToWorld(prevX, prevY);
-	glm::vec3 endPos = gridToWorld(targetX, targetY);
-	playerVisualPos = startPos;
-	animationPath.push_back(startPos);
-
-	if (pathOverride && pathOverride->size() > 1) {
-		for (size_t i = 1; i < pathOverride->size(); ++i) {
-			animationPath.push_back(gridToWorld((int)(*pathOverride)[i].x, (int)(*pathOverride)[i].y));
+		// Safety: Prevent ending movement on a tile occupied by another unit.
+		// Movement selection should normally prevent this, but enforce here
+		// to avoid overlapping units (which can happen with networked packets
+		// or edge cases). Allow if target == previous position (no-op).
+		if (!(targetX == prevX && targetY == prevY) && board[targetX][targetY].hasPlayer) {
+			ofLogWarning("Movement") << "applyMovement blocked: target (" << targetX << "," << targetY << ") is occupied; movement aborted.";
+			return;
 		}
-	} else {
-		std::vector<glm::vec2> path = findShortestPathForPlayer(playerIndex, { (float)prevX, (float)prevY }, { (float)targetX, (float)targetY });
-		if (path.size() > 1) {
-			for (size_t i = 1; i < path.size(); ++i) {
-				animationPath.push_back(gridToWorld((int)path[i].x, (int)path[i].y));
+
+		board[prevX][prevY].hasPlayer = false;
+
+		if (newAP >= 0) {
+			ofLogNotice("APDebug") << "applyMovement: playerIndex=" << playerIndex << " prev_currentAP=" << currentAP << " newAP=" << newAP << " p.ap(before)=" << p.ap;
+			currentAP = newAP;
+			p.ap = newAP;
+			ofLogNotice("APDebug") << "applyMovement: p.ap(after)=" << p.ap << " currentAP(after)=" << currentAP;
+		}
+
+		// Build animation path
+		animationPath.clear();
+		currentPathIndex = 0;
+		glm::vec3 startPos = gridToWorld(prevX, prevY);
+		glm::vec3 endPos = gridToWorld(targetX, targetY);
+		playerVisualPos = startPos;
+		animationPath.push_back(startPos);
+
+		if (pathOverride && pathOverride->size() > 1) {
+			for (size_t i = 1; i < pathOverride->size(); ++i) {
+				animationPath.push_back(gridToWorld((int)(*pathOverride)[i].x, (int)(*pathOverride)[i].y));
 			}
 		} else {
-			animationPath.push_back(endPos);
+			std::vector<glm::vec2> path = findShortestPathForPlayer(playerIndex, { (float)prevX, (float)prevY }, { (float)targetX, (float)targetY });
+			if (path.size() > 1) {
+				for (size_t i = 1; i < path.size(); ++i) {
+					animationPath.push_back(gridToWorld((int)path[i].x, (int)path[i].y));
+				}
+			} else {
+				animationPath.push_back(endPos);
+			}
 		}
-	}
 
-	if (!animationPath.empty()) {
-		isPlayerAnimating = true;
-		animatingPlayerIndex = playerIndex;
-		animationSegmentStartTime = ofGetElapsedTimef();
-	}
+		if (!animationPath.empty()) {
+			isPlayerAnimating = true;
+			animatingPlayerIndex = playerIndex;
+			animationSegmentStartTime = ofGetElapsedTimef();
+		}
 
-	board[targetX][targetY].hasPlayer = true;
-	p.x = targetX;
-	p.y = targetY;
+		board[targetX][targetY].hasPlayer = true;
+		p.x = targetX;
+		p.y = targetY;
 
-	// Clear the enteredWallByClick flag if the player is no longer inside a wall
-	if (!board[targetX][targetY].hasWall) {
-		p.enteredWallByClick = false;
-	}
+		// Clear the enteredWallByClick flag if the player is no longer inside a wall
+		if (!board[targetX][targetY].hasWall) {
+			p.enteredWallByClick = false;
+		}
 
-	invalidateTargetCache();
-}
-//--------------------------------------------------------------
-// Anti-cheat: Get deck state as string for logging
-std::string ofApp::getDeckStateString(const Player & p) {
-	std::string result = "Player" + std::to_string(p.playerID) + " Deck[" + std::to_string(p.deck.size()) + "]: ";
-	for (size_t i = 0; i < p.deck.size(); ++i) {
-		if (i > 0) result += ", ";
-		result += p.deck[i].name + "(" + std::to_string((int)p.deck[i].type) + ")";
+		invalidateTargetCache();
 	}
-	result += " | Hand[" + std::to_string(p.hand.size()) + "]: ";
-	for (size_t i = 0; i < p.hand.size(); ++i) {
-		if (i > 0) result += ", ";
-		result += p.hand[i].name + "(" + std::to_string((int)p.hand[i].type) + ")";
+	//--------------------------------------------------------------
+	// Anti-cheat: Get deck state as string for logging
+	std::string ofApp::getDeckStateString(const Player & p) {
+		std::string result = "Player" + std::to_string(p.playerID) + " Deck[" + std::to_string(p.deck.size()) + "]: ";
+		for (size_t i = 0; i < p.deck.size(); ++i) {
+			if (i > 0) result += ", ";
+			result += p.deck[i].name + "(" + std::to_string((int)p.deck[i].type) + ")";
+		}
+		result += " | Hand[" + std::to_string(p.hand.size()) + "]: ";
+		for (size_t i = 0; i < p.hand.size(); ++i) {
+			if (i > 0) result += ", ";
+			result += p.hand[i].name + "(" + std::to_string((int)p.hand[i].type) + ")";
+		}
+		result += " | Discard[" + std::to_string(p.discardPile.size()) + "]: ";
+		for (size_t i = 0; i < p.discardPile.size(); ++i) {
+			if (i > 0) result += ", ";
+			result += p.discardPile[i].name + "(" + std::to_string((int)p.discardPile[i].type) + ")";
+		}
+		return result;
 	}
-	result += " | Discard[" + std::to_string(p.discardPile.size()) + "]: ";
-	for (size_t i = 0; i < p.discardPile.size(); ++i) {
-		if (i > 0) result += ", ";
-		result += p.discardPile[i].name + "(" + std::to_string((int)p.discardPile[i].type) + ")";
-	}
-	return result;
-}
-//--------------------------------------------------------------
-// Anti-cheat: Log all player deck states to file and console
-void ofApp::logDeckStates(const std::string & reason) {
-	std::string timestamp = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
-	std::string logEntry = "\n=== DECK STATE LOG ===\n";
-	logEntry += "Time: " + timestamp + "\n";
-	logEntry += "Reason: " + reason + "\n";
-	logEntry += "Turn: " + std::to_string(globalTurnCounter) + "\n";
-	logEntry += "Current Player: " + std::to_string(currentPlayerIndex) + "\n";
-	logEntry += "Local Player ID: " + std::to_string(myLocalPlayerID) + "\n";
-	logEntry += "Is Host: " + std::string(steamManager.isHost() ? "true" : "false") + "\n\n";
+	//--------------------------------------------------------------
+	// Anti-cheat: Log all player deck states to file and console
+	void ofApp::logDeckStates(const std::string & reason) {
+		std::string timestamp = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
+		std::string logEntry = "\n=== DECK STATE LOG ===\n";
+		logEntry += "Time: " + timestamp + "\n";
+		logEntry += "Reason: " + reason + "\n";
+		logEntry += "Turn: " + std::to_string(globalTurnCounter) + "\n";
+		logEntry += "Current Player: " + std::to_string(currentPlayerIndex) + "\n";
+		logEntry += "Local Player ID: " + std::to_string(myLocalPlayerID) + "\n";
+		logEntry += "Is Host: " + std::string(steamManager.isHost() ? "true" : "false") + "\n\n";
 
-	for (const auto & p : players) {
-		logEntry += getDeckStateString(p) + "\n";
-	}
-	logEntry += "=====================\n";
+		for (const auto & p : players) {
+			logEntry += getDeckStateString(p) + "\n";
+		}
+		logEntry += "=====================\n";
 
-	// Log to console
-	ofLogNotice("DeckState") << logEntry;
+		// Log to console
+		ofLogNotice("DeckState") << logEntry;
 
-	// Append to file
-	std::string filename = "deck_states_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
-	ofBuffer buffer;
-	buffer.set(logEntry.c_str(), logEntry.size());
+		// Append to file
+		std::string filename = "deck_states_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
+		ofBuffer buffer;
+		buffer.set(logEntry.c_str(), logEntry.size());
 
 #pragma GCC diagnostic pop
 
-	ofBufferToFile(filename, buffer, true); // true = append mode
-}
-
-// ======================================
-// PHASE 5 HELPERS (10 REMAINING)
-// ======================================
-
-// Chain Lightning range resolver removed: range checks are handled deterministically
-// by EffectOpType::APPLY_CHAIN_LIGHTNING which reads authoritative range from
-// currentEffectSequence.blackboard[0] and queues damage ops as needed.
-
-// Chain Lightning resolution migrated to effect/op pipeline (APPLY_CHAIN_LIGHTNING -> APPLY_CHAIN_LIGHTNING_DAMAGE)
-// Damage dice are resolved at decision-time and written into `currentEffectSequence.blackboard`.
-
-// Spark of Genius migrated to effect/op pipeline (APPLY_SPARK_OF_GENIUS)
-
-// Barrier migrated to effect/op pipeline (APPLY_BARRIER)
-
-// Teleport resolution migrated to effect/op pipeline: APPLY_TELEPORT handles range->targeting
-
-// resolveOnFireDice removed - logic now handled by EffectOp pipeline (APPLY_ON_FIRE / APPLY_ON_FIRE_RESOLVE)
-
-// resolvePoisonStatusDice removed - logic now handled by EffectOp pipeline (APPLY_POISON)
-
-// ======================================
-// FINAL 5 HELPERS (Scattered Status Effects & Summoning)
-// ======================================
-
-// Paralysis and Wolf coin flips are resolved at decision-time and handled via
-// the effect-op handlers (APPLY_PARALYSIS / APPLY_WOLF_COIN).
-
-//--------------------------------------------------------------
-
-// Simple deterministic dice resolver used by a few inline spawn paths.
-int ofApp::resolveDiceRoll(int numDice, int sides) {
-	int total = 0;
-	for (int i = 0; i < numDice; ++i) {
-		total += getGameRandom(1, sides);
+		ofBufferToFile(filename, buffer, true); // true = append mode
 	}
-	return total;
-}
 
-// Detailed resolver that returns per-die raw faces and the sum of raw faces.
-int ofApp::resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & outRaw) {
-	outRaw.clear();
-	int totalRaw = 0;
-	for (int i = 0; i < numDice; ++i) {
-		int raw = getGameRandom(1, sides);
-		outRaw.push_back(raw);
-		totalRaw += raw;
+	// ======================================
+	// PHASE 5 HELPERS (10 REMAINING)
+	// ======================================
+
+	// Chain Lightning range resolver removed: range checks are handled deterministically
+	// by EffectOpType::APPLY_CHAIN_LIGHTNING which reads authoritative range from
+	// currentEffectSequence.blackboard[0] and queues damage ops as needed.
+
+	// Chain Lightning resolution migrated to effect/op pipeline (APPLY_CHAIN_LIGHTNING -> APPLY_CHAIN_LIGHTNING_DAMAGE)
+	// Damage dice are resolved at decision-time and written into `currentEffectSequence.blackboard`.
+
+	// Spark of Genius migrated to effect/op pipeline (APPLY_SPARK_OF_GENIUS)
+
+	// Barrier migrated to effect/op pipeline (APPLY_BARRIER)
+
+	// Teleport resolution migrated to effect/op pipeline: APPLY_TELEPORT handles range->targeting
+
+	// resolveOnFireDice removed - logic now handled by EffectOp pipeline (APPLY_ON_FIRE / APPLY_ON_FIRE_RESOLVE)
+
+	// resolvePoisonStatusDice removed - logic now handled by EffectOp pipeline (APPLY_POISON)
+
+	// ======================================
+	// FINAL 5 HELPERS (Scattered Status Effects & Summoning)
+	// ======================================
+
+	// Paralysis and Wolf coin flips are resolved at decision-time and handled via
+	// the effect-op handlers (APPLY_PARALYSIS / APPLY_WOLF_COIN).
+
+	//--------------------------------------------------------------
+
+	// Simple deterministic dice resolver used by a few inline spawn paths.
+	int ofApp::resolveDiceRoll(int numDice, int sides) {
+		int total = 0;
+		for (int i = 0; i < numDice; ++i) {
+			total += getGameRandom(1, sides);
+		}
+		return total;
 	}
-	return totalRaw;
-}
+
+	// Detailed resolver that returns per-die raw faces and the sum of raw faces.
+	int ofApp::resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & outRaw) {
+		outRaw.clear();
+		int totalRaw = 0;
+		for (int i = 0; i < numDice; ++i) {
+			int raw = getGameRandom(1, sides);
+			outRaw.push_back(raw);
+			totalRaw += raw;
+		}
+		return totalRaw;
+	}
