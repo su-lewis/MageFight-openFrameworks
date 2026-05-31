@@ -5842,6 +5842,402 @@ void ofApp::updateGame() {
 }
 
 void ofApp::prepareGameVisualState() {
+	// =========================================================================
+	// --- CONTINUOUS 144Hz VISUAL INTERPOLATIONS ---
+	// =========================================================================
+	float deltaTime = ofGetLastFrameTime();
+	if (deltaTime > 0.1f) deltaTime = 0.016f;
+
+	float frame_independent_smoothing = 1.0f - pow(0.6f, deltaTime * 60.0f);
+	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
+	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
+
+	glm::vec3 cameraCurrentPan2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
+	glm::vec3 targetPos, targetPos2;
+	glm::vec3 targetLookAt = cameraCurrentPan;
+	glm::vec3 targetLookAt2 = cameraCurrentPan2;
+
+	if (isTopDownView) {
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 0.6f, cameraCurrentPan2.z);
+	} else {
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.05f, cameraCurrentPan.z + cameraCurrentZoom * 0.75f);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.05f, cameraCurrentPan2.z - cameraCurrentZoom * 0.75f);
+	}
+	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
+	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
+	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
+	cameraCurrentLookAt2 = glm::mix(cameraCurrentLookAt2, targetLookAt2, frame_independent_smoothing);
+
+	{
+		bool quakeMoving = false;
+		for (const auto & eu : earthquakeUnits) {
+			if (eu.isMoving && eu.tilesToMove > 0) {
+				quakeMoving = true;
+				break;
+			}
+		}
+
+		if (!quakeMoving && cameraShakeTimer > 0.0f) {
+			cameraShakeTimer = std::max(0.0f, cameraShakeTimer - deltaTime);
+		}
+
+		float life = quakeMoving ? 1.0f : ((cameraShakeDuration > 0.0f) ? (cameraShakeTimer / cameraShakeDuration) : 0.0f);
+		if (life > 0.0f) {
+			std::uniform_real_distribution<float> off(-1.0f, 1.0f);
+			cameraShakeOffset = glm::vec3(off(visualRNG), off(visualRNG) * 0.5f, off(visualRNG)) * cameraShakeIntensity * life;
+		} else {
+			cameraShakeOffset = glm::vec3(0.0f);
+		}
+	}
+
+	cam.setPosition(cameraCurrentPos + cameraShakeOffset);
+	cam.lookAt(cameraCurrentLookAt + cameraShakeOffset * 0.5f);
+	cam2.setPosition(cameraCurrentPos2 + cameraShakeOffset);
+	cam2.lookAt(cameraCurrentLookAt2 + cameraShakeOffset * 0.5f);
+
+	float time = ofGetElapsedTimef();
+	float flicker = ofNoise(time * 0.6f);
+	float intensity = ofMap(flicker, 0, 1, 0.8f, 1.3f);
+	float wiggleX = ofNoise(time * 0.4f, 0) * 15.0f - 7.5f;
+	float wiggleY = ofNoise(time * 0.4f, 100) * 10.0f - 5.0f;
+	headlight.setDiffuseColor(ofColor(
+		std::min(255.0f, 220.0f * intensity),
+		std::min(255.0f, 160.0f * intensity),
+		std::min(255.0f, 100.0f * intensity)));
+	headlight.setSpecularColor(ofColor(255, 255, 255));
+	headlight.setPosition(cam.getPosition() + glm::vec3(wiggleX, wiggleY, 0));
+	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
+
+	float uiScale = ofGetHeight() / 1080.0f;
+	float btnWidth = 250 * uiScale;
+	float visibleY = 20 * uiScale;
+	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
+	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
+	float hiddenY = -100 * uiScale;
+	bool myTurn = isMyTurn();
+	if (isMultiplayer || myTurn) {
+		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
+	} else {
+		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
+	}
+	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 0.2f);
+
+	for (auto & roll : activeDiceRolls) {
+		roll.currentRotation += diceSpinSpeed * deltaTime;
+	}
+
+	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
+		it->worldPos += it->velocity * deltaTime;
+		it->velocity.y *= 0.95f;
+		if (time - it->startTime > it->duration) {
+			it = activeFloatingTexts.erase(it);
+		} else {
+			++it;
+		}
+	}
+
+	for (size_t i = 0; i < activeFloatingTexts.size(); ++i) {
+		std::vector<size_t> groupIdx;
+		for (size_t j = 0; j < activeFloatingTexts.size(); ++j) {
+			if (glm::length(activeFloatingTexts[j].anchorPos - activeFloatingTexts[i].anchorPos) < 0.01f) groupIdx.push_back(j);
+		}
+		if (groupIdx.size() <= 1) continue;
+		std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) { return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime; });
+		for (size_t k = 0; k < groupIdx.size(); ++k) {
+			activeFloatingTexts[groupIdx[k]].xOffset = ((float)k - ((float)groupIdx.size() - 1.0f) * 0.5f) * 0.8f;
+			activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
+		}
+	}
+
+	for (auto & anim : activeStolenCardAnimations) {
+		float elapsed = time - anim.startTime;
+		if (elapsed < 0.8f) {
+			float t = ofMap(elapsed, 0, 0.8f, 0.0, 1.0, true);
+			anim.currentPos = glm::mix(glm::vec2(getActiveCamera().worldToScreen(anim.startPos)), anim.targetPos, t);
+			anim.currentScale = ofLerp(0.7f, 1.15f, t);
+			anim.currentAlpha = ofLerp(0, 255, t);
+		} else {
+			anim.currentPos = anim.targetPos;
+			anim.currentScale = 1.15f;
+			anim.currentAlpha = 255;
+		}
+	}
+	activeStolenCardAnimations.erase(std::remove_if(activeStolenCardAnimations.begin(), activeStolenCardAnimations.end(), [time](const StolenCardAnimation & a) { return (time - a.startTime) >= 3.3f; }), activeStolenCardAnimations.end());
+
+	for (auto & anim : activePlayedCardAnimations) {
+		float elapsed = time - anim.startTime;
+		anim.currentScale = 1.2f;
+		anim.pos = glm::vec2(ofGetWidth() - ((kCardPixelWidth * 0.55f * anim.currentScale) / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+		anim.currentAlpha = (elapsed < 2.5f) ? 255.0f : ofLerp(255.0f, 0.0f, ofMap(elapsed, 2.5f, 3.0f, 0.0f, 1.0f, true));
+	}
+	activePlayedCardAnimations.erase(std::remove_if(activePlayedCardAnimations.begin(), activePlayedCardAnimations.end(), [time](const PlayedCardAnimation & a) { return (time - a.startTime) >= 3.0f; }), activePlayedCardAnimations.end());
+
+	for (auto & anim : activeRemovedCardAnimations) {
+		float elapsed = time - anim.startTime;
+		if (elapsed >= 0.0f && elapsed < 0.5f) {
+			float t = elapsed / 0.5f;
+			anim.currentScale = ofLerp(1.1f, 0.15f, t);
+			anim.currentAlpha = ofLerp(255, 0, t);
+		} else if (elapsed < 0.0f) {
+			anim.currentAlpha = 0;
+		}
+	}
+	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 0.5f; }), activeRemovedCardAnimations.end());
+
+	for (auto & disp : activeCardDisplays) {
+		float elapsed = time - disp.startTime;
+		if (elapsed < 0.25f) {
+			disp.currentScale = ofLerp(disp.startScale, 1.0f, elapsed / 0.25f);
+			disp.currentAlpha = 255.0f;
+		} else if (elapsed < 0.90f) {
+			disp.currentScale = 1.0f;
+			disp.currentAlpha = 255.0f;
+		} else if (elapsed < 1.25f) {
+			float t = ofMap(elapsed, 0.90f, 1.25f, 0.0f, 1.0f, true);
+			disp.currentAlpha = ofLerp(255.0f, 0.0f, t);
+			disp.currentScale = 1.0f;
+		}
+	}
+	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [time](const PlayedCardDisplay & disp) { return (time - disp.startTime) >= 1.25f; }), activeCardDisplays.end());
+
+	for (auto & anim : activeDrawCardAnimations) {
+		float elapsed = time - anim.startTime;
+		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+		float tSmooth = t * t * (3.0f - 2.0f * t);
+		float tScale = 1.0f - (1.0f - t) * (1.0f - t);
+		if (!anim.commitOnFinish && anim.pendingHandIndex >= 0) {
+			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
+			if (owner >= 0 && owner < (int)players.size()) {
+				Player & p = players[owner];
+				if (anim.pendingHandIndex < (int)p.hand.size()) {
+					anim.targetPos = p.hand[anim.pendingHandIndex].targetPos;
+				}
+			}
+		}
+		glm::vec2 start2D;
+		if (anim.startIsScreenSpace)
+			start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
+		else
+			start2D = glm::vec2((float)getActiveCamera().worldToScreen(anim.startPos).x, (float)getActiveCamera().worldToScreen(anim.startPos).y);
+		float minY = 40.0f;
+		float maxY = ofGetHeight() - 80.0f;
+		start2D.y = ofClamp(start2D.y, minY, maxY);
+		glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
+		float lift = std::max(80.0f, glm::distance(start2D, anim.targetPos) * 0.35f);
+		glm::vec2 control = mid - glm::vec2(0.0f, lift);
+		float u = 1.0f - tSmooth;
+		anim.currentPos = (u * u) * start2D + (2.0f * u * tSmooth) * control + (tSmooth * tSmooth) * anim.targetPos;
+		anim.currentScale = ofLerp(anim.startScale, anim.endScale, tScale);
+		anim.currentAlpha = 255.0f;
+	}
+	{
+		float now = ofGetElapsedTimef();
+		for (const auto & anim : activeDrawCardAnimations) {
+			if ((now - anim.startTime) >= anim.duration) {
+				int owner = -1;
+				if (anim.ownerPlayerID != -1)
+					owner = findPlayerIndexByID(anim.ownerPlayerID);
+				else
+					owner = anim.ownerIndex;
+				if (owner >= 0 && owner < (int)players.size()) {
+					Player & p = players[owner];
+					if (anim.commitOnFinish) {
+						Card c = anim.card;
+						c.currentPos = anim.targetPos;
+						c.targetPos = anim.targetPos;
+						c.currentScale = 1.0f;
+						c.targetScale = 1.0f;
+						if (!c.isCopied) c.drawnThisTurn = true;
+						p.hand.push_back(c);
+					} else {
+						for (auto & hc : p.hand) {
+							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
+								hc.currentPos = anim.targetPos;
+								hc.targetPos = anim.targetPos;
+								hc.currentScale = 1.0f;
+								hc.targetScale = 1.0f;
+								hc.isAnimating = false;
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+		activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [now](const DrawCardAnimation & anim) { return (now - anim.startTime) >= anim.duration; }), activeDrawCardAnimations.end());
+		for (auto & anim : activeDiscardCardAnimations) {
+			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
+			if (owner >= 0 && owner < (int)players.size()) {
+				Player & p = players[owner];
+				ofRectangle targetRect;
+				bool foundTarget = false;
+				if (p.isMinion) {
+					for (const auto & ui : activeMinionUIs) {
+						if (ui.playerIndex == owner) {
+							targetRect = ui.discardRect;
+							foundTarget = true;
+							break;
+						}
+					}
+				}
+				if (!foundTarget) {
+					int ownerSide = p.isMinion ? p.ownerID : p.playerID;
+					bool localSide = isMultiplayer ? (ownerSide == myLocalPlayerID) : (ownerSide == 0);
+					targetRect = localSide ? p0_discardRect : p1_discardRect;
+				}
+				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
+				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
+				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
+				float animBaseW = kCardPixelWidth * kHandCardVisualScale;
+				float animBaseH = kCardPixelHeight * kHandCardVisualScale;
+				anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
+			}
+			float elapsed = ofGetElapsedTimef() - anim.startTime;
+			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+			glm::vec2 start2D;
+			if (anim.startIsScreenSpace)
+				start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
+			else
+				start2D = glm::vec2((float)getActiveCamera().worldToScreen(anim.startPos).x, (float)getActiveCamera().worldToScreen(anim.startPos).y);
+			float minY = 40.0f;
+			float maxY = ofGetHeight() - 80.0f;
+			start2D.y = ofClamp(start2D.y, minY, maxY);
+			glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
+			float lift = std::max(40.0f, glm::distance(start2D, anim.targetPos) * 0.25f);
+			glm::vec2 control = mid - glm::vec2(0.0f, lift);
+			float u = 1.0f - t;
+			anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
+			anim.currentScale = ofLerp(anim.startScale, anim.endScale, t);
+			anim.currentAlpha = ofLerp(255.0f, 180.0f, t);
+		}
+		float now2 = ofGetElapsedTimef();
+		activeDiscardCardAnimations.erase(std::remove_if(activeDiscardCardAnimations.begin(), activeDiscardCardAnimations.end(), [now2](const DrawCardAnimation & anim) { return (now2 - anim.startTime) >= (anim.duration + 0.25f); }), activeDiscardCardAnimations.end());
+		for (auto & s : activeShuffleAnimations) {
+			float elapsed = ofGetElapsedTimef() - s.startTime;
+			float t = ofClamp(elapsed / s.duration, 0.0f, 1.0f);
+			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
+			s.rotation = t * 720.0f;
+			advanceCardState(CARD_PLAY_STATE_DICE);
+			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
+		}
+		activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) { return (ofGetElapsedTimef() - s.startTime) >= s.duration; }), activeShuffleAnimations.end());
+	}
+
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player * handPlayer = nullptr;
+		if (!isMultiplayer || isMyTurn()) {
+			handPlayer = &players[currentPlayerIndex];
+		}
+		if (handPlayer) {
+			size_t numCards = handPlayer->hand.size();
+			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+			for (size_t i = 0; i < numCards; i++) {
+				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
+				float fanT = 0.0f;
+				if (numCards >= 4) fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f;
+				float arcDrop = 0.0f;
+				if (numCards >= 4) arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
+				float breathing = 0.0f;
+				if (draggedCardIndex == -1) breathing = sinf(ofGetElapsedTimef() * kHandBreathSpeed + (float)i * 0.35f) * kHandBreathAmpPx;
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
+				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+				if (static_cast<int>(i) != draggedCardIndex) {
+					float scaleLerp = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? kHandHoverLerpIn : kHandHoverLerpOut;
+					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, kHandPosLerp);
+				}
+			}
+		}
+	}
+
+	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+		if (currentState == STATE_DRAFTING && isInGameDraft) {
+			animationSegmentStartTime = ofGetElapsedTimef();
+		} else {
+			auto easeInOutCubic = [](float t) { if (t < 0.5f) return 4.0f * t * t * t; float f = ((2.0f * t) - 2.0f); return 0.5f * f * f * f + 1.0f; };
+			if (currentPathIndex < 0) currentPathIndex = 0;
+			if (currentPathIndex + 1 >= (int)animationPath.size()) {
+				isPlayerAnimating = false;
+				animatingPlayerIndex = -1;
+			} else {
+				glm::vec3 startPos = animationPath[currentPathIndex];
+				glm::vec3 targetPos = animationPath[currentPathIndex + 1];
+				float segmentDuration = 0.20f;
+				float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
+				float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
+				float easeT = easeInOutCubic(t);
+				glm::vec3 dir = targetPos - startPos;
+				if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
+					playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
+					players[animatingPlayerIndex].facingAngle = playerFacingAngle;
+				}
+				playerVisualPos = glm::mix(startPos, targetPos, easeT);
+				float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
+				playerVisualPos.y += hop;
+				if (t >= 0.999f) {
+					playerVisualPos = targetPos;
+					{
+						glm::vec2 arrivedGridF = worldToGrid(targetPos);
+						int arrivedX = (int)std::round(arrivedGridF.x);
+						int arrivedY = (int)std::round(arrivedGridF.y);
+						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+							if (!pendingVisualKeyDraftQueue.empty() && pendingVisualKeyDraftQueue.front().tileX == arrivedX && pendingVisualKeyDraftQueue.front().tileY == arrivedY && pendingVisualKeyDraftQueue.front().targetIndex >= 0 && pendingVisualKeyDraftQueue.front().targetIndex < (int)players.size()) {
+								const PendingVisualKeyDraft draft = pendingVisualKeyDraftQueue.front();
+								pendingVisualKeyDraftQueue.erase(pendingVisualKeyDraftQueue.begin());
+								isInGameDraft = true;
+								inGameDraftTargetIdx = draft.targetIndex;
+								draftPlayerIndex = draft.targetIndex;
+								std::vector<int> forcedIndices;
+								for (int idx : draft.poolIndices)
+									if (idx >= 0) forcedIndices.push_back(idx);
+								generateDraftOptions(draft.classTier, forcedIndices.empty() ? nullptr : &forcedIndices);
+								draftPicksRemaining = 1;
+								selectedDraftIndices.clear();
+								currentState = STATE_DRAFTING;
+								resetDraftPhaseTimerWindow();
+								draftDisplayStartTime = ofGetElapsedTimef();
+								draftDisplayInteractiveEnabled = false;
+								draftAutoSelectedIndex = -1;
+								ofColor keyCol = ofColor::gold;
+								if (draft.classTier == 2)
+									keyCol = ofColor(192, 192, 192);
+								else if (draft.classTier == 1)
+									keyCol = ofColor(205, 127, 50);
+								queueFloatingTextVisual(gridToWorld(arrivedX, arrivedY), "Key Found!", keyCol);
+							}
+						}
+					}
+					currentPathIndex++;
+					animationSegmentStartTime = ofGetElapsedTimef();
+					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
+					if (!pausedForKeyDraft) {
+						if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
+							std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+							int idx = footIdx(visualRNG);
+							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+							footstepSounds[idx].play();
+						}
+						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
+							isPlayerAnimating = false;
+							animatingPlayerIndex = -1;
+							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+								playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	const float cardDisplayDuration = 1.25f;
+	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
+		activeCardDisplays.erase(activeCardDisplays.begin());
+	}
+
+	// =========================================================================
 
 	// Card state machine now runs in the fixed-step simulation tick for determinism
 
@@ -6383,6 +6779,9 @@ void ofApp::updateGameLogic() {
 		}
 	}
 
+	updateEffectSequence();
+
+#if 0
 	// --- DELTA TIME CLAMP FIX ---
 	float deltaTime = ofGetLastFrameTime();
 	// If we lagged more than 100ms (e.g. Alt-Tab), pretend it was just 16ms
@@ -6550,6 +6949,8 @@ void ofApp::updateGameLogic() {
 
 	// NOTE: Chain Lightning, Flail, Spark, Barrier, Teleport, OnFire, Poison Status, and Summon HP
 	// resolution (Hellhound/Demon) are now centralized in their respective helpers
+
+#endif
 
 	// --- EARTHQUAKE LOGIC ---
 	// Frame-based earthquake animation: resolved deterministically in
@@ -31337,16 +31738,15 @@ void ofApp::drawDraftScreen() {
 	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
 	// 2. Header & instruction: snappy pop-in that scales and fades as cards appear
-	// Frame-based timing for draft UI so the animation stays deterministic.
-	int nowFrame = (int)simulationFrame;
-	float nowSec = ofGetElapsedTimef();
+	// Continuous fractional frame keeps the draft UI smooth at 144Hz.
+	float continuousFrame = (float)simulationFrame + (simulationAccumulator / SIMULATION_TIMESTEP);
 	// Compute uiScale (kept in sync with getDraftCardMetrics)
 	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
 	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
 	float appearT = 0.0f;
 	if (!draftOptionUI.empty()) {
 		for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
-			float elapsedFrames = (float)(nowFrame - draftOptionUI[ai].startFrame);
+			float elapsedFrames = continuousFrame - (float)draftOptionUI[ai].startFrame;
 			float t = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
 			if (t > appearT) appearT = t;
 		}
@@ -31444,8 +31844,6 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// Animate per-slot UI and draw scaled cards (frame-based)
-	nowFrame = (int)simulationFrame;
-	nowSec = ofGetElapsedTimef();
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
@@ -31453,7 +31851,7 @@ void ofApp::drawDraftScreen() {
 		// Update animation state for this slot
 		if (i < draftOptionUI.size()) {
 			auto & ui = draftOptionUI[i];
-			float elapsedFrames = (float)(nowFrame - ui.startFrame);
+			float elapsedFrames = continuousFrame - (float)ui.startFrame;
 			if (ui.state == DRAFT_ANIM_APPEARING) {
 				float t = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
 				t = std::clamp(t, 0.0f, 1.0f);
@@ -31481,17 +31879,10 @@ void ofApp::drawDraftScreen() {
 		// Compute scaled rect
 		float scale = 1.0f;
 		if (i < draftOptionUI.size()) scale = draftOptionUI[i].currentScale;
-		if (i < draftOptionUI.size() && !draftOptionUI[i].hidden && draftOptionUI[i].state == DRAFT_ANIM_IDLE) {
-			float idlePulse = 1.0f + 0.012f * sinf(nowSec * 2.5f + (float)i * 0.8f);
-			scale *= idlePulse;
-		}
 		float w = cardW * scale;
 		float h = cardH * scale;
 		float drawX = x + (cardW - w) / 2.0f;
 		float drawY = startY + (cardH - h) / 2.0f;
-		if (i < draftOptionUI.size() && !draftOptionUI[i].hidden && draftOptionUI[i].state == DRAFT_ANIM_IDLE) {
-			drawY -= 4.0f * (scale - 1.0f);
-		}
 
 		// Check Selection: compare against authoritative pool index for this slot
 		int slotPoolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
@@ -31603,7 +31994,7 @@ void ofApp::drawDraftScreen() {
 		float acceptScale = 1.0f;
 		float acceptAlpha = 1.0f;
 		if (draftAcceptUI.state == DRAFT_ANIM_APPEARING) {
-			float elapsedFrames = (float)(nowFrame - draftAcceptUI.startFrame);
+			float elapsedFrames = continuousFrame - (float)draftAcceptUI.startFrame;
 			float at = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
 			at = std::clamp(at, 0.0f, 1.0f);
 			if (at >= 1.0f) {
@@ -31614,7 +32005,7 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 		if (draftAcceptUI.state == DRAFT_ANIM_VANISHING) {
-			float elapsedFrames = (float)(nowFrame - draftAcceptUI.startFrame);
+			float elapsedFrames = continuousFrame - (float)draftAcceptUI.startFrame;
 			float vt = (draftAnimVanishFrames > 0) ? (elapsedFrames / (float)draftAnimVanishFrames) : 1.0f;
 			vt = std::clamp(vt, 0.0f, 1.0f);
 			if (vt >= 1.0f) {
@@ -31650,10 +32041,10 @@ void ofApp::drawActiveDraftPickedMoves() {
 	float cardW, cardH, spacing, startX, startY;
 	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
-	int currentSimFrame = (int)simulationFrame;
+	float continuousFrame = (float)simulationFrame + (simulationAccumulator / SIMULATION_TIMESTEP);
 	for (auto & mv : activeDraftPickedMoves) {
 		if (mv.finished) continue;
-		int elapsedFrames = currentSimFrame - mv.startFrame;
+		float elapsedFrames = continuousFrame - (float)mv.startFrame;
 		if (elapsedFrames < mv.delayFrames) {
 			float drawW = cardW;
 			float drawH = cardH;
@@ -31664,7 +32055,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 				mv.card.textureRect.x, mv.card.textureRect.y,
 				mv.card.textureRect.width, mv.card.textureRect.height);
 		} else {
-			int activeFrames = elapsedFrames - mv.delayFrames;
+			float activeFrames = elapsedFrames - (float)mv.delayFrames;
 			float t = (mv.durationFrames > 0) ? ((float)activeFrames / (float)mv.durationFrames) : 1.0f;
 			t = std::clamp(t, 0.0f, 1.0f);
 			float easeT = t * t * (3.0f - 2.0f * t);
