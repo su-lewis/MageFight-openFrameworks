@@ -451,7 +451,7 @@
 - **Effect Text:** Choose One - Push an adjacent wall 1 tile forward moving with it, dealing 2d4 to any unit hit, if they can't move in any direction they die; or pull it 1 tile.
 ---
 
--## 58. Consume Large Health Potion
+-## 58. Consume Health Flagon
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 

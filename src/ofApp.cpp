@@ -3505,50 +3505,44 @@ void ofApp::setup() {
 	// --- 7. DICE MODELS ---
 	ofxAssimpModelLoader tempLoader;
 
+	auto centerMeshRobust = [](ofMesh & mesh) {
+		if (mesh.getNumVertices() == 0) return;
+		glm::vec3 minB(1e9f);
+		glm::vec3 maxB(-1e9f);
+		for (int i = 0; i < mesh.getNumVertices(); ++i) {
+			glm::vec3 v = mesh.getVertex(i);
+			minB = glm::min(minB, v);
+			maxB = glm::max(maxB, v);
+		}
+		glm::vec3 center = (minB + maxB) * 0.5f;
+		float maxDist = 0.0f;
+		for (int i = 0; i < mesh.getNumVertices(); ++i) {
+			glm::vec3 v = mesh.getVertex(i) - center;
+			mesh.setVertex(i, v);
+			maxDist = std::max(maxDist, glm::length(v));
+		}
+		if (maxDist > 0.0f) {
+			float scale = 1.0f / maxDist;
+			for (int i = 0; i < mesh.getNumVertices(); ++i) {
+				mesh.setVertex(i, mesh.getVertex(i) * scale);
+			}
+		}
+	};
+
 	// Load D4
 	if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
 		d4Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d4Mesh.getCentroid();
-		for (auto & v : d4Mesh.getVertices())
-			v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d4Mesh.getVertices())
-			maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d4Mesh.getVertices())
-				v *= scaleFactor;
-		}
+		centerMeshRobust(d4Mesh);
 	}
 	// Load D10
 	if (tempLoader.load("Dice/D10/d10.obj")) {
 		d10Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d10Mesh.getCentroid();
-		for (auto & v : d10Mesh.getVertices())
-			v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d10Mesh.getVertices())
-			maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d10Mesh.getVertices())
-				v *= scaleFactor;
-		}
+		centerMeshRobust(d10Mesh);
 	}
 	// Load D20
 	if (tempLoader.load("Dice/D20/d20.obj")) {
 		d20Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d20Mesh.getCentroid();
-		for (auto & v : d20Mesh.getVertices())
-			v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d20Mesh.getVertices())
-			maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d20Mesh.getVertices())
-				v *= scaleFactor;
-		}
+		centerMeshRobust(d20Mesh);
 	}
 	// Coin Mesh Gen
 	coinMesh.clear();
@@ -3618,7 +3612,17 @@ void ofApp::setup() {
 		coinMesh.addIndex(current + 1);
 	}
 
-	// --- 8. MATERIALS & LIGHTS ---
+	// --- 8. POST SHADERS (P key cycle) ---
+	pixelArtShaderLoaded = pixelArtShader.load("Shaders/pixel_art");
+	c64ShaderLoaded = c64Shader.load("Shaders/c64");
+	if (!pixelArtShaderLoaded) {
+		ofLogWarning("PixelArt") << "Failed to load shader pair: Shaders/pixel_art.{vert,frag}";
+	}
+	if (!c64ShaderLoaded) {
+		ofLogWarning("PixelArt") << "Failed to load shader pair: Shaders/c64.{vert,frag}";
+	}
+
+	// --- 9. MATERIALS & LIGHTS ---
 
 	// 1. Material Settings
 	modelMaterial.setShininess(10);
@@ -9981,7 +9985,7 @@ void ofApp::drawGame() {
 				float remainingSpin = (1.0f - t_ease) * 1080.0f; // Spin amount
 				if (roll.sides == 4) remainingSpin *= 0.5f; // D4 spins less violently
 				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = spin * roll.finalQuat;
+				finalDrawQuat = roll.finalQuat * spin;
 			} else {
 				finalDrawQuat = roll.finalQuat;
 			}
@@ -16875,34 +16879,6 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
-	// Cycle pixel-art / C64 / off with (P)
-	if (key == 'p' || key == 'P') {
-		if (!enablePixelArt && !enableC64Shader) {
-			// Off -> Pixel
-			enablePixelArt = true;
-			enableC64Shader = false;
-			enableShaders = false;
-			applyPixelArtSettings();
-			ofLogNotice("PixelArt") << "Switched to PIXEL mode";
-			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel Mode: ON", ofColor::white);
-		} else if (enablePixelArt) {
-			// Pixel -> C64
-			enablePixelArt = false;
-			enableC64Shader = true;
-			enableShaders = false;
-			ofLogNotice("PixelArt") << "Switched to C64 mode";
-			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "C64 Mode: ON", ofColor::white);
-		} else if (enableC64Shader) {
-			// C64 -> Off
-			enablePixelArt = false;
-			enableC64Shader = false;
-			enableShaders = false;
-			ofLogNotice("PixelArt") << "Switched pixel/C64: OFF";
-			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel/C64: OFF", ofColor::white);
-		}
-		return;
-	}
-
 	// Quick End Turn hotkey: 'E' -> act like clicking End Turn
 	if ((key == 'e' || key == 'E') && currentState == STATE_GAMEPLAY) {
 		if (isChatOpen || isCardSpawnerOpen) return;
@@ -17021,6 +16997,34 @@ void ofApp::keyReleased(int key) {
 				cameraTargetZoom = last3DZoom;
 			}
 		}
+	}
+
+	// 2a. Cycle pixel-art / C64 / off with (P) on key release (one step per tap)
+	if (key == 'p' || key == 'P') {
+		if (!enablePixelArt && !enableC64Shader) {
+			// Off -> Pixel
+			enablePixelArt = true;
+			enableC64Shader = false;
+			enableShaders = false;
+			applyPixelArtSettings();
+			ofLogNotice("PixelArt") << "Switched to PIXEL mode";
+			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel Mode: ON", ofColor::white);
+		} else if (enablePixelArt) {
+			// Pixel -> C64
+			enablePixelArt = false;
+			enableC64Shader = true;
+			enableShaders = false;
+			ofLogNotice("PixelArt") << "Switched to C64 mode";
+			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "C64 Mode: ON", ofColor::white);
+		} else {
+			// C64 -> Off
+			enablePixelArt = false;
+			enableC64Shader = false;
+			enableShaders = false;
+			ofLogNotice("PixelArt") << "Switched pixel/C64: OFF";
+			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel/C64: OFF", ofColor::white);
+		}
+		return;
 	}
 
 	// 2b. Post-processing toggles (debug)
