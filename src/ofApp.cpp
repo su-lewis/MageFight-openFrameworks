@@ -31061,16 +31061,9 @@ void ofApp::onCardPicked(int optionIndex) {
 		// Shuffle deck to include new card (host-authoritative will also send PKT_SHUFFLE)
 		shuffleGameVector(p.deck, draftPlayerIndex);
 
-		// Create visual move using same layout math as drawDraftScreen so startPos matches slot
-		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-		uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
-		float cardW = kCardPixelWidth * uiScale;
-		float cardH = kCardPixelHeight * uiScale;
-		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
-		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-		// Recompute vertical layout used by drawDraftScreen
-		float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
-		float startY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
+		// Create visual move using the same layout math as drawDraftScreen so startPos matches the slot.
+		float cardW, cardH, spacing, startX, startY;
+		getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 		// Compute slot center for the picked optionIndex
 		int i = optionIndex;
 		if (i < 0) i = 0;
@@ -31342,7 +31335,7 @@ void ofApp::drawDraftScreen() {
 	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
 	// 2. Header & instruction: snappy pop-in that scales and fades as cards appear
-	// Frame-based timing for draft UI (schedule uses `startFrame`, but animate with high-res time)
+	// Frame-based timing for draft UI so the animation stays deterministic.
 	int nowFrame = (int)simulationFrame;
 	float nowSec = ofGetElapsedTimef();
 	// Compute uiScale (kept in sync with getDraftCardMetrics)
@@ -31351,10 +31344,8 @@ void ofApp::drawDraftScreen() {
 	float appearT = 0.0f;
 	if (!draftOptionUI.empty()) {
 		for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
-			float startSec = draftOptionUI[ai].startFrame / (float)turnTimerFramesPerSecond;
-			float elapsedSec = nowSec - startSec;
-			float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
-			float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+			float elapsedFrames = (float)(nowFrame - draftOptionUI[ai].startFrame);
+			float t = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
 			if (t > appearT) appearT = t;
 		}
 		appearT = std::clamp(appearT, 0.0f, 1.0f);
@@ -31445,11 +31436,9 @@ void ofApp::drawDraftScreen() {
 		// Update animation state for this slot
 		if (i < draftOptionUI.size()) {
 			auto & ui = draftOptionUI[i];
+			float elapsedFrames = (float)(nowFrame - ui.startFrame);
 			if (ui.state == DRAFT_ANIM_APPEARING) {
-				float startSec = ui.startFrame / (float)turnTimerFramesPerSecond;
-				float elapsedSec = nowSec - startSec;
-				float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
-				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+				float t = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
 				t = std::clamp(t, 0.0f, 1.0f);
 				t = t * t * (3.0f - 2.0f * t);
 				if (t >= 1.0f) {
@@ -31459,10 +31448,7 @@ void ofApp::drawDraftScreen() {
 					ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
 				}
 			} else if (ui.state == DRAFT_ANIM_VANISHING) {
-				float startSec = ui.startFrame / (float)turnTimerFramesPerSecond;
-				float elapsedSec = nowSec - startSec;
-				float durationSec = (draftAnimVanishFrames > 0) ? (draftAnimVanishFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
-				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+				float t = (draftAnimVanishFrames > 0) ? (elapsedFrames / (float)draftAnimVanishFrames) : 1.0f;
 				t = std::clamp(t, 0.0f, 1.0f);
 				t = t * t * (3.0f - 2.0f * t);
 				if (t >= 1.0f) {
@@ -31600,10 +31586,8 @@ void ofApp::drawDraftScreen() {
 		float acceptScale = 1.0f;
 		float acceptAlpha = 1.0f;
 		if (draftAcceptUI.state == DRAFT_ANIM_APPEARING) {
-			float startSec = draftAcceptUI.startFrame / (float)turnTimerFramesPerSecond;
-			float elapsedSec = nowSec - startSec;
-			float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
-			float at = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+			float elapsedFrames = (float)(nowFrame - draftAcceptUI.startFrame);
+			float at = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
 			at = std::clamp(at, 0.0f, 1.0f);
 			if (at >= 1.0f) {
 				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
@@ -31613,10 +31597,8 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 		if (draftAcceptUI.state == DRAFT_ANIM_VANISHING) {
-			float startSec = draftAcceptUI.startFrame / (float)turnTimerFramesPerSecond;
-			float elapsedSec = nowSec - startSec;
-			float durationSec = (draftAnimVanishFrames > 0) ? (draftAnimVanishFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
-			float vt = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+			float elapsedFrames = (float)(nowFrame - draftAcceptUI.startFrame);
+			float vt = (draftAnimVanishFrames > 0) ? (elapsedFrames / (float)draftAnimVanishFrames) : 1.0f;
 			vt = std::clamp(vt, 0.0f, 1.0f);
 			if (vt >= 1.0f) {
 				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
@@ -31651,13 +31633,11 @@ void ofApp::drawActiveDraftPickedMoves() {
 	float cardW, cardH, spacing, startX, startY;
 	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
-	float nowSec = ofGetElapsedTimef();
+	int currentSimFrame = (int)simulationFrame;
 	for (auto & mv : activeDraftPickedMoves) {
 		if (mv.finished) continue;
-		float startSec = mv.startFrame / (float)turnTimerFramesPerSecond;
-		float delaySec = mv.delayFrames / (float)turnTimerFramesPerSecond;
-		float durationSec = mv.durationFrames / (float)turnTimerFramesPerSecond;
-		if (nowSec < startSec + delaySec) {
+		int elapsedFrames = currentSimFrame - mv.startFrame;
+		if (elapsedFrames < mv.delayFrames) {
 			float drawW = cardW;
 			float drawH = cardH;
 			float dx = mv.startPos.x - drawW / 2.0f;
@@ -31667,11 +31647,12 @@ void ofApp::drawActiveDraftPickedMoves() {
 				mv.card.textureRect.x, mv.card.textureRect.y,
 				mv.card.textureRect.width, mv.card.textureRect.height);
 		} else {
-			float elapsedSec = nowSec - (startSec + delaySec);
-			float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
-			if (t >= 1.0f) t = 1.0f;
-			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
-			float scale = 1.0f * (1.0f - t) + mv.endScale * t;
+			int activeFrames = elapsedFrames - mv.delayFrames;
+			float t = (mv.durationFrames > 0) ? ((float)activeFrames / (float)mv.durationFrames) : 1.0f;
+			t = std::clamp(t, 0.0f, 1.0f);
+			float easeT = t * t * (3.0f - 2.0f * t);
+			glm::vec2 pos = mv.startPos * (1.0f - easeT) + mv.endPos * easeT;
+			float scale = 1.0f * (1.0f - easeT) + mv.endScale * easeT;
 			float drawW = cardW * scale;
 			float drawH = cardH * scale;
 			float dx = pos.x - drawW / 2.0f;
@@ -31843,13 +31824,19 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 // Simple layout helper for draft card metrics (keeps UI compiling).
 void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
-	float scale = settingsUIScale;
-	outCardW = kCardPixelWidth * 0.28f * scale;
-	outCardH = kCardPixelHeight * 0.28f * scale;
-	outSpacing = outCardW * 0.12f;
-	float totalWidth = outCardW * 3 + outSpacing * 2;
-	outStartX = ofGetWidth() / 2.0f - totalWidth / 2.0f + outCardW / 2.0f;
-	outStartY = ofGetHeight() * 0.55f;
+	float screenScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	float scale = screenScale * std::clamp(settingsUIScale, 0.75f, 1.25f);
+
+	// Make cards much more prominent so the draft UI reads clearly.
+	outCardW = kCardPixelWidth * 0.55f * scale;
+	outCardH = kCardPixelHeight * 0.55f * scale;
+	outSpacing = outCardW * 0.15f;
+
+	float totalWidth = outCardW * 3.0f + outSpacing * 2.0f;
+	outStartX = (ofGetWidth() - totalWidth) / 2.0f;
+
+	// Center the row vertically.
+	outStartY = (ofGetHeight() - outCardH) / 2.0f;
 }
 
 void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
