@@ -5889,7 +5889,7 @@ void ofApp::prepareGameVisualState() {
 
 	float uiScale = ofGetHeight() / 1080.0f;
 	float btnWidth = 250 * uiScale;
-	float visibleY = 35 * uiScale; // lower End Turn button to avoid glow clipping
+	float visibleY = 20 * uiScale;
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
@@ -12177,7 +12177,7 @@ void ofApp::drawGame() {
 					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
 
 					// Exclude specific non-damaging / indirect cards from being highlighted
-					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_LARGE_HEALTH_POTION || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
 
 					if (isDirectDamageCard && !isExcluded) {
 						ofPushStyle();
@@ -30538,7 +30538,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_EARTHQUAKE") return CARD_EARTHQUAKE;
 	if (str == "CARD_FORM_OF_GHOST") return CARD_FORM_OF_GHOST;
 	if (str == "CARD_GIANT_MAGIC_HAND") return CARD_GIANT_MAGIC_HAND;
-	if (str == "CARD_CONSUME_LARGE_HEALTH_POTION") return CARD_CONSUME_LARGE_HEALTH_POTION;
+	if (str == "CARD_CONSUME_HEALTH_FLAGON") return CARD_CONSUME_HEALTH_FLAGON;
 	if (str == "CARD_LESSER_HEAL") return CARD_LESSER_HEAL;
 	if (str == "CARD_TRANSFORM_WALL") return CARD_TRANSFORM_WALL;
 	if (str == "CARD_SUMMON_KOBOLD_KING") return CARD_SUMMON_KOBOLD_KING; // Add

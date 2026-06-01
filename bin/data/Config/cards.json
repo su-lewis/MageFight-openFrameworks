@@ -731,8 +731,8 @@
   },
   {
     "id": 58,
-    "name": "Consume Large Health Potion",
-    "type": "CARD_CONSUME_LARGE_HEALTH_POTION",
+    "name": "Consume Health Flagon",
+    "type": "CARD_CONSUME_HEALTH_FLAGON",
     "cost": 4,
     "maxHealthGain": 3,
     "healAmount": 1,
