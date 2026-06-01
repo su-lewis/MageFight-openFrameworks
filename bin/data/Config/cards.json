@@ -34,11 +34,13 @@
     "id": 4,
     "name": "Bash",
     "type": "CARD_BASH",
-    "cost": 3,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
+    "cost": 3,
+    "class": 1,
     "damageDiceNum": 2,
     "damageDiceSides": 4,
-    "class": 1
+    "isHandRelated": true
   },
   {
     "id": 5,
