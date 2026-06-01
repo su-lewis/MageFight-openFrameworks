@@ -156,6 +156,12 @@ static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) 
 	return ui;
 }
 
+// Global UI scale helper: 1440p baseline (1.0 at 1440p). Clamped to avoid extreme sizes.
+static inline float getUIScaleFromHeight(float screenH) {
+	float s = screenH / 1440.0f;
+	return std::clamp(s, 0.5f, 1.25f);
+}
+
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
 	return std::max(0.0f, ui.edgeInset - ui.stackYOffset);
 }
@@ -171,9 +177,9 @@ struct HandLayout {
 };
 
 static ofRectangle computeHandAreaRect(float screenW, float screenH) {
-	float scale = screenH / 1080.0f;
+	float scale = getUIScaleFromHeight(screenH);
 	UILayoutSpacing ui = buildUILayoutSpacing(scale, true);
-	float handCardH = kCardPixelHeight * kHandCardVisualScale;
+	float handCardH = kCardPixelHeight * kHandCardVisualScale * scale;
 	float deckCardW = kCardPixelWidth * pileCardScale * scale;
 	float healthBarW = 220.0f * scale;
 	float horizontalPadding = 16.0f * scale;
@@ -185,8 +191,14 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 		left = center - 200.0f * scale;
 		right = center + 200.0f * scale;
 	}
+	float currentWidth = std::max(0.0f, right - left);
+	float targetWidth = screenW * kHandAreaWidthRatio * scale;
+	float handAreaWidth = std::min(currentWidth, targetWidth);
+	float centerX = screenW * 0.5f;
+	left = centerX - handAreaWidth * 0.5f;
+	right = centerX + handAreaWidth * 0.5f;
 
-	float restY = screenH - 80.0f;
+	float restY = screenH - 80.0f * scale;
 	float top = restY - (handCardH * 0.5f) - (56.0f * scale);
 	float bottom = screenH - (8.0f * scale);
 	return ofRectangle(left, top, std::max(0.0f, right - left), std::max(0.0f, bottom - top));
@@ -194,8 +206,11 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 
 static HandLayout computeHandLayout(size_t numCards, float screenW, float screenH) {
 	HandLayout l;
+	float scale = getUIScaleFromHeight(screenH);
+	l.cardW = kCardPixelWidth * kHandCardVisualScale * scale;
+	l.cardH = kCardPixelHeight * kHandCardVisualScale * scale;
 	l.handAreaRect = computeHandAreaRect(screenW, screenH);
-	l.restY = screenH - 80.0f;
+	l.restY = screenH - 80.0f * scale;
 	if (numCards <= 1) {
 		l.spacing = 0.0f;
 		l.totalWidth = l.cardW;
@@ -204,7 +219,7 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 	}
 
 	float handAreaWidth = std::max(0.0f, l.handAreaRect.getWidth());
-	float smallGap = std::clamp(screenH * 0.008f, 6.0f, 12.0f);
+	float smallGap = std::clamp(screenH * 0.008f * scale, 6.0f * scale, 12.0f * scale);
 
 	if (numCards <= 3) {
 		// 1-3 cards: keep cards adjacent (no overlap), with a small positive gap.
@@ -213,7 +228,7 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 		// 4+ cards: always overlap (Hearthstone-like fan), while still fitting.
 		float centerStepToFit = (handAreaWidth - l.cardW) / (float)(numCards - 1);
 		float minCenterStep = 1.0f;
-		float maxCenterStep = std::max(1.0f, l.cardW - std::max(8.0f, screenH * 0.006f)); // force overlap
+		float maxCenterStep = std::max(1.0f, l.cardW - std::max(8.0f * scale, screenH * 0.006f * scale)); // force overlap
 		float centerStep = ofClamp(centerStepToFit, minCenterStep, maxCenterStep);
 		l.spacing = centerStep - l.cardW;
 	}
@@ -325,7 +340,7 @@ struct CardTemplateLayout {
 	float nameMiddleBottomMaxY = 864.0f;
 	float costScale = 3.0f;
 	float labelScale = 1.0f;
-	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
+	float effectScale = 3.8f; // max preferred scale; auto-fit may reduce per card
 	float effectMinScale = 1.25f; // floor for very long text
 	float effectLineSpacing = 0.82f;
 };
@@ -941,7 +956,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const std::string & markdownPath,
 	const std::vector<Card> & allCards,
 	const ofTrueTypeFont & titleFont,
-	const ofTrueTypeFont & uiFont,
+	const ofTrueTypeFont & effectFont,
 	ofImage & outSpriteSheet) {
 	if (allCards.empty()) return false;
 
@@ -1020,8 +1035,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		}
 	}
 
-	const ofTrueTypeFont & renderUIFont = uiFont;
 	const ofTrueTypeFont & renderTitleFont = titleFont;
+	const ofTrueTypeFont & renderEffectFont = effectFont;
 	ofRectangle effectTextRect = layout.effectRect;
 
 	std::vector<std::string> allEffectTexts;
@@ -1190,7 +1205,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.nameMiddleClampXMax,
 		layout.nameMiddleBottomMaxY,
 		2);
-	const float uniformNameScale = uniformNameScaleBase * 1.26f;
+	const float uniformNameScale = uniformNameScaleBase * 1.10f;
 
 	const float uniformAPCostScale = bestUniformCenteredTextScale(
 		renderTitleFont,
@@ -1200,7 +1215,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		costTargetChipMaxScale,
 		4);
 
-	const float uniformEffectScale = bestUniformWrappedTextScale(renderUIFont,
+	const float uniformEffectScale = bestUniformWrappedTextScale(renderEffectFont,
 		allEffectTexts,
 		effectTextRect,
 		layout.effectMinScale,
@@ -1774,7 +1789,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (!summonHPLayout.first.empty()) {
 			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
 		}
-		drawWrappedCenteredTextScaledOutlined(renderUIFont,
+		drawWrappedCenteredTextScaledOutlined(renderEffectFont,
 			rec.effectText,
 			effectTextRect,
 			uniformEffectScale,
@@ -3063,6 +3078,11 @@ void ofApp::setup() {
 	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 18);
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
+
+	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
+	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20);
+	cardEffectSettings.antialiased = true;
+	cardEffectFont.load(cardEffectSettings);
 
 	// Load the Title Font using a documented pixel-grid size for m6x11plus.
 	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 36);
@@ -4817,16 +4837,33 @@ void ofApp::drawMainMenu() {
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
 	ofDisableLighting();
+	ofEnableAlphaBlending();
+
+	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float centerX = ofGetWidth() / 2.0f;
+
+	// --- Draw Background Panel ---
+	float panelW = 900.0f * uiScale;
+	float panelH = ofGetHeight() * 0.85f;
+	float panelY = ofGetHeight() * 0.075f;
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	ofPushStyle();
+	ofSetColor(25, 25, 30, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofNoFill();
+	ofSetLineWidth(2.0f);
+	ofSetColor(80, 80, 90, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofPopStyle();
+
 	// Draw Title
 	ofSetColor(ofColor::white);
 	string title = "Settings";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.15);
-
-	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f), 0.75f, 1.25f);
+	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.15f);
 
 	// --- Settings UI Positions & Tabs ---
-	float centerX = ofGetWidth() / 2.0f;
 	float tabsY = ofGetHeight() * 0.22f;
 	int totalTabs = 4; // Video, Audio, Game, Controls
 	float tabW = 180.0f * uiScale;
@@ -5096,10 +5133,31 @@ void ofApp::drawSettingsMenu() {
 }
 
 void ofApp::drawSingleplayerMenu() {
+	ofDisableLighting();
+	ofEnableAlphaBlending();
+
+	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float centerX = ofGetWidth() / 2.0f;
+
+	// --- Draw Background Panel ---
+	float panelW = 500.0f * uiScale;
+	float panelH = ofGetHeight() * 0.75f;
+	float panelY = ofGetHeight() * 0.125f;
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	ofPushStyle();
+	ofSetColor(25, 25, 30, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofNoFill();
+	ofSetLineWidth(2.0f);
+	ofSetColor(80, 80, 90, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofPopStyle();
+
 	ofSetColor(ofColor::white);
 	string title = "Singleplayer";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.15);
+	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, panelY + 60.0f * uiScale);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
 		// White by default; hover -> light gray
@@ -5382,7 +5440,7 @@ void ofApp::recalculateUI(int w, int h) {
 	lastWindowWidth = w;
 	lastWindowHeight = h;
 
-	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, (float)h / 1080.0f), 0.75f, 1.25f);
+	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.75f, 1.25f);
 
 	// 2. Recalculate Main Menu Buttons
 	float btnWidth = 400.0f * uiScale;
@@ -5887,7 +5945,7 @@ void ofApp::prepareGameVisualState() {
 	headlight.setPosition(cam.getPosition() + glm::vec3(wiggleX, wiggleY, 0));
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
-	float uiScale = ofGetHeight() / 1080.0f;
+	float uiScale = getUIScaleFromHeight(ofGetHeight());
 	float btnWidth = 250 * uiScale;
 	float visibleY = 20 * uiScale;
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
@@ -6242,7 +6300,7 @@ void ofApp::prepareGameVisualState() {
 	// Defaults for minion UI (reduced size to avoid clipping)
 	float standardEntryHeight = 80.0f; // unscaled baseline (more compact)
 	float panelWidth = 360.0f; // unscaled baseline (reduced)
-	float scale = ofGetHeight() / 1080.0f;
+	float scale = getUIScaleFromHeight(ofGetHeight());
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 	float gap = layoutSpacing.minionEntryGapUnscaled; // unscaled baseline (centralized)
 	float panelWidthScaled = panelWidth * scale;
@@ -6891,7 +6949,7 @@ void ofApp::updateGameLogic() {
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
 	// --- UI Button Interpolation ---
-	float uiScale = ofGetHeight() / 1080.0f;
+	float uiScale = getUIScaleFromHeight(ofGetHeight());
 	float btnWidth = 250 * uiScale;
 	float visibleY = 20 * uiScale;
 	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * uiScale)
@@ -9282,9 +9340,12 @@ void ofApp::drawGame() {
 				glEnable(GL_DEPTH_TEST);
 				glDepthMask(GL_FALSE);
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				// Reduce shadow darkness slightly so units appear less heavy
+				ofSetColor(255, 180);
 				shadowTexture.bind();
 				sq.draw();
 				shadowTexture.unbind();
+				ofSetColor(255);
 				ofDisableBlendMode();
 				glDepthMask(GL_TRUE);
 			}
@@ -11916,7 +11977,7 @@ void ofApp::drawGame() {
 			}
 
 			if (canReroll) {
-				float uiScale = ofGetHeight() / 1080.0f;
+				float uiScale = getUIScaleFromHeight(ofGetHeight());
 				float btnW = 130 * uiScale; // shorter button
 				float btnH = 44 * uiScale;
 				// Position reroll button anchored to AP box side for the active owner
@@ -12033,7 +12094,7 @@ void ofApp::drawGame() {
 		ofPopStyle();
 
 		// How much a hovered card is lifted upward (pixels) and scaled
-		float hoverDirection = kHandHoverLiftPx;
+		float hoverDirection = kHandHoverLiftPx * getUIScaleFromHeight(ofGetHeight());
 		// Note: hoverScale is already defined at function scope
 		bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
@@ -13096,7 +13157,7 @@ void ofApp::drawGame() {
 		drawInstructionText("Select cards to discard (Draw 2 each)");
 
 		// 2. Render a single drafting-style Accept button above the hand area.
-		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+		float uiScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 		ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
@@ -13770,7 +13831,7 @@ cursor_check_done:;
 			// Note: This requires 'shieldRects' vector in MinionUI or similar storage.
 			// Assuming we add a temporary check mechanism here using the same math as drawHealthBar/drawMinionStatusBars.
 
-			float scale = ofGetHeight() / 1080.0f;
+			float scale = getUIScaleFromHeight(ofGetHeight());
 
 			// A. Check Main Players (P0/P1)
 			auto checkMainPlayerShields = [&](Player & p, float x, float y) {
@@ -14265,7 +14326,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (shouldShowChat) {
 			// Check if clicking inside chat window
 			if (chatWindowRect.inside(x, y)) {
-				float scale = ofGetHeight() / 1080.0f;
+				float scale = getUIScaleFromHeight(ofGetHeight());
 				float chatBoxHeight = isChatMinimized ? 138 * scale : 268 * scale;
 				if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
 					chatBoxHeight = 430 * scale;
@@ -16492,7 +16553,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 //--------------------------------------------------------------
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	// Handle minion UI scrolling
-	float scale = ofGetHeight() / 1080.0f;
+	float scale = getUIScaleFromHeight(ofGetHeight());
 	ofRectangle p0Area(p0_minionLeft - 20 * scale, p0_minionTop, minionPanelW + 20 * scale, p0_minionViewH);
 	ofRectangle p1Area(p1_minionLeft - 20 * scale, p1_minionTop, minionPanelW + 20 * scale, p1_minionViewH);
 
@@ -17141,7 +17202,7 @@ void ofApp::windowResized(int w, int h) {
 	// --- FIX: Snap UI elements immediately to prevent "flying in" visual glitches ---
 
 	// 1. Snap End Turn Button
-	float scale = h / 1080.0f;
+	float scale = getUIScaleFromHeight(h);
 	float btnWidth = 250 * scale;
 	float visibleY = 20 * scale;
 	float glowMargin = 6.0f * scale + 2.0f * scale;
@@ -19532,7 +19593,7 @@ void ofApp::drawCard(bool sendPacket) {
 			}
 		} else {
 			// Owner is a player; use the appropriate deck rect (p0/p1)
-			float scale = ofGetHeight() / 1080.0f;
+			float scale = getUIScaleFromHeight(ofGetHeight());
 			float staticUICardWidth = (kCardPixelWidth * 0.58f) * scale;
 			(void)staticUICardWidth; // unused
 			float staticUICardHeight = (kCardPixelHeight * 0.58f) * scale;
@@ -30392,7 +30453,7 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// - field layout/scales are configured directly in CardTemplateLayout (this .cpp)
 	// Keeps template base image if markdown build fails.
 	const std::string cardTemplatePath = findCardTemplatePath();
-	if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, uiFont, cardSpriteSheet)) {
+	if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet)) {
 		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 		ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
@@ -30608,7 +30669,7 @@ int ofApp::stringToStatusType(const std::string & str) {
 
 //--------------------------------------------------------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth, bool alignRight) {
-	float scale = ofGetHeight() / 1080.0f;
+	float scale = getUIScaleFromHeight(ofGetHeight());
 	float fontScale = 1.0f;
 
 	// 1. Main Stats Bar
@@ -30716,7 +30777,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 void ofApp::drawMinionManagerUI() {
 	if (activeMinionUIs.empty()) return;
 
-	float scale = ofGetHeight() / 1080.0f;
+	float scale = getUIScaleFromHeight(ofGetHeight());
 	float sfX = (float)ofGetViewportWidth() / ofGetWidth();
 	float sfY = (float)ofGetViewportHeight() / ofGetHeight();
 
@@ -31370,7 +31431,7 @@ void ofApp::onCardPicked(int optionIndex) {
 				if (mui.playerIndex == draftPlayerIndex) {
 					mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
 					// Scale down to fit minion UI deck
-					float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+					float uiScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 					float cardW = kCardPixelWidth * uiScale;
 					float cardH = kCardPixelHeight * uiScale;
 					mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
@@ -31393,7 +31454,7 @@ void ofApp::onCardPicked(int optionIndex) {
 			if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
 			mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
 			// Scale down to fit player deck
-			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+			float uiScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 			float cardW = kCardPixelWidth * uiScale;
 			float cardH = kCardPixelHeight * uiScale;
 			mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
@@ -31620,7 +31681,7 @@ void ofApp::drawDraftScreen() {
 	// Continuous fractional frame keeps the draft UI smooth at 144Hz.
 	float continuousFrame = (float)simulationFrame + (simulationAccumulator / SIMULATION_TIMESTEP);
 	// Compute uiScale (kept in sync with getDraftCardMetrics)
-	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	float uiScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
 	float appearT = 0.0f;
 	if (!draftOptionUI.empty()) {
@@ -32111,7 +32172,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 // Simple layout helper for draft card metrics (keeps UI compiling).
 void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
-	float screenScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	float screenScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 	float scale = screenScale * std::clamp(settingsUIScale, 0.75f, 1.25f);
 
 	// Make cards much more prominent so the draft UI reads clearly.
@@ -32140,10 +32201,28 @@ void ofApp::drawPauseMenu() {
 	ofSetColor(0, 0, 0, 180);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
+	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float centerX = ofGetWidth() / 2.0f;
+
+	// --- Draw Background Panel ---
+	float panelW = 500.0f * uiScale;
+	float panelH = ofGetHeight() * 0.75f;
+	float panelY = ofGetHeight() * 0.125f;
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	ofSetColor(25, 25, 30, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+
+	ofNoFill();
+	ofSetLineWidth(2.0f);
+	ofSetColor(80, 80, 90, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofFill();
+
 	ofSetColor(ofColor::white);
 	std::string title = "PAUSED";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, ofGetWidth() / 2.0f - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.25f);
+	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, panelY + 60.0f * uiScale);
 
 	auto drawBtn = [&](const ofRectangle & r, const std::string & txt, int index) {
 		if (r.width <= 0 || r.height <= 0) return;

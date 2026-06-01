@@ -1855,7 +1855,7 @@ private:
 	ofImage shadowTexture;
 	// Simple blob shadow texture (generated at startup)
 	ofTexture blobShadowTex;
-	float blobShadowSize = 1.8f; // world-space diameter multiplier for shadows
+	float blobShadowSize = 1.2f; // world-space diameter multiplier for shadows (reduced)
 	ofImage fireTexture;
 
 	// --- POST PROCESSING ---
@@ -1986,6 +1986,7 @@ private:
 
 	ofTrueTypeFont uiFont;
 	ofTrueTypeFont titleFont;
+	ofTrueTypeFont cardEffectFont;
 
 	ofFbo modelFbo;
 	std::vector<MinionUI> activeMinionUIs;
