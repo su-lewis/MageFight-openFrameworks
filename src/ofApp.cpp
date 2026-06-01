@@ -162,6 +162,11 @@ static inline float getUIScaleFromHeight(float screenH) {
 	return std::clamp(s, 0.5f, 1.25f);
 }
 
+static inline float getHandCardVisualBoost(float screenH) {
+	float boost = 1.15f - ((screenH - 1080.0f) * (0.15f / 360.0f));
+	return std::clamp(boost, 1.0f, 1.15f);
+}
+
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
 	return std::max(0.0f, ui.edgeInset - ui.stackYOffset);
 }
@@ -178,8 +183,9 @@ struct HandLayout {
 
 static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 	float scale = getUIScaleFromHeight(screenH);
+	float handBoost = getHandCardVisualBoost(screenH);
 	UILayoutSpacing ui = buildUILayoutSpacing(scale, true);
-	float handCardH = kCardPixelHeight * kHandCardVisualScale * scale;
+	float handCardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
 	float deckCardW = kCardPixelWidth * pileCardScale * scale;
 	float healthBarW = 220.0f * scale;
 	float horizontalPadding = 16.0f * scale;
@@ -207,8 +213,9 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 static HandLayout computeHandLayout(size_t numCards, float screenW, float screenH) {
 	HandLayout l;
 	float scale = getUIScaleFromHeight(screenH);
-	l.cardW = kCardPixelWidth * kHandCardVisualScale * scale;
-	l.cardH = kCardPixelHeight * kHandCardVisualScale * scale;
+	float handBoost = getHandCardVisualBoost(screenH);
+	l.cardW = kCardPixelWidth * kHandCardVisualScale * handBoost * scale;
+	l.cardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
 	l.handAreaRect = computeHandAreaRect(screenW, screenH);
 	l.restY = screenH - 80.0f * scale;
 	if (numCards <= 1) {
@@ -1970,7 +1977,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	size_t numCards = caster.hand.size() + 1;
 	// Hearthstone-style positioning
-	float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+	float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 	float handAreaWidth = ofGetWidth() * 0.85f;
 
 	float spacing = 0.0f;
@@ -3083,6 +3090,10 @@ void ofApp::setup() {
 	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20);
 	cardEffectSettings.antialiased = true;
 	cardEffectFont.load(cardEffectSettings);
+	if (cardEffectFont.isLoaded()) {
+		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 
 	// Load the Title Font using a documented pixel-grid size for m6x11plus.
 	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 36);
@@ -6125,8 +6136,8 @@ void ofApp::prepareGameVisualState() {
 				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
 				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
 				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
-				float animBaseW = kCardPixelWidth * kHandCardVisualScale;
-				float animBaseH = kCardPixelHeight * kHandCardVisualScale;
+				float animBaseW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+				float animBaseH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 				anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
 			}
 			float elapsed = ofGetElapsedTimef() - anim.startTime;
@@ -7797,7 +7808,7 @@ void ofApp::updateGameLogic() {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
 		// Keep it readable without blowing past the normal card size
 		anim.currentScale = 1.2f;
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 		float w = handBaseCardWidth * anim.currentScale;
 		anim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
 
@@ -12467,8 +12478,8 @@ void ofApp::drawGame() {
 	}
 
 	// --- Draw Discard Animations (hand -> discard, visual only) ---
-	float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale;
-	float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale;
+	float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+	float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 	for (const auto & anim : activeDiscardCardAnimations) {
 		ofPushStyle();
 		ofSetColor(255, anim.currentAlpha);
@@ -13257,8 +13268,8 @@ void ofApp::mouseMoved(int x, int y) {
 	// 3. Check for "Draggable" things (Cards in hand)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & p = players[currentPlayerIndex];
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
-		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 		int foundHandHover = -1;
 
 		// Check cards in REVERSE order so we find the topmost (rightmost/last drawn) card first
@@ -13364,8 +13375,8 @@ cursor_check_done:;
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
 		int foundHoverIndex = -1;
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
-		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
 		if (draggedCardIndex == -1) {
 			// Always pick the visually top-most card under the cursor.
@@ -14235,8 +14246,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
 		if (numCards > 0) {
-			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
-			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
@@ -16194,8 +16205,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (players.empty() || currentPlayerIndex < 0) return;
 			Player & currentPlayer = players[currentPlayerIndex];
 			int numCards = static_cast<int>(currentPlayer.hand.size());
-			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
-			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
 			// Priority: pressedCardIndex > selectedCardIndex > hoveredCardIndex
 			int sourceIndex = (pressedCardIndex != -1) ? pressedCardIndex : (selectedCardIndex != -1) ? selectedCardIndex
@@ -19646,8 +19657,8 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.endPos = anim.startPos;
 
 		if (hasDrawSourceRect) {
-			float animBaseW = kCardPixelWidth * kHandCardVisualScale;
-			float animBaseH = kCardPixelHeight * kHandCardVisualScale;
+				float animBaseW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+				float animBaseH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 			anim.startScale = std::max(0.05f, std::min(drawSourceRect.getWidth() / std::max(1.0f, animBaseW), drawSourceRect.getHeight() / std::max(1.0f, animBaseH)));
 		} else {
 			anim.startScale = pileCardScale;
