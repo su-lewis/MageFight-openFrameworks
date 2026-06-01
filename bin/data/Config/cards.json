@@ -14,10 +14,11 @@
     "id": 2,
     "name": "Kick",
     "type": "CARD_KICK",
-    "cost": 3,
-    "baseDamage": 4,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
-    "class": 1
+    "cost": 3,
+    "class": 1,
+    "baseDamage": 4
   },
   {
     "id": 3,
