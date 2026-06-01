@@ -3085,6 +3085,10 @@ void ofApp::setup() {
 	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 18);
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
+	if (uiFont.isLoaded()) {
+		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 
 	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
 	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20);
@@ -3099,6 +3103,10 @@ void ofApp::setup() {
 	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 36);
 	titleSettings.antialiased = false;
 	titleFont.load(titleSettings);
+	if (titleFont.isLoaded()) {
+		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 
 	cardBackImage.load("UI/card_back.png");
 	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
@@ -19657,8 +19665,8 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.endPos = anim.startPos;
 
 		if (hasDrawSourceRect) {
-				float animBaseW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-				float animBaseH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+			float animBaseW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+			float animBaseH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 			anim.startScale = std::max(0.05f, std::min(drawSourceRect.getWidth() / std::max(1.0f, animBaseW), drawSourceRect.getHeight() / std::max(1.0f, animBaseH)));
 		} else {
 			anim.startScale = pileCardScale;
@@ -24590,6 +24598,11 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			totalDamage += dmgRoll;
 			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 		}
+		// --- Flurry of Fists Synergy ---
+		if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
+			totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+		}
+		// --------------------------------
 		currentEffectSequence.blackboard[1] = totalDamage;
 
 		// If attackTargetIndices is populated (by Cleave/Pierce logic), use it. Otherwise use single target.
@@ -30407,6 +30420,7 @@ void ofApp::loadCardData(const std::string & filePath) {
 		// destroyDeckTargetCount is an alternate name for discardDeckCount
 		newCard.destroyDeckTargetCount = cardJson.value("destroyDeckTargetCount", newCard.discardDeckCount);
 		newCard.isAoe = cardJson.value("isAoe", false);
+		newCard.isHandRelated = cardJson.value("isHandRelated", false);
 
 		// Defensive amounts
 		// Defensive amounts: support both legacy names and the new *Gain names

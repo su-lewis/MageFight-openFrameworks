@@ -3,10 +3,12 @@
     "id": 1,
     "name": "Punch",
     "type": "CARD_PUNCH",
-    "cost": 1,
-    "baseDamage": 2,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
-    "class": 1
+    "cost": 1,
+    "class": 1,
+    "baseDamage": 2,
+    "isHandRelated": true
   },
   {
     "id": 2,

@@ -302,6 +302,7 @@ struct Card {
 	int discardDeckCount = 0; // number of top cards to burn from deck
 	int applyStatus = 0; // Will hold StatusType enum
 	bool isAoe = false;
+	bool isHandRelated = false;
 
 	// --- Additional data-driven fields (aligned with Master AI spec)
 	// Damage & Healing
