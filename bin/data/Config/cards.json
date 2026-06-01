@@ -24,10 +24,11 @@
     "id": 3,
     "name": "Hand Block",
     "type": "CARD_HAND_BLOCK",
-    "cost": 1,
-    "blockAmount": 2,
     "targeting": "TARGET_SELF",
-    "class": 1
+    "cost": 1,
+    "class": 1,
+    "blockAmount": 2,
+    "isHandRelated": true
   },
   {
     "id": 4,

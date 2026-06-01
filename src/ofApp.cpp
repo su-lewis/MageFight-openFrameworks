@@ -24692,7 +24692,13 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	};
 
 	queueStatGain(3, playedCard.apGain); // 3 = AP
-	queueStatGain(5, playedCard.blockAmount); // 5 = Block
+	// --- Hand-Related Block Synergy (Flurry of Fists) ---
+	int finalBlock = playedCard.blockAmount;
+	if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
+		finalBlock *= (1 << currentPlayer.flurryOfFistsStacks);
+	}
+	queueStatGain(5, finalBlock); // 5 = Block
+	// ----------------------------------------------------
 	queueStatGain(6, playedCard.barrierAmount); // 6 = Barrier
 	queueStatGain(7, playedCard.holyBlockAmount); // 7 = HolyBlock
 	queueStatGain(8, playedCard.wardAmount); // 8 = Ward
