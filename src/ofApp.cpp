@@ -4703,6 +4703,7 @@ void ofApp::draw() {
 		break;
 	case STATE_WAITING_FOR_RECONNECT:
 		drawGame();
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 		ofPushStyle();
 		ofSetColor(0, 0, 0, 170);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
@@ -5888,7 +5889,7 @@ void ofApp::prepareGameVisualState() {
 
 	float uiScale = ofGetHeight() / 1080.0f;
 	float btnWidth = 250 * uiScale;
-	float visibleY = 20 * uiScale;
+	float visibleY = 35 * uiScale; // lower End Turn button to avoid glow clipping
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
@@ -10935,7 +10936,7 @@ void ofApp::drawGame() {
 	// === NUCLEAR GRAPHICS RESET ===
 	ofDisableLighting();
 	ofDisableDepthTest();
-	ofDisableBlendMode(); // Reset blend mode
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA); // Ensure alpha blending for UI
 
 	// 1. Reset Texture
 	glBindTexture(GL_TEXTURE_2D, 0);
