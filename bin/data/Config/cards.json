@@ -141,15 +141,15 @@
   "class": 1
 },
   {
-    "id": 15,
-    "name": "Teleport",
-    "type": "CARD_TELEPORT",
-    "cost": 5,
-    "targeting": "TARGET_EMPTY_TILE",
-    "rangeDiceNum": 3,
-    "rangeDiceSides": 6,
-    "class": 1
-  },
+  "id": 15,
+  "name": "Teleport",
+  "type": "CARD_TELEPORT",
+  "targeting": "TARGET_EMPTY_TILE",
+  "cost": 5,
+  "class": 1,
+  "rangeDiceNum": 3,
+  "rangeDiceSides": 6
+},
   {
     "id": 16,
     "name": "Hasten",

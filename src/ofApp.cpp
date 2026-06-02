@@ -24480,6 +24480,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					realStatusID = STATUS_PARALYZED;
 				else if (label == "Poison" || label == "Poisoned")
 					realStatusID = STATUS_POISONED;
+				else if (label == "Sleeping")
+					realStatusID = STATUS_SLEEP;
 			}
 			if (realStatusID < 0) {
 				ofLogWarning("Dispel") << "Unknown status label selection index=" << i;
@@ -28868,7 +28870,8 @@ void ofApp::determineStatusOptions(Player * target) {
 
 	if (target->onFire) statusSelectLabels.push_back("Burning");
 	if (target->isParalyzed) statusSelectLabels.push_back("Paralysis");
-	// Add future statuses here
+	if (target->isPoisoned) statusSelectLabels.push_back("Poisoned");
+	if (target->sleepTurnsRemaining > 0) statusSelectLabels.push_back("Sleeping");
 
 	if (statusSelectLabels.empty()) {
 		// Use in-game floating text instead of a system dialog (preserves fullscreen)
@@ -28884,10 +28887,10 @@ void ofApp::determineStatusOptions(Player * target) {
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE); // <-- FIXED
 		}
 		// Close status/menu UI only. Do not touch `cardPlayState` here.
-		cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+		cardInteractionState = CARD_INTERACTION_STATE_IDLE; // <-- FIXED
 		interactingCardType = CARD_NONE;
 		interactingCardIndex = -1;
 		interactionTargetIndex = -1;
@@ -28909,6 +28912,8 @@ void ofApp::determineStatusOptions(Player * target) {
 			statusID = STATUS_PARALYZED;
 		else if (label == "Poison" || label == "Poisoned")
 			statusID = STATUS_POISONED;
+		else if (label == "Sleeping")
+			statusID = STATUS_SLEEP;
 		if (statusID >= 0) {
 			applyDispelEffect(statusID);
 		}
@@ -28926,8 +28931,6 @@ void ofApp::determineStatusOptions(Player * target) {
 		statusSelectButtons.push_back(ofRectangle(x + 20, y + 60 + (i * 60), w - 40, 50));
 	}
 }
-
-// applyDrainPunch inlined into EffectOp handler and removed
 
 //--------------------------------------------------------------
 void ofApp::applyDispelEffect(int statusID) {
@@ -28952,7 +28955,7 @@ void ofApp::applyDispelEffect(int statusID) {
 		currentCardOutcome.cardType = CARD_DISPEL;
 		currentCardOutcome.cardIndex = interactingCardIndex;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE); // <-- FIXED
 	}
 
 	// Trigger Shell Spike only on the local active player; the actual hit is
@@ -28966,7 +28969,7 @@ void ofApp::applyDispelEffect(int statusID) {
 	dispelMode = 0;
 
 	// Keep Shell Spike targeting prompt alive if it was opened.
-	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
+	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) { // <-- FIXED
 		resetCardInteraction();
 	}
 }
