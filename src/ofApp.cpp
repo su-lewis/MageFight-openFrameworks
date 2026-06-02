@@ -24758,6 +24758,45 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 	currentCardOutcome.targetPlayerIndex = resolvedTargetIndex;
 
+	// --- NEW: Gather Multi-Targets (Cleave, Pierce) ---
+	currentCardOutcome.attackTargetIndices.clear();
+	if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
+		glm::vec2 dir = { (float)(targetX - currentPlayer.x), (float)(targetY - currentPlayer.y) };
+		std::vector<Player *> targetsToHit = findCleaveTargets(dir);
+		for (auto * targetPlayer : targetsToHit) {
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (&players[i] == targetPlayer) currentCardOutcome.attackTargetIndices.push_back((int)i);
+			}
+		}
+	} else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
+		glm::vec2 dir = { (float)(targetX - currentPlayer.x), (float)(targetY - currentPlayer.y) };
+		if (std::abs(dir.x) > std::abs(dir.y)) {
+			dir.x = (dir.x > 0) ? 1.0f : -1.0f;
+			dir.y = 0.0f;
+		} else {
+			dir.x = 0.0f;
+			dir.y = (dir.y > 0) ? 1.0f : -1.0f;
+		}
+
+		glm::vec2 pos1 = { currentPlayer.x + dir.x, currentPlayer.y + dir.y };
+		glm::vec2 pos2 = { currentPlayer.x + dir.x * 2.0f, currentPlayer.y + dir.y * 2.0f };
+
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
+				currentCardOutcome.attackTargetIndices.push_back((int)i);
+				break;
+			}
+		}
+		if (!isTileWall((int)pos1.x, (int)pos1.y)) {
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+					currentCardOutcome.attackTargetIndices.push_back((int)i);
+					break;
+				}
+			}
+		}
+	}
+
 	// Generic LOS / range validation: if the card requires a target and has a range dice definition,
 	// perform a deterministic visibility/range check here and abort early if invalid.
 	if (playedCard.targeting != TARGET_NONE) {

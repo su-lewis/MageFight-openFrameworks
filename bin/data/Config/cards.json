@@ -66,11 +66,12 @@
     "id": 7,
     "name": "Slash",
     "type": "CARD_SLASH",
-    "cost": 2,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_CLEAVE_ADJACENT",
+    "cost": 2,
+    "class": 1,
     "damageDiceNum": 1,
-    "damageDiceSides": 6,
-    "class": 1
+    "damageDiceSides": 6
   },
   {
     "id": 8,
