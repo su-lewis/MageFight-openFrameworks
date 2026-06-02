@@ -101,16 +101,16 @@
     "rangeDiceSides": 20
   },
   {
-  "id": 11,
-  "name": "Fireball",
-  "type": "CARD_FIREBALL",
-  "damageType": "DAMAGE_FIRE",
-  "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-  "cost": 3,
-  "class": 2,
-  "rangeDiceNum": 2,
-  "rangeDiceSides": 6
-},
+    "id": 11,
+    "name": "Fireball",
+    "type": "CARD_FIREBALL",
+    "damageType": "DAMAGE_FIRE",
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "cost": 3,
+    "class": 2,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 6
+  },
   {
     "id": 12,
     "name": "Shock",
