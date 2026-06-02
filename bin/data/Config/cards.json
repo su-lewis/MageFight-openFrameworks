@@ -115,11 +115,11 @@
     "id": 12,
     "name": "Shock",
     "type": "CARD_SHOCK",
-    "cost": 2,
-    "baseDamage": 2,
-    "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_ELECTRIC",
-    "class": 1
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "cost": 2,
+    "class": 1,
+    "baseDamage": 2
   },
   {
     "id": 13,

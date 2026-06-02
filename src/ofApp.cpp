@@ -24543,6 +24543,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 // Generic executor for simple data-driven cards (Phase 5 helper)
 bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult) {
 	immediateResult = CARD_PLAY_RESULT_NOT_PLAYABLE;
+	// Complex cards that have generic stats but require custom C++ logic
+	if (playedCard.type == CARD_SHOCK) return false;
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// --- 1. Determine if this card has Data-Driven fields ---
