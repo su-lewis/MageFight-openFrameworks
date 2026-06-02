@@ -77,30 +77,17 @@
     "id": 8,
     "name": "Mind Theft",
     "type": "CARD_MIND_THEFT",
-    "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT",
+    "cost": 3,
     "class": 1
   },
   {
     "id": 9,
     "name": "Amnesia",
     "type": "CARD_AMNESIA",
-    "cost": 3,
-    "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
-    "utilityDiceNum": 1,
-    "utilityDiceSides": 4,
-    "class": 2,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Purge Random"
-      },
-      {
-        "id": 2,
-        "label": "Purge Target"
-      }
-    ]
+    "cost": 3,
+    "class": 2
   },
   {
     "id": 10,
