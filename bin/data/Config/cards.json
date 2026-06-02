@@ -93,26 +93,12 @@
     "id": 10,
     "name": "Magic Blast",
     "type": "CARD_MAGIC_BLAST",
-    "cost": 4,
-    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
-    "rangeDiceNum": 1,
-    "rangeDiceSides": 20,
+    "targeting": "TARGET_ANY_TILE",
+    "cost": 4,
     "class": 2,
-    "baseDamage": 5,
-    "discardDeckCount": 1,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Damage",
-        "key": "damage"
-      },
-      {
-        "id": 2,
-        "label": "Discard",
-        "key": "discard"
-      }
-    ]
+    "rangeDiceNum": 1,
+    "rangeDiceSides": 20
   },
   {
     "id": 11,
