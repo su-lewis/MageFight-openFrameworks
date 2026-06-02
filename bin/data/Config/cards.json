@@ -125,45 +125,21 @@
     "id": 13,
     "name": "Rock Crush",
     "type": "CARD_ROCK_CRUSH",
-    "cost": 4,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
-    "damageDiceNum": 2,
-    "damageDiceSides": 10,
+    "cost": 4,
     "class": 2,
-    "destroysWall": true,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Crush (Damage)"
-      },
-      {
-        "id": 2,
-        "label": "Smash (Destroy Wall)"
-      }
-    ]
+    "damageDiceNum": 2,
+    "damageDiceSides": 10
   },
   {
-    "id": 14,
-    "name": "Dispel",
-    "type": "CARD_DISPEL",
-    "cost": 2,
-    "targeting": "TARGET_SELF",
-    "utilityDiceNum": 1,
-    "utilityDiceSides": 20,
-    "class": 1,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Barrier",
-        "key": "Barrier"
-      },
-      {
-        "id": 2,
-        "label": "Purge",
-        "key": "Purge"
-      }
-    ]
-  },
+  "id": 14,
+  "name": "Dispel",
+  "type": "CARD_DISPEL",
+  "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
+  "cost": 2,
+  "class": 1
+},
   {
     "id": 15,
     "name": "Teleport",
