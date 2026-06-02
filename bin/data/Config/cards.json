@@ -46,10 +46,10 @@
     "id": 5,
     "name": "Ward",
     "type": "CARD_WARD",
-    "cost": 2,
-    "wardAmount": 5,
     "targeting": "TARGET_SELF",
-    "class": 1
+    "cost": 2,
+    "class": 1,
+    "wardAmount": 5
   },
   {
     "id": 6,
