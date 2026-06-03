@@ -317,10 +317,10 @@
     "name": "Dark Shield",
     "type": "CARD_DARK_SHIELD",
     "cost": 2,
+    "targeting": "TARGET_SELF",
     "holyBlockAmount": 7,
     "applyStatus": "STATUS_NEXT_TURN_BONUS_DICE",
     "statusDuration": 0,
-    "targeting": "TARGET_SELF",
     "class": 2
   },
   {
