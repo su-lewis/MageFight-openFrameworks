@@ -662,8 +662,6 @@
     "cost": 4,
     "summonKind": 5,
     "targeting": "TARGET_EMPTY_ADJACENT",
-    "hpDerivedFromUnitType": "KOBOLD",
-    "hpDerivedAdd": 1,
     "class": 3
   },
   {
