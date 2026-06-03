@@ -24907,19 +24907,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
-	case CARD_REPLICATE: {
-		beginEffectSequence();
-		EffectOp apRep = {};
-		apRep.type = EffectOpType::APPLY_STATUS;
-		apRep.data.status.targetIndex = currentPlayerIndex;
-		apRep.data.status.statusType = STATUS_REPLICATE_QUEUED;
-		apRep.data.status.duration = 0;
-		queueEffect(apRep);
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
 	case CARD_CONSTITUTION_BOON: {
 		beginEffectSequence();
 		int mh = currentPlayer.maxHealth;

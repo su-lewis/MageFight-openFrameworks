@@ -162,32 +162,19 @@
     "id": 17,
     "name": "Replicate",
     "type": "CARD_REPLICATE",
-    "cost": 4,
-    "value": 0,
     "targeting": "TARGET_SELF",
-    "class": 2
+    "cost": 4,
+    "class": 2,
+    "applyStatus": "STATUS_REPLICATE_QUEUED"
   },
   {
     "id": 18,
     "name": "Wisdom Boon",
     "type": "CARD_WISDOM_BOON",
-    "cost": 5,
-    "value": 0,
-    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "damageType": "DAMAGE_MAGIC",
-    "class": 1,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Damage",
-        "key": "damage"
-      },
-      {
-        "id": 2,
-        "label": "Block",
-        "key": "block"
-      }
-    ]
+    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
+    "cost": 5,
+    "class": 1
   },
   {
     "id": 19,
