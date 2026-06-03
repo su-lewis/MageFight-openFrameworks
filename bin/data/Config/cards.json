@@ -180,23 +180,22 @@
     "id": 19,
     "name": "Ethereal Jolt",
     "type": "CARD_ETHEREAL_JOLT",
-    "cost": 6,
-    "baseDamage": 7,
-    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
+    "targeting": "TARGET_ANY_TILE",
+    "cost": 6,
+    "class": 2,
     "rangeDiceNum": 1,
-    "rangeDiceSides": 20,
-    "class": 2
+    "rangeDiceSides": 20
   },
   {
     "id": 20,
     "name": "Flame Hit",
     "type": "CARD_FLAME_HIT",
-    "cost": 2,
-    "baseDamage": 1,
-    "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_FIRE",
-    "class": 1
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "cost": 2,
+    "class": 1,
+    "value": 1
   },
   {
     "id": 21,

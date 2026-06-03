@@ -24907,6 +24907,59 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
+	case CARD_ETHEREAL_JOLT: {
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		beginEffectSequence();
+
+		// Roll range and store in blackboard[0]
+		std::vector<int> rawRange;
+		int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+		rangeRoll += playedCard.numDice * luckBonus;
+
+		currentEffectSequence.blackboard[0] = rangeRoll;
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+
+		// Queue the dedicated jolt resolver op
+		EffectOp applyJolt = {};
+		applyJolt.type = EffectOpType::APPLY_ETHEREAL_JOLT;
+		queueEffect(applyJolt);
+
+		interactionTargetTile = targetTile;
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_DICE);
+		return true;
+	}
+
+	case CARD_FLAME_HIT: {
+		if (resolvedTargetIndex == -1) return true;
+
+		beginEffectSequence();
+
+		// Store pre-hit HP into a blackboard slot (slot 15 chosen as temporary store)
+		currentEffectSequence.blackboard[15] = players[resolvedTargetIndex].health;
+
+		EffectOp damageOp;
+		damageOp.type = EffectOpType::DAMAGE;
+		damageOp.data.damage.targetIndex = resolvedTargetIndex;
+		damageOp.data.damage.damageType = DAMAGE_FIRE;
+		damageOp.data.damage.fixedDamage = 1; // 1 flat damage
+		damageOp.data.damage.damageFromSlot = -1;
+		queueEffect(damageOp);
+
+		// Queue a resolve op that will check pre/post HP and only apply ON_FIRE if damage occurred
+		EffectOp resolve = {};
+		resolve.type = EffectOpType::APPLY_FIRE_HIT_RESOLVE;
+		resolve.data.damage.targetIndex = resolvedTargetIndex;
+		resolve.data.damage.damageFromSlot = 15; // blackboard slot containing pre-HP
+		resolve.data.damage.fixedDamage = players[resolvedTargetIndex].playerID; // store playerID for robust lookup
+		queueEffect(resolve);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_CONSTITUTION_BOON: {
 		beginEffectSequence();
 		int mh = currentPlayer.maxHealth;
