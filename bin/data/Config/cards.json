@@ -622,30 +622,19 @@
     "type": "CARD_GIANT_MAGIC_HAND",
     "cost": 2,
     "targeting": "TARGET_ADJACENT_WALL",
-    "class": 2,
     "damageDiceNum": 2,
     "damageDiceSides": 4,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Push",
-        "key": "push"
-      },
-      {
-        "id": 2,
-        "label": "Pull",
-        "key": "pull"
-      }
-    ]
+    "isHandRelated": true,
+    "class": 2
   },
   {
     "id": 58,
     "name": "Consume Health Flagon",
     "type": "CARD_CONSUME_HEALTH_FLAGON",
     "cost": 4,
-    "maxHealthGain": 3,
-    "healAmount": 1,
     "targeting": "TARGET_SELF",
+    "maxHealthGain": 3,
+    "baseHeal": 1,
     "class": 2
   },
   {
@@ -654,9 +643,6 @@
     "type": "CARD_LESSER_HEAL",
     "cost": 1,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "rangeDiceNum": 1,
-    "rangeDiceSides": 6,
-    "healAmount": 3,
     "healDiceNum": 1,
     "healDiceSides": 6,
     "class": 1
