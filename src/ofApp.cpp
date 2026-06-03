@@ -248,9 +248,7 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 static int getEffectiveCardCostForPlayer(const Player & player, const Card & card) {
 	int costToPay = card.cost;
 	if (card.type == CARD_KICK && player.freeKickTurns > 0) costToPay = 0;
-	auto isHandRelatedCard = [](CardType type) {
-		return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
-	};
+	auto isHandRelatedCard = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
 	if (player.freeHandCardTurns > 0 && isHandRelatedCard(card.type)) costToPay = 0;
 	return costToPay;
 }
@@ -13443,7 +13441,7 @@ cursor_check_done:;
 			if (c.type == CARD_MASTER_FIST) {
 				// Calculate potential damage
 				int dmg = 0;
-				std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
+				std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand", "Double Handed", "Hand Block" };
 				for (const auto & pileCard : currentPlayer.discardPile) {
 					for (const auto & name : handAttackNames) {
 						if (pileCard.name == name) {
@@ -25561,9 +25559,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			int totalDamage = playedCard.baseDamage; // Reads the 2 directly from JSON!
 
-			auto isHandRelatedAttack = [](CardType type) {
-				return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
-			};
+			auto isHandRelatedAttack = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
 
 			// +2 for ITSELF (since it hasn't been pushed to cardsPlayedThisTurn yet)
 			totalDamage += 2;
@@ -26126,9 +26122,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// Determine effective cost (Kick may be free due to Sprint)
 	int costToPay = playedCard.cost;
 	if (playedCard.type == CARD_KICK && currentPlayer.freeKickTurns > 0) costToPay = 0;
-	auto isHandRelatedCard = [](CardType type) {
-		return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
-	};
+	auto isHandRelatedCard = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
 	if (currentPlayer.freeHandCardTurns > 0 && isHandRelatedCard(playedCard.type)) {
 		costToPay = 0;
 		currentPlayer.freeHandCardTurns--;
