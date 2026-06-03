@@ -411,6 +411,7 @@
     "damageType": "DAMAGE_PHYSICAL",
     "damageDiceNum": 1,
     "damageDiceSides": 6,
+    "baseDamage": 2,
     "class": 2
   },
   {
