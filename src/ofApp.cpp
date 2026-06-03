@@ -16295,7 +16295,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 					return false;
 				}
 				if (candidate.targeting == TARGET_SELF && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
-				if (candidate.type == CARD_TELEPORT) return true; // destination validity is roll-dependent
+				if (candidate.type == CARD_TELEPORT || candidate.type == CARD_BLOCKING_BOON) return true;
 
 				calculateTargetHighlights(cardIndex);
 				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -18438,17 +18438,17 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool rockHasAdjacentWall = false;
 	bool rockHasAdjacentUnit = false;
 	bool wisdomHasAdjacentUnit = false;
-	if (card.type == CARD_ROCK_CRUSH) {
+	bool boonHasAdjacentUnit = false;
+
+	if (card.type == CARD_BLOCKING_BOON) {
 		static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 		for (const auto & d : dirs) {
 			int nx = caster.x + d[0];
 			int ny = caster.y + d[1];
 			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-			if (board[nx][ny].hasWall) {
-				rockHasAdjacentWall = true;
-			}
 			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-				rockHasAdjacentUnit = true;
+				boonHasAdjacentUnit = true;
+				break;
 			}
 		}
 	}
@@ -18477,6 +18477,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
+	bool boonAutoPlayNoAdjacent = (card.type == CARD_BLOCKING_BOON && !boonHasAdjacentUnit);
 
 	if (menuFirstChoiceCard) {
 		interactingCardIndex = cardIndex;
@@ -18502,16 +18503,17 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 			}
 		}
 	}
-
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	if (!menuFirstChoiceCard && !wisdomAutoBlockNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
+	else if (!wisdomAutoBlockNoAdjacent && !boonAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
+
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
 			magicBlastTargetPlayerIndex = -1;
 			magicBlastChoicesRemaining = 0;
 			magicBlastSplashTargetIndices.clear();
 		}
+
 		// Teleport must be a two-step deterministic command flow:
 		// 1) Drag/release sends CMD_PLAY_CARD (both peers roll range + enter targeting)
 		// 2) Destination click sends CMD_MENU_CHOICE (CARD_TELEPORT)
