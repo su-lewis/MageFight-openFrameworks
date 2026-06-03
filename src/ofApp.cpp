@@ -24601,7 +24601,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH) return false;
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT) return false;
 
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
@@ -25150,6 +25150,73 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_MASTER_FIST: {
+		if (resolvedTargetIndex != -1) {
+			beginEffectSequence();
+
+			int totalDamage = 0;
+
+			// We can reuse the same list of hand-related cards we updated earlier
+			auto isHandRelated = [](CardType type) {
+				return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK;
+			};
+
+			// +2 damage for each hand-related card in the discard pile
+			for (const auto & c : currentPlayer.discardPile) {
+				if (isHandRelated(c.type)) {
+					totalDamage += 2;
+				}
+			}
+
+			// Apply Flurry of Fists multiplier if active
+			if (currentPlayer.flurryOfFistsStacks > 0) {
+				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+			}
+
+			// 1. Deal Damage
+			if (totalDamage > 0) {
+				EffectOp dmgOp = {};
+				dmgOp.type = EffectOpType::DAMAGE;
+				dmgOp.data.damage.targetIndex = resolvedTargetIndex;
+				dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
+				dmgOp.data.damage.fixedDamage = totalDamage;
+				dmgOp.data.damage.damageFromSlot = -1;
+				queueEffect(dmgOp);
+			} else {
+				// Visual feedback if the discard pile was empty
+				queueFloatingTextVisual(gridToWorld(players[resolvedTargetIndex].x, players[resolvedTargetIndex].y), "0 Damage", ofColor::gray);
+			}
+
+			// 2. Destroy Top Card of Target's Deck
+			EffectOp rmDeck = {};
+			rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+			rmDeck.data.removeTopCard.targetIndex = resolvedTargetIndex;
+			queueEffect(rmDeck);
+
+			// 3. Gain +1 Luck (Read from JSON)
+			EffectOp luckOp = {};
+			luckOp.type = EffectOpType::MODIFY_STAT;
+			luckOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			luckOp.data.modifyStat.statType = 10; // Luck
+			luckOp.data.modifyStat.delta = playedCard.luckGain;
+			luckOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(luckOp);
+
+			// 4. Gain +1 Max Health (Read from JSON)
+			EffectOp maxHpOp = {};
+			maxHpOp.type = EffectOpType::MODIFY_STAT;
+			maxHpOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			maxHpOp.data.modifyStat.statType = 1; // MaxHP
+			maxHpOp.data.modifyStat.delta = playedCard.maxHealthGain;
+			maxHpOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(maxHpOp);
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		}
 		return true;
 	}
 
@@ -26489,8 +26556,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 	// Adjacency-based targeting: consult card data instead of special-casing specific cards
 	if (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL || card.targeting == TARGET_EMPTY_ADJACENT || card.targeting == TARGET_ADJACENT_WALL) {
-		glm::ivec2 dirs[4] = { { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 } };
+		glm::ivec2 dirs[5] = { { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 }, { 0, 0 } };
 		for (auto & d : dirs) {
+			// Only process the center tile if the card explicitly allows self-targeting
+			if (d.x == 0 && d.y == 0 && card.targeting != TARGET_ADJACENT_OR_SELF_UNIT) continue;
+
 			int nx = px + d.x;
 			int ny = py + d.y;
 			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;

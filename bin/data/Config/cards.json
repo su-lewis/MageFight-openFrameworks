@@ -380,8 +380,11 @@
     "name": "Master Fist",
     "type": "CARD_MASTER_FIST",
     "cost": 2,
-    "baseDamage": 0,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
+    "luckGain": 1,
+    "maxHealthGain": 1,
+    "isHandRelated": true,
     "class": 3
   },
   {
