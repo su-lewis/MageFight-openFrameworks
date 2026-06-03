@@ -20529,6 +20529,30 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogNotice("Lockstep") << "CMD_MENU_CHOICE GiantMagicHand: targetIndex=" << targetIndex << " choice=" << choice << " cardIndex=" << cardIndex;
 		}
 
+		// Intercept Dispel Barrier so it applies locally instead of going through handleCardMenuClick
+		if (menuType == CARD_DISPEL && buttonId == "Barrier") {
+			resetCardState();
+			currentCardOutcome.cardType = CARD_DISPEL;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			beginEffectSequence();
+
+			EffectOp barrierOp = {};
+			barrierOp.type = EffectOpType::MODIFY_STAT;
+			barrierOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			barrierOp.data.modifyStat.statType = 6; // Barrier
+			barrierOp.data.modifyStat.delta = 5;
+			barrierOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(barrierOp);
+
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+			resetCardInteraction();
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+				markMeaningfulActionOnCurrentTurn();
+			}
+			break;
+		}
+
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
 		isExecutingLockstepCommand = false;
@@ -28036,6 +28060,26 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				activeAOERing.duration = 1.5f;
 				activeAOERing.cardType = CARD_MAGIC_BOLT;
+			}
+		}
+	}
+	// --- PURGE HIGHLIGHT FILTERING ---
+	// When Dispel is in Purge mode, only highlight targets that have active statuses
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
+		for (int tx = 0; tx < BOARD_WIDTH; tx++) {
+			for (int ty = 0; ty < BOARD_HEIGHT; ty++) {
+				if (board[tx][ty].isTargetable) {
+					bool hasStatus = false;
+					for (auto & p : players) {
+						if (p.x == tx && p.y == ty) {
+							if (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0) hasStatus = true;
+						}
+					}
+					if (!hasStatus) {
+						board[tx][ty].isTargetable = false;
+						board[tx][ty].isTargetPreview = false;
+					}
+				}
 			}
 		}
 	}
