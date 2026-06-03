@@ -24604,7 +24604,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON) return false;
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -24856,6 +24856,45 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	switch (playedCard.type) {
 
+	case CARD_SPRINT: {
+		beginEffectSequence();
+
+		// 1. +2 AP this turn
+		EffectOp apNow = {};
+		apNow.type = EffectOpType::MODIFY_STAT;
+		apNow.data.modifyStat.targetIndex = currentPlayerIndex;
+		apNow.data.modifyStat.statType = 3; // AP (current)
+		apNow.data.modifyStat.delta = 2;
+		apNow.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(apNow);
+
+		// 2. +2 AP next turn
+		EffectOp apNext = {};
+		apNext.type = EffectOpType::MODIFY_STAT;
+		apNext.data.modifyStat.targetIndex = currentPlayerIndex;
+		apNext.data.modifyStat.statType = 11; // Next-turn AP bonus
+		apNext.data.modifyStat.delta = 2;
+		apNext.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(apNext);
+
+		// 3. Free Kick Turns
+		// We add 2 to this variable because the engine decrements it at the END of the turn.
+		// (Turn 1: active. Turn 1 Ends: down to 1. Turn 2: active. Turn 2 Ends: down to 0).
+		EffectOp freeKick = {};
+		freeKick.type = EffectOpType::MODIFY_STAT;
+		freeKick.data.modifyStat.targetIndex = currentPlayerIndex;
+		freeKick.data.modifyStat.statType = 15; // FreeKickTurns counter
+		freeKick.data.modifyStat.delta = 2;
+		freeKick.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(freeKick);
+
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Sprint! (+AP & Free Kick)", ofColor::cyan);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_HASTEN: {
 		beginEffectSequence();
 		EffectOp d10Op = {};
@@ -24988,6 +25027,42 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		EffectOp psionicOp = {};
 		psionicOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
 		queueEffect(psionicOp);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_FULL_RESTORE: {
+		beginEffectSequence();
+
+		// 1. Heal to Max HP
+		int missingHP = currentPlayer.maxHealth - currentPlayer.health;
+		if (missingHP > 0) {
+			EffectOp healOp = {};
+			healOp.type = EffectOpType::HEAL;
+			healOp.data.heal.targetIndex = currentPlayerIndex;
+			healOp.data.heal.amount = missingHP;
+			healOp.data.heal.amountFromSlot = -1;
+			queueEffect(healOp);
+		}
+
+		// 2. Remove Negative Statuses
+		auto queueStatusRemoval = [&](int statusType) {
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = statusType;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+		};
+
+		if (currentPlayer.onFire) queueStatusRemoval(STATUS_ON_FIRE);
+		if (currentPlayer.isPoisoned) queueStatusRemoval(STATUS_POISONED);
+		if (currentPlayer.isParalyzed) queueStatusRemoval(STATUS_PARALYZED);
+		if (currentPlayer.sleepTurnsRemaining > 0) queueStatusRemoval(STATUS_SLEEP);
+
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Fully Restored!", ofColor::green);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);

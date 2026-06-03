@@ -686,6 +686,7 @@
     "name": "Four-leaf clover",
     "type": "CARD_FOUR_LEAF_CLOVER",
     "cost": 10,
+    "luckGain": 1,
     "targeting": "TARGET_SELF",
     "class": 2
   },
@@ -702,13 +703,6 @@
     "name": "Full Restore",
     "type": "CARD_FULL_RESTORE",
     "cost": 4,
-    "healToFull": true,
-    "removeStatuses": [
-      "STATUS_ON_FIRE",
-      "STATUS_POISONED",
-      "STATUS_SLEEP",
-      "STATUS_PARALYZED"
-    ],
     "targeting": "TARGET_SELF",
     "class": 2
   },

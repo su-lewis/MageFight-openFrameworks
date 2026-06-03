@@ -514,7 +514,7 @@
 - **AP Cost:** 0
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +2 AP this turn and +2 AP next turn. Kick costs 0 AP until the end of next turn.
+- **Effect Text:** Gain +2 AP this turn and +2 AP next turn. Kick costs 0 AP until the end of your next turn.
 ---
 
 -## 66. Full Restore
