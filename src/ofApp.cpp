@@ -13397,27 +13397,33 @@ cursor_check_done:;
 		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
 		if (draggedCardIndex == -1) {
-			// Always pick the visually top-most card under the cursor.
 			int numCards = static_cast<int>(currentPlayer.hand.size());
+			int bestIndex = -1;
+			float bestDist = 999999.0f;
 
-			// Check cards in reverse draw order so first hit is the top-most card.
+			// Check cards in reverse draw order
 			for (int i = numCards - 1; i >= 0; --i) {
 				Card & card = currentPlayer.hand[i];
 				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
 				float h = baseCardHeight * std::max(0.9f, card.currentScale);
 				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
+
 				if (hitRect.inside((float)x, (float)y)) {
-					foundHoverIndex = i;
-					break;
+					// Prioritize the card whose center is closest to the mouse horizontally
+					float distX = std::abs(card.currentPos.x - x);
+					if (distX < bestDist) {
+						bestDist = distX;
+						bestIndex = i;
+					}
 				}
 			}
 
 			// Keep highlights stable while holding LMB on a card even if tiny
 			// mouse jitter temporarily leaves the hover rect.
-			if (foundHoverIndex == -1 && ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex >= 0 && pressedCardIndex < numCards) {
-				foundHoverIndex = pressedCardIndex;
+			if (bestIndex == -1 && ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex >= 0 && pressedCardIndex < numCards) {
+				bestIndex = pressedCardIndex;
 			}
-			hoveredCardIndex = foundHoverIndex;
+			foundHoverIndex = bestIndex;
 			// Update target highlights on hover change (when not dragging)
 			if (hoveredCardIndex != lastHoveredCardIndex) {
 				int prevHovered = lastHoveredCardIndex;
@@ -14262,23 +14268,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		Player & currentPlayer = players[currentPlayerIndex];
 		int numCards = static_cast<int>(currentPlayer.hand.size());
-		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
 		if (numCards > 0) {
 			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
-			for (int i = 0; i < numCards; i++) {
+			int bestIndex = -1;
+			float bestDist = 999999.0f;
+
+			// Check cards using the exact same Hitbox and Center-Distance logic as mouseMoved
+			for (int i = numCards - 1; i >= 0; i--) {
 				Card & card = currentPlayer.hand[i];
-				ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
+				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
+				float h = baseCardHeight * std::max(0.9f, card.currentScale);
+				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
+
 				if (hitRect.inside((float)x, (float)y)) {
-					// Keep track of the rightmost card that contains the cursor
-					pressedCardIndex = i; // last hit wins (matches visual stack order)
-					ofLogNotice("CardDrag") << "Card pressed: index=" << i << " name=" << card.name;
+					float distX = std::abs(card.currentPos.x - x);
+					if (distX < bestDist) {
+						bestDist = distX;
+						bestIndex = i;
+					}
 				}
 			}
-		}
-		if (pressedCardIndex == -1) {
-			ofLogNotice("CardDrag") << "mousePressed: No card pressed at (" << x << "," << y << ")";
+
+			pressedCardIndex = bestIndex;
+			if (pressedCardIndex != -1) {
+				ofLogNotice("CardDrag") << "Card pressed: index=" << pressedCardIndex << " name=" << currentPlayer.hand[pressedCardIndex].name;
+			}
 		}
 	}
 
@@ -18441,21 +18457,27 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool rockHasAdjacentUnit = false;
 	bool wisdomHasAdjacentUnit = false;
 	bool boonHasAdjacentUnit = false;
+	bool doubleHandedHasAdjacentUnit = false;
 
-	if (card.type == CARD_BLOCKING_BOON) {
-		static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+
+	// Scan for specific adjacencies
+	if (card.type == CARD_ROCK_CRUSH) {
 		for (const auto & d : dirs) {
 			int nx = caster.x + d[0];
 			int ny = caster.y + d[1];
 			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-				boonHasAdjacentUnit = true;
-				break;
-			}
+			if (board[nx][ny].hasWall) rockHasAdjacentWall = true;
+			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) rockHasAdjacentUnit = true;
 		}
-	}
-	if (card.type == CARD_WISDOM_BOON) {
-		static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		// If both target types exist, force explicit menu choice.
+		// If only one exists, auto-select that mode so targeting highlights are constrained.
+		if (rockHasAdjacentWall && !rockHasAdjacentUnit) {
+			interactionMenuChoice = "wall";
+		} else if (!rockHasAdjacentWall && rockHasAdjacentUnit) {
+			interactionMenuChoice = "damage";
+		}
+	} else if (card.type == CARD_WISDOM_BOON) {
 		for (const auto & d : dirs) {
 			int nx = caster.x + d[0];
 			int ny = caster.y + d[1];
@@ -18465,21 +18487,59 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 				break;
 			}
 		}
-	}
-	if (card.type == CARD_ROCK_CRUSH) {
-		// If both target types exist, force explicit menu choice.
-		// If only one exists, auto-select that mode so targeting highlights are constrained.
-		if (rockHasAdjacentWall && !rockHasAdjacentUnit) {
-			interactionMenuChoice = "wall";
-		} else if (!rockHasAdjacentWall && rockHasAdjacentUnit) {
-			interactionMenuChoice = "damage";
+	} else if (card.type == CARD_BLOCKING_BOON) {
+		for (const auto & d : dirs) {
+			int nx = caster.x + d[0];
+			int ny = caster.y + d[1];
+			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+				boonHasAdjacentUnit = true;
+				break;
+			}
+		}
+	} else if (card.type == CARD_DOUBLE_HANDED) {
+		for (const auto & d : dirs) {
+			int nx = caster.x + d[0];
+			int ny = caster.y + d[1];
+			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+				doubleHandedHasAdjacentUnit = true;
+				break;
+			}
 		}
 	}
 
-	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall) || card.type == CARD_RENEWED_INSPIRATION);
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
 	bool boonAutoPlayNoAdjacent = (card.type == CARD_BLOCKING_BOON && !boonHasAdjacentUnit);
+	bool dhAutoPlayNoAdjacent = (card.type == CARD_DOUBLE_HANDED && !doubleHandedHasAdjacentUnit);
+
+	// Choose-one cards should open their menu immediately on play.
+	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit) || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent);
+
+	// Wisdom Boon Auto-Block: Skip targeting and menu entirely, instantly apply block to self
+	if (wisdomAutoBlockNoAdjacent) {
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = CARD_WISDOM_BOON;
+		cmd.params[1] = currentPlayerIndex; // Target self
+		cmd.params[2] = 2; // Choose Block
+		cmd.params[3] = cardIndex;
+		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+		if (isMultiplayer) {
+			sendInputCommand(cmd, true);
+		} else {
+			queueInputCommand(cmd);
+		}
+		draggedCardIndex = -1;
+		selectedCardIndex = -1;
+		return;
+	}
 
 	if (menuFirstChoiceCard) {
 		interactingCardIndex = cardIndex;
@@ -18488,6 +18548,9 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		interactionMenuChoice.clear();
 		if (card.type == CARD_GIANT_MAGIC_HAND) {
 			magicHandTargetTile = { -1, -1 };
+		}
+		if (dhAutoPlayNoAdjacent) {
+			interactionTargetIndex = currentPlayerIndex; // Pre-select self for Double Handed menu
 		}
 		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, card.type);
 
@@ -18507,7 +18570,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	else if (!wisdomAutoBlockNoAdjacent && !boonAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
+	else if (!wisdomAutoBlockNoAdjacent && !boonAutoPlayNoAdjacent && !dhAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
 
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
@@ -24173,6 +24236,13 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 	int gridX = (int)floor(boardPos.x);
 	int gridY = (int)floor(boardPos.y);
 
+	// FIX: If we are hovering a 3D unit model, snap the grid coordinates to that unit.
+	// This ensures clicking a tall model's head targets their tile, not the tile behind them!
+	if (isHoveringUnit && hoveredUnitIndex >= 0 && hoveredUnitIndex < (int)players.size()) {
+		gridX = players[hoveredUnitIndex].x;
+		gridY = players[hoveredUnitIndex].y;
+	}
+
 	// Dispatch based on current interaction state
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
@@ -24604,7 +24674,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE) return false;
+	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -27095,21 +27165,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				} else {
 					float maxRangeFeet = 9999.0f;
-					if (card.numDice > 0 && card.diceSides > 0) {
+					if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) {
+						maxRangeFeet = (float)(card.rangeDiceNum * card.rangeDiceSides);
+					} else if (card.numDice > 0 && card.diceSides > 0) {
 						maxRangeFeet = (float)(card.numDice * card.diceSides);
 					}
-					float distFeet = getFaceToFaceDistance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
-					if (distFeet <= maxRangeFeet + 0.1f) {
+
+					TargetInfo info = isLosTargetValid(casterPos, glm::vec2((float)tx, (float)ty), maxRangeFeet, card.type);
+					if (info.reason == VALID || info.reason == INVALID_SELF) {
 						preview = true;
 					}
 
-					// Chain Lightning: respect LOS rules used elsewhere
-					TargetInfo info = isLosTargetValid(casterPos, glm::vec2((float)tx, (float)ty), 9999.0f, CARD_CHAIN_LIGHTNING);
-					if (info.reason == VALID || info.reason == INVALID_SELF) preview = true;
 					if (info.reason == VALID) {
 						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							valid = true;
-						} else {
+						} else if (card.type == CARD_CHAIN_LIGHTNING) {
+							// Chain lightning bounce target checking
 							for (int dx = -1; dx <= 1 && !valid; ++dx) {
 								for (int dy = -1; dy <= 1; ++dy) {
 									if (dx == 0 && dy == 0) continue;
