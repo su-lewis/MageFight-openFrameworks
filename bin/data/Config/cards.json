@@ -133,30 +133,29 @@
     "damageDiceSides": 10
   },
   {
-  "id": 14,
-  "name": "Dispel",
-  "type": "CARD_DISPEL",
-  "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
-  "cost": 2,
-  "class": 1
-},
+    "id": 14,
+    "name": "Dispel",
+    "type": "CARD_DISPEL",
+    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
+    "cost": 2,
+    "class": 1
+  },
   {
-  "id": 15,
-  "name": "Teleport",
-  "type": "CARD_TELEPORT",
-  "targeting": "TARGET_EMPTY_TILE",
-  "cost": 5,
-  "class": 1,
-  "rangeDiceNum": 3,
-  "rangeDiceSides": 6
-},
+    "id": 15,
+    "name": "Teleport",
+    "type": "CARD_TELEPORT",
+    "targeting": "TARGET_EMPTY_TILE",
+    "cost": 5,
+    "class": 1,
+    "rangeDiceNum": 3,
+    "rangeDiceSides": 6
+  },
   {
     "id": 16,
     "name": "Hasten",
     "type": "CARD_HASTEN",
-    "cost": 1,
-    "value": 0,
     "targeting": "TARGET_SELF",
+    "cost": 1,
     "class": 2
   },
   {
