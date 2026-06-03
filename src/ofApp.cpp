@@ -24979,7 +24979,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
-			if (buttonId == "damage") {
+			// Use interactionMenuChoice instead of buttonId
+			if (interactionMenuChoice == "damage") {
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
 				dmgOp.data.damage.targetIndex = interactionTargetIndex;
