@@ -6804,9 +6804,11 @@ void ofApp::updateGameLogic() {
 					};
 
 					bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartFrame > 0);
-					if (draftRewardVisualsActive) {
-						// If draft just resolved from a timeout, let reward visuals finish before ending turn.
-						ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
+					bool cardCurrentlyResolving = (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE);
+
+					if (draftRewardVisualsActive || cardCurrentlyResolving) {
+						// If draft just resolved or a card is still resolving, let visuals finish before ending turn.
+						ofLogNotice("Timer") << "Turn timer expired but waiting for effects/visuals to resolve before auto-end-turn.";
 						return;
 					}
 					ofLogNotice("Timer") << "Turn time limit exceeded. Auto-ending turn.";
@@ -24601,7 +24603,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE) return false;
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -27423,9 +27425,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					isPreview = true;
 
 					// 1. Special Case: Summon Magic Wall
-					// Can target empty tile OR existing wall to transform it
+					// Can target empty tile OR existing normal wall to transform it
 					if (card.name == "Summon Magic Wall") {
-						if ((!board[x][y].hasWall && !board[x][y].hasPlayer) || board[x][y].hasWall) {
+						if ((!board[x][y].hasWall && !board[x][y].hasPlayer) || (board[x][y].hasWall && !board[x][y].isMagicWall)) {
 							isValidTarget = true;
 						}
 					}
