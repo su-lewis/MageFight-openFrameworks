@@ -309,7 +309,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal damage to an adjacent unit equal to the sum of all block types, then remove all block.
+- **Effect Text:** Deal damage to an adjacent unit equal to the sum of all block types, then remove them all.
 ---
 
 -## 40. Train

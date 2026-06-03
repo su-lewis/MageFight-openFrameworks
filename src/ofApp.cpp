@@ -24601,7 +24601,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL) return false;
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS) return false;
 
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
@@ -24957,6 +24957,51 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		blockingBoonActive = blockingBoonPendingPhysicalAfterDraft;
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_FLURRY_OF_FISTS: {
+		if (resolvedTargetIndex != -1) {
+			beginEffectSequence();
+
+			int totalDamage = playedCard.baseDamage;
+
+			// Previous flurry stacks double this damage too!
+			if (currentPlayer.flurryOfFistsStacks > 0) {
+				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+			}
+
+			// 1. Deal Physical Damage
+			EffectOp dmgOp = {};
+			dmgOp.type = EffectOpType::DAMAGE;
+			dmgOp.data.damage.targetIndex = resolvedTargetIndex;
+			dmgOp.data.damage.damageType = playedCard.damageType;
+			dmgOp.data.damage.fixedDamage = totalDamage;
+			dmgOp.data.damage.damageFromSlot = -1;
+			queueEffect(dmgOp);
+
+			// 2. Draw 1 Card
+			EffectOp drawOp = {};
+			drawOp.type = EffectOpType::DRAW_CARDS;
+			drawOp.data.drawCards.playerIndex = currentPlayerIndex;
+			drawOp.data.drawCards.numCards = 1;
+			queueEffect(drawOp);
+
+			// 3. Make the next hand-related card played cost 0 AP
+			currentPlayer.freeHandCardTurns += 1;
+
+			// 4. Double future Hand-Related Cards
+			EffectOp flurryOp = {};
+			flurryOp.type = EffectOpType::MODIFY_STAT;
+			flurryOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			flurryOp.data.modifyStat.statType = 14; // Flurry stacks
+			flurryOp.data.modifyStat.delta = 1;
+			flurryOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(flurryOp);
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		}
 		return true;
 	}
 

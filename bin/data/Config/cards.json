@@ -431,8 +431,6 @@
     "type": "CARD_DEATH",
     "cost": 8,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "rangeDiceNum": 1,
-    "rangeDiceSides": 20,
     "class": 3
   },
   {
@@ -451,6 +449,7 @@
     "name": "Shield Bash",
     "type": "CARD_SHIELD_BASH",
     "cost": 3,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
     "class": 1
   },
@@ -460,17 +459,7 @@
     "type": "CARD_TRAIN",
     "cost": 3,
     "targeting": "TARGET_SELF",
-    "class": 1,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Gain AP"
-      },
-      {
-        "id": 2,
-        "label": "Gain Block"
-      }
-    ]
+    "class": 1
   },
   {
     "id": 41,
@@ -505,6 +494,7 @@
     "name": "Add Poison",
     "type": "CARD_ADD_POISON",
     "cost": 2,
+    "damageType": "DAMAGE_POISON",
     "targeting": "TARGET_SELF",
     "applyStatus": "STATUS_ADD_POISON",
     "statusDuration": 0,
@@ -515,7 +505,10 @@
     "name": "Flurry of Fists",
     "type": "CARD_FLURRY_OF_FISTS",
     "cost": 3,
+    "baseDamage": 2,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
+    "isHandRelated": true,
     "class": 2
   },
   {
