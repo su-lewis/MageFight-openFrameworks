@@ -201,14 +201,11 @@
     "id": 21,
     "name": "Heal",
     "type": "CARD_HEAL",
-    "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "rangeDiceNum": 2,
-    "rangeDiceSides": 6,
-    "healAmount": 6,
-    "healDiceNum": 1,
-    "healDiceSides": 6,
-    "class": 1
+    "cost": 3,
+    "class": 1,
+    "healDiceNum": 2,
+    "healDiceSides": 6
   },
   {
     "id": 22,

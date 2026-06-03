@@ -2116,12 +2116,16 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		for (int i = 0; i < wallEffectCount; i++)
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
+		// 1. Do the math
 		for (int i = 0; i < wallEffectCount; i++) {
 			if (dmg > 0) dmg /= 2;
-			if (i == 0 && targetNearWall)
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
-			else if (i == 1 && attackerNearWall)
-				queueFloatingTextVisual(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
+		}
+		// 2. Spawn the text independently
+		if (targetNearWall) {
+			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
+		}
+		if (attackerNearWall && attackerPtr) {
+			queueFloatingTextVisual(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
 		}
 	}
 
@@ -2267,15 +2271,20 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		for (int i = 0; i < wallEffectCount; i++)
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
+		// 1. Do the math
 		for (int i = 0; i < wallEffectCount; i++) {
 			if (dmg > 0) dmg /= 2;
-			if (i == 0 && targetNearWall)
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
-			else if (i == 1 && attackerNearWall)
-				queueFloatingTextVisual(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
+		}
+		// 2. Spawn the text independently
+		if (targetNearWall) {
+			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
+		}
+		if (attackerNearWall && attackerPtr) {
+			queueFloatingTextVisual(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
 		}
 	}
 
+	// Species / card-based vulnerabilities
 	if ((target.isHellhound || target.isDemon || target.isSkeleton) && type == DAMAGE_HOLY) {
 		dmg *= 2;
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
@@ -2361,6 +2370,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		break;
 	case DAMAGE_PIERCING:
 		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255)); // <-- ADDED BARRIER
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	default:
