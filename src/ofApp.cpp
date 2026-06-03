@@ -18477,7 +18477,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 
 	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
+	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
 
 	if (menuFirstChoiceCard) {
@@ -18784,7 +18784,30 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 	case CARD_BURST_OF_LIGHT:
 	case CARD_WISDOM_BOON:
-	case CARD_DOUBLE_HANDED:
+	case CARD_DOUBLE_HANDED: {
+		if (interactionTargetIndex != -1) {
+			resetCardState();
+			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			beginEffectSequence();
+
+			// Determine which card to add based on the button clicked
+			int cardToAdd = (buttonId == "x2 Punch" || buttonId == "Punch") ? (int)CARD_PUNCH : (int)CARD_HAND_BLOCK;
+
+			// Queue 2 copies
+			for (int i = 0; i < 2; i++) {
+				EffectOp addOp = {};
+				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+				addOp.data.addCard.targetIndex = interactionTargetIndex;
+				addOp.data.addCard.cardType = cardToAdd;
+				queueEffect(addOp);
+			}
+
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		}
+		break;
+	}
 	case CARD_DISPEL:
 	case CARD_MAGIC_BLAST:
 	case CARD_GIANT_MAGIC_HAND: {
@@ -18974,7 +18997,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
-			choiceNeedsTarget = true;
+			choiceNeedsTarget = false;
 			break;
 		case CARD_TRAIN:
 			choice = (buttonId == "draft") ? 1 : 2;
@@ -19080,8 +19103,28 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	case CARD_WISDOM_BOON:
 		break;
 
-	case CARD_DOUBLE_HANDED:
+	case CARD_DOUBLE_HANDED: {
+		if (interactionTargetIndex != -1) {
+			resetCardState();
+			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			beginEffectSequence();
+
+			int cardToAdd = (buttonId == "x2 Punch" || buttonId == "Punch") ? (int)CARD_PUNCH : (int)CARD_HAND_BLOCK;
+
+			for (int i = 0; i < 2; i++) {
+				EffectOp addOp = {};
+				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+				addOp.data.addCard.targetIndex = interactionTargetIndex;
+				addOp.data.addCard.cardType = cardToAdd;
+				queueEffect(addOp);
+			}
+
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		}
 		break;
+	}
 
 	case CARD_MAGIC_BLAST:
 		break;
@@ -24558,7 +24601,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH) return false;
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH) return false;
 
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
@@ -25515,13 +25558,45 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_DRAIN_PUNCH: {
 		if (resolvedTargetIndex != -1) {
 			beginEffectSequence();
-			int drainDamage = 2;
-			EffectOp drainOp = {};
-			drainOp.type = EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE;
-			drainOp.data.damage.targetIndex = resolvedTargetIndex;
-			drainOp.data.damage.fixedDamage = drainDamage;
-			drainOp.data.damage.damageFromSlot = -1;
-			queueEffect(drainOp);
+
+			int totalDamage = playedCard.baseDamage; // Reads the 2 directly from JSON!
+
+			auto isHandRelatedAttack = [](CardType type) {
+				return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
+			};
+
+			// +2 for ITSELF (since it hasn't been pushed to cardsPlayedThisTurn yet)
+			totalDamage += 2;
+
+			// +2 for each OTHER hand-related attack card already played this turn
+			for (CardType ct : currentPlayer.cardsPlayedThisTurn) {
+				if (isHandRelatedAttack(ct)) {
+					totalDamage += 2;
+				}
+			}
+
+			// Apply Flurry of Fists multiplier if active
+			if (currentPlayer.flurryOfFistsStacks > 0) {
+				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+			}
+
+			// 1. Queue the Damage Effect
+			EffectOp dmgOp = {};
+			dmgOp.type = EffectOpType::DAMAGE;
+			dmgOp.data.damage.targetIndex = resolvedTargetIndex;
+			dmgOp.data.damage.damageType = playedCard.damageType;
+			dmgOp.data.damage.fixedDamage = totalDamage;
+			dmgOp.data.damage.damageFromSlot = -1;
+			queueEffect(dmgOp);
+
+			// 2. Queue the Lifesteal (Heal) Effect on the Caster
+			EffectOp healOp = {};
+			healOp.type = EffectOpType::HEAL;
+			healOp.data.heal.targetIndex = currentPlayerIndex;
+			healOp.data.heal.amount = totalDamage;
+			healOp.data.heal.amountFromSlot = -1;
+			queueEffect(healOp);
+
 			playedSuccessfully = true;
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}

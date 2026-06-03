@@ -329,7 +329,9 @@
     "type": "CARD_DRAIN_PUNCH",
     "cost": 2,
     "baseDamage": 2,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
+    "isHandRelated": true,
     "class": 1
   },
   {
@@ -338,22 +340,8 @@
     "type": "CARD_DOUBLE_HANDED",
     "cost": 2,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
-    "class": 1,
-    "copiesToAdd": 2,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Double Attack",
-        "key": "x2 Punch",
-        "addsCardType": "CARD_PUNCH"
-      },
-      {
-        "id": 2,
-        "label": "Double Block",
-        "key": "x2 Hand Block",
-        "addsCardType": "CARD_HAND_BLOCK"
-      }
-    ]
+    "isHandRelated": true,
+    "class": 1
   },
   {
     "id": 29,
