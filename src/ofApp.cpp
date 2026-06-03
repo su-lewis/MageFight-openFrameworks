@@ -18793,7 +18793,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			beginEffectSequence();
 
 			// Determine which card to add based on the button clicked
-			int cardToAdd = (buttonId == "x2 Punch" || buttonId == "Punch") ? (int)CARD_PUNCH : (int)CARD_HAND_BLOCK;
+			int cardToAdd = (interactionMenuChoice == "x2 Punch" || interactionMenuChoice == "Punch") ? (int)CARD_PUNCH : (int)CARD_HAND_BLOCK;
 
 			// Queue 2 copies
 			for (int i = 0; i < 2; i++) {
@@ -24960,6 +24960,29 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
+	case CARD_TIME_VORTEX: {
+		beginEffectSequence();
+
+		// Roll 1d4
+		std::vector<int> rawRoll;
+		int turns = resolveDiceRollDetailed(1, 4, rawRoll);
+
+		// Add Luck bonus
+		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
+		turns += luckBonus;
+
+		// Apply directly to the player's bonus turn counter
+		currentPlayer.bonusTurns += turns;
+
+		// Spawn Visuals
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRoll, turns, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(turns) + " Extra Turns!", ofColor::magenta);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		beginEffectSequence();
@@ -25323,6 +25346,39 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		playedSuccessfully = true;
+		return true;
+	}
+
+	case CARD_NECROMANCER_S_BLESSING: {
+		beginEffectSequence();
+
+		// Count skeletons controlled by the caster
+		int skeletonCount = 0;
+		for (const auto & p : players) {
+			if (p.isSkeleton && p.health > 0) {
+				// Check if the skeleton belongs to the person casting the spell
+				if (p.ownerID == currentPlayer.playerID) {
+					skeletonCount++;
+				}
+			}
+		}
+
+		if (skeletonCount > 0) {
+			EffectOp luckOp = {};
+			luckOp.type = EffectOpType::MODIFY_STAT;
+			luckOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			luckOp.data.modifyStat.statType = 10; // Luck
+			luckOp.data.modifyStat.delta = skeletonCount;
+			luckOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(luckOp);
+
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(skeletonCount) + " Luck", ofColor::green);
+		} else {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Skeletons", ofColor::gray);
+		}
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 

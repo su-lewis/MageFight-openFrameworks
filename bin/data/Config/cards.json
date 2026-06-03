@@ -365,9 +365,7 @@
     "type": "CARD_NECROMANCER_S_BLESSING",
     "cost": 3,
     "targeting": "TARGET_SELF",
-    "class": 3,
-    "countUnitType": "SKELETON",
-    "countGrantLuckPerUnit": 1
+    "class": 3
   },
   {
     "id": 32,
@@ -375,8 +373,6 @@
     "type": "CARD_TIME_VORTEX",
     "cost": 7,
     "targeting": "TARGET_SELF",
-    "utilityDiceNum": 1,
-    "utilityDiceSides": 4,
     "class": 3
   },
   {
