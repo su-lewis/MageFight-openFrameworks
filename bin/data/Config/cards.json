@@ -721,28 +721,16 @@
     "name": "Burst of Light",
     "type": "CARD_BURST_OF_LIGHT",
     "cost": 3,
+    "damageType": "DAMAGE_HOLY",
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "class": 1,
-    "baseDamage": 3,
-    "healAmount": 3,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Damage",
-        "key": "damage"
-      },
-      {
-        "id": 2,
-        "label": "Heal",
-        "key": "heal"
-      }
-    ]
+    "class": 1
   },
   {
     "id": 69,
     "name": "Shoot Arrow",
     "type": "CARD_SHOOT_ARROW",
     "cost": 3,
+    "damageType": "DAMAGE_PIERCING",
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "rangeDiceNum": 2,
     "rangeDiceSides": 20,
