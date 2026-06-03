@@ -13218,7 +13218,7 @@ void ofApp::drawGame() {
 		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2.0f, btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f);
 
 		// Indicator: show selection count to the right of the accept button.
-		std::string selectedCountText = ofToString(validSelectedCount) + " selected";
+		std::string selectedCountText = ofToString(validSelectedCount) + " selected (Draw " + ofToString(validSelectedCount * 2) + ")";
 		ofRectangle selectedCountBox = uiFont.getStringBoundingBox(selectedCountText, 0, 0);
 		float selectedCountX = btnX + btnW + std::max(12.0f, 16.0f * uiScale);
 		float selectedCountY = btnY + (btnH + selectedCountBox.height) / 2.0f - 6.0f;
@@ -18475,7 +18475,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 
 	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
+	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall) || card.type == CARD_RENEWED_INSPIRATION);
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
 	bool boonAutoPlayNoAdjacent = (card.type == CARD_BLOCKING_BOON && !boonHasAdjacentUnit);
 
@@ -24601,7 +24601,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS) return false;
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION) return false;
 
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
@@ -24875,6 +24875,38 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
+	case CARD_DEMOLITION: {
+		if (!board[targetX][targetY].hasWall) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Must target wall", ofColor::red);
+			return true; // Abort play
+		}
+
+		beginEffectSequence();
+
+		// 1. Destroy the wall
+		EffectOp modTile = {};
+		modTile.type = EffectOpType::MODIFY_TILE;
+		modTile.data.modifyTile.toX = targetX;
+		modTile.data.modifyTile.toY = targetY;
+		modTile.data.modifyTile.setHasWall = -1; // -1 means false
+		queueEffect(modTile);
+
+		// 2. Gain +6 AP Next Turn
+		EffectOp apOp = {};
+		apOp.type = EffectOpType::MODIFY_STAT;
+		apOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		apOp.data.modifyStat.statType = 11; // Next-turn AP bonus
+		apOp.data.modifyStat.delta = 6;
+		apOp.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(apOp);
+
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::cyan);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_BLOCKING_BOON: {
 		if (blockingBoonActive) {
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
@@ -24955,6 +24987,90 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		blockingBoonActive = blockingBoonPendingPhysicalAfterDraft;
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_FORTIFY: {
+		if (!board[targetX][targetY].hasWall) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Must target wall", ofColor::red);
+			return true; // Abort play
+		}
+
+		beginEffectSequence();
+
+		// 1. BFS to find all linked walls
+		std::vector<glm::ivec2> linkedWalls;
+		std::vector<std::vector<bool>> visited(BOARD_WIDTH, std::vector<bool>(BOARD_HEIGHT, false));
+		std::queue<glm::ivec2> q;
+
+		q.push({ targetX, targetY });
+		visited[targetX][targetY] = true;
+
+		while (!q.empty()) {
+			glm::ivec2 curr = q.front();
+			q.pop();
+			linkedWalls.push_back(curr);
+
+			glm::ivec2 dirs[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto & d : dirs) {
+				int nx = curr.x + d.x;
+				int ny = curr.y + d.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (!visited[nx][ny] && board[nx][ny].hasWall) {
+						visited[nx][ny] = true;
+						q.push({ nx, ny });
+					}
+				}
+			}
+		}
+
+		// 2. Add X Fortification based on wall count
+		int xAmount = (int)linkedWalls.size();
+		if (xAmount > 0) {
+			EffectOp fortOp = {};
+			fortOp.type = EffectOpType::MODIFY_STAT;
+			fortOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			fortOp.data.modifyStat.statType = 13; // Fortification
+			fortOp.data.modifyStat.delta = xAmount;
+			fortOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(fortOp);
+
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(xAmount) + " Fortify", ofColor::lightGray);
+		}
+
+		// 3. Find all enemy targets adjacent to ANY wall in the link
+		std::set<int> targetsToDamage;
+		for (auto & w : linkedWalls) {
+			glm::ivec2 dirs[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto & d : dirs) {
+				int nx = w.x + d.x;
+				int ny = w.y + d.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (board[nx][ny].hasPlayer) {
+						// Identify who is on this tile
+						for (size_t i = 0; i < players.size(); i++) {
+							if (players[i].x == nx && players[i].y == ny && i != currentPlayerIndex) {
+								targetsToDamage.insert(i);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// 4. Apply AOE Damage (Reads 3 from baseDamage dynamically)
+		for (int tIdx : targetsToDamage) {
+			EffectOp dmgOp = {};
+			dmgOp.type = EffectOpType::DAMAGE;
+			dmgOp.data.damage.targetIndex = tIdx;
+			dmgOp.data.damage.damageType = playedCard.damageType;
+			dmgOp.data.damage.fixedDamage = playedCard.baseDamage;
+			dmgOp.data.damage.damageFromSlot = -1;
+			queueEffect(dmgOp);
+		}
+
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;

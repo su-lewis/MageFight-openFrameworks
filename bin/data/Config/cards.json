@@ -516,6 +516,7 @@
     "name": "Form of Tortoise",
     "type": "CARD_FORM_OF_TORTOISE",
     "cost": 5,
+    "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_SELF",
     "class": 3
   },
@@ -524,10 +525,10 @@
     "name": "Fortify",
     "type": "CARD_FORTIFY",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
-    "class": 2,
-    "fortifyAmount": 1,
-    "baseDamage": 3
+    "damageType": "DAMAGE_PHYSICAL",
+    "targeting": "TARGET_ADJACENT_WALL",
+    "baseDamage": 3,
+    "class": 2
   },
   {
     "id": 48,
@@ -554,7 +555,7 @@
     "name": "Demolition",
     "type": "CARD_DEMOLITION",
     "cost": 6,
-    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
+    "targeting": "TARGET_ADJACENT_WALL",
     "class": 1
   },
   {
@@ -563,17 +564,7 @@
     "type": "CARD_RENEWED_INSPIRATION",
     "cost": 2,
     "targeting": "TARGET_SELF",
-    "class": 1,
-    "menuOptions": [
-      {
-        "id": 1,
-        "label": "Draw"
-      },
-      {
-        "id": 2,
-        "label": "Boost"
-      }
-    ]
+    "class": 1
   },
   {
     "id": 52,
