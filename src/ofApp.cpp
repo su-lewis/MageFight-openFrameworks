@@ -13423,7 +13423,11 @@ cursor_check_done:;
 			if (bestIndex == -1 && ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex >= 0 && pressedCardIndex < numCards) {
 				bestIndex = pressedCardIndex;
 			}
-			foundHoverIndex = bestIndex;
+
+			// SET THE HOVER INDEX! (This was the missing part)
+			int foundHoverIndex = bestIndex;
+			hoveredCardIndex = foundHoverIndex;
+
 			// Update target highlights on hover change (when not dragging)
 			if (hoveredCardIndex != lastHoveredCardIndex) {
 				int prevHovered = lastHoveredCardIndex;
@@ -14275,7 +14279,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			int bestIndex = -1;
 			float bestDist = 999999.0f;
 
-			// Check cards using the exact same Hitbox and Center-Distance logic as mouseMoved
 			for (int i = numCards - 1; i >= 0; i--) {
 				Card & card = currentPlayer.hand[i];
 				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
@@ -19102,6 +19105,14 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		}
 
 		if (choice > 0) {
+			// Intercept Purge so it doesn't send a network command, but opens the status menu
+			if (interactingCardType == CARD_DISPEL && buttonId == "Purge") {
+				updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
+				Player * tgt = getPlayer(interactionTargetIndex);
+				determineStatusOptions(tgt);
+				return;
+			}
+
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
@@ -19437,12 +19448,25 @@ void ofApp::drawActiveCardInteractionUI() {
 			ofColor barrierAccent(150, 100, 200);
 			ofColor purgeAccent(200, 100, 150);
 
+			// Check if any valid target has statuses
+			bool anyStatus = false;
+			Player & caster = players[currentPlayerIndex];
+			for (size_t i = 0; i < players.size(); i++) {
+				Player & p = players[i];
+				int dist = abs(p.x - caster.x) + abs(p.y - caster.y);
+				if (dist <= 1) {
+					if (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0) {
+						anyStatus = true;
+						break;
+					}
+				}
+			}
+
 			drawCardChoicePanel(dispelMenuRect, "Dispel", "Choose effect type:",
 				dispelBtnBarrier, dispelBtnPurge, "Barrier", "Purge",
-				barrierAccent, purgeAccent, true, true);
+				barrierAccent, purgeAccent, true, anyStatus);
 			break;
 		}
-
 		case CARD_TRAIN: {
 			float w = 600, h = 300;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
@@ -24490,8 +24514,21 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[3] = interactingCardIndex;
 				sendInputCommand(cmd, true);
 			} else if (dispelBtnPurge.inside(mouseX, mouseY)) {
-				// Do NOT send a command yet. Enter purge targeting first.
-				handleCardMenuClick("Purge");
+				bool anyStatus = false;
+				Player & caster = players[currentPlayerIndex];
+				for (size_t i = 0; i < players.size(); i++) {
+					Player & p = players[i];
+					int dist = abs(p.x - caster.x) + abs(p.y - caster.y);
+					if (dist <= 1) {
+						if (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0) {
+							anyStatus = true;
+							break;
+						}
+					}
+				}
+				if (anyStatus) {
+					handleCardMenuClick("Purge");
+				}
 			}
 			break;
 
