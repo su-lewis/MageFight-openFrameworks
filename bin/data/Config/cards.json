@@ -586,6 +586,7 @@
     "rangeDiceSides": 20,
     "utilityDiceNum": 2,
     "utilityDiceSides": 4,
+    "isAoe": true,
     "class": 3
   },
   {

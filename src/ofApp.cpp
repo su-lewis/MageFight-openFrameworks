@@ -24601,8 +24601,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION) return false;
-
+	if (playedCard.type == CARD_SHOCK || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -24901,6 +24900,91 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		queueEffect(apOp);
 
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::cyan);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_SPARK_OF_GENIUS: {
+		beginEffectSequence();
+
+		std::vector<int> raw;
+		int numCards = resolveDiceRollDetailed(1, 4, raw);
+
+		// Add Luck bonus
+		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
+		numCards += luckBonus;
+
+		// Save roll to blackboard slot 4 for the APPLY_SPARK_OF_GENIUS effect operation
+		currentEffectSequence.blackboard[4] = numCards;
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, numCards, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		EffectOp sparkOp = {};
+		sparkOp.type = EffectOpType::APPLY_SPARK_OF_GENIUS;
+		queueEffect(sparkOp);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_PSIONIC_WAVE: {
+		beginEffectSequence();
+
+		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
+
+		// 1. Roll Range (AOE Radius) -> blackboard[0]
+		std::vector<int> rawRange;
+		int rangeFeet = resolveDiceRollDetailed(2, 20, rawRange);
+		rangeFeet += 2 * luckBonus; // 2 dice
+		currentEffectSequence.blackboard[0] = rangeFeet;
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 2, 20, rawRange, rangeFeet, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+
+		// 2. Roll Cards to Destroy -> blackboard[1]
+		std::vector<int> rawDest;
+		int destCount = resolveDiceRollDetailed(2, 4, rawDest);
+		destCount += 2 * luckBonus; // 2 dice
+		currentEffectSequence.blackboard[1] = destCount;
+
+		// Add a small delay for the second set of dice so they don't visually overlap
+		queueVisualDelay(1.2f);
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0), 2, 4, rawDest, destCount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		// 3. Find Targets
+		psionicWaveTargetIndices.clear();
+		long long maxRangeHalfTiles = ((long long)rangeFeet * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+
+		for (size_t i = 0; i < players.size(); ++i) {
+			if ((int)i == currentPlayerIndex) continue;
+			Player & p = players[i];
+			if (p.health <= 0) continue;
+
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2(p.x, p.y));
+			if (distSq <= maxDistSq) {
+				// LOS Check
+				auto losPath = getLineOfSightPath(casterTile + 0.5f, glm::vec2(p.x, p.y) + 0.5f);
+				bool blocked = false;
+				for (const auto & step : losPath) {
+					if ((int)step.x == currentPlayer.x && (int)step.y == currentPlayer.y) continue;
+					if ((int)step.x == p.x && (int)step.y == p.y) break;
+					if (isTileWall((int)step.x, (int)step.y)) {
+						blocked = true;
+						break;
+					}
+				}
+				if (!blocked) {
+					psionicWaveTargetIndices.push_back((int)i);
+				}
+			}
+		}
+
+		// 4. Queue Application
+		EffectOp psionicOp = {};
+		psionicOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
+		queueEffect(psionicOp);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
