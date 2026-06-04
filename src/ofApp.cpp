@@ -185,29 +185,38 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 	float scale = getUIScaleFromHeight(screenH);
 	float handBoost = getHandCardVisualBoost(screenH);
 	UILayoutSpacing ui = buildUILayoutSpacing(scale, true);
-	float handCardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
-	float deckCardW = kCardPixelWidth * pileCardScale * scale;
-	float healthBarW = 220.0f * scale;
-	float horizontalPadding = 16.0f * scale;
 
-	float left = ui.edgeInset + deckCardW + ui.healthBarSideGap + ui.healthBarInwardNudge + healthBarW + horizontalPadding;
-	float right = screenW - ui.edgeInset - deckCardW - ui.healthBarSideGap - ui.healthBarInwardNudge - healthBarW - horizontalPadding;
-	if (right < left) {
-		float center = screenW * 0.5f;
-		left = center - 200.0f * scale;
-		right = center + 200.0f * scale;
-	}
-	float currentWidth = std::max(0.0f, right - left);
-	float targetWidth = screenW * kHandAreaWidthRatio * scale;
-	float handAreaWidth = std::min(currentWidth, targetWidth);
-	float centerX = screenW * 0.5f;
-	left = centerX - handAreaWidth * 0.5f;
-	right = centerX + handAreaWidth * 0.5f;
+	float handCardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
+
+	// Reconstruct the exact placement of the HP bars from the UI
+	float staticUICardWidth = (kCardPixelWidth * pileCardScale) * scale;
+	float deckBottomGap = effectiveBottomGap(ui);
+	float sideInset = deckBottomGap;
+
+	float healthBarW = 220.0f * scale;
+	float gap = ui.healthBarSideGap;
+	float healthBarInwardNudge = ui.healthBarInwardNudge;
+
+	// Find the exact right edge of Player 0's HP bar
+	float p0_deckRight = sideInset + staticUICardWidth;
+	float p0_healthRight = p0_deckRight + gap + healthBarInwardNudge + healthBarW;
+
+	// Find the exact left edge of Player 1's HP bar
+	float p1_deckLeft = screenW - staticUICardWidth - sideInset;
+	float p1_healthLeft = p1_deckLeft - gap - healthBarW - healthBarInwardNudge;
+
+	// Pad the hand area so it doesn't touch the HP bars
+	float padding = 30.0f * scale;
+	float left = p0_healthRight + padding;
+	float right = p1_healthLeft - padding;
+
+	float handAreaWidth = std::max(0.0f, right - left);
 
 	float restY = screenH - 80.0f * scale;
 	float top = restY - (handCardH * 0.5f) - (56.0f * scale);
 	float bottom = screenH - (8.0f * scale);
-	return ofRectangle(left, top, std::max(0.0f, right - left), std::max(0.0f, bottom - top));
+
+	return ofRectangle(left, top, handAreaWidth, std::max(0.0f, bottom - top));
 }
 
 static HandLayout computeHandLayout(size_t numCards, float screenW, float screenH) {
@@ -3089,8 +3098,8 @@ void ofApp::setup() {
 
 	// --- 1. UI & CONFIG ---
 
-	// Load the UI Font using a documented pixel-grid size for m6x11plus.
-	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 18);
+	// Load the UI Font using its native 16px grid size for perfect 1-pixel thickness
+	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 16);
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
 	if (uiFont.isLoaded()) {
@@ -3098,17 +3107,17 @@ void ofApp::setup() {
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
-	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
-	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20);
-	cardEffectSettings.antialiased = false; // CHANGED to false for crisp pixels
+	// Card effect text natively at 16px
+	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 16);
+	cardEffectSettings.antialiased = false;
 	cardEffectFont.load(cardEffectSettings);
 	if (cardEffectFont.isLoaded()) {
 		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
-	// Load the Title Font using a documented pixel-grid size for m6x11plus.
-	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 36);
+	// Load the Title Font at an exact 2x multiple (32px) to maintain crisp thickness
+	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 32);
 	titleSettings.antialiased = false;
 	titleFont.load(titleSettings);
 	if (titleFont.isLoaded()) {
@@ -18581,8 +18590,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
-	// Choose-one cards should open their menu immediately on play. (Notice Giant Magic Hand is removed!)
-	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_DOUBLE_HANDED && doubleHandedHasAdjacentUnit));
+	// Choose-one cards should open their menu immediately on play.
+	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
 
 	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
 	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
