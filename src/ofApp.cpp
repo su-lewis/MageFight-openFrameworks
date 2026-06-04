@@ -201,7 +201,7 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 	float p1_healthLeft = screenW - staticUICardWidth - sideInset - gap - healthBarW - healthBarInwardNudge;
 
 	// Squeeze the box so it physically cannot touch the HP bars
-	float padding = 40.0f * scale;
+	float padding = 80.0f * scale;
 	float left = p0_healthRight + padding;
 	float right = p1_healthLeft - padding;
 
@@ -2083,20 +2083,18 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex) {
 	int dmg = baseDamage;
 	bool doubledHoly = false;
-	// Target-based modifiers (phasing, walls, vulnerabilities) — centralized here
+
 	if (target.inGhostForm && (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING)) {
-		// Phased: physical/piercing do 0
 		dmg = 0;
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
 	}
-	// Ghost form doubles holy damage before mitigations
+
 	if (target.inGhostForm && type == DAMAGE_HOLY) {
 		dmg = dmg * 2;
 		doubledHoly = true;
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Ghost: x2 Holy", ofColor::orange);
 	}
 
-	// Magic Wall adjacency effects (attacker and target)
 	auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
 		if (board[x][y].hasWall && board[x][y].isMagicWall) return true;
 		for (int dx = -1; dx <= 1; ++dx)
@@ -2116,6 +2114,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		attackerPtr = &players[attackerIndex];
 	else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
 		attackerPtr = &players[currentPlayerIndex];
+
 	bool targetNearWall = false;
 	bool attackerNearWall = false;
 	if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
@@ -2127,11 +2126,9 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		for (int i = 0; i < wallEffectCount; i++)
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
-		// 1. Do the math
 		for (int i = 0; i < wallEffectCount; i++) {
 			if (dmg > 0) dmg /= 2;
 		}
-		// 2. Spawn the text independently
 		if (targetNearWall) {
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
 		}
@@ -2140,13 +2137,12 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		}
 	}
 
-	// Species / card-based vulnerabilities
 	if ((target.isHellhound || target.isDemon || target.isSkeleton) && type == DAMAGE_HOLY) {
 		dmg *= 2;
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
 	}
+
 	if (type == DAMAGE_HOLY) {
-		// Passive: Vampire Bite present in deck OR discard doubles Holy damage.
 		bool hasVampireBite = false;
 		for (const auto & c : target.deck) {
 			if (c.type == CARD_VAMPIRE_BITE) {
@@ -2167,6 +2163,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
 		}
 	}
+
 	if (type == DAMAGE_PIERCING) {
 		bool hasWolfCall = false;
 		for (const auto & c : target.deck)
@@ -2185,7 +2182,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vulnerable: Piercing (x2)", ofColor::orange);
 		}
 	}
-	// Determine target index for EffectOps
+
 	int targetIndex = -1;
 	for (size_t i = 0; i < players.size(); ++i)
 		if (&players[i] == &target) {
@@ -2196,7 +2193,6 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 	auto absorbFrom = [&](int & sourceRef, int & remaining, int statType, const char * name, const ofColor & c) {
 		int a = std::min(sourceRef, remaining);
 		if (a <= 0) return;
-		// Queue/process deterministic stat reduction
 		if (targetIndex >= 0) {
 			EffectOp op = {};
 			op.type = EffectOpType::MODIFY_STAT;
@@ -2204,20 +2200,39 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			op.data.modifyStat.statType = statType;
 			op.data.modifyStat.delta = -a;
 			op.data.modifyStat.deltaFromSlot = -1;
-			// Queue stat modification so all state changes go through the effect sequence
 			processEffectOp(op);
 		} else {
-			// Fallback: modify directly
 			sourceRef -= a;
-			// Direct path needs its own floating text.
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		}
 		remaining -= a;
 		ofLogNotice("Game") << name << " absorbed " << a;
 	};
 
-	// Absorb in order (simplified): apply remaining damage deterministically
 	int remaining = dmg;
+	switch (type) {
+	case DAMAGE_HOLY:
+		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor(255, 215, 0));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	case DAMAGE_PHYSICAL:
+		absorbFrom(target.block, remaining, 5, " Block", ofColor::gray);
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	case DAMAGE_PIERCING:
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	default:
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	}
+
+	int finalDamageTaken = remaining;
 	if (remaining > 0) {
 		if (targetIndex >= 0) {
 			EffectOp killOp = {};
@@ -2228,21 +2243,53 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			killOp.data.modifyStat.deltaFromSlot = -1;
 			processEffectOp(killOp);
 		} else {
-			target.health = std::max(0, target.health - remaining);
+			target.health -= remaining;
 		}
-		remaining = 0;
+
+		if (doubledHoly) {
+			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 2.0f, 0), "x2!", ofColor::yellow);
+		}
+
+		if (target.inTortoiseForm) {
+			target.tortoiseDamageTaken += remaining;
+			if (target.tortoiseDamageTaken >= 5) {
+				target.inTortoiseForm = false; // Force it off immediately
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				if (targetIndex >= 0) {
+					rm.data.status.targetIndex = targetIndex;
+					rm.data.status.statusType = STATUS_TORTOISE_FORM;
+					rm.data.status.duration = 0;
+					processEffectOp(rm); // Execute immediately
+				}
+			}
+		}
+
+		if (target.inGhostForm) {
+			target.ghostDamageTaken += remaining;
+			if (target.ghostDamageTaken >= 4) {
+				target.inGhostForm = false; // Force it off immediately
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				if (targetIndex >= 0) {
+					rm.data.status.targetIndex = targetIndex;
+					rm.data.status.statusType = STATUS_GHOST_FORM;
+					rm.data.status.duration = 0;
+					processEffectOp(rm); // Execute immediately
+				}
+			}
+		}
 	}
 
-	return remaining;
+	return finalDamageTaken;
 }
 
 // Queue-only variant: queues MODIFY_STAT ops and writes applied amount into the current effect sequence blackboard
 void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, DamageType type, int attackerIndex, int outputSlot) {
 	int dmg = baseDamage;
 	bool doubledHoly = false;
-	// Target-based modifiers (phasing, walls, vulnerabilities) — centralized here
+
 	if (target.inGhostForm && (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING)) {
-		// Phased: physical/piercing do 0
 		dmg = 0;
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
 	}
@@ -2271,6 +2318,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		attackerPtr = &players[attackerIndex];
 	else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
 		attackerPtr = &players[currentPlayerIndex];
+
 	bool targetNearWall = false;
 	bool attackerNearWall = false;
 	if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
@@ -2282,11 +2330,9 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		for (int i = 0; i < wallEffectCount; i++)
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
-		// 1. Do the math
 		for (int i = 0; i < wallEffectCount; i++) {
 			if (dmg > 0) dmg /= 2;
 		}
-		// 2. Spawn the text independently
 		if (targetNearWall) {
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
 		}
@@ -2295,7 +2341,6 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		}
 	}
 
-	// Species / card-based vulnerabilities
 	if ((target.isHellhound || target.isDemon || target.isSkeleton) && type == DAMAGE_HOLY) {
 		dmg *= 2;
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
@@ -2336,6 +2381,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vulnerable: Piercing (x2)", ofColor::orange);
 		}
 	}
+
 	int targetIndex = -1;
 	for (size_t i = 0; i < players.size(); ++i)
 		if (&players[i] == &target) {
@@ -2353,14 +2399,12 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			op.data.modifyStat.statType = statType;
 			op.data.modifyStat.delta = -a;
 			op.data.modifyStat.deltaFromSlot = -1;
-			if (outputSlot >= 0) {
+			if (outputSlot >= 0)
 				queueEffect(op);
-			} else {
+			else
 				processEffectOp(op);
-			}
 		} else {
 			sourceRef -= a;
-			// Direct path needs its own floating text.
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		}
 		remaining -= a;
@@ -2381,7 +2425,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		break;
 	case DAMAGE_PIERCING:
 		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255)); // <-- ADDED BARRIER
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	default:
@@ -2398,11 +2442,10 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			hp.data.modifyStat.statType = 0; // HP
 			hp.data.modifyStat.delta = -remaining;
 			hp.data.modifyStat.deltaFromSlot = -1;
-			if (outputSlot >= 0) {
+			if (outputSlot >= 0)
 				queueEffect(hp);
-			} else {
+			else
 				processEffectOp(hp);
-			}
 		} else {
 			target.health -= remaining;
 		}
@@ -2411,22 +2454,34 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 2.0f, 0), "x2!", ofColor::yellow);
 		}
 
-		// Accumulate form damage for queued path as well
 		if (target.inTortoiseForm) {
 			target.tortoiseDamageTaken += remaining;
 			if (target.tortoiseDamageTaken >= 5) {
+				target.inTortoiseForm = false; // Force it off immediately
 				EffectOp rm = {};
 				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = targetIndex;
-				rm.data.status.statusType = STATUS_TORTOISE_FORM;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
+				if (targetIndex >= 0) {
+					rm.data.status.targetIndex = targetIndex;
+					rm.data.status.statusType = STATUS_TORTOISE_FORM;
+					rm.data.status.duration = 0;
+					processEffectOp(rm); // Execute immediately
+				}
 			}
+		}
 
-			// Note: stray minion-spawn tail removed during migration cleanup.
-			// The original minion spawn/return code was located elsewhere
-			// and was accidentally inserted here; restore from git history
-			// if you need to re-enable it.
+		if (target.inGhostForm) {
+			target.ghostDamageTaken += remaining;
+			if (target.ghostDamageTaken >= 4) {
+				target.inGhostForm = false; // Force it off immediately
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				if (targetIndex >= 0) {
+					rm.data.status.targetIndex = targetIndex;
+					rm.data.status.statusType = STATUS_GHOST_FORM;
+					rm.data.status.duration = 0;
+					processEffectOp(rm); // Execute immediately
+				}
+			}
 		}
 	}
 }
@@ -5529,9 +5584,15 @@ void ofApp::recalculateUI(int w, int h) {
 		pauseMenuLoadButton.set(-9999, -9999, 0, 0);
 	}
 }
+static bool g_isGameOver = false;
+static int g_winnerID = -1;
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	// Reset lockstep runtime state for a fresh match.
+	g_isGameOver = false;
+	g_winnerID = -1;
+	initialDraftComplete = false;
+
 	commandQueue.clear();
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear();
@@ -6340,8 +6401,8 @@ void ofApp::prepareGameVisualState() {
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
 	// Defaults for minion UI (reduced size to avoid clipping)
-	float standardEntryHeight = 80.0f; // unscaled baseline (more compact)
-	float panelWidth = 360.0f; // unscaled baseline (reduced)
+	float standardEntryHeight = 110.0f;
+	float panelWidth = 420.0f;
 	float scale = getUIScaleFromHeight(ofGetHeight());
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 	float gap = layoutSpacing.minionEntryGapUnscaled; // unscaled baseline (centralized)
@@ -6618,7 +6679,10 @@ void ofApp::updateGameLogic() {
 	}
 
 	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
-	if (turnTimerEnabled && opponentDecisionTimerActive && cardInteractionState == CARD_INTERACTION_STATE_MENU && (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)) {
+	bool isMagicBlastActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) || (opponentInteraction.open && opponentInteraction.type == 4);
+	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
+
+	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
 		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
 			bool localOwnsDecision = true;
@@ -6628,7 +6692,7 @@ void ofApp::updateGameLogic() {
 				localOwnsDecision = (deciderOwner == myLocalPlayerID);
 			}
 
-			if (localOwnsDecision) {
+			if (localOwnsDecision || isHost()) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
@@ -6638,33 +6702,36 @@ void ofApp::updateGameLogic() {
 				cmd.commandType = CMD_MENU_CHOICE;
 
 				bool issuedChoice = false;
-				if (interactingCardType == CARD_MAGIC_BLAST) {
-					// Randomly choose damage(1) or discard(2)
+				if (isMagicBlastActive) {
 					std::vector<int> raw;
 					int roll = resolveDiceRollDetailed(1, 2, raw);
 					cmd.params[0] = CARD_MAGIC_BLAST;
-					cmd.params[1] = interactionTargetIndex;
+					cmd.params[1] = opponentDecisionPlayerIndex;
 					cmd.params[2] = (roll <= 1) ? 1 : 2;
-					cmd.params[3] = interactingCardIndex;
+					cmd.params[3] = -1;
 					issuedChoice = true;
-				} else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+				} else if (isGhostRelocActive) {
 					int maxChoices = std::max(0, std::min((int)ghostRelocateChoices.size(), 4));
 					if (maxChoices > 0) {
 						std::vector<int> raw;
 						int roll = resolveDiceRollDetailed(1, maxChoices, raw);
 						int choiceIdx = std::clamp(roll - 1, 0, maxChoices - 1);
 						cmd.params[0] = MENU_GHOST_RELOCATE;
-						cmd.params[1] = ghostRelocateTargetIndex;
+						cmd.params[1] = opponentDecisionPlayerIndex;
 						cmd.params[2] = choiceIdx;
 						cmd.params[3] = -1;
 						issuedChoice = true;
 					}
 				}
 
-				if (issuedChoice) {
+				if (issuedChoice && localOwnsDecision) {
 					ofLogNotice("Timer") << "Opponent decision timer expired. Auto-selecting menu choice.";
 					sendInputCommand(cmd, true);
-					// Prevent duplicate timeout sends while waiting for command execution.
+					opponentDecisionStartFrame = simulationFrame;
+					opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
+				} else if (issuedChoice && isHost()) {
+					ofLogNotice("Timer") << "Host forcing decision for timed-out client.";
+					sendInputCommand(cmd, true);
 					opponentDecisionStartFrame = simulationFrame;
 					opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
 				}
@@ -8276,11 +8343,6 @@ void ofApp::updateGameLogic() {
 		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
 		bool shouldDie = (players[i].health <= 0);
 
-		// If a unit (player or minion) truly has no cards anywhere (deck,
-		// discard, hand, or played pile), they should be removed.
-		// EXCEPTION 1: Do not kill players during the initial draft.
-		// EXCEPTION 2: Do not kill units on the exact turn they are summoned
-		// (gives Golems/minions time to generate decks via EffectOps).
 		if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
 			shouldDie = true;
 		}
@@ -8300,13 +8362,11 @@ void ofApp::updateGameLogic() {
 						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 							Player & p = players[pidx];
 							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-								// Deterministic resurrection roll (decision-time via detailed resolver)
 								std::vector<int> rawRes;
 								int raw = resolveDiceRollDetailed(1, 4, rawRes);
 								int luckBonus = p.luck + computePassiveLuck((int)pidx);
-								int roll = raw + luckBonus; // may exceed 4; that's intentional
+								int roll = raw + luckBonus;
 								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
-								// Show dice visual for the faerie roll
 								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
 								int hp = (dying.maxHealth * roll) / 4;
 								if (hp < 1) hp = 1;
@@ -8319,7 +8379,7 @@ void ofApp::updateGameLogic() {
 									setHp.data.modifyStat.deltaFromSlot = -1;
 									processEffectOp(setHp);
 								}
-								// Clear common status flags via deterministic REMOVE_STATUS ops
+								// Clear common status flags
 								{
 									EffectOp op = {};
 									op.type = EffectOpType::REMOVE_STATUS;
@@ -8347,67 +8407,55 @@ void ofApp::updateGameLogic() {
 								}
 								dying.paralysisHeadsCount = 0;
 								dying.sleepTurnsRemaining = 0;
-								{
-									int prev = dying.ward;
-									if (prev > 0) {
-										EffectOp op = {};
-										op.type = EffectOpType::MODIFY_STAT;
-										op.data.modifyStat.targetIndex = (int)i;
-										op.data.modifyStat.statType = 8; // Ward
-										op.data.modifyStat.delta = -prev;
-										op.data.modifyStat.deltaFromSlot = -1;
-										processEffectOp(op);
-									}
+
+								// Clear shields
+								if (dying.ward > 0) {
+									EffectOp op = {};
+									op.type = EffectOpType::MODIFY_STAT;
+									op.data.modifyStat.targetIndex = (int)i;
+									op.data.modifyStat.statType = 8;
+									op.data.modifyStat.delta = -dying.ward;
+									op.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(op);
 								}
-								{
-									int prev = dying.block;
-									if (prev > 0) {
-										EffectOp op = {};
-										op.type = EffectOpType::MODIFY_STAT;
-										op.data.modifyStat.targetIndex = (int)i;
-										op.data.modifyStat.statType = 5; // Block
-										op.data.modifyStat.delta = -prev;
-										op.data.modifyStat.deltaFromSlot = -1;
-										processEffectOp(op);
-									}
+								if (dying.block > 0) {
+									EffectOp op = {};
+									op.type = EffectOpType::MODIFY_STAT;
+									op.data.modifyStat.targetIndex = (int)i;
+									op.data.modifyStat.statType = 5;
+									op.data.modifyStat.delta = -dying.block;
+									op.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(op);
 								}
-								{
-									int prev = dying.fortification;
-									if (prev > 0) {
-										EffectOp op = {};
-										op.type = EffectOpType::MODIFY_STAT;
-										op.data.modifyStat.targetIndex = (int)i;
-										op.data.modifyStat.statType = 13; // Fortification
-										op.data.modifyStat.delta = -prev;
-										op.data.modifyStat.deltaFromSlot = -1;
-										processEffectOp(op);
-									}
+								if (dying.fortification > 0) {
+									EffectOp op = {};
+									op.type = EffectOpType::MODIFY_STAT;
+									op.data.modifyStat.targetIndex = (int)i;
+									op.data.modifyStat.statType = 13;
+									op.data.modifyStat.delta = -dying.fortification;
+									op.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(op);
 								}
-								{
-									int prev = dying.barrier;
-									if (prev > 0) {
-										EffectOp op = {};
-										op.type = EffectOpType::MODIFY_STAT;
-										op.data.modifyStat.targetIndex = (int)i;
-										op.data.modifyStat.statType = 6; // Barrier
-										op.data.modifyStat.delta = -prev;
-										op.data.modifyStat.deltaFromSlot = -1;
-										processEffectOp(op);
-									}
+								if (dying.barrier > 0) {
+									EffectOp op = {};
+									op.type = EffectOpType::MODIFY_STAT;
+									op.data.modifyStat.targetIndex = (int)i;
+									op.data.modifyStat.statType = 6;
+									op.data.modifyStat.delta = -dying.barrier;
+									op.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(op);
 								}
-								{
-									int prev = dying.holyBlock;
-									if (prev > 0) {
-										EffectOp op = {};
-										op.type = EffectOpType::MODIFY_STAT;
-										op.data.modifyStat.targetIndex = (int)i;
-										op.data.modifyStat.statType = 7; // HolyBlock
-										op.data.modifyStat.delta = -prev;
-										op.data.modifyStat.deltaFromSlot = -1;
-										queueEffect(op);
-										if (!isProcessingEffect) beginEffectSequence();
-									}
+								if (dying.holyBlock > 0) {
+									EffectOp op = {};
+									op.type = EffectOpType::MODIFY_STAT;
+									op.data.modifyStat.targetIndex = (int)i;
+									op.data.modifyStat.statType = 7;
+									op.data.modifyStat.delta = -dying.holyBlock;
+									op.data.modifyStat.deltaFromSlot = -1;
+									queueEffect(op);
+									if (!isProcessingEffect) beginEffectSequence();
 								}
+
 								dying.luck = 0;
 								{
 									EffectOp op = {};
@@ -8419,12 +8467,12 @@ void ofApp::updateGameLogic() {
 									if (!isProcessingEffect) beginEffectSequence();
 								}
 								dying.nextTurnAPBonus = 0;
-								// Clear shocks and flurry deterministically via queued ops
+
 								if (dying.shocksPlayedThisTurn != 0) {
 									EffectOp clearSh = {};
 									clearSh.type = EffectOpType::MODIFY_STAT;
 									clearSh.data.modifyStat.targetIndex = (int)i;
-									clearSh.data.modifyStat.statType = 12; // Shocks
+									clearSh.data.modifyStat.statType = 12;
 									clearSh.data.modifyStat.delta = -dying.shocksPlayedThisTurn;
 									clearSh.data.modifyStat.deltaFromSlot = -1;
 									queueEffect(clearSh);
@@ -8434,12 +8482,13 @@ void ofApp::updateGameLogic() {
 									EffectOp clearFl = {};
 									clearFl.type = EffectOpType::MODIFY_STAT;
 									clearFl.data.modifyStat.targetIndex = (int)i;
-									clearFl.data.modifyStat.statType = 14; // Flurry
+									clearFl.data.modifyStat.statType = 14;
 									clearFl.data.modifyStat.delta = -dying.flurryOfFistsStacks;
 									clearFl.data.modifyStat.deltaFromSlot = -1;
 									queueEffect(clearFl);
 									if (!isProcessingEffect) beginEffectSequence();
 								}
+
 								{
 									EffectOp op = {};
 									op.type = EffectOpType::REMOVE_STATUS;
@@ -8508,10 +8557,15 @@ void ofApp::updateGameLogic() {
 			}
 		}
 
-		if (resurrected) continue; // skip normal death logic for this unit
+		if (!resurrected) {
+			removeIndices.push_back((int)i);
 
-		// Not resurrected -> mark for removal
-		removeIndices.push_back((int)i);
+			// --- GAME OVER CHECK ---
+			if (!players[i].isMinion && (players[i].playerID == 0 || players[i].playerID == 1)) {
+				g_isGameOver = true;
+				g_winnerID = (players[i].playerID == 0) ? 1 : 0;
+			}
+		}
 	}
 
 	if (!removeIndices.empty()) {
@@ -13243,7 +13297,47 @@ void ofApp::drawGame() {
 		uiFont.drawString(selectedCountText, selectedCountX, selectedCountY);
 		ofPopMatrix();
 	}
-}
+
+	// --- Draw Tooltip (drawn last to be on top of everything) ---
+	if (isShowingTooltip && !tooltipText.empty()) {
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 200);
+		ofRectangle bbox = uiFont.getStringBoundingBox(tooltipText, 0, 0);
+		float pad = 10.0f;
+
+		// Keep tooltip on screen bounds
+		float tX = std::min(tooltipPos.x + 15, ofGetWidth() - bbox.width - pad * 2);
+		float tY = std::max(10.0f, tooltipPos.y - bbox.height - pad * 2);
+
+		ofDrawRectRounded(tX, tY, bbox.width + pad * 2, bbox.height + pad * 2, 8);
+		ofSetColor(255);
+		uiFont.drawString(tooltipText, tX + pad, tY + bbox.height + pad - 2);
+		ofPopStyle();
+	}
+
+	// --- GAME OVER SCREEN ---
+	if (g_isGameOver) {
+		ofPushStyle(); // <-- Safety addition
+		ofSetColor(0, 0, 0, 200);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+		std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY!" : "DEFEAT!";
+		if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
+
+		ofSetColor(ofColor::gold);
+		drawPixelTextCentered(titleFont, text, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f - 50.0f, 2.0f, ofColor::gold);
+
+		ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 50, 300, 60);
+		ofSetColor(ofColor::slateGray);
+		if (returnBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(ofColor::lightGray);
+		ofDrawRectRounded(returnBtn, 10);
+
+		ofSetColor(ofColor::white);
+		drawPixelTextCentered(uiFont, "Return to Menu", ofGetWidth() / 2.0f, returnBtn.getCenter().y, 1.0f, ofColor::white);
+		ofPopStyle(); // <-- Safety addition
+	}
+
+} // End of drawGame()
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
 	// Initialize hover tracking variables
@@ -14161,6 +14255,15 @@ cursor_check_done:;
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
+	if (g_isGameOver) {
+		ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 50, 300, 60);
+		if (returnBtn.inside(x, y)) {
+			g_isGameOver = false;
+			cleanupGame();
+			currentState = STATE_MAIN_MENU;
+		}
+		return;
+	}
 	// Always track mouse down position at the start for drag detection
 	if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
 		mouseDownPos.set(x, y);
@@ -15318,6 +15421,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// PHASE 1: MODAL UI INTERRUPTS
 	// ==============================================================================
 
+	// --- GAME OVER SCREEN CLICK ---
+	if (g_isGameOver) {
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 50, 300, 60);
+			if (returnBtn.inside(x, y)) {
+				g_isGameOver = false;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
+		}
+		return; // Block all other input
+	}
+
 	// --- Card Encyclopedia UI ---
 	if (isCardEncyclopediaOpen) {
 		// Right-click cancels the modal
@@ -15451,7 +15567,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 						queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "+" + ofToString((int)encyclopediaSelectedIndices.size() * cardSpawnerQuantity) + " card(s)", ofColor::cyan);
 
-						// Sync spawned cards with opponent in multiplayer debug sessions
+						// Sync spawned cards with opponent in multiplayer
 						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				} else if (encyclopediaMode == ENC_ADD_FROM_ALL) {
@@ -15465,8 +15581,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 							else
 								tgt.deck.push_back(allCards[selIdx]);
 						}
-
-						// Sync added cards with opponent
 						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
@@ -15479,8 +15593,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (selIdx < 0 || selIdx >= (int)pile.size()) continue;
 							pile.erase(pile.begin() + selIdx);
 						}
-
-						// Sync removed cards with opponent
 						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				}
@@ -15557,8 +15669,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
 
-					// Sync spawned cards with opponent. Host will send an authoritative
-					// snapshot so clients receive the full game state.
+					// Sync spawned cards with opponent.
 					if (isMultiplayer && isHost()) sendSnapshotToClient();
 
 					isCardSpawnerOpen = false;
@@ -15583,7 +15694,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// ==============================================================================
+	// ==================================================================================
 	// PHASE 3: STATE-DEPENDENT LOGIC
 	// ==============================================================================
 	switch (currentState) {
@@ -18961,7 +19072,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	case CARD_WISDOM_BOON: // <--- MOVED HERE
 	case CARD_DOUBLE_HANDED: // <--- MOVED HERE
 	case CARD_DISPEL:
-	case CARD_MAGIC_BLAST:
 	case CARD_GIANT_MAGIC_HAND: {
 		// Menu-first flow: if a choice is already selected, resolve immediately with this target.
 		if (!interactionMenuChoice.empty()) {
@@ -19080,7 +19190,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
-			choiceNeedsTarget = false;
+			choiceNeedsTarget = true;
 			break;
 		case CARD_TRAIN:
 			choice = (buttonId == "draft") ? 1 : 2;
@@ -20604,7 +20714,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (menuType == CARD_MAGIC_BLAST) {
-			// The victim sends this packet!
 			beginEffectSequence();
 			if (choice == 1) { // damage
 				EffectOp dmgOp = {};
@@ -20620,9 +20729,72 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				rmDeck.data.removeTopCard.targetIndex = targetIndex;
 				queueEffect(rmDeck);
 			}
-			opponentInteraction.open = false; // Close "Waiting" UI for caster
-			resetCardInteraction(); // Close Menu UI for victim
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
+
+			magicBlastChoicesRemaining--;
+
+			// Advance target if current target is done
+			if (magicBlastChoicesRemaining <= 0) {
+				magicBlastTargetPlayerIndex = -1;
+				while (!magicBlastSplashTargetIndices.empty()) {
+					int nextIdx = magicBlastSplashTargetIndices.front();
+					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+					if (nextIdx >= 0 && nextIdx < (int)players.size() && players[nextIdx].health > 0) {
+						magicBlastTargetPlayerIndex = nextIdx;
+						magicBlastChoicesRemaining = 1;
+						break;
+					}
+				}
+			}
+
+			// Setup UI for the next choice/target
+			if (magicBlastChoicesRemaining > 0 && magicBlastTargetPlayerIndex != -1) {
+				Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
+				bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
+
+				if (turnTimerEnabled) {
+					int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+					int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
+
+					if (deciderOwner != activeOwner) {
+						if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
+						opponentDecisionTimerActive = true;
+						opponentDecisionStartFrame = simulationFrame;
+						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+						opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
+					} else {
+						if (turnTimerPaused && opponentDecisionTimerActive) {
+							turnTimerPaused = false;
+							turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+							turnTimerPausedRemainingFrames = 0;
+						}
+						opponentDecisionTimerActive = false;
+						opponentDecisionStartFrame = 0;
+						opponentDecisionPlayerIndex = -1;
+					}
+				}
+
+				if (isLocal) {
+					interactionTargetIndex = magicBlastTargetPlayerIndex;
+					opponentInteraction.open = false;
+					cardInteractionState = CARD_INTERACTION_STATE_MENU;
+					interactingCardType = CARD_MAGIC_BLAST;
+					cardPlayState = CARD_PLAY_STATE_MENU;
+					menuOpenStartTime = ofGetElapsedTimef();
+					menuOpenScale = 0.6f;
+				} else {
+					cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+					interactingCardType = CARD_NONE;
+					cardPlayState = CARD_PLAY_STATE_IDLE;
+					opponentInteraction.open = true;
+					opponentInteraction.type = 4;
+					opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
+				}
+			} else {
+				// All choices for all targets completed
+				opponentInteraction.open = false;
+				resetCardInteraction();
+				if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
+			}
 			break;
 		}
 
@@ -24752,7 +24924,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE) return false;
+	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -25043,6 +25215,64 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
+	case CARD_SHOCK: {
+		if (resolvedTargetIndex != -1) {
+			beginEffectSequence();
+
+			int totalDamage = playedCard.baseDamage;
+			if (playedCard.damageDiceNum > 0 && playedCard.damageDiceSides > 0) {
+				std::vector<int> rawDmg;
+				int dmgRoll = resolveDiceRollDetailed(playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg);
+				int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
+				totalDamage += dmgRoll + (playedCard.damageDiceNum * luckBonus);
+				queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			}
+
+			// 1. Apply Damage
+			EffectOp dmgOp = {};
+			dmgOp.type = EffectOpType::DAMAGE;
+			dmgOp.data.damage.targetIndex = resolvedTargetIndex;
+			dmgOp.data.damage.damageType = playedCard.damageType;
+			dmgOp.data.damage.fixedDamage = totalDamage;
+			dmgOp.data.damage.damageFromSlot = -1;
+			queueEffect(dmgOp);
+
+			// 2. Shock mechanic: 2nd shock paralyzes
+			EffectOp trackShock = {};
+			trackShock.type = EffectOpType::MODIFY_STAT;
+			trackShock.data.modifyStat.targetIndex = currentPlayerIndex;
+			trackShock.data.modifyStat.statType = 12; // Shocks played this turn
+			trackShock.data.modifyStat.delta = 1;
+			trackShock.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(trackShock);
+
+			if (currentPlayer.shocksPlayedThisTurn + 1 >= 2) {
+				EffectOp paraOp = {};
+				paraOp.type = EffectOpType::APPLY_STATUS;
+				paraOp.data.status.targetIndex = resolvedTargetIndex;
+				paraOp.data.status.statusType = STATUS_PARALYZED;
+				paraOp.data.status.duration = 0;
+				queueEffect(paraOp);
+				queueFloatingTextVisual(gridToWorld(players[resolvedTargetIndex].x, players[resolvedTargetIndex].y) + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+			}
+
+			// 3. Grant +2 AP Next Turn
+			EffectOp apOp = {};
+			apOp.type = EffectOpType::MODIFY_STAT;
+			apOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			apOp.data.modifyStat.statType = 11; // Next Turn AP Bonus
+			apOp.data.modifyStat.delta = 2;
+			apOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(apOp);
+
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Next Turn", ofColor::cyan);
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		}
+		return true;
+	}
+
 	case CARD_ROCK_CRUSH: {
 		beginEffectSequence();
 		bool hitWall = board[targetX][targetY].hasWall;
@@ -25092,25 +25322,68 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_MAGIC_BLAST: {
+		if (resolvedTargetIndex == -1) return true;
+
 		magicBlastTargetPlayerIndex = resolvedTargetIndex;
-		Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
+		magicBlastChoicesRemaining = 3;
+		magicBlastSplashTargetIndices.clear();
 
-		// Determine if the target unit is owned by the local player
-		bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
-
-		if (isLocal) {
-			interactionTargetIndex = resolvedTargetIndex;
-			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, CARD_MAGIC_BLAST);
-		} else {
-			opponentInteraction.open = true;
-			opponentInteraction.type = 4; // Magic Blast wait
-			opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
+		// Find adjacent units
+		for (size_t i = 0; i < players.size(); ++i) {
+			if ((int)i == resolvedTargetIndex) continue;
+			if (players[i].health <= 0) continue;
+			int dx = std::abs(players[i].x - targetX);
+			int dy = std::abs(players[i].y - targetY);
+			if (std::max(dx, dy) == 1) { // 8-way adjacent
+				magicBlastSplashTargetIndices.push_back((int)i);
+			}
 		}
 
 		playedSuccessfully = true;
-		// Finish the play state immediately so AP is deducted.
-		// The target's menu choice will send a command to finish the effect!
-		advanceCardState(CARD_PLAY_STATE_FINISHED);
+
+		// Setup state for the first choice
+		Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
+		bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
+
+		if (turnTimerEnabled) {
+			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
+
+			if (deciderOwner != activeOwner) {
+				if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
+				opponentDecisionTimerActive = true;
+				opponentDecisionStartFrame = simulationFrame;
+				opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+				opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
+			} else {
+				if (turnTimerPaused && opponentDecisionTimerActive) {
+					turnTimerPaused = false;
+					turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+					turnTimerPausedRemainingFrames = 0;
+				}
+				opponentDecisionTimerActive = false;
+				opponentDecisionStartFrame = 0;
+				opponentDecisionPlayerIndex = -1;
+			}
+		}
+
+		if (isLocal) {
+			interactionTargetIndex = magicBlastTargetPlayerIndex;
+			opponentInteraction.open = false;
+			cardInteractionState = CARD_INTERACTION_STATE_MENU;
+			interactingCardType = CARD_MAGIC_BLAST;
+			cardPlayState = CARD_PLAY_STATE_MENU;
+			menuOpenStartTime = ofGetElapsedTimef();
+			menuOpenScale = 0.6f;
+		} else {
+			cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+			interactingCardType = CARD_NONE;
+			cardPlayState = CARD_PLAY_STATE_IDLE;
+			opponentInteraction.open = true;
+			opponentInteraction.type = 4;
+			opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
+		}
+
 		return true;
 	}
 
@@ -25142,6 +25415,61 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			playedSuccessfully = true;
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
+		return true;
+	}
+
+	case CARD_SUMMON_GOLEM: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
+		beginEffectSequence();
+
+		int variant = 0; // Base Golem
+		int hpDiceNum = 1;
+		int hpDiceSides = 10;
+
+		// Check if we played an elemental spell this turn to upgrade the golem
+		for (CardType ct : currentPlayer.cardsPlayedThisTurn) {
+			if (ct == CARD_SHOCK || ct == CARD_CHAIN_LIGHTNING) {
+				variant = 3; // Electric
+				hpDiceNum = 1;
+				hpDiceSides = 6;
+				break;
+			} else if (ct == CARD_FIREBALL || ct == CARD_FLAME_HIT) {
+				variant = 2; // Fire
+				hpDiceNum = 1;
+				hpDiceSides = 10;
+				break;
+			} else if (ct == CARD_ROCK_CRUSH) {
+				variant = 1; // Rock
+				hpDiceNum = 1;
+				hpDiceSides = 20;
+				break;
+			}
+		}
+
+		std::vector<int> rawHp;
+		int hpRoll = resolveDiceRollDetailed(hpDiceNum, hpDiceSides, rawHp);
+		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
+		int finalHp = hpRoll + luckBonus;
+
+		// Store HP in blackboard for the spawn effect
+		currentEffectSequence.blackboard[0] = finalHp;
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), hpDiceNum, hpDiceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+
+		EffectOp spawnOp = {};
+		spawnOp.type = EffectOpType::SPAWN_UNIT;
+		spawnOp.data.spawnUnit.toX = targetX;
+		spawnOp.data.spawnUnit.toY = targetY;
+		spawnOp.data.spawnUnit.summonKind = 8; // GOLEM
+		spawnOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		spawnOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
+		spawnOp.data.spawnUnit.maxHealth = 0; // Will be read from blackboard
+		spawnOp.data.spawnUnit.maxHealthFromSlot = 0;
+		spawnOp.data.spawnUnit.ap = 0;
+		spawnOp.data.spawnUnit.variant = variant;
+		queueEffect(spawnOp);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -26310,9 +26638,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			auto isHandRelatedAttack = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
 
-			// +2 for ITSELF (since it hasn't been pushed to cardsPlayedThisTurn yet)
-			totalDamage += 2;
-
 			// +2 for each OTHER hand-related attack card already played this turn
 			for (CardType ct : currentPlayer.cardsPlayedThisTurn) {
 				if (isHandRelatedAttack(ct)) {
@@ -27218,8 +27543,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		shouldShowRangedPreview = true;
 	else if (card.targeting == TARGET_LINE_OF_SIGHT_TILE || card.targeting == TARGET_BURST_AREA)
 		shouldShowRangedPreview = true;
-	else if (card.healAmount > 0)
-		shouldShowRangedPreview = true; // healing cards often need previews
+	else if (card.baseHeal > 0 || card.healDiceNum > 0 || card.healAmount > 0)
+		shouldShowRangedPreview = true;
 
 	if (shouldShowRangedPreview) {
 		float maxRangeFeet = 0.0f;
@@ -27356,6 +27681,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 					if (info.reason == VALID) {
 						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
+							if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
+								for (const auto & p : players) {
+									if (p.x == tx && p.y == ty && p.health < p.maxHealth) valid = true;
+								}
+							} else {
+								valid = true;
+							}
+						}
+						// ADD THIS ELSE-IF right below the block above to allow clicking YOURSELF:
+					} else if (info.reason == INVALID_SELF && (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL)) {
+						if (currentPlayer.health < currentPlayer.maxHealth) {
 							valid = true;
 						} else if (card.type == CARD_CHAIN_LIGHTNING) {
 							// Chain lightning bounce target checking
@@ -30933,7 +31269,10 @@ void ofApp::drawOpponentMenu() {
 		ofRectangle menuRect(x, y, w, h);
 		ofRectangle btnDamage, btnDiscard;
 
-		drawCardChoicePanel(menuRect, "Magic Blast", "Waiting for player to choose...",
+		// UPDATE THIS LINE:
+		string desc = "Waiting for player to choose... (" + ofToString(magicBlastChoicesRemaining) + " left)";
+
+		drawCardChoicePanel(menuRect, "Magic Blast", desc,
 			btnDamage, btnDiscard, "Take 5 Damage", "Remove Top Card of Deck",
 			dmgAccent, discAccent, false, false);
 
