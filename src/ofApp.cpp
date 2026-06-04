@@ -19085,14 +19085,22 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
-			choiceNeedsTarget = true;
+			choiceNeedsTarget = false;
 			break;
 		case CARD_TRAIN:
 			choice = (buttonId == "draft") ? 1 : 2;
 			break;
-		case CARD_AMNESIA:
-			choice = 1;
+		case CARD_AMNESIA: {
+			// If the opponent's deck was empty and the fallback mini-menu was clicked,
+			// just consume the AP and end the card play gracefully!
+			resetCardState();
+			currentCardOutcome.cardType = CARD_AMNESIA;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			beginEffectSequence();
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			break;
+		}
 		case CARD_DISPEL:
 			choice = (buttonId == "Barrier") ? 1 : 2;
 			choiceNeedsTarget = false;
