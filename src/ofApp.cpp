@@ -785,10 +785,8 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	float totalWidthUnscaled = 0.0f;
 	for (char ch : text) {
 		std::string glyph(1, ch);
-		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
-		if (ch == ' ') {
-			adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
-		}
+		float adv = font.stringWidth(glyph); // Fix: Use typographic advance, not ink width!
+		if (ch == ' ' && adv <= 0.0f) adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
 		if (adv <= 0.0f) adv = fallbackAdvance;
 		advances.push_back(adv);
 		totalWidthUnscaled += adv;
@@ -1146,8 +1144,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				float totalWidthUnscaled = 0.0f;
 				for (char ch : text) {
 					std::string glyph(1, ch);
-					float adv = font.getStringBoundingBox(glyph, 0, 0).width;
-					if (ch == ' ') adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
+					float adv = font.stringWidth(glyph); // Fix: Use typographic advance, not ink width!
+					if (ch == ' ' && adv <= 0.0f) adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
 					if (adv <= 0.0f) adv = fallbackAdvance;
 					advances.push_back(adv);
 					totalWidthUnscaled += adv;
@@ -3098,8 +3096,8 @@ void ofApp::setup() {
 
 	// --- 1. UI & CONFIG ---
 
-	// Load the UI Font using its native 16px grid size for perfect 1-pixel thickness
-	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 16);
+	// Bumped to 24px so it is thicker and highly readable in menus!
+	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 24);
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
 	if (uiFont.isLoaded()) {
@@ -3107,17 +3105,18 @@ void ofApp::setup() {
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
-	// Card effect text natively at 16px
-	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 16);
-	cardEffectSettings.antialiased = false;
+	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
+	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20); // Kept slightly larger
+	cardEffectSettings.antialiased = true; // Turn smoothing back ON for readability!
 	cardEffectFont.load(cardEffectSettings);
 	if (cardEffectFont.isLoaded()) {
-		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		// Linear filtering here allows the anti-aliasing to look smooth when scaled
+		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
 		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
-	// Load the Title Font at an exact 2x multiple (32px) to maintain crisp thickness
-	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 32);
+	// Bumped to 40px so titles are bold and prominent
+	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 40);
 	titleSettings.antialiased = false;
 	titleFont.load(titleSettings);
 	if (titleFont.isLoaded()) {
