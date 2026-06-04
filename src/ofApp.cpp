@@ -18542,53 +18542,36 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool wisdomHasAdjacentUnit = false;
 	bool boonHasAdjacentUnit = false;
 	bool doubleHandedHasAdjacentUnit = false;
+	bool amnesiaHasAdjacentUnit = false;
+	bool dispelHasAnyStatus = false;
+
+	// Check for Dispel statuses on self
+	Player & cPlayer = players[currentPlayerIndex];
+	if (cPlayer.onFire || cPlayer.isParalyzed || cPlayer.isPoisoned || cPlayer.sleepTurnsRemaining > 0) dispelHasAnyStatus = true;
 
 	static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 
 	// Scan for specific adjacencies
-	if (card.type == CARD_ROCK_CRUSH) {
-		for (const auto & d : dirs) {
-			int nx = caster.x + d[0];
-			int ny = caster.y + d[1];
-			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-			if (board[nx][ny].hasWall) rockHasAdjacentWall = true;
-			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) rockHasAdjacentUnit = true;
+	for (const auto & d : dirs) {
+		int nx = caster.x + d[0];
+		int ny = caster.y + d[1];
+		if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+
+		bool hasOtherUnit = board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex);
+
+		if (hasOtherUnit) {
+			if (card.type == CARD_WISDOM_BOON) wisdomHasAdjacentUnit = true;
+			if (card.type == CARD_BLOCKING_BOON) boonHasAdjacentUnit = true;
+			if (card.type == CARD_DOUBLE_HANDED) doubleHandedHasAdjacentUnit = true;
+			if (card.type == CARD_AMNESIA) amnesiaHasAdjacentUnit = true;
 		}
-		// If both target types exist, force explicit menu choice.
-		// If only one exists, auto-select that mode so targeting highlights are constrained.
-		if (rockHasAdjacentWall && !rockHasAdjacentUnit) {
-			interactionMenuChoice = "wall";
-		} else if (!rockHasAdjacentWall && rockHasAdjacentUnit) {
-			interactionMenuChoice = "damage";
-		}
-	} else if (card.type == CARD_WISDOM_BOON) {
-		for (const auto & d : dirs) {
-			int nx = caster.x + d[0];
-			int ny = caster.y + d[1];
-			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-				wisdomHasAdjacentUnit = true;
-				break;
-			}
-		}
-	} else if (card.type == CARD_BLOCKING_BOON) {
-		for (const auto & d : dirs) {
-			int nx = caster.x + d[0];
-			int ny = caster.y + d[1];
-			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-				boonHasAdjacentUnit = true;
-				break;
-			}
-		}
-	} else if (card.type == CARD_DOUBLE_HANDED) {
-		for (const auto & d : dirs) {
-			int nx = caster.x + d[0];
-			int ny = caster.y + d[1];
-			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-				doubleHandedHasAdjacentUnit = true;
-				break;
+
+		// Dispel status check on adjacent units
+		if (board[nx][ny].hasPlayer) {
+			for (auto & p : players) {
+				if (p.x == nx && p.y == ny && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
+					dispelHasAnyStatus = true;
+				}
 			}
 		}
 	}
@@ -18596,12 +18579,14 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
 	bool boonAutoPlayNoAdjacent = (card.type == CARD_BLOCKING_BOON && !boonHasAdjacentUnit);
 	bool dhAutoPlayNoAdjacent = (card.type == CARD_DOUBLE_HANDED && !doubleHandedHasAdjacentUnit);
+	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
+	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
-	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit) || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent);
+	// Choose-one cards should open their menu immediately on play. (Removed Rock Crush and Magic Blast!)
+	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_DOUBLE_HANDED && doubleHandedHasAdjacentUnit));
 
-	// Wisdom Boon Auto-Block: Skip targeting and menu entirely, instantly apply block to self
-	if (wisdomAutoBlockNoAdjacent) {
+	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
+	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -18609,12 +18594,33 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.commandId = nextCommandId++;
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_MENU_CHOICE;
-		cmd.params[0] = CARD_WISDOM_BOON;
+		cmd.params[0] = card.type;
 		cmd.params[1] = currentPlayerIndex; // Target self
-		cmd.params[2] = 2; // Choose Block
+		cmd.params[2] = (card.type == CARD_WISDOM_BOON) ? 2 : 1; // Block for wisdom, Barrier for dispel
 		cmd.params[3] = cardIndex;
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+		if (isMultiplayer) {
+			sendInputCommand(cmd, true);
+		} else {
+			queueInputCommand(cmd);
+		}
+		draggedCardIndex = -1;
+		selectedCardIndex = -1;
+		return;
+	}
+
+	if (amnesiaAutoTargetSelf) {
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = cardIndex;
+		cmd.params[1] = caster.x;
+		cmd.params[2] = caster.y;
+		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 		if (isMultiplayer) {
 			sendInputCommand(cmd, true);
 		} else {
@@ -18908,7 +18914,13 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			}
 		}
 	}
-
+	// Dispel Purge Target Acquired -> Open Status Menu
+	if (interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
+		interactionTargetIndex = targetIndex;
+		updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
+		determineStatusOptions(getPlayer(targetIndex));
+		return;
+	}
 	switch (interactingCardType) {
 	case CARD_FORM_OF_TORTOISE: {
 		InputCommandPacket cmd = {};
@@ -19085,29 +19097,21 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
-			choiceNeedsTarget = false;
+			choiceNeedsTarget = true; // Wait for target AFTER choice
 			break;
 		case CARD_TRAIN:
 			choice = (buttonId == "draft") ? 1 : 2;
 			break;
-		case CARD_AMNESIA: {
-			// If the opponent's deck was empty and the fallback mini-menu was clicked,
-			// just consume the AP and end the card play gracefully!
-			resetCardState();
-			currentCardOutcome.cardType = CARD_AMNESIA;
-			currentCardOutcome.cardIndex = interactingCardIndex;
-			currentCardOutcome.casterIndex = currentPlayerIndex;
-			beginEffectSequence();
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		case CARD_AMNESIA:
+			choice = 1;
 			break;
-		}
 		case CARD_DISPEL:
 			choice = (buttonId == "Barrier") ? 1 : 2;
 			choiceNeedsTarget = false;
 			break;
 		case CARD_MAGIC_BLAST:
 			choice = (buttonId == "damage") ? 1 : 2;
-			choiceNeedsTarget = true;
+			choiceNeedsTarget = false; // Target was chosen by caster previously
 			break;
 		case CARD_GIANT_MAGIC_HAND:
 			choice = (buttonId == "push" || buttonId == "PUSH") ? 1 : 2;
@@ -19116,6 +19120,31 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		default:
 			choice = 0;
 			break;
+		}
+
+		// Dispel Purge Router (Target first, then Status Menu)
+		if (interactingCardType == CARD_DISPEL && buttonId == "Purge") {
+			bool adjStatus = false;
+			Player & cPlayer = players[currentPlayerIndex];
+			for (auto & p : players) {
+				if (p.playerID == cPlayer.playerID) continue;
+				int dist = abs(p.x - cPlayer.x) + abs(p.y - cPlayer.y);
+				if (dist == 1 && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
+					adjStatus = true;
+					break;
+				}
+			}
+
+			if (adjStatus) {
+				updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, CARD_DISPEL);
+				interactionMenuChoice = "Purge";
+				calculateTargetHighlights(interactingCardIndex);
+			} else {
+				interactionTargetIndex = currentPlayerIndex;
+				updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
+				determineStatusOptions(getPlayer(currentPlayerIndex));
+			}
+			return;
 		}
 
 		if (choice > 0 && choiceNeedsTarget && interactionTargetIndex < 0) {
@@ -20552,6 +20581,29 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
+			break;
+		}
+
+		if (menuType == CARD_MAGIC_BLAST) {
+			// The victim sends this packet!
+			beginEffectSequence();
+			if (choice == 1) { // damage
+				EffectOp dmgOp = {};
+				dmgOp.type = EffectOpType::DAMAGE;
+				dmgOp.data.damage.targetIndex = targetIndex;
+				dmgOp.data.damage.damageType = DAMAGE_MAGIC;
+				dmgOp.data.damage.fixedDamage = 5;
+				dmgOp.data.damage.damageFromSlot = -1;
+				queueEffect(dmgOp);
+			} else { // discard
+				EffectOp rmDeck = {};
+				rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+				rmDeck.data.removeTopCard.targetIndex = targetIndex;
+				queueEffect(rmDeck);
+			}
+			opponentInteraction.open = false; // Close "Waiting" UI for caster
+			resetCardInteraction(); // Close Menu UI for victim
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 			break;
 		}
 
@@ -24983,9 +25035,28 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_ROCK_CRUSH: {
 		beginEffectSequence();
+		bool hitWall = board[targetX][targetY].hasWall;
+		bool hitUnit = false;
+		int unitIdx = -1;
 
-		// Check if we chose Damage, or if we skipped the menu because there was only a Unit target available
-		if (interactionMenuChoice == "damage" || (interactionMenuChoice.empty() && board[targetX][targetY].hasPlayer && !board[targetX][targetY].hasWall)) {
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == targetX && players[i].y == targetY && (int)i != currentPlayerIndex) {
+				hitUnit = true;
+				unitIdx = i;
+				break;
+			}
+		}
+
+		if (hitWall) {
+			EffectOp modTile = {};
+			modTile.type = EffectOpType::MODIFY_TILE;
+			modTile.data.modifyTile.toX = targetX;
+			modTile.data.modifyTile.toY = targetY;
+			modTile.data.modifyTile.setHasWall = -1; // Remove wall
+			queueEffect(modTile);
+		}
+
+		if (hitUnit) {
 			std::vector<int> rawDmg;
 			int dmgRoll = resolveDiceRollDetailed(2, 10, rawDmg);
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
@@ -24996,28 +25067,40 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = currentCardOutcome.targetPlayerIndex;
+			dmgOp.data.damage.targetIndex = unitIdx;
 			dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
 			dmgOp.data.damage.fixedDamage = 0;
 			dmgOp.data.damage.damageFromSlot = 0;
 			queueEffect(dmgOp);
 
-			playedSuccessfully = true;
 			advanceCardState(CARD_PLAY_STATE_DICE);
-
-			// Check if we chose Wall, or if we skipped the menu because there was only a Wall available
-		} else if (interactionMenuChoice == "wall" || (interactionMenuChoice.empty() && board[targetX][targetY].hasWall)) {
-			EffectOp modTile = {};
-			modTile.type = EffectOpType::MODIFY_TILE;
-			modTile.data.modifyTile.toX = targetX;
-			modTile.data.modifyTile.toY = targetY;
-			modTile.data.modifyTile.setHasWall = -1; // Remove wall
-			queueEffect(modTile);
-
-			playedSuccessfully = true;
+		} else {
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
+		playedSuccessfully = true;
+		return true;
+	}
 
+	case CARD_MAGIC_BLAST: {
+		magicBlastTargetPlayerIndex = resolvedTargetIndex;
+		Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
+
+		// Determine if the target unit is owned by the local player
+		bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
+
+		if (isLocal) {
+			interactionTargetIndex = resolvedTargetIndex;
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, CARD_MAGIC_BLAST);
+		} else {
+			opponentInteraction.open = true;
+			opponentInteraction.type = 4; // Magic Blast wait
+			opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
+		}
+
+		playedSuccessfully = true;
+		// Finish the play state immediately so AP is deducted.
+		// The target's menu choice will send a command to finish the effect!
+		advanceCardState(CARD_PLAY_STATE_FINISHED);
 		return true;
 	}
 
