@@ -6677,8 +6677,8 @@ void ofApp::updateGameLogic() {
 	if (isMultiplayer && currentState == STATE_PAUSED) {
 		timerState = pausedFromState;
 	}
-	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn());
-	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
+	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn() || isHost());
+	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex) || isHost());
 
 	// FIX: If it's an in-game draft, timer ownership belongs to the gameplay turn owner
 	bool localShouldRunTimerHere = (timerState == STATE_DRAFTING && !isInGameDraft) ? handlesDraftTimerHere : handlesGameplayTimerHere;
@@ -14611,7 +14611,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(0, (int)i, +1) || changedState;
-				// Snapshot suppressed: only sent on reconnect or desync recovery.
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient(); // <--- REPLACE
 				return;
 			}
 			// Player 1 -
@@ -14627,7 +14627,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(0, (int)i, -1) || changedState;
-				// Snapshot suppressed: only sent on reconnect or desync recovery.
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient(); // <--- REPLACE
 				return;
 			}
 			// Player 2 +
@@ -14642,7 +14642,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(1, (int)i, +1) || changedState;
-				// Snapshot suppressed: only sent on reconnect or desync recovery.
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient(); // <--- REPLACE
 				return;
 			}
 			// Player 2 -
@@ -14657,7 +14657,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(1, (int)i, -1) || changedState;
-				// Snapshot suppressed: only sent on reconnect or desync recovery.
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient(); // <--- REPLACE
 				return;
 			}
 		}
@@ -14665,7 +14665,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// General buttons
 		if (debugDrawCardButton.inside(x, y)) {
 			drawCard();
-			// Snapshot suppressed: only sent on reconnect or desync recovery.
+			if (isMultiplayer && isHost()) sendSnapshotToClient(); // <--- REPLACE
 			return;
 		}
 		if (debugSpawnCardButton.inside(x, y)) {
@@ -14688,7 +14688,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int addedCount = p.hand.size() - beforeCount;
 				queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(addedCount) + " cards", ofColor::cyan);
 				addGameLog("Debug: Added all " + ofToString(addedCount) + " cards to hand");
-				// Snapshot suppressed: only sent on reconnect or desync recovery.
+				if (isMultiplayer && isHost()) sendSnapshotToClient(); // <--- REPLACE
 			}
 			return;
 		}
@@ -15450,7 +15450,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 							}
 						}
 						queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "+" + ofToString((int)encyclopediaSelectedIndices.size() * cardSpawnerQuantity) + " card(s)", ofColor::cyan);
-						// Snapshot suppressed: only sent on reconnect or desync recovery.
+
+						// Sync spawned cards with opponent in multiplayer debug sessions
+						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				} else if (encyclopediaMode == ENC_ADD_FROM_ALL) {
 					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
@@ -15463,7 +15465,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 							else
 								tgt.deck.push_back(allCards[selIdx]);
 						}
-						// Snapshot suppressed: only sent on reconnect or desync recovery.
+
+						// Sync added cards with opponent
+						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
 					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
@@ -15475,7 +15479,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (selIdx < 0 || selIdx >= (int)pile.size()) continue;
 							pile.erase(pile.begin() + selIdx);
 						}
-						// Snapshot suppressed: only sent on reconnect or desync recovery.
+
+						// Sync removed cards with opponent
+						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				}
 			}
@@ -15552,9 +15558,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
 
 					// Sync spawned cards with opponent. Host will send an authoritative
-					// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
-					// packets here which can cause hand-order mismatches.
-					// Snapshot suppressed: only sent on reconnect or desync recovery.
+					// snapshot so clients receive the full game state.
+					if (isMultiplayer && isHost()) sendSnapshotToClient();
 
 					isCardSpawnerOpen = false;
 					return;
@@ -15577,9 +15582,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
-
-	// ==================================================================================
-	// ==================================================================================
 
 	// ==============================================================================
 	// PHASE 3: STATE-DEPENDENT LOGIC
@@ -18953,32 +18955,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		return;
 	}
 
-	case CARD_BURST_OF_LIGHT:
-	case CARD_WISDOM_BOON:
-	case CARD_DOUBLE_HANDED: {
-		if (interactionTargetIndex != -1) {
-			resetCardState();
-			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
-			currentCardOutcome.cardIndex = interactingCardIndex;
-			currentCardOutcome.casterIndex = currentPlayerIndex;
-			beginEffectSequence();
+		// THE BROKEN BLOCK WAS DELETED FROM RIGHT HERE
 
-			// Determine which card to add based on the button clicked
-			int cardToAdd = (interactionMenuChoice == "x2 Punch" || interactionMenuChoice == "Punch") ? (int)CARD_PUNCH : (int)CARD_HAND_BLOCK;
-
-			// Queue 2 copies
-			for (int i = 0; i < 2; i++) {
-				EffectOp addOp = {};
-				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
-				addOp.data.addCard.targetIndex = interactionTargetIndex;
-				addOp.data.addCard.cardType = cardToAdd;
-				queueEffect(addOp);
-			}
-
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		}
-		break;
-	}
+	case CARD_BURST_OF_LIGHT: // <--- MOVED HERE
+	case CARD_WISDOM_BOON: // <--- MOVED HERE
+	case CARD_DOUBLE_HANDED: // <--- MOVED HERE
 	case CARD_DISPEL:
 	case CARD_MAGIC_BLAST:
 	case CARD_GIANT_MAGIC_HAND: {
@@ -20737,30 +20718,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogNotice("Lockstep") << "CMD_MENU_CHOICE GiantMagicHand: targetIndex=" << targetIndex << " choice=" << choice << " cardIndex=" << cardIndex;
 		}
 
-		// Intercept Dispel Barrier so it applies locally instead of going through handleCardMenuClick
-		if (menuType == CARD_DISPEL && buttonId == "Barrier") {
-			resetCardState();
-			currentCardOutcome.cardType = CARD_DISPEL;
-			currentCardOutcome.cardIndex = interactingCardIndex;
-			currentCardOutcome.casterIndex = currentPlayerIndex;
-			beginEffectSequence();
-
-			EffectOp barrierOp = {};
-			barrierOp.type = EffectOpType::MODIFY_STAT;
-			barrierOp.data.modifyStat.targetIndex = currentPlayerIndex;
-			barrierOp.data.modifyStat.statType = 6; // Barrier
-			barrierOp.data.modifyStat.delta = 5;
-			barrierOp.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(barrierOp);
-
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-			resetCardInteraction();
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
-				markMeaningfulActionOnCurrentTurn();
-			}
-			break;
-		}
-
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
 		isExecutingLockstepCommand = false;
@@ -20979,6 +20936,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			isInGameDraft = false;
 			resumeTurnTimerIfPausedForOpponent(this->draftPlayerIndex); // Use member safely
 			currentState = STATE_GAMEPLAY;
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 			break;
 		}
 
@@ -21004,6 +20962,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
 			}
 		}
+		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 
@@ -21283,6 +21242,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusID;
+		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 	case CMD_RENEWED_INSPIRATION: {
@@ -21373,6 +21333,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		resetCardInteraction();
 
 		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
+		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 	// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
