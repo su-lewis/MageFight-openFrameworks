@@ -14083,7 +14083,66 @@ cursor_check_done:;
 		}
 	}
 	updateAndSendHover(effectiveHoverType, newHoverGridX, newHoverGridY, newHoverCardIndex);
+
+	// --- NEW CODE GOES HERE ---
+	// Sync menu hover state to opponent
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && isMultiplayer && isCurrentPlayerLocal()) {
+		static int lastMenuHoverChoice = 0;
+		int currentHoverChoice = 0;
+
+		updateMenuButtonRectangles(); // ensure rects are fresh for hit testing
+
+		switch (interactingCardType) {
+		case CARD_BURST_OF_LIGHT:
+			if (burstBtnDamage.inside(x, y))
+				currentHoverChoice = 1;
+			else if (burstBtnHeal.inside(x, y))
+				currentHoverChoice = 2;
+			break;
+		case CARD_WISDOM_BOON:
+			if (wisdomBtnDamage.inside(x, y))
+				currentHoverChoice = 1;
+			else if (wisdomBtnBlock.inside(x, y))
+				currentHoverChoice = 2;
+			break;
+		case CARD_DOUBLE_HANDED:
+			if (btnAddPunches.inside(x, y))
+				currentHoverChoice = 1;
+			else if (btnAddBlocks.inside(x, y))
+				currentHoverChoice = 2;
+			break;
+		case CARD_MAGIC_BLAST:
+			// Ensure magic blast buttons exist in this scope
+			if (magicBlastDamageButton.inside(x, y))
+				currentHoverChoice = 1;
+			else if (magicBlastDiscardButton.inside(x, y))
+				currentHoverChoice = 2;
+			break;
+		default:
+			break;
+		}
+
+		if (currentHoverChoice != lastMenuHoverChoice) {
+			lastMenuHoverChoice = currentHoverChoice;
+
+			// Map to the opponentInteraction.type enum
+			int menuTypeEnum = 0;
+			if (interactingCardType == CARD_WISDOM_BOON)
+				menuTypeEnum = 1;
+			else if (interactingCardType == CARD_BURST_OF_LIGHT)
+				menuTypeEnum = 2;
+			else if (interactingCardType == CARD_DOUBLE_HANDED)
+				menuTypeEnum = 3;
+			else if (interactingCardType == CARD_MAGIC_BLAST)
+				menuTypeEnum = 4;
+
+			if (menuTypeEnum != 0) {
+				sendMenuState(menuTypeEnum, interactionTargetIndex, currentHoverChoice, interactingCardIndex);
+			}
+		}
+	}
 }
+
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
@@ -17653,6 +17712,28 @@ void ofApp::startNewTurn() {
 	// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
 	// FIX: Removed the while loop. We just increment once.
 	// Sickness is now handled inside continueNewTurn to ensure correct timing.
+
+	// Maintain "Oldest Minion -> Newest Minion -> Player" turn order
+	int endingPlayerID = players[currentPlayerIndex].playerID;
+
+	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+		int ownerA = a.isMinion ? a.ownerID : a.playerID;
+		int ownerB = b.isMinion ? b.ownerID : b.playerID;
+		if (ownerA != ownerB) return ownerA < ownerB; // Group by Team
+		if (a.isMinion && !b.isMinion) return true; // Minions before Player
+		if (!a.isMinion && b.isMinion) return false; // Player after Minions
+		return a.summonOrder < b.summonOrder; // Oldest Minions first
+	});
+
+	// Re-find the ending player's index now that the array has shifted
+	for (size_t i = 0; i < players.size(); i++) {
+		if (players[i].playerID == endingPlayerID) {
+			currentPlayerIndex = (int)i;
+			break;
+		}
+	}
+
+	// Safely advance to the correct next unit
 	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
 	if (currentPlayerIndex == 0) globalTurnCounter++;
@@ -19262,14 +19343,26 @@ void ofApp::drawActiveCardInteractionUI() {
 		switch (interactingCardType) {
 		case CARD_BURST_OF_LIGHT: {
 			string title = "Burst of Light";
-			string desc = "Choose effect for selected target:";
+			string desc = "Choose an effect:";
 			ofColor holyAccent(255, 213, 79);
 			ofColor healAccent(144, 238, 144);
 
-			bool selfTarget = (interactionTargetIndex == currentPlayerIndex);
-			bool healEnabled = true;
-			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
-				healEnabled = (players[interactionTargetIndex].health < players[interactionTargetIndex].maxHealth);
+			// Check if Heal should be enabled visually
+			bool healEnabled = false;
+			Player & caster = players[currentPlayerIndex];
+			if (caster.inTortoiseForm) {
+				healEnabled = true;
+			} else {
+				glm::vec2 casterPos(caster.x, caster.y);
+				for (const auto & p : players) {
+					if (p.health > 0 && p.health < p.maxHealth) {
+						TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
+						if (info.reason == VALID || info.reason == INVALID_SELF) {
+							healEnabled = true;
+							break;
+						}
+					}
+				}
 			}
 
 			float w = 520, h = 260;
@@ -19280,8 +19373,8 @@ void ofApp::drawActiveCardInteractionUI() {
 			burstBtnHeal.set(x + (w - btnW) / 2, y + 110 + btnH + 20, btnW, btnH);
 
 			drawCardChoicePanel(burstMenuRect, title, desc, burstBtnDamage, burstBtnHeal,
-				selfTarget ? "Cannot Damage Self" : "Deal 3 Holy", healEnabled ? "Heal 3 HP" : "Target Full HP",
-				holyAccent, healAccent, !selfTarget, healEnabled);
+				"Deal 3 Holy", healEnabled ? "Heal 3 HP" : "No Wounded Targets",
+				holyAccent, healAccent, true, healEnabled);
 			break;
 		}
 
@@ -22038,25 +22131,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			// End the sequence
 			updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 			wolfSummonStage = 0;
-
-			// Cleanup Turn Order
-			int myID = players[currentPlayerIndex].playerID;
-			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-				int ownerA = a.isMinion ? a.ownerID : a.playerID;
-				int ownerB = b.isMinion ? b.ownerID : b.playerID;
-				if (ownerA != ownerB) return ownerA < ownerB;
-				if (a.isMinion && !b.isMinion) return true;
-				if (!a.isMinion && b.isMinion) return false;
-				return a.summonOrder < b.summonOrder;
-			});
-
-			// Fix index
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myID) {
-					currentPlayerIndex = i;
-					break;
-				}
-			}
 		} else {
 			// HEADS: Check if we have space for the 2nd wolf
 			bool hasSpace = false;
@@ -22090,22 +22164,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
-
-				int myID = players[currentPlayerIndex].playerID;
-				std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-					int ownerA = a.isMinion ? a.ownerID : a.playerID;
-					int ownerB = b.isMinion ? b.ownerID : b.playerID;
-					if (ownerA != ownerB) return ownerA < ownerB;
-					if (a.isMinion && !b.isMinion) return true;
-					if (!a.isMinion && b.isMinion) return false;
-					return a.summonOrder < b.summonOrder;
-				});
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == myID) {
-						currentPlayerIndex = i;
-						break;
-					}
-				}
 			}
 		}
 
@@ -24309,65 +24367,36 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		switch (interactingCardType) {
 		case CARD_BURST_OF_LIGHT:
 			if (burstBtnDamage.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 1; // damage
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				handleCardMenuClick("damage");
 			} else if (burstBtnHeal.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 2; // heal
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				// Check if Heal should be enabled before allowing click
+				bool healEnabled = false;
+				Player & caster = players[currentPlayerIndex];
+				if (caster.inTortoiseForm) {
+					healEnabled = true;
+				} else {
+					glm::vec2 casterPos(caster.x, caster.y);
+					for (const auto & p : players) {
+						if (p.health > 0 && p.health < p.maxHealth) {
+							TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
+							if (info.reason == VALID || info.reason == INVALID_SELF) {
+								healEnabled = true;
+								break;
+							}
+						}
+					}
+				}
+				if (healEnabled) {
+					handleCardMenuClick("heal");
+				}
 			}
 			break;
 
 		case CARD_WISDOM_BOON:
 			if (wisdomBtnDamage.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 1; // damage
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				handleCardMenuClick("damage");
 			} else if (wisdomBtnBlock.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 2; // block
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				handleCardMenuClick("block");
 			}
 			break;
 
@@ -30712,10 +30741,21 @@ void ofApp::drawOpponentMenu() {
 	ofSetColor(0, 0, 0, 100);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
+	// Helper to draw a glowing outline around the button the opponent is hovering
+	auto drawHoverGlow = [&](const ofRectangle & rect) {
+		ofPushStyle();
+		ofNoFill();
+		ofSetColor(255, 255, 255, 220); // Bright white glow
+		ofSetLineWidth(5.0f);
+		ofDrawRectRounded(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4, 12);
+		ofPopStyle();
+	};
+
+	int hover = opponentInteraction.hoveredChoice;
+
 	if (opponentInteraction.type == 1) {
 		// Wisdom Boon preview
-		bool isSelfTarget = (opponentInteraction.targetIndex >= 0 && opponentInteraction.targetIndex < (int)players.size() && currentPlayerIndex >= 0
-			&& opponentInteraction.targetIndex == currentPlayerIndex);
+		bool isSelfTarget = (opponentInteraction.targetIndex >= 0 && opponentInteraction.targetIndex < (int)players.size() && currentPlayerIndex >= 0 && opponentInteraction.targetIndex == currentPlayerIndex);
 		int deckSize = 0;
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) deckSize = (int)players[currentPlayerIndex].deck.size();
 
@@ -30729,14 +30769,15 @@ void ofApp::drawOpponentMenu() {
 		ofRectangle menuRect(x, y, w, h);
 		ofRectangle btnDamage, btnBlock;
 		if (isSelfTarget) {
-			drawCardChoicePanel(menuRect, title, desc, btnDamage, btnBlock, "Gain Block", "", blockAccent, blockAccent, true, false);
+			drawCardChoicePanel(menuRect, title, desc, btnDamage, btnBlock, "Gain Block", "", blockAccent, blockAccent, false, false);
+			if (hover == 1) drawHoverGlow(btnDamage);
 		} else {
-			drawCardChoicePanel(menuRect, title, desc, btnDamage, btnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, true, false);
+			drawCardChoicePanel(menuRect, title, desc, btnDamage, btnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, false, false);
+			if (hover == 1) drawHoverGlow(btnDamage);
 		}
 	} else if (opponentInteraction.type == 2) {
 		// Burst of Light preview
-		bool selfTarget = (opponentInteraction.targetIndex >= 0 && opponentInteraction.targetIndex < (int)players.size() && currentPlayerIndex >= 0
-			&& opponentInteraction.targetIndex == currentPlayerIndex);
+		bool selfTarget = (opponentInteraction.targetIndex >= 0 && opponentInteraction.targetIndex < (int)players.size() && currentPlayerIndex >= 0 && opponentInteraction.targetIndex == currentPlayerIndex);
 		bool healEnabled = true;
 		if (opponentInteraction.targetIndex >= 0 && opponentInteraction.targetIndex < (int)players.size()) {
 			healEnabled = (players[opponentInteraction.targetIndex].health < players[opponentInteraction.targetIndex].maxHealth);
@@ -30748,11 +30789,17 @@ void ofApp::drawOpponentMenu() {
 		ofRectangle btnDamage, btnHeal;
 		ofColor holyAccent(255, 213, 79);
 		ofColor healAccent(144, 238, 144);
-		drawCardChoicePanel(menuRect, "Burst of Light", "Choose effect for selected target:",
+
+		drawCardChoicePanel(menuRect, "Burst of Light", "Waiting for player to choose...",
 			btnDamage, btnHeal,
 			selfTarget ? "Cannot Damage Self" : "Deal 3 Holy",
 			healEnabled ? "Heal 3 HP" : "Target Full HP",
-			holyAccent, healAccent, !selfTarget, healEnabled);
+			holyAccent, healAccent, false, false);
+
+		if (hover == 1)
+			drawHoverGlow(btnDamage);
+		else if (hover == 2 && healEnabled)
+			drawHoverGlow(btnHeal);
 	} else if (opponentInteraction.type == 3) {
 		// Double Handed preview
 		float w = 600, h = 300;
@@ -30761,20 +30808,32 @@ void ofApp::drawOpponentMenu() {
 		ofRectangle btnPunch, btnBlock;
 		ofColor punchAccent(200, 100, 100);
 		ofColor blockAccent(100, 150, 200);
-		drawCardChoicePanel(menuRect, "Double-Handed", "Choose ability:",
+
+		drawCardChoicePanel(menuRect, "Double-Handed", "Waiting for player to choose...",
 			btnPunch, btnBlock, "Punch", "Block",
-			punchAccent, blockAccent, true, true);
+			punchAccent, blockAccent, false, false);
+
+		if (hover == 1)
+			drawHoverGlow(btnPunch);
+		else if (hover == 2)
+			drawHoverGlow(btnBlock);
 	} else if (opponentInteraction.type == 4) {
-		// Magic Blast preview for opponents (non-interactive)
-		string title = "Magic Blast";
-		string desc = "Waiting for player to choose...";
+		// Magic Blast preview for opponents
 		ofColor dmgAccent = ofColor::indianRed;
 		ofColor discAccent = ofColor::darkSlateBlue;
 		float w = 520, h = 260;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
 		ofRectangle menuRect(x, y, w, h);
 		ofRectangle btnDamage, btnDiscard;
-		drawCardChoicePanel(menuRect, title, desc, btnDamage, btnDiscard, "Take 5 Damage", "Remove Top Card of Deck", dmgAccent, discAccent, false, false);
+
+		drawCardChoicePanel(menuRect, "Magic Blast", "Waiting for player to choose...",
+			btnDamage, btnDiscard, "Take 5 Damage", "Remove Top Card of Deck",
+			dmgAccent, discAccent, false, false);
+
+		if (hover == 1)
+			drawHoverGlow(btnDamage);
+		else if (hover == 2)
+			drawHoverGlow(btnDiscard);
 	} else if (opponentInteraction.type == 5) {
 		string title = "Materialized in Wall";
 		string desc = "Waiting for player to choose a tile...";
@@ -30790,7 +30849,6 @@ void ofApp::drawOpponentMenu() {
 		uiFont.drawString(desc, menuRect.getCenter().x - dbox.getWidth() / 2, menuRect.y + 88);
 	}
 }
-
 // Helper: member equivalent of the local applyDamage lambda used in playCard
 bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int attackerIndex) {
 	string typeLabel = "";
