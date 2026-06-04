@@ -188,25 +188,20 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 
 	float handCardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
 
-	// Reconstruct the exact placement of the HP bars from the UI
+	// Exact UI metrics
 	float staticUICardWidth = (kCardPixelWidth * pileCardScale) * scale;
 	float deckBottomGap = effectiveBottomGap(ui);
 	float sideInset = deckBottomGap;
-
 	float healthBarW = 220.0f * scale;
 	float gap = ui.healthBarSideGap;
 	float healthBarInwardNudge = ui.healthBarInwardNudge;
 
-	// Find the exact right edge of Player 0's HP bar
-	float p0_deckRight = sideInset + staticUICardWidth;
-	float p0_healthRight = p0_deckRight + gap + healthBarInwardNudge + healthBarW;
+	// Find the exact inner edges of the Left and Right HP bars
+	float p0_healthRight = sideInset + staticUICardWidth + gap + healthBarInwardNudge + healthBarW;
+	float p1_healthLeft = screenW - staticUICardWidth - sideInset - gap - healthBarW - healthBarInwardNudge;
 
-	// Find the exact left edge of Player 1's HP bar
-	float p1_deckLeft = screenW - staticUICardWidth - sideInset;
-	float p1_healthLeft = p1_deckLeft - gap - healthBarW - healthBarInwardNudge;
-
-	// Pad the hand area so it doesn't touch the HP bars
-	float padding = 30.0f * scale;
+	// Squeeze the box so it physically cannot touch the HP bars
+	float padding = 40.0f * scale;
 	float left = p0_healthRight + padding;
 	float right = p1_healthLeft - padding;
 
@@ -19090,14 +19085,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	interactionMenuChoice = buttonId;
 
-	// Intercept Purge so it doesn't send a network command, but opens the status menu locally
-	if (interactingCardType == CARD_DISPEL && buttonId == "Purge") {
-		updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
-		Player * tgt = getPlayer(interactionTargetIndex);
-		determineStatusOptions(tgt);
-		return;
-	}
-
 	if (!isExecutingLockstepCommand) {
 		int choice = 0;
 		bool choiceNeedsTarget = false;
@@ -19112,7 +19099,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
-			choiceNeedsTarget = true; // Wait for target AFTER choice
+			choiceNeedsTarget = false;
 			break;
 		case CARD_TRAIN:
 			choice = (buttonId == "draft") ? 1 : 2;
@@ -19181,12 +19168,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			cmd.params[2] = choice;
 			cmd.params[3] = interactingCardIndex;
 
-			// ---> PACK WALL COORDINATES HERE <---
 			if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
 				cmd.params[4] = magicHandTargetTile.x;
 				cmd.params[5] = magicHandTargetTile.y;
 			}
-			// ------------------------------------
 
 			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
@@ -19238,38 +19223,30 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		glm::ivec2 dir = wallPos - casterPos; // direction from caster to wall
 
 		if (interactionMenuChoice == "push" || interactionMenuChoice == "PUSH") {
-			glm::ivec2 pushPos = wallPos + dir;
+			magicHandPushDir = dir;
 
-			// Safety check in case a bad packet arrives
-			if (pushPos.x < 0 || pushPos.x >= BOARD_WIDTH || pushPos.y < 0 || pushPos.y >= BOARD_HEIGHT || board[pushPos.x][pushPos.y].hasWall) {
-				queueFloatingTextVisual(gridToWorld(casterPos.x, casterPos.y), "Blocked!", ofColor::red);
-				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-			} else {
-				magicHandPushDir = dir;
-
-				magicHandPushedUnitIndex = -1;
-				glm::ivec2 behindWall = wallPos + dir;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == behindWall.x && players[i].y == behindWall.y) {
-						magicHandPushedUnitIndex = (int)i;
-						break;
-					}
+			magicHandPushedUnitIndex = -1;
+			glm::ivec2 behindWall = wallPos + dir;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == behindWall.x && players[i].y == behindWall.y) {
+					magicHandPushedUnitIndex = (int)i;
+					break;
 				}
-
-				std::vector<int> rawDmg;
-				int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
-				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				dmgRoll += 2 * luckBonus;
-				currentEffectSequence.blackboard[0] = dmgRoll;
-
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-
-				EffectOp pushOp = {};
-				pushOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
-				queueEffect(pushOp);
-
-				advanceCardState(CARD_PLAY_STATE_DICE);
 			}
+
+			std::vector<int> rawDmg;
+			int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			dmgRoll += 2 * luckBonus;
+			currentEffectSequence.blackboard[0] = dmgRoll;
+
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+			EffectOp pushOp = {};
+			pushOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
+			queueEffect(pushOp);
+
+			advanceCardState(CARD_PLAY_STATE_DICE);
 		} else { // Pull
 			glm::ivec2 newWallPos = casterPos;
 			glm::ivec2 newCasterPos = casterPos - dir;
@@ -19343,7 +19320,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			barrierOp.data.modifyStat.deltaFromSlot = 0; // Read from blackboard
 			queueEffect(barrierOp);
 
-			advanceCardState(CARD_PLAY_STATE_DICE);
+			// ADVANCE IMMEDIATELY TO EFFECT SEQUENCE (Don't wait for dice)
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 		break;
 	}
@@ -27955,10 +27933,29 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 				// Red Highlight (Preview) for any adjacent tile to show range
 				if (dist == 1) {
-					isPreview = true;
-					// Green Highlight (Valid Target) ONLY if it is a wall
-					if (board[x][y].hasWall || meshHasWallAt(x, y)) {
-						isValidTarget = true;
+					bool isWall = board[x][y].hasWall || meshHasWallAt(x, y);
+					if (isWall) {
+						isPreview = true;
+
+						// GIANT MAGIC HAND SPECIFIC CHECK:
+						// Only allow targeting the wall if it can actually be pushed or pulled!
+						if (card.type == CARD_GIANT_MAGIC_HAND) {
+							glm::ivec2 wallPos(x, y);
+							glm::ivec2 casterPos(px, py);
+							glm::ivec2 dir = wallPos - casterPos;
+							glm::ivec2 pushPos = wallPos + dir;
+							glm::ivec2 pullPos = casterPos - dir;
+
+							bool canPush = (pushPos.x >= 0 && pushPos.x < BOARD_WIDTH && pushPos.y >= 0 && pushPos.y < BOARD_HEIGHT && !board[pushPos.x][pushPos.y].hasWall);
+							bool canPull = (pullPos.x >= 0 && pullPos.x < BOARD_WIDTH && pullPos.y >= 0 && pullPos.y < BOARD_HEIGHT && !board[pullPos.x][pullPos.y].hasWall && !board[pullPos.x][pullPos.y].hasPlayer);
+
+							if (canPush || canPull) {
+								isValidTarget = true;
+							}
+						} else {
+							// Default behavior for other Wall-targeting cards (e.g. Transform Wall)
+							isValidTarget = true;
+						}
 					}
 				}
 				break;
