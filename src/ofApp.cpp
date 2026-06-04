@@ -3094,16 +3094,16 @@ void ofApp::setup() {
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
 	if (uiFont.isLoaded()) {
-		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
 	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
 	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20);
-	cardEffectSettings.antialiased = true;
+	cardEffectSettings.antialiased = false; // CHANGED to false for crisp pixels
 	cardEffectFont.load(cardEffectSettings);
 	if (cardEffectFont.isLoaded()) {
-		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
@@ -3112,7 +3112,7 @@ void ofApp::setup() {
 	titleSettings.antialiased = false;
 	titleFont.load(titleSettings);
 	if (titleFont.isLoaded()) {
-		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
@@ -3224,7 +3224,7 @@ void ofApp::setup() {
 		koboldKingModel.setScale(0.003f, 0.003f, 0.003f);
 
 		if (ofLoadImage(koboldKingTexture, "Units/KoboldKing/01391eaa.dds")) {
-			koboldKingTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+			koboldKingTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			ofLogNotice("Setup") << "Kobold King texture loaded.";
 		} else {
 			ofLogError("Setup") << "Failed to load Units/KoboldKing/01391eaa.dds";
@@ -3266,7 +3266,7 @@ void ofApp::setup() {
 		tortoiseModel.setScale(0.00255f, 0.00255f, 0.00255f);
 		// Load texture
 		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
-		tortoiseTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		tortoiseTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		ofLogNotice("Setup") << "Tortoise model loaded.";
 	} else {
 		ofLogError("Setup") << "Failed to load tortoise model.";
@@ -3332,7 +3332,7 @@ void ofApp::setup() {
 		faerieModel.setScale(0.0048f, 0.0048f, 0.0048f);
 		faerieModel.setRotation(0, 180, 0, 0, 1);
 		if (ofLoadImage(faerieTexture, "Units/Faerie/gltf_embedded_0.jpeg")) {
-			faerieTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+			faerieTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			ofLogNotice("Setup") << "Faerie texture loaded.";
 		} else {
 			ofLogError("Setup") << "Failed to load Units/Faerie/gltf_embedded_0.jpeg for faerie.";
@@ -3464,9 +3464,9 @@ void ofApp::setup() {
 	ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
 
 	ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
-	// Use linear filtering and mipmaps for a smooth coin appearance
+	// Use nearest filtering and mipmaps for a crisp pixel coin appearance
 	coinFacesTexture.generateMipmap();
-	coinFacesTexture.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+	coinFacesTexture.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
 
 	// --- 5. SOUNDS ---
 	// Note: Path points to Sounds/Player/
@@ -4055,6 +4055,7 @@ void ofApp::updateStateMachine() {
 		float now = ofGetElapsedTimef();
 		if (now >= draftEndAt) {
 			draftEndScheduled = false;
+			initialDraftComplete = true; // <-- CRITICAL: Prevents instant-death bug!
 			ofLogNotice("Draft") << "Processing scheduled draft end: nextPlayer=" << draftEndNextPlayerIndex << " now=" << now;
 			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
 				currentPlayerIndex = draftEndNextPlayerIndex;
@@ -18537,8 +18538,6 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return false;
 	};
 
-	bool rockHasAdjacentWall = false;
-	bool rockHasAdjacentUnit = false;
 	bool wisdomHasAdjacentUnit = false;
 	bool boonHasAdjacentUnit = false;
 	bool doubleHandedHasAdjacentUnit = false;
@@ -18582,8 +18581,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
-	// Choose-one cards should open their menu immediately on play. (Removed Rock Crush and Magic Blast!)
-	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_DOUBLE_HANDED && doubleHandedHasAdjacentUnit));
+	// Choose-one cards should open their menu immediately on play. (Notice Giant Magic Hand is removed!)
+	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_DOUBLE_HANDED && doubleHandedHasAdjacentUnit));
 
 	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
 	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
@@ -18636,9 +18635,6 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		interactingCardType = card.type;
 		interactionTargetIndex = -1;
 		interactionMenuChoice.clear();
-		if (card.type == CARD_GIANT_MAGIC_HAND) {
-			magicHandTargetTile = { -1, -1 };
-		}
 		if (dhAutoPlayNoAdjacent) {
 			interactionTargetIndex = currentPlayerIndex; // Pre-select self for Double Handed menu
 		}
@@ -20084,14 +20080,16 @@ void ofApp::simulationTick() {
 
 				if (p1Roll > p2Roll) {
 					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
+					// Player 1 wins! Player 1 drafts first AND goes first.
+					draftPlayerIndex = 0;
 					beginInitiativeDrafting(0);
-					ofLogNotice("Initiative") << "Player 1 goes first";
-					ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
+					ofLogNotice("Initiative") << "Player 1 wins. Player 1 drafts first.";
 				} else if (p2Roll > p1Roll) {
+					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
+					// Player 2 wins! Player 2 drafts first AND goes first.
 					draftPlayerIndex = 1;
 					beginInitiativeDrafting(1);
-					ofLogNotice("Initiative") << "Player 2 goes first";
-					ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
+					ofLogNotice("Initiative") << "Player 2 wins. Player 2 drafts first.";
 				} else {
 					std::vector<int> raw1;
 					int r1 = resolveDiceRollDetailed(1, 6, raw1);
@@ -28292,8 +28290,8 @@ void ofApp::applyPixelArtSettings() {
 	};
 	(void)setFilterIfAllocatedImg; // unused
 
-	const GLint minFilter = (enablePixelArt ? GL_NEAREST : GL_LINEAR);
-	const GLint magFilter = (enablePixelArt ? GL_NEAREST : GL_LINEAR);
+	const GLint minFilter = GL_NEAREST; // Always crisp
+	const GLint magFilter = GL_NEAREST; // Always crisp
 
 	setFilterIfAllocatedTex(playerTexture, minFilter, magFilter);
 	setFilterIfAllocatedTex(skeletonTexture, minFilter, magFilter);
