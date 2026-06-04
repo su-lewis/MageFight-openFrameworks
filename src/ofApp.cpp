@@ -21838,7 +21838,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 
 	case EffectOpType::APPLY_FIREBALL: {
-		// Determine range roll from blackboard slot 0 (authoritative)
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -21846,44 +21845,63 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
 
+		// Calculate exact impact tile (Target, Wall, or Fall Short)
+		glm::ivec2 impactTile = { -1, -1 };
 		if (maxDistSq >= neededDistSq) {
-			// Direct hit
-			fireballImpactTile = interactionTargetTile;
+			impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
+		} else {
+			glm::vec2 dir = interactionTargetTile - casterTile;
+			if (glm::length(dir) > 0) dir = glm::normalize(dir);
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
+			for (const auto & step : path) {
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
+				if (stepDistSq > maxDistSq) break;
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = glm::ivec2((int)step.x, (int)step.y);
+					hitWall = true;
+					break;
+				}
+			}
+			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+			}
+		}
+
+		// Spawn tracer visual
+		glm::vec3 worldStart, worldEnd;
+		glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+		queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 5.0f);
+
+		if (isTileWall(impactTile.x, impactTile.y)) {
+			queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
+		} else {
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == (int)fireballImpactTile.x && players[i].y == (int)fireballImpactTile.y) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
 					targetIdx = (int)i;
 					break;
 				}
 			}
 
-			// Spawn tracer visual (queued)
-			glm::vec3 worldStart, worldEnd;
-			glm::vec2 hitGrid = glm::vec2(fireballImpactTile.x + 0.5f, fireballImpactTile.y + 0.5f);
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 5.0f);
-
 			if (targetIdx != -1) {
-				// Resolve fireball damage once, queue its visual once, then let the effect queue
-				// apply damage/status after visuals (deterministic lockstep).
 				std::vector<int> rawResults;
-				int raw = 0;
-				// Use authoritatively-resolved damage from decision-time (blackboard[1])
-				raw = (int)currentEffectSequence.blackboard[1];
+				int raw = (int)currentEffectSequence.blackboard[1];
 				rawResults.push_back(raw);
 				int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 				int luckBonusLocal = 0;
 				if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
-				int dmg = (6 == 2) ? raw : (raw + luckBonusLocal);
+				int dmg = raw + luckBonusLocal;
 
 				glm::vec3 tpos = gridToWorld(players[targetIdx].x, players[targetIdx].y);
 				queueVisualDiceRoll(tpos + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 
-				// Store pre-hit HP and resolve ON_FIRE after the queued DAMAGE op applies.
 				currentEffectSequence.blackboard[15] = players[targetIdx].health;
 
 				EffectOp applyDmg = {};
-				// Use generic damage op so migrated cards go through centralized handler
 				applyDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				applyDmg.data.damage.targetIndex = targetIdx;
 				applyDmg.data.damage.damageType = DAMAGE_FIRE;
@@ -21897,149 +21915,110 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				resolveFire.data.damage.damageFromSlot = 15;
 				resolveFire.data.damage.fixedDamage = players[targetIdx].playerID;
 				queueEffect(resolveFire);
-			}
-		} else {
-			// Fell short: compute impact tile and spawn tracer to that tile
-			glm::vec2 casterTile2 = { (float)players[currentPlayerIndex].x, (float)players[currentPlayerIndex].y };
-			glm::vec2 dir = interactionTargetTile - casterTile2;
-			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
-
-			bool hitWall = false;
-			glm::vec2 impactTile;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile2 + 0.5f, interactionTargetTile + 0.5f);
-			for (const auto & step : path) {
-				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile2, step);
-				if (stepDistSq > maxDistSq) break;
-				if (isTileWall((int)step.x, (int)step.y)) {
-					impactTile = step;
-					hitWall = true;
-					break;
+			} else {
+				if (maxDistSq < neededDistSq) {
+					queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 				}
 			}
-			if (!hitWall) {
-				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
-				glm::vec2 impactPos = casterTile2 + (dir * maxDistUnits);
-				impactTile = { floor(impactPos.x), floor(impactPos.y) };
-			}
-
-			glm::vec3 worldStart, worldEnd;
-			glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
-			computeTracerEndpoints(casterTile2, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 5.0f);
-			glm::vec3 failPos = gridToWorld((int)impactTile.x, (int)impactTile.y);
-			queueFloatingTextVisual(failPos, "Out of Range", ofColor::white);
 		}
+
 		opComplete = true;
 		break;
 	}
 
-		// Migrated to data-driven `executeCardGeneric` and `cards.json`.
-		// (magic blast resolved via EffectOp pipeline)
-		opComplete = true;
-		break;
-
 	case EffectOpType::APPLY_ETHEREAL_JOLT: {
-		// Read authoritative range roll from blackboard slot 0
 		interactionDiceRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
 
-		// Jolt ignores walls; use pure Euclidean edge-to-edge
 		float maxDistUnits = interactionDiceRoll / 5.0f;
 		float centerDist = glm::distance(casterTile, interactionTargetTile);
 		float neededDist = std::max(0.0f, centerDist - 1.0f);
-
 		int requiredFeet = (int)ceil(neededDist * 5.0f);
 
-		ofLogNotice("Jolt") << "Rolled: " << interactionDiceRoll << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
+		glm::ivec2 impactTile = interactionTargetTile;
 
-		if (maxDistUnits >= neededDist - 0.001f) {
-			// Find target at impact tile
-			Player * target = nullptr;
-			for (auto & p : players) {
-				if (p.x == (int)interactionTargetTile.x && p.y == (int)interactionTargetTile.y) {
-					target = &p;
+		if (maxDistUnits < neededDist - 0.001f) {
+			glm::vec2 dir = interactionTargetTile - casterTile;
+			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
+			glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+			impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+			ofLogNotice("Jolt") << "Fell short! Landing at " << impactTile.x << "," << impactTile.y;
+		}
+
+		// Tracer
+		glm::vec3 worldStart, worldEnd;
+		glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+		spawnTracer(worldStart, worldEnd, impactTile, ofColor(200, 120, 255), 5.0f);
+
+		// Jolt ignores walls, just checks if a unit is at impactTile
+		Player * target = nullptr;
+		for (auto & p : players) {
+			if (p.x == impactTile.x && p.y == impactTile.y) {
+				target = &p;
+				break;
+			}
+		}
+
+		if (target) {
+			glm::vec3 targetPos = gridToWorld(target->x, target->y);
+			int baseDamage = 7;
+			for (const auto & c : allCards) {
+				if (c.type == CARD_ETHEREAL_JOLT) {
+					if (c.baseDamage > 0)
+						baseDamage = c.baseDamage;
+					else if (c.value > 0)
+						baseDamage = c.value;
 					break;
 				}
 			}
-
-			if (target) {
-				glm::vec3 targetPos = gridToWorld(target->x, target->y);
-
-				int baseDamage = 7;
-				// Prefer data-driven card definition if available (fallback to hardcoded 7)
-				for (const auto & c : allCards) {
-					if (c.type == CARD_ETHEREAL_JOLT) {
-						if (c.baseDamage > 0)
-							baseDamage = c.baseDamage;
-						else if (c.value > 0)
-							baseDamage = c.value;
-						break;
-					}
-				}
-				auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
-					for (int dx = -1; dx <= 1; ++dx) {
-						for (int dy = -1; dy <= 1; ++dy) {
-							if (dx == 0 && dy == 0) continue;
-							int nx = x + dx, ny = y + dy;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
-							}
+			auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
+				for (int dx = -1; dx <= 1; ++dx) {
+					for (int dy = -1; dy <= 1; ++dy) {
+						if (dx == 0 && dy == 0) continue;
+						int nx = x + dx, ny = y + dy;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
 						}
 					}
-					return false;
-				};
-				int wallEffectCount = 0;
-				if (isAdjacentOrDiagonalToMagicWall(target->x, target->y)) wallEffectCount++;
-				if (isAdjacentOrDiagonalToMagicWall(players[currentPlayerIndex].x, players[currentPlayerIndex].y)) wallEffectCount++;
-				int damage = baseDamage;
-				if (wallEffectCount > 0) {
-					damage *= (1 << wallEffectCount);
-					for (int i = 0; i < wallEffectCount; ++i)
-						queueFloatingTextVisual(targetPos, "Magic Wall: x2 Magic", ofColor::purple);
 				}
+				return false;
+			};
+			int wallEffectCount = 0;
+			if (isAdjacentOrDiagonalToMagicWall(target->x, target->y)) wallEffectCount++;
+			if (isAdjacentOrDiagonalToMagicWall(players[currentPlayerIndex].x, players[currentPlayerIndex].y)) wallEffectCount++;
+			int damage = baseDamage;
+			if (wallEffectCount > 0) {
+				damage *= (1 << wallEffectCount);
+				for (int i = 0; i < wallEffectCount; ++i)
+					queueFloatingTextVisual(targetPos, "Magic Wall: x2 Magic", ofColor::purple);
+			}
 
-				// Use centralized mitigation helper to apply barrier/ward and HP reductions
-				int hpApplied = applyDamageWithMitigations(*target, damage, DAMAGE_MAGIC, currentPlayerIndex);
-				if (hpApplied > 0) {
-					queueFloatingTextVisual(targetPos, "-" + ofToString(hpApplied) + " Magic", ofColor::red);
-				} else {
-					queueFloatingTextVisual(targetPos, "Absorbed", ofColor::gray);
-				}
+			int hpApplied = applyDamageWithMitigations(*target, damage, DAMAGE_MAGIC, currentPlayerIndex);
+			if (hpApplied > 0) {
+				queueFloatingTextVisual(targetPos, "-" + ofToString(hpApplied) + " Magic", ofColor::red);
+			} else {
+				queueFloatingTextVisual(targetPos, "Absorbed", ofColor::gray);
+			}
 
-				// Paralyze
-				{
-					EffectOp ap = {};
-					ap.type = EffectOpType::APPLY_STATUS;
-					ap.data.status.targetIndex = findPlayerIndexByID(target->playerID);
-					ap.data.status.statusType = STATUS_PARALYZED;
-					ap.data.status.duration = 0;
-					queueEffect(ap);
-				}
-				queueFloatingTextVisual(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+			EffectOp ap = {};
+			ap.type = EffectOpType::APPLY_STATUS;
+			ap.data.status.targetIndex = findPlayerIndexByID(target->playerID);
+			ap.data.status.statusType = STATUS_PARALYZED;
+			ap.data.status.duration = 0;
+			queueEffect(ap);
+			queueFloatingTextVisual(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
 
-				if (!target->deck.empty()) {
-					target->deck.pop_back();
-					queueFloatingTextVisual(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
-				}
-
-				// Tracer
-				{
-					glm::vec3 worldStart, worldEnd;
-					glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-					computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-					spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 120, 255), 5.0f);
-				}
+			if (!target->deck.empty()) {
+				target->deck.pop_back();
+				queueFloatingTextVisual(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
 			}
 		} else {
-			ofLogNotice("Jolt") << "Fell short! (Rolled " << interactionDiceRoll << "ft, needed " << requiredFeet << "ft)";
-			glm::vec3 failPos = gridToWorld(interactionTargetTile.x, interactionTargetTile.y);
-			queueFloatingTextVisual(failPos, "Out of Range", ofColor::white);
-
-			glm::vec3 worldStart, worldEnd;
-			glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 120, 255), 5.0f);
+			if (maxDistUnits < neededDist - 0.001f) {
+				glm::vec3 failPos = gridToWorld(impactTile.x, impactTile.y);
+				queueFloatingTextVisual(failPos, "Fell Short", ofColor::white);
+			}
 		}
 
 		opComplete = true;
@@ -22629,11 +22608,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_MAGIC_BOLT: {
-		if (hasPendingDamageDiceVisualForCurrentOwner()) {
-			break;
-		}
-		// Read authoritative range roll from blackboard slot 0
+	case EffectOpType::APPLY_MAGIC_BLAST: {
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -22665,78 +22640,265 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 
-		// Spawn tracer visual for the bolt
-		{
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
-			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 5.0f);
+		glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
+		glm::vec3 worldStart, worldEnd;
+		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+		queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 5.0f);
+
+		if (isTileWall(impactTile.x, impactTile.y)) {
+			queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
+			resetCardInteraction();
+			if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_FINISHED);
+		} else {
+			if (maxDistSq < neededDistSq) {
+				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
+			}
+
+			int targetIdx = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
+					targetIdx = (int)i;
+					break;
+				}
+			}
+
+			if (targetIdx != -1) {
+				magicBlastTargetPlayerIndex = targetIdx;
+				magicBlastChoicesRemaining = 3;
+				magicBlastSplashTargetIndices.clear();
+
+				for (size_t i = 0; i < players.size(); ++i) {
+					if ((int)i == targetIdx) continue;
+					if (players[i].health <= 0) continue;
+					int dx = std::abs(players[i].x - impactTile.x);
+					int dy = std::abs(players[i].y - impactTile.y);
+					if (std::max(dx, dy) == 1) {
+						magicBlastSplashTargetIndices.push_back((int)i);
+					}
+				}
+
+				Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
+				bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
+
+				if (turnTimerEnabled) {
+					int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+					int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
+
+					if (deciderOwner != activeOwner) {
+						if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
+						opponentDecisionTimerActive = true;
+						opponentDecisionStartFrame = simulationFrame;
+						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+						opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
+					} else {
+						if (turnTimerPaused && opponentDecisionTimerActive) {
+							turnTimerPaused = false;
+							turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+							turnTimerPausedRemainingFrames = 0;
+						}
+						opponentDecisionTimerActive = false;
+						opponentDecisionStartFrame = 0;
+						opponentDecisionPlayerIndex = -1;
+					}
+				}
+
+				if (isLocal) {
+					interactionTargetIndex = magicBlastTargetPlayerIndex;
+					opponentInteraction.open = false;
+					cardInteractionState = CARD_INTERACTION_STATE_MENU;
+					interactingCardType = CARD_MAGIC_BLAST;
+					cardPlayState = CARD_PLAY_STATE_MENU;
+					menuOpenStartTime = ofGetElapsedTimef();
+					menuOpenScale = 0.6f;
+				} else {
+					cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+					interactingCardType = CARD_NONE;
+					cardPlayState = CARD_PLAY_STATE_IDLE;
+					opponentInteraction.open = true;
+					opponentInteraction.type = 4;
+					opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
+				}
+
+				// Halt effect sequence processing so the menu can wait for input
+				return false;
+			} else {
+				resetCardInteraction();
+				if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_FINISHED);
+			}
 		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_MAGIC_BOLT: {
+		int rangeRoll = currentEffectSequence.blackboard[0];
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
+		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
+
+		glm::ivec2 impactTile = { -1, -1 };
+		if (maxDistSq >= neededDistSq) {
+			impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
+		} else {
+			glm::vec2 dir = interactionTargetTile - casterTile;
+			if (glm::length(dir) > 0) dir = glm::normalize(dir);
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
+			for (const auto & step : path) {
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
+				if (stepDistSq > maxDistSq) break;
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = glm::ivec2((int)step.x, (int)step.y);
+					hitWall = true;
+					break;
+				}
+			}
+			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+			}
+		}
+
+		// Spawn tracer
+		glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
+		glm::vec3 worldStart, worldEnd;
+		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+		queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 5.0f);
 
 		currentCardOutcome.primaryTarget = impactTile;
 
-		if (isTileWall((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
-			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
+		if (isTileWall((int)impactTile.x, (int)impactTile.y)) {
+			queueFloatingTextVisual(gridToWorld((int)impactTile.x, (int)impactTile.y), "Hit Wall", ofColor::gray);
 		} else {
-			// Primary/AOE damage values are pre-resolved at play-time and stored in
-			// blackboard slots by the play handler: primary -> slot 1, aoe -> slot 2.
-			int primaryDamage = currentEffectSequence.blackboard[1];
+			if (maxDistSq < neededDistSq) {
+				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
+			}
 
-			// Apply primary damage authoritatively (no additional RNG/visuals here)
+			int primaryDamage = currentEffectSequence.blackboard[1];
 			int directHitIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == currentCardOutcome.primaryTarget.x && players[i].y == currentCardOutcome.primaryTarget.y) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
 					directHitIdx = (int)i;
 					break;
 				}
 			}
 			if (directHitIdx >= 0) {
-				int applied = applyDamageWithMitigations(players[directHitIdx], primaryDamage, DAMAGE_MAGIC, currentPlayerIndex);
-				if (applied > 0)
-					queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "-" + ofToString(applied) + " Magic", ofColor::red);
-				else
-					queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "Absorbed", ofColor::gray);
+				int outSlot = 3;
+				applyDamageWithMitigationsQueued(players[directHitIdx], primaryDamage, DAMAGE_MAGIC, currentPlayerIndex, outSlot);
+
+				EffectOp res = {};
+				res.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY_RESOLVE;
+				res.data.damage.targetIndex = directHitIdx;
+				res.data.damage.damageFromSlot = outSlot;
+				res.data.damage.fixedDamage = primaryDamage;
+				queueEffect(res);
+			} else {
+				// Still queue empty resolve to trigger AOE
+				EffectOp res = {};
+				res.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY_RESOLVE;
+				res.data.damage.targetIndex = -1;
+				res.data.damage.damageFromSlot = -1;
+				res.data.damage.fixedDamage = primaryDamage;
+				queueEffect(res);
+			}
+		}
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_CHAIN_LIGHTNING: {
+		int rangeRoll = currentEffectSequence.blackboard[0];
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
+		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
+
+		glm::ivec2 impactTile = { -1, -1 };
+		if (maxDistSq >= neededDistSq) {
+			impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
+		} else {
+			glm::vec2 dir = interactionTargetTile - casterTile;
+			if (glm::length(dir) > 0) dir = glm::normalize(dir);
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
+			for (const auto & step : path) {
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
+				if (stepDistSq > maxDistSq) break;
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = glm::ivec2((int)step.x, (int)step.y);
+					hitWall = true;
+					break;
+				}
+			}
+			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+			}
+		}
+
+		// Spawn tracer
+		glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
+		glm::vec3 worldStart, worldEnd;
+		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+		queueVisualTracer(worldStart, worldEnd, ofColor::yellow, 5.0f);
+
+		if (isTileWall(impactTile.x, impactTile.y)) {
+			queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
+		} else {
+			if (maxDistSq < neededDistSq) {
+				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
 
-			// AOE radius was resolved at play-time and stored in blackboard[2]
-			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
-			ofLogNotice("Magic Bolt") << "AOE Roll: " << aoeRadiusFeet << "ft Radius.";
-
-			// Build list of AOE targets (exclude primary target)
+			// Find AOE targets around IMPACT tile
 			std::vector<int> aoeTargets;
 			for (size_t i = 0; i < players.size(); ++i) {
+				if ((int)i == currentPlayerIndex) continue; // Don't hit self
 				Player & p = players[i];
-				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-				long long aoeRadiusHalfTiles = ((long long)aoeRadiusFeet * 2LL) / 5LL;
-				long long aoeRadiusSq = aoeRadiusHalfTiles * aoeRadiusHalfTiles;
-				long long aoeDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y), glm::vec2((float)p.x, (float)p.y));
-				if (aoeDistSq <= aoeRadiusSq) {
-					auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
-					bool blockedByWall = false;
-					for (const auto & step : losPath) {
-						if ((int)step.x == currentCardOutcome.primaryTarget.x && (int)step.y == currentCardOutcome.primaryTarget.y) continue;
-						if ((int)step.x == p.x && (int)step.y == p.y) break;
-						if (isTileWall((int)step.x, (int)step.y)) {
-							blockedByWall = true;
-							break;
+				if (p.health <= 0) continue;
+
+				int dx = std::abs(p.x - impactTile.x);
+				int dy = std::abs(p.y - impactTile.y);
+
+				if (dx <= 1 && dy <= 1) {
+					bool blocked = false;
+					if (dx == 1 && dy == 1) {
+						if (isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y) && isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y))) {
+							blocked = true;
 						}
 					}
-					if (!blockedByWall) aoeTargets.push_back((int)i);
+					if (!blocked) aoeTargets.push_back((int)i);
 				}
 			}
 
-			// Apply AOE damage (base 3) immediately to each target
+			// Queue damage for valid targets
+			int damage = currentEffectSequence.blackboard[1];
 			int baseOut = 4;
-			(void)baseOut;
-			for (size_t idx2 = 0; idx2 < aoeTargets.size(); ++idx2) {
-				int pidx = aoeTargets[idx2];
-				int dmg = 3;
-				int applied = applyDamageWithMitigations(players[pidx], dmg, DAMAGE_ELECTRIC, currentPlayerIndex);
-				if (applied > 0)
-					queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "-" + ofToString(applied) + " Electric", ofColor::yellow);
-				else
-					queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "Absorbed", ofColor::gray);
+			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
+				int pidx = aoeTargets[idx];
+				int outSlot = baseOut + (int)idx;
+				applyDamageWithMitigationsQueued(players[pidx], damage, DAMAGE_ELECTRIC, currentPlayerIndex, outSlot);
+
+				// Secondary visual tracer from impact to target
+				if (players[pidx].x != impactTile.x || players[pidx].y != impactTile.y) {
+					glm::vec3 wStart = gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 0.5f, 0);
+					glm::vec3 wEnd = gridToWorld(players[pidx].x, players[pidx].y) + glm::vec3(0, 0.5f, 0);
+					queueVisualTracer(wStart, wEnd, ofColor::yellow, 4.0f);
+				}
 			}
+
+			currentCardOutcome.targetedPlayers = aoeTargets;
+
+			EffectOp res = {};
+			res.type = EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE;
+			res.data.damage.damageFromSlot = baseOut;
+			res.data.damage.targetIndex = (int)aoeTargets.size();
+			queueEffect(res);
 		}
 
 		opComplete = true;
@@ -23062,100 +23224,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_CHAIN_LIGHTNING: {
-		int rangeRoll = currentEffectSequence.blackboard[0];
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
-		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
-
-		glm::ivec2 impactTile = { -1, -1 };
-		if (maxDistSq >= neededDistSq) {
-			impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
-		} else {
-			glm::vec2 dir = interactionTargetTile - casterTile;
-			if (glm::length(dir) > 0) dir = glm::normalize(dir);
-			bool hitWall = false;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
-			for (const auto & step : path) {
-				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
-				if (stepDistSq > maxDistSq) break;
-				if (isTileWall((int)step.x, (int)step.y)) {
-					impactTile = glm::ivec2((int)step.x, (int)step.y);
-					hitWall = true;
-					break;
-				}
-			}
-			if (!hitWall) {
-				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
-				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
-				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
-			}
-		}
-
-		// Spawn main tracer
-		{
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
-			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor::yellow, 5.0f);
-		}
-
-		if (isTileWall(impactTile.x, impactTile.y)) {
-			queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fizzle!", ofColor::gray);
-		} else {
-			// Find AOE targets around the IMPACT tile (Not the caster!)
-			std::vector<int> aoeTargets;
-			for (size_t i = 0; i < players.size(); ++i) {
-				if ((int)i == currentPlayerIndex) continue; // Don't hit self
-				Player & p = players[i];
-				if (p.health <= 0) continue;
-
-				int dx = std::abs(p.x - impactTile.x);
-				int dy = std::abs(p.y - impactTile.y);
-
-				if (dx <= 1 && dy <= 1) {
-					// Diagonal pinch check from impact tile
-					bool blocked = false;
-					if (dx == 1 && dy == 1) {
-						if (isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y) && isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y))) {
-							blocked = true;
-						}
-					}
-					if (!blocked) aoeTargets.push_back((int)i);
-				}
-			}
-
-			// Queue damage for valid targets
-			int damage = currentEffectSequence.blackboard[1];
-			int baseOut = 4;
-			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
-				int pidx = aoeTargets[idx];
-				int outSlot = baseOut + (int)idx;
-				applyDamageWithMitigationsQueued(players[pidx], damage, DAMAGE_ELECTRIC, currentPlayerIndex, outSlot);
-
-				// Secondary visual tracer from impact to target
-				if (players[pidx].x != impactTile.x || players[pidx].y != impactTile.y) {
-					glm::vec3 wStart = gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 0.5f, 0);
-					glm::vec3 wEnd = gridToWorld(players[pidx].x, players[pidx].y) + glm::vec3(0, 0.5f, 0);
-					queueVisualTracer(wStart, wEnd, ofColor::yellow, 4.0f);
-				}
-			}
-
-			currentCardOutcome.targetedPlayers = aoeTargets;
-
-			EffectOp res = {};
-			res.type = EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE;
-			res.data.damage.damageFromSlot = baseOut;
-			res.data.damage.targetIndex = (int)aoeTargets.size();
-			queueEffect(res);
-		}
-
-		opComplete = true;
-		break;
-	}
-
 	case EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE: {
 		if (hasPendingDamageDiceVisualForCurrentOwner()) {
 			break;
@@ -23310,7 +23378,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 		ofLogNotice("ShootArrow") << "Rolled Range: " << rangeRoll << "ft.";
 
-		// Destroy top card from caster's deck (always)
 		currentCardOutcome.destroyedCardType = CARD_NONE;
 		if (!caster.deck.empty()) {
 			Card destroyed = caster.deck.back();
@@ -23332,48 +23399,65 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			rem.currentScale = 3.0f;
 			rem.currentAlpha = 255;
 			activeRemovedCardAnimations.push_back(rem);
-
-			ofLogNotice("ShootArrow") << "Destroyed top card after range roll: '" << destroyed.name << "'.";
 		}
 
 		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
 		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
 
-		if (maxDistSq >= neededDistSq) {
-			// Hit: spawn tracer and queue damage roll (1d6)
-			{
-				glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-				glm::vec3 worldStart, worldEnd;
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
+		glm::ivec2 impactTile = interactionTargetTile;
+		if (maxDistSq < neededDistSq) {
+			glm::vec2 dir = interactionTargetTile - casterTile;
+			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
+
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
+			for (const auto & step : path) {
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
+				if (stepDistSq > maxDistSq) break;
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = glm::ivec2((int)step.x, (int)step.y);
+					hitWall = true;
+					break;
+				}
 			}
+			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+			}
+		}
 
-			// Read authoritative damage and synergy bonus from blackboard slots
-			int dmg = currentEffectSequence.blackboard[1];
-			int bonusDmg = currentEffectSequence.blackboard[2];
+		// Tracer
+		glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+		glm::vec3 worldStart, worldEnd;
+		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+		spawnTracer(worldStart, worldEnd, impactTile, ofColor(200, 180, 100), 5.0f);
 
-			// Queue a DAMAGE EffectOp that reads from blackboard[1]
-			// Find the player at the impact tile and target them via index so the applicator can run.
+		if (isTileWall(impactTile.x, impactTile.y)) {
+			queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
+		} else {
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == (int)interactionTargetTile.x && players[i].y == (int)interactionTargetTile.y) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
 					targetIdx = (int)i;
 					break;
 				}
 			}
+
 			if (targetIdx >= 0) {
+				int dmg = currentEffectSequence.blackboard[1];
+				int bonusDmg = currentEffectSequence.blackboard[2];
+
 				EffectOp applyDmg = {};
 				applyDmg.type = EffectOpType::DAMAGE;
 				applyDmg.data.damage.targetIndex = targetIdx;
-				applyDmg.data.damage.damageFromSlot = 1; // read damage from blackboard[1]
+				applyDmg.data.damage.damageFromSlot = 1;
 				applyDmg.data.damage.damageType = DAMAGE_PIERCING;
 				queueEffect(applyDmg);
 
-				// Elemental synergy from the destroyed card.
 				CardType poppedType = currentCardOutcome.destroyedCardType;
 				if (poppedType == CARD_SHOCK || poppedType == CARD_FLAME_HIT || poppedType == CARD_ADD_POISON) {
-					// Apply pre-rolled synergy bonus if present (stored in blackboard[2])
 					if (bonusDmg > 0) {
 						DamageType bonusType = DAMAGE_PHYSICAL;
 						int statusType = 0;
@@ -23395,7 +23479,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						EffectOp applyBonusDmg = {};
 						applyBonusDmg.type = EffectOpType::DAMAGE;
 						applyBonusDmg.data.damage.targetIndex = targetIdx;
-						applyBonusDmg.data.damage.damageFromSlot = 2; // read from blackboard[2]
+						applyBonusDmg.data.damage.damageFromSlot = 2;
 						applyBonusDmg.data.damage.damageType = bonusType;
 						queueEffect(applyBonusDmg);
 
@@ -23406,19 +23490,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						applyBonusStatus.data.status.duration = 0;
 						queueEffect(applyBonusStatus);
 
-						queueFloatingTextVisual(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y) + glm::vec3(0, 0.8f, 0), "Synergy!", visualColor);
+						queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 0.8f, 0), "Synergy!", visualColor);
 					}
 				}
 			} else {
-				ofLogNotice("ShootArrow") << "No target found at impact tile after roll.";
+				if (maxDistSq < neededDistSq) {
+					queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
+				}
 			}
-		} else {
-			// Miss: notify and spawn tracer for visual
-			queueFloatingTextVisual(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y), "Missed!", ofColor::gray);
-			glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
 		}
 
 		if (cardPlayState != CARD_PLAY_STATE_IDLE) {
@@ -25322,68 +25401,23 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_MAGIC_BLAST: {
-		if (resolvedTargetIndex == -1) return true;
+		beginEffectSequence();
+		interactionTargetTile = glm::vec2(targetX, targetY);
 
-		magicBlastTargetPlayerIndex = resolvedTargetIndex;
-		magicBlastChoicesRemaining = 3;
-		magicBlastSplashTargetIndices.clear();
+		std::vector<int> rawRange;
+		int rangeRoll = resolveDiceRollDetailed(1, 20, rawRange);
+		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+		rangeRoll += luckBonus;
 
-		// Find adjacent units
-		for (size_t i = 0; i < players.size(); ++i) {
-			if ((int)i == resolvedTargetIndex) continue;
-			if (players[i].health <= 0) continue;
-			int dx = std::abs(players[i].x - targetX);
-			int dy = std::abs(players[i].y - targetY);
-			if (std::max(dx, dy) == 1) { // 8-way adjacent
-				magicBlastSplashTargetIndices.push_back((int)i);
-			}
-		}
+		currentEffectSequence.blackboard[0] = rangeRoll;
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+
+		EffectOp applyMb = {};
+		applyMb.type = EffectOpType::APPLY_MAGIC_BLAST;
+		queueEffect(applyMb);
 
 		playedSuccessfully = true;
-
-		// Setup state for the first choice
-		Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
-		bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
-
-		if (turnTimerEnabled) {
-			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-			int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
-
-			if (deciderOwner != activeOwner) {
-				if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
-				opponentDecisionTimerActive = true;
-				opponentDecisionStartFrame = simulationFrame;
-				opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
-				opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
-			} else {
-				if (turnTimerPaused && opponentDecisionTimerActive) {
-					turnTimerPaused = false;
-					turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-					turnTimerPausedRemainingFrames = 0;
-				}
-				opponentDecisionTimerActive = false;
-				opponentDecisionStartFrame = 0;
-				opponentDecisionPlayerIndex = -1;
-			}
-		}
-
-		if (isLocal) {
-			interactionTargetIndex = magicBlastTargetPlayerIndex;
-			opponentInteraction.open = false;
-			cardInteractionState = CARD_INTERACTION_STATE_MENU;
-			interactingCardType = CARD_MAGIC_BLAST;
-			cardPlayState = CARD_PLAY_STATE_MENU;
-			menuOpenStartTime = ofGetElapsedTimef();
-			menuOpenScale = 0.6f;
-		} else {
-			cardInteractionState = CARD_INTERACTION_STATE_IDLE;
-			interactingCardType = CARD_NONE;
-			cardPlayState = CARD_PLAY_STATE_IDLE;
-			opponentInteraction.open = true;
-			opponentInteraction.type = 4;
-			opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
-		}
-
+		advanceCardState(CARD_PLAY_STATE_DICE);
 		return true;
 	}
 
