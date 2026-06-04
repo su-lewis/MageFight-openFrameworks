@@ -782,12 +782,19 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	std::vector<float> advances;
 	advances.reserve(text.size());
 	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
+	float spaceWidth = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f); // Tight, dynamic space
 	float totalWidthUnscaled = 0.0f;
+
 	for (char ch : text) {
 		std::string glyph(1, ch);
-		float adv = font.stringWidth(glyph); // Fix: Use typographic advance, not ink width!
-		if (ch == ' ' && adv <= 0.0f) adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
+		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+
+		// Add 1px of tracking to prevent any ink overlap!
+		if (adv > 0.0f) adv += 1.0f;
+
+		if (ch == ' ') adv = spaceWidth;
 		if (adv <= 0.0f) adv = fallbackAdvance;
+
 		advances.push_back(adv);
 		totalWidthUnscaled += adv;
 	}
@@ -1141,12 +1148,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				std::vector<float> advances;
 				advances.reserve(text.size());
 				float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
+				float spaceWidth = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f);
 				float totalWidthUnscaled = 0.0f;
 				for (char ch : text) {
 					std::string glyph(1, ch);
-					float adv = font.stringWidth(glyph); // Fix: Use typographic advance, not ink width!
-					if (ch == ' ' && adv <= 0.0f) adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
+					float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+
+					if (adv > 0.0f) adv += 1.0f; // Add 1px tracking
+					if (ch == ' ') adv = spaceWidth;
 					if (adv <= 0.0f) adv = fallbackAdvance;
+
 					advances.push_back(adv);
 					totalWidthUnscaled += adv;
 				}
@@ -19189,7 +19200,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		}
 	}
 
-	// Card-type dispatcher for execution
+	// Card-type dispatcher: execute based on card type + menu choice
 	switch (interactingCardType) {
 
 	case CARD_TRAIN: {
@@ -19227,27 +19238,38 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		glm::ivec2 dir = wallPos - casterPos; // direction from caster to wall
 
 		if (interactionMenuChoice == "push" || interactionMenuChoice == "PUSH") {
-			magicHandPushDir = dir;
-			magicHandPushedUnitIndex = -1;
-			glm::ivec2 behindWall = wallPos + dir;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == behindWall.x && players[i].y == behindWall.y) {
-					magicHandPushedUnitIndex = (int)i;
-					break;
+			glm::ivec2 pushPos = wallPos + dir;
+
+			// Safety check in case a bad packet arrives
+			if (pushPos.x < 0 || pushPos.x >= BOARD_WIDTH || pushPos.y < 0 || pushPos.y >= BOARD_HEIGHT || board[pushPos.x][pushPos.y].hasWall) {
+				queueFloatingTextVisual(gridToWorld(casterPos.x, casterPos.y), "Blocked!", ofColor::red);
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+			} else {
+				magicHandPushDir = dir;
+
+				magicHandPushedUnitIndex = -1;
+				glm::ivec2 behindWall = wallPos + dir;
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == behindWall.x && players[i].y == behindWall.y) {
+						magicHandPushedUnitIndex = (int)i;
+						break;
+					}
 				}
+
+				std::vector<int> rawDmg;
+				int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				dmgRoll += 2 * luckBonus;
+				currentEffectSequence.blackboard[0] = dmgRoll;
+
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+				EffectOp pushOp = {};
+				pushOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
+				queueEffect(pushOp);
+
+				advanceCardState(CARD_PLAY_STATE_DICE);
 			}
-
-			std::vector<int> rawDmg;
-			int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			dmgRoll += 2 * luckBonus;
-			currentEffectSequence.blackboard[0] = dmgRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-
-			EffectOp pushOp = {};
-			pushOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
-			queueEffect(pushOp);
-			advanceCardState(CARD_PLAY_STATE_DICE);
 		} else { // Pull
 			glm::ivec2 newWallPos = casterPos;
 			glm::ivec2 newCasterPos = casterPos - dir;
@@ -19283,6 +19305,20 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		break;
 	}
 
+	case PSEUDO_CARD_GHOST_RELOCATE:
+		// Menu click for Ghost Relocate is intercepted natively by processCardStateInput
+		break;
+
+	case CARD_AMNESIA: {
+		resetCardState();
+		currentCardOutcome.cardType = CARD_AMNESIA;
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+		beginEffectSequence();
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		break;
+	}
+
 	case CARD_DISPEL: {
 		if (interactionMenuChoice == "Barrier") {
 			resetCardState();
@@ -19313,7 +19349,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_BURST_OF_LIGHT: {
-		if (interactionTargetIndex != -1) {
+		int safeTarget = interactionTargetIndex; // Cache target securely
+		if (safeTarget != -1) {
 			resetCardState();
 			currentCardOutcome.cardType = CARD_BURST_OF_LIGHT;
 			currentCardOutcome.cardIndex = interactingCardIndex;
@@ -19323,7 +19360,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			if (interactionMenuChoice == "damage") {
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
-				dmgOp.data.damage.targetIndex = interactionTargetIndex;
+				dmgOp.data.damage.targetIndex = safeTarget;
 				dmgOp.data.damage.damageType = DAMAGE_HOLY;
 				dmgOp.data.damage.fixedDamage = 3;
 				dmgOp.data.damage.damageFromSlot = -1;
@@ -19331,7 +19368,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			} else {
 				EffectOp healOp = {};
 				healOp.type = EffectOpType::HEAL;
-				healOp.data.heal.targetIndex = interactionTargetIndex;
+				healOp.data.heal.targetIndex = safeTarget;
 				healOp.data.heal.amount = 3;
 				healOp.data.heal.amountFromSlot = -1;
 				queueEffect(healOp);
@@ -19343,6 +19380,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_WISDOM_BOON: {
+		int safeTarget = interactionTargetIndex; // Cache target securely
 		resetCardState();
 		currentCardOutcome.cardType = CARD_WISDOM_BOON;
 		currentCardOutcome.cardIndex = interactingCardIndex;
@@ -19351,10 +19389,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 		int strength = players[currentPlayerIndex].deck.size();
 
-		if (interactionMenuChoice == "damage") {
+		if (interactionMenuChoice == "damage" && safeTarget != -1) {
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = interactionTargetIndex;
+			dmgOp.data.damage.targetIndex = safeTarget;
 			dmgOp.data.damage.damageType = DAMAGE_MAGIC;
 			dmgOp.data.damage.fixedDamage = strength;
 			dmgOp.data.damage.damageFromSlot = -1;
@@ -19362,7 +19400,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		} else { // "block"
 			EffectOp blkOp = {};
 			blkOp.type = EffectOpType::MODIFY_STAT;
-			blkOp.data.modifyStat.targetIndex = interactionTargetIndex;
+			// For block, target is self if safeTarget is -1
+			blkOp.data.modifyStat.targetIndex = (safeTarget != -1) ? safeTarget : currentPlayerIndex;
 			blkOp.data.modifyStat.statType = 5; // Block
 			blkOp.data.modifyStat.delta = strength;
 			blkOp.data.modifyStat.deltaFromSlot = -1;
@@ -19373,7 +19412,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DOUBLE_HANDED: {
-		if (interactionTargetIndex != -1) {
+		int safeTarget = interactionTargetIndex; // Cache target securely
+		if (safeTarget != -1) {
 			resetCardState();
 			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
 			currentCardOutcome.cardIndex = interactingCardIndex;
@@ -19385,7 +19425,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			for (int i = 0; i < 2; i++) {
 				EffectOp addOp = {};
 				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
-				addOp.data.addCard.targetIndex = interactionTargetIndex;
+				addOp.data.addCard.targetIndex = safeTarget;
 				addOp.data.addCard.cardType = cardToAdd;
 				queueEffect(addOp);
 			}
@@ -19396,24 +19436,25 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_MAGIC_BLAST: {
+		int safeTarget = interactionTargetIndex; // Cache target securely
 		resetCardState();
 		currentCardOutcome.cardType = CARD_MAGIC_BLAST;
 		currentCardOutcome.cardIndex = interactingCardIndex;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
-		if (interactionMenuChoice == "damage") {
+		if (interactionMenuChoice == "damage" && safeTarget != -1) {
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = interactionTargetIndex;
+			dmgOp.data.damage.targetIndex = safeTarget;
 			dmgOp.data.damage.damageType = DAMAGE_MAGIC;
 			dmgOp.data.damage.fixedDamage = 5;
 			dmgOp.data.damage.damageFromSlot = -1;
 			queueEffect(dmgOp);
-		} else { // "discard"
+		} else if (safeTarget != -1) { // "discard"
 			EffectOp rmDeck = {};
 			rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
-			rmDeck.data.removeTopCard.targetIndex = interactionTargetIndex;
+			rmDeck.data.removeTopCard.targetIndex = safeTarget;
 			queueEffect(rmDeck);
 		}
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -19657,10 +19698,23 @@ void ofApp::drawActiveCardInteractionUI() {
 			float w = 500, h = 250;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			ofRectangle menuRect(mx, my, w, h);
-			ofRectangle btnPush, btnPull;
+
+			Player & caster = players[currentPlayerIndex];
+			glm::ivec2 casterPos(caster.x, caster.y);
+			glm::ivec2 wallPos = magicHandTargetTile;
+			glm::ivec2 dir = wallPos - casterPos;
+			glm::ivec2 pushPos = wallPos + dir;
+			glm::ivec2 pullPos = casterPos - dir;
+
+			// Dynamically check if the tiles behind/in front of the wall are valid
+			bool canPush = (pushPos.x >= 0 && pushPos.x < BOARD_WIDTH && pushPos.y >= 0 && pushPos.y < BOARD_HEIGHT && !board[pushPos.x][pushPos.y].hasWall);
+			bool canPull = (pullPos.x >= 0 && pullPos.x < BOARD_WIDTH && pullPos.y >= 0 && pullPos.y < BOARD_HEIGHT && !board[pullPos.x][pullPos.y].hasWall && !board[pullPos.x][pullPos.y].hasPlayer);
+
+			ofRectangle btnPush;
+			ofRectangle btnPull;
 			drawCardChoicePanel(menuRect, "Giant Magic Hand", "Choose force direction:",
-				btnPush, btnPull, "PUSH", "PULL",
-				ofColor::indianRed, ofColor::royalBlue, true, true);
+				btnPush, btnPull, canPush ? "PUSH" : "Blocked", canPull ? "PULL" : "Blocked",
+				ofColor::indianRed, ofColor::royalBlue, canPush, canPull);
 			break;
 		}
 
@@ -24635,14 +24689,25 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			break;
 
 		case CARD_GIANT_MAGIC_HAND: {
+			Player & caster = players[currentPlayerIndex];
+			glm::ivec2 casterPos(caster.x, caster.y);
+			glm::ivec2 wallPos = magicHandTargetTile;
+			glm::ivec2 dir = wallPos - casterPos;
+			glm::ivec2 pushPos = wallPos + dir;
+			glm::ivec2 pullPos = casterPos - dir;
+
+			bool canPush = (pushPos.x >= 0 && pushPos.x < BOARD_WIDTH && pushPos.y >= 0 && pushPos.y < BOARD_HEIGHT && !board[pushPos.x][pushPos.y].hasWall);
+			bool canPull = (pullPos.x >= 0 && pullPos.x < BOARD_WIDTH && pullPos.y >= 0 && pullPos.y < BOARD_HEIGHT && !board[pullPos.x][pullPos.y].hasWall && !board[pullPos.x][pullPos.y].hasPlayer);
+
 			float w = 500, h = 250;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			float btnW = 200, btnH = 80, spacing = 40;
 			float startX = mx + (w - (btnW * 2 + spacing)) / 2;
 			float btnY = my + 120;
-			if (ofRectangle(startX, btnY, btnW, btnH).inside(mouseX, mouseY))
+
+			if (ofRectangle(startX, btnY, btnW, btnH).inside(mouseX, mouseY) && canPush)
 				handleCardMenuClick("push");
-			else if (ofRectangle(startX + btnW + spacing, btnY, btnW, btnH).inside(mouseX, mouseY))
+			else if (ofRectangle(startX + btnW + spacing, btnY, btnW, btnH).inside(mouseX, mouseY) && canPull)
 				handleCardMenuClick("pull");
 			break;
 		}
