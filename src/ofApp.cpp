@@ -201,7 +201,7 @@ static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 	float p1_healthLeft = screenW - staticUICardWidth - sideInset - gap - healthBarW - healthBarInwardNudge;
 
 	// Squeeze the box so it physically cannot touch the HP bars
-	float padding = 80.0f * scale;
+	float padding = 150.0f * scale; // Shrinks the box inward by an extra 70px on both sides
 	float left = p0_healthRight + padding;
 	float right = p1_healthLeft - padding;
 
@@ -3844,7 +3844,6 @@ void ofApp::setup() {
 	}
 
 	// --- GENERATE PIXEL ART FIRE TEXTURE ---
-	// Creating a 4-frame sprite sheet (128x32 pixels, 4 frames of 32x32)
 	ofPixels firePix;
 	firePix.allocate(128, 32, OF_PIXELS_RGBA);
 
@@ -3852,23 +3851,35 @@ void ofApp::setup() {
 		int xOffset = f * 32;
 		for (int y = 0; y < 32; y++) {
 			for (int x = 0; x < 32; x++) {
-				// Procedural noise fire shape
-				float n = ofNoise(x * 0.1, y * 0.1, f * 0.5, ofGetElapsedTimef());
-				float centerDist = abs(x - 16) / 16.0f;
+				// y=0 is top, y=31 is bottom
+				float ny = y / 31.0f;
+				float nx = (x - 15.5f) / 15.5f; // -1 to 1
 
-				float alpha = 0;
-				if (n > 0.4 + centerDist && y > 5) {
+				// Flame base envelope: wider at bottom, pinches to a point at top
+				float width = std::pow(ny, 0.8f);
+				float envelope = width - std::abs(nx);
+
+				// Animated noise (scrolls UP across the 4 frames)
+				float n = ofNoise(x * 0.15f, y * 0.15f - f * 0.6f);
+
+				// Combine envelope and noise
+				float flame = envelope + (n - 0.5f) * 1.2f;
+
+				unsigned char alpha = 0;
+				ofColor c(0, 0, 0, 0);
+
+				// If it's inside the flame shape (and not touching the very top edge)
+				if (flame > 0.1f && y > 2) {
 					alpha = 255;
+					// Core is hottest (yellow), edges/tips are cooler (red)
+					float heat = flame * ny;
+					if (heat > 0.5f)
+						c = ofColor(255, 255, 0); // Yellow core
+					else if (heat > 0.2f)
+						c = ofColor(255, 120, 0); // Orange mid
+					else
+						c = ofColor(255, 30, 0); // Red edges
 				}
-
-				// Pixel Art Colors (Yellow -> Orange -> Red)
-				ofColor c;
-				if (y > 20)
-					c = ofColor(255, 50, 0); // Red bottom
-				else if (y > 10)
-					c = ofColor(255, 150, 0); // Orange mid
-				else
-					c = ofColor(255, 255, 0); // Yellow top
 
 				firePix.setColor(xOffset + x, y, ofColor(c, alpha));
 			}
@@ -8335,300 +8346,6 @@ void ofApp::updateGameLogic() {
 		activeCardDisplays.erase(activeCardDisplays.begin());
 	}
 
-	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
-	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
-	std::vector<int> removeIndices;
-	for (size_t i = 0; i < players.size(); ++i) {
-		// Consider played cards as well when deciding "no cards" for main players.
-		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
-		bool shouldDie = (players[i].health <= 0);
-
-		if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
-			shouldDie = true;
-		}
-
-		if (!shouldDie) continue;
-
-		// Attempt Faerie resurrection if applicable
-		Player & dying = players[i];
-		bool resurrected = false;
-		if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-			// Check orthogonally-adjacent tiles for an alive Faerie.
-			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-					if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
-						int nx = dying.x + dx, ny = dying.y + dy;
-						if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
-							Player & p = players[pidx];
-							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-								std::vector<int> rawRes;
-								int raw = resolveDiceRollDetailed(1, 4, rawRes);
-								int luckBonus = p.luck + computePassiveLuck((int)pidx);
-								int roll = raw + luckBonus;
-								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
-								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
-								int hp = (dying.maxHealth * roll) / 4;
-								if (hp < 1) hp = 1;
-								{
-									EffectOp setHp = {};
-									setHp.type = EffectOpType::MODIFY_STAT;
-									setHp.data.modifyStat.targetIndex = (int)i;
-									setHp.data.modifyStat.statType = 0; // HP
-									setHp.data.modifyStat.delta = hp - dying.health;
-									setHp.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(setHp);
-								}
-								// Clear common status flags
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_ON_FIRE;
-									op.data.status.duration = 0;
-									processEffectOp(op);
-								}
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_POISONED;
-									op.data.status.duration = 0;
-									processEffectOp(op);
-								}
-								dying.poisonReduction = 0;
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_PARALYZED;
-									op.data.status.duration = 0;
-									processEffectOp(op);
-								}
-								dying.paralysisHeadsCount = 0;
-								dying.sleepTurnsRemaining = 0;
-
-								// Clear shields
-								if (dying.ward > 0) {
-									EffectOp op = {};
-									op.type = EffectOpType::MODIFY_STAT;
-									op.data.modifyStat.targetIndex = (int)i;
-									op.data.modifyStat.statType = 8;
-									op.data.modifyStat.delta = -dying.ward;
-									op.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(op);
-								}
-								if (dying.block > 0) {
-									EffectOp op = {};
-									op.type = EffectOpType::MODIFY_STAT;
-									op.data.modifyStat.targetIndex = (int)i;
-									op.data.modifyStat.statType = 5;
-									op.data.modifyStat.delta = -dying.block;
-									op.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(op);
-								}
-								if (dying.fortification > 0) {
-									EffectOp op = {};
-									op.type = EffectOpType::MODIFY_STAT;
-									op.data.modifyStat.targetIndex = (int)i;
-									op.data.modifyStat.statType = 13;
-									op.data.modifyStat.delta = -dying.fortification;
-									op.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(op);
-								}
-								if (dying.barrier > 0) {
-									EffectOp op = {};
-									op.type = EffectOpType::MODIFY_STAT;
-									op.data.modifyStat.targetIndex = (int)i;
-									op.data.modifyStat.statType = 6;
-									op.data.modifyStat.delta = -dying.barrier;
-									op.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(op);
-								}
-								if (dying.holyBlock > 0) {
-									EffectOp op = {};
-									op.type = EffectOpType::MODIFY_STAT;
-									op.data.modifyStat.targetIndex = (int)i;
-									op.data.modifyStat.statType = 7;
-									op.data.modifyStat.delta = -dying.holyBlock;
-									op.data.modifyStat.deltaFromSlot = -1;
-									queueEffect(op);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-
-								dying.luck = 0;
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_REPLICATE_QUEUED;
-									op.data.status.duration = 0;
-									queueEffect(op);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-								dying.nextTurnAPBonus = 0;
-
-								if (dying.shocksPlayedThisTurn != 0) {
-									EffectOp clearSh = {};
-									clearSh.type = EffectOpType::MODIFY_STAT;
-									clearSh.data.modifyStat.targetIndex = (int)i;
-									clearSh.data.modifyStat.statType = 12;
-									clearSh.data.modifyStat.delta = -dying.shocksPlayedThisTurn;
-									clearSh.data.modifyStat.deltaFromSlot = -1;
-									queueEffect(clearSh);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-								if (dying.flurryOfFistsStacks != 0) {
-									EffectOp clearFl = {};
-									clearFl.type = EffectOpType::MODIFY_STAT;
-									clearFl.data.modifyStat.targetIndex = (int)i;
-									clearFl.data.modifyStat.statType = 14;
-									clearFl.data.modifyStat.delta = -dying.flurryOfFistsStacks;
-									clearFl.data.modifyStat.deltaFromSlot = -1;
-									queueEffect(clearFl);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_ADD_POISON;
-									op.data.status.duration = 0;
-									queueEffect(op);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-								{
-									EffectOp rm = {};
-									rm.type = EffectOpType::REMOVE_STATUS;
-									rm.data.status.targetIndex = (int)i;
-									rm.data.status.statusType = STATUS_NEXT_TURN_D10AP;
-									rm.data.status.duration = 0;
-									queueEffect(rm);
-								}
-								{
-									EffectOp rm = {};
-									rm.type = EffectOpType::REMOVE_STATUS;
-									rm.data.status.targetIndex = (int)i;
-									rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
-									rm.data.status.duration = 0;
-									queueEffect(rm);
-								}
-								{
-									EffectOp rm = {};
-									rm.type = EffectOpType::REMOVE_STATUS;
-									rm.data.status.targetIndex = (int)i;
-									rm.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
-									rm.data.status.duration = 0;
-									queueEffect(rm);
-								}
-								dying.strengthenElementsTurnsRemaining = 0;
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_TORTOISE_FORM;
-									op.data.status.duration = 0;
-									queueEffect(op);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-								dying.tortoiseDamageTaken = 0;
-								dying.tortoiseAccumulatedDamage = 0;
-								{
-									EffectOp op = {};
-									op.type = EffectOpType::REMOVE_STATUS;
-									op.data.status.targetIndex = (int)i;
-									op.data.status.statusType = STATUS_GHOST_FORM;
-									op.data.status.duration = 0;
-									queueEffect(op);
-									if (!isProcessingEffect) beginEffectSequence();
-								}
-								dying.ghostDamageTaken = 0;
-								dying.cardsPlayedThisTurn.clear();
-								dying.playedCardsPile.clear();
-								dying.summonedOnTurnCycle = globalTurnCounter;
-								queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-								ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
-								resurrected = true;
-							}
-						}
-					}
-				}
-			}
-		}
-
-		if (!resurrected) {
-			removeIndices.push_back((int)i);
-
-			// --- GAME OVER CHECK ---
-			if (!players[i].isMinion && (players[i].playerID == 0 || players[i].playerID == 1)) {
-				g_isGameOver = true;
-				g_winnerID = (players[i].playerID == 0) ? 1 : 0;
-			}
-		}
-	}
-
-	if (!removeIndices.empty()) {
-		std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
-		bool activePlayerDied = false;
-		for (int idx : removeIndices) {
-			if (idx < 0 || idx >= (int)players.size()) continue;
-
-			DeathMarker death;
-			death.x = players[idx].x;
-			death.y = players[idx].y;
-			death.turnDied = globalTurnCounter;
-			death.deck = players[idx].deck;
-			graveyard.push_back(death);
-
-			if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
-				board[players[idx].x][players[idx].y].hasPlayer = false;
-			}
-
-			// Update active dice associations
-			for (auto & r : activeDiceRolls) {
-				if (r.associatedUnit == idx)
-					r.associatedUnit = -1;
-				else if (r.associatedUnit > idx)
-					r.associatedUnit -= 1;
-			}
-
-			if (currentPlayerIndex == idx) {
-				activePlayerDied = true;
-			}
-
-			// Remove or adjust earthquake unit entries
-			for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
-				if (it->playerIndex == idx) {
-					it = earthquakeUnits.erase(it);
-				} else {
-					if (it->playerIndex > idx) it->playerIndex -= 1;
-					++it;
-				}
-			}
-
-			players.erase(players.begin() + idx);
-
-			if (players.empty()) {
-				currentPlayerIndex = -1;
-			} else {
-				if (currentPlayerIndex == idx) {
-					currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
-				} else if (currentPlayerIndex > idx) {
-					currentPlayerIndex -= 1;
-				}
-			}
-		}
-
-		if (activePlayerDied && !players.empty()) {
-			// Step back so startNewTurn() increments into the correct next unit
-			currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
-			requestStartNewTurn();
-		}
-
-		invalidateTargetCache();
-	}
-
 	// Secondary timer handling: gameplay-only movement pause/resume.
 	// Draft timer logic is handled earlier in this frame and must not be duplicated,
 	// otherwise draft clicks can lock and timer state can desync/freeze.
@@ -10318,13 +10035,30 @@ void ofApp::drawGame() {
 			// 4. DRAW FIRE
 			if (player.onFire) {
 				ofPushMatrix();
-				ofTranslate(pos.x, 2.5f, pos.z);
+
+				float time = ofGetElapsedTimef();
+
+				// MOVEMENT: Add a slight wobble to the position
+				float wobbleX = sin(time * 8.0f) * 0.15f;
+				float wobbleZ = cos(time * 7.0f) * 0.15f;
+
+				// Center it on the unit's torso instead of hardcoding 2.5f
+				ofTranslate(pos.x + wobbleX, headHeight * 0.6f, pos.z + wobbleZ);
+
+				// Billboard to camera
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
-				float time = ofGetElapsedTimef();
-				int fireFrame = (int)(time * 10) % 4;
-				float spriteSize = 4.0f;
+
+				// MOVEMENT: Pulse the size rapidly
+				float pulse = 1.0f + sin(time * 16.0f) * 0.08f;
+
+				// SMALLER SPRITE: Was 4.0f, now 2.8f
+				float spriteSize = 2.8f * pulse;
+
+				// Faster animation frame swapping
+				int fireFrame = (int)(time * 12) % 4;
+
 				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
 				ofPopMatrix();
 			}
@@ -10631,7 +10365,11 @@ void ofApp::drawGame() {
 					// Magic Wall Sheen
 					if (board[x][y].isMagicWall) {
 						float sheenAlpha = 90 + 60 * sin(ofGetElapsedTimef() * 2.0f + x * 0.7f + y * 0.5f);
-						ofFloatColor sheenColor(148.0f / 255.0f, 0.0f, 211.0f / 255.0f, sheenAlpha / 255.0f);
+
+						// ADDED: Enable Additive Blending so it's transparent and glows like the unit!
+						ofEnableBlendMode(OF_BLENDMODE_ADD);
+						ofSetColor(148, 0, 211, (int)std::clamp(sheenAlpha, 0.0f, 255.0f));
+
 						float wallW = TILE_SIZE;
 						float wallH = TILE_SIZE * 0.5f;
 						float epsilon = 0.02f;
@@ -10641,7 +10379,6 @@ void ofApp::drawGame() {
 						ofPushMatrix();
 						ofTranslate(0, wallH + epsilon, 0);
 						ofRotateXDeg(90);
-						ofSetColor(sheenColor);
 						ofDrawRectangle(-(wallW + overlap) / 2, -(wallW + overlap) / 2, wallW + overlap, wallW + overlap);
 						ofPopMatrix();
 
@@ -10649,20 +10386,15 @@ void ofApp::drawGame() {
 							ofPushMatrix();
 							ofRotateYDeg(i * 90.0f);
 							ofTranslate(0, wallH / 2, wallW / 2 + epsilon);
-							ofSetColor(sheenColor);
 							ofDrawRectangle(-(wallW + overlap) / 2, -(wallH + overlap) / 2, wallW + overlap, wallH + overlap);
 							ofPopMatrix();
 						}
+
+						// Restore standard drawing state
+						ofDisableBlendMode();
+						ofSetColor(255);
 					}
 				}
-
-				// 2. Draw Movement Highlight (White Joined Outlines)
-				// We'll draw these after all tiles are processed, not per-tile
-
-				// 3. Draw Target Previews - now handled by white outline system
-				// (Red preview tiles are drawn as white outlines below)
-
-				// 4. Draw Valid Targets - now handled by green joined outline system above
 
 				// 5. Active Player Selection Square
 				if (!players.empty() && currentPlayerIndex >= 0) {
@@ -16449,8 +16181,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				card.currentScale = 1.0f;
 				card.currentPos = dragStartPos;
 				hoveredCardIndex = -1;
-				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
-				dragOffset = ofVec2f(x, y) - dragAnchor;
+				dragOffset = ofVec2f(0.0f, 0.0f); // <--- ADD THIS: Centers card perfectly on cursor
 				playHandFeedbackSfx(1.02f, 0.12f);
 				if (draggingHandLoop.isLoaded()) {
 					float tv = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.6f, 0.0f, 1.0f);
@@ -16470,8 +16201,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				card.currentScale = 1.0f;
 				card.currentPos = dragStartPos;
 				hoveredCardIndex = -1;
-				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
-				dragOffset = ofVec2f(x, y) - dragAnchor;
+				dragOffset = ofVec2f(0.0f, 0.0f); // <--- ADD THIS: Centers card perfectly on cursor
 				playHandFeedbackSfx(1.02f, 0.12f);
 				if (draggingHandLoop.isLoaded()) {
 					float tv = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.6f, 0.0f, 1.0f);
@@ -19123,42 +18853,30 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 	default: {
 		// --- THE FIX FOR SHOCK, FIREBALL, CLEAVE, ETC ---
-		// Funnel the generic targeted cards into lockstep queue in multiplayer.
+		// Funnel the generic targeted cards into lockstep queue.
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = cardIndex;
+		cmd.params[1] = gridX;
+		cmd.params[2] = gridY;
+		cmd.params[3] = 0;
+		strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+		// MUST reset interaction UI *before* executing the command, otherwise cards
+		// that open a menu (like Magic Blast) will be instantly closed!
+		resetCardInteraction();
+
 		if (isMultiplayer) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PLAY_CARD;
-			cmd.params[0] = cardIndex;
-			cmd.params[1] = gridX;
-			cmd.params[2] = gridY;
-			cmd.params[3] = 0;
-			strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
-			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "PlayCard send failed (no connection).";
-			resetCardInteraction();
 		} else {
 			// Singleplayer should also route through the deterministic input queue
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PLAY_CARD;
-			cmd.params[0] = cardIndex;
-			cmd.params[1] = gridX;
-			cmd.params[2] = gridY;
-			cmd.params[3] = 0;
-			strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
-			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-			// Route via local queue so singleplayer follows lockstep execution
-			queueInputCommand(cmd);
-			resetCardInteraction();
+			sendInputCommand(cmd, true);
 		}
 		break;
 	}
@@ -19280,9 +18998,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	switch (interactingCardType) {
 
 	case CARD_TRAIN: {
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		resetCardState();
 		currentCardOutcome.cardType = CARD_TRAIN;
-		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
@@ -19303,15 +19022,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_GIANT_MAGIC_HAND: {
+		int safeCardIdx = interactingCardIndex; // Cache it!
+		glm::ivec2 wallPos = magicHandTargetTile;
 		resetCardState();
 		currentCardOutcome.cardType = CARD_GIANT_MAGIC_HAND;
-		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
 		glm::ivec2 casterPos(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
-		glm::ivec2 wallPos = magicHandTargetTile;
-		glm::ivec2 dir = wallPos - casterPos; // direction from caster to wall
+		glm::ivec2 dir = wallPos - casterPos;
 
 		if (interactionMenuChoice == "push" || interactionMenuChoice == "PUSH") {
 			magicHandPushDir = dir;
@@ -19418,11 +19138,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_BURST_OF_LIGHT: {
-		int safeTarget = interactionTargetIndex; // Cache target securely
+		int safeTarget = interactionTargetIndex;
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		if (safeTarget != -1) {
 			resetCardState();
 			currentCardOutcome.cardType = CARD_BURST_OF_LIGHT;
-			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
@@ -19449,10 +19170,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_WISDOM_BOON: {
-		int safeTarget = interactionTargetIndex; // Cache target securely
+		int safeTarget = interactionTargetIndex;
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		resetCardState();
 		currentCardOutcome.cardType = CARD_WISDOM_BOON;
-		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
@@ -19466,10 +19188,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			dmgOp.data.damage.fixedDamage = strength;
 			dmgOp.data.damage.damageFromSlot = -1;
 			queueEffect(dmgOp);
-		} else { // "block"
+		} else {
 			EffectOp blkOp = {};
 			blkOp.type = EffectOpType::MODIFY_STAT;
-			// For block, target is self if safeTarget is -1
 			blkOp.data.modifyStat.targetIndex = (safeTarget != -1) ? safeTarget : currentPlayerIndex;
 			blkOp.data.modifyStat.statType = 5; // Block
 			blkOp.data.modifyStat.delta = strength;
@@ -19481,11 +19202,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DOUBLE_HANDED: {
-		int safeTarget = interactionTargetIndex; // Cache target securely
+		int safeTarget = interactionTargetIndex;
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		if (safeTarget != -1) {
 			resetCardState();
 			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
-			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
@@ -19721,24 +19443,32 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_DISPEL: {
-			float w = 600, h = 300;
-			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-			dispelMenuRect.set(mx, my, w, h);
+			if (interactionMenuChoice == "Barrier") {
+				int safeCardIdx = interactingCardIndex; // Cache it!
+				resetCardState();
+				currentCardOutcome.cardType = CARD_DISPEL;
+				currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+				currentCardOutcome.casterIndex = currentPlayerIndex;
+				beginEffectSequence();
 
-			bool anyStatus = false;
-			Player & caster = players[currentPlayerIndex];
-			for (size_t i = 0; i < players.size(); i++) {
-				Player & p = players[i];
-				int dist = abs(p.x - caster.x) + abs(p.y - caster.y);
-				if (dist <= 1 && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
-					anyStatus = true;
-					break;
-				}
+				std::vector<int> rawRoll;
+				int barrierAmount = resolveDiceRollDetailed(1, 20, rawRoll);
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				barrierAmount += luckBonus;
+
+				currentEffectSequence.blackboard[0] = barrierAmount;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, barrierAmount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+				EffectOp barrierOp = {};
+				barrierOp.type = EffectOpType::MODIFY_STAT;
+				barrierOp.data.modifyStat.targetIndex = currentPlayerIndex;
+				barrierOp.data.modifyStat.statType = 6; // Barrier
+				barrierOp.data.modifyStat.delta = 0;
+				barrierOp.data.modifyStat.deltaFromSlot = 0;
+				queueEffect(barrierOp);
+
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			}
-
-			drawCardChoicePanel(dispelMenuRect, "Dispel", "Choose effect type:",
-				dispelBtnBarrier, dispelBtnPurge, "Roll 1d20 Barrier", anyStatus ? "Purge" : "No Targets With Status",
-				ofColor(150, 100, 200), ofColor(200, 100, 150), true, anyStatus);
 			break;
 		}
 
@@ -19753,21 +19483,26 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_ROCK_CRUSH: {
-			float w = 600, h = 300;
-			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-			ofRectangle menuRect(mx, my, w, h);
-			ofRectangle btnDamage, btnWall;
-			drawCardChoicePanel(menuRect, "Rock Crush", "Choose effect:",
-				btnDamage, btnWall, "Deal 2d10", "Destroy Wall",
-				ofColor(210, 120, 120), ofColor(140, 120, 90), true, true);
+			if (interactionMenuChoice == "damage" || interactionMenuChoice == "wall") {
+				// Handled in targeting mode
+			} else {
+				float w = 600, h = 300;
+				float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+				float pad = 24, cardH = 160.0f, spacing = 28.0f;
+				float availableW = w - pad * 2 - spacing;
+				float cardW = std::min(520.0f, availableW / 2.0f);
+				ofRectangle btnDamage(mx + pad, my + h - pad - cardH, cardW, cardH);
+				ofRectangle btnWall(mx + pad + cardW + spacing, my + h - pad - cardH, cardW, cardH);
+
+				if (btnDamage.inside(mouseX, mouseY))
+					handleCardMenuClick("damage");
+				else if (btnWall.inside(mouseX, mouseY))
+					handleCardMenuClick("wall");
+			}
 			break;
 		}
 
 		case CARD_GIANT_MAGIC_HAND: {
-			float w = 500, h = 250;
-			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-			ofRectangle menuRect(mx, my, w, h);
-
 			Player & caster = players[currentPlayerIndex];
 			glm::ivec2 casterPos(caster.x, caster.y);
 			glm::ivec2 wallPos = magicHandTargetTile;
@@ -19775,15 +19510,21 @@ void ofApp::drawActiveCardInteractionUI() {
 			glm::ivec2 pushPos = wallPos + dir;
 			glm::ivec2 pullPos = casterPos - dir;
 
-			// Dynamically check if the tiles behind/in front of the wall are valid
 			bool canPush = (pushPos.x >= 0 && pushPos.x < BOARD_WIDTH && pushPos.y >= 0 && pushPos.y < BOARD_HEIGHT && !board[pushPos.x][pushPos.y].hasWall);
 			bool canPull = (pullPos.x >= 0 && pullPos.x < BOARD_WIDTH && pullPos.y >= 0 && pullPos.y < BOARD_HEIGHT && !board[pullPos.x][pullPos.y].hasWall && !board[pullPos.x][pullPos.y].hasPlayer);
 
-			ofRectangle btnPush;
-			ofRectangle btnPull;
-			drawCardChoicePanel(menuRect, "Giant Magic Hand", "Choose force direction:",
-				btnPush, btnPull, canPush ? "PUSH" : "Blocked", canPull ? "PULL" : "Blocked",
-				ofColor::indianRed, ofColor::royalBlue, canPush, canPull);
+			float w = 500, h = 250;
+			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+			float pad = 24, cardH = 160.0f, spacing = 28.0f;
+			float availableW = w - pad * 2 - spacing;
+			float cardW = std::min(520.0f, availableW / 2.0f);
+			ofRectangle btnPush(mx + pad, my + h - pad - cardH, cardW, cardH);
+			ofRectangle btnPull(mx + pad + cardW + spacing, my + h - pad - cardH, cardW, cardH);
+
+			if (btnPush.inside(mouseX, mouseY) && canPush)
+				handleCardMenuClick("push");
+			else if (btnPull.inside(mouseX, mouseY) && canPull)
+				handleCardMenuClick("pull");
 			break;
 		}
 
@@ -20341,27 +20082,75 @@ void ofApp::simulationTick() {
 
 		if (!resurrected) {
 			removeIndices.push_back((int)i);
+
+			// --- GAME OVER CHECK ---
+			if (!players[i].isMinion && (players[i].playerID == 0 || players[i].playerID == 1)) {
+				g_isGameOver = true;
+				g_winnerID = (players[i].playerID == 0) ? 1 : 0;
+			}
 		}
 	}
 
-	// Remove recorded units (in reverse order)
-	for (int ri = (int)removeIndices.size() - 1; ri >= 0; --ri) {
-		int idx = removeIndices[ri];
-		if (idx < 0 || idx >= (int)players.size()) continue;
-		Player dying = players[idx];
-		// Record death marker for replay/analytics
-		DeathMarker death;
-		death.x = dying.x;
-		death.y = dying.y;
-		death.turnDied = globalTurnCounter;
-		death.deck = dying.deck;
-		graveyard.push_back(death);
+	if (!removeIndices.empty()) {
+		std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
+		bool activePlayerDied = false;
 
-		board[dying.x][dying.y].hasPlayer = false;
-		players.erase(players.begin() + idx);
-		if (currentPlayerIndex >= idx) {
-			currentPlayerIndex = std::max(0, currentPlayerIndex - 1);
+		for (int idx : removeIndices) {
+			if (idx < 0 || idx >= (int)players.size()) continue;
+
+			DeathMarker death;
+			death.x = players[idx].x;
+			death.y = players[idx].y;
+			death.turnDied = globalTurnCounter;
+			death.deck = players[idx].deck;
+			graveyard.push_back(death);
+
+			if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
+				board[players[idx].x][players[idx].y].hasPlayer = false;
+			}
+
+			// Update active dice associations
+			for (auto & r : activeDiceRolls) {
+				if (r.associatedUnit == idx)
+					r.associatedUnit = -1;
+				else if (r.associatedUnit > idx)
+					r.associatedUnit -= 1;
+			}
+
+			if (currentPlayerIndex == idx) {
+				activePlayerDied = true;
+			}
+
+			// Remove or adjust earthquake unit entries
+			for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
+				if (it->playerIndex == idx) {
+					it = earthquakeUnits.erase(it);
+				} else {
+					if (it->playerIndex > idx) it->playerIndex -= 1;
+					++it;
+				}
+			}
+
+			players.erase(players.begin() + idx);
+
+			if (players.empty()) {
+				currentPlayerIndex = -1;
+			} else {
+				if (currentPlayerIndex == idx) {
+					currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
+				} else if (currentPlayerIndex > idx) {
+					currentPlayerIndex -= 1;
+				}
+			}
 		}
+
+		if (activePlayerDied && !players.empty()) {
+			// Step back so startNewTurn() increments into the correct next unit
+			currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
+			requestStartNewTurn();
+		}
+
+		invalidateTargetCache();
 	}
 
 	// Periodic checksum validation (every 10 simulation frames = ~166ms at 60Hz)
@@ -25080,6 +24869,49 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 				dmgOp.data.damage.damageFromSlot = 1;
 			}
 			queueEffect(dmgOp);
+		}
+
+		// --- ADD POISON SYNERGY FIX ---
+		// If the player has the Add Poison buff and used a Physical or Piercing card
+		if (currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING)) {
+
+			// 1. Remove the buff
+			EffectOp rmPoisonBuff = {};
+			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+			rmPoisonBuff.data.status.duration = 0;
+			queueEffect(rmPoisonBuff);
+
+			// 2. Roll 1d6 poison damage
+			std::vector<int> rawPoison;
+			int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
+
+			// Store in safe blackboard slot
+			currentEffectSequence.blackboard[15] = poisonRoll;
+			queueVisualDiceRoll(visPos + glm::vec3(0, 1.5f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+			// 3. Apply Poison Status and Damage to all targets hit
+			for (size_t i = 0; i < targets.size(); i++) {
+				int tIdx = targets[i];
+
+				EffectOp applyStatus = {};
+				applyStatus.type = EffectOpType::APPLY_STATUS;
+				applyStatus.data.status.targetIndex = tIdx;
+				applyStatus.data.status.statusType = STATUS_POISONED;
+				applyStatus.data.status.duration = 0;
+				queueEffect(applyStatus);
+
+				EffectOp applyPsnDmg = {};
+				applyPsnDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
+				applyPsnDmg.data.damage.targetIndex = tIdx;
+				applyPsnDmg.data.damage.damageType = DAMAGE_POISON;
+				applyPsnDmg.data.damage.fixedDamage = 0;
+				applyPsnDmg.data.damage.damageFromSlot = 15;
+				queueEffect(applyPsnDmg);
+
+				queueFloatingTextVisual(gridToWorld(players[tIdx].x, players[tIdx].y) + glm::vec3(0, 0.6f, 0), "Poisoned!", ofColor::green);
+			}
 		}
 	}
 
@@ -30990,24 +30822,6 @@ void ofApp::determineStatusOptions(Player * target) {
 		statusSelectButtons.clear();
 		statusSelectMenuRect.set(0, 0, 0, 0);
 		dispelMode = 0;
-		return;
-	}
-
-	// If only one, apply immediately
-	if (statusSelectLabels.size() == 1) {
-		int statusID = -1;
-		const std::string & label = statusSelectLabels.front();
-		if (label == "Fire" || label == "Burning")
-			statusID = STATUS_ON_FIRE;
-		else if (label == "Paralysis" || label == "Paralyzed")
-			statusID = STATUS_PARALYZED;
-		else if (label == "Poison" || label == "Poisoned")
-			statusID = STATUS_POISONED;
-		else if (label == "Sleeping")
-			statusID = STATUS_SLEEP;
-		if (statusID >= 0) {
-			applyDispelEffect(statusID);
-		}
 		return;
 	}
 
