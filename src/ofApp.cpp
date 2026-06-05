@@ -6125,15 +6125,15 @@ void ofApp::prepareGameVisualState() {
 
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsed = time - anim.startTime;
-		if (elapsed >= 0.0f && elapsed < 0.5f) {
-			float t = elapsed / 0.5f;
-			anim.currentScale = ofLerp(1.1f, 0.15f, t);
+		if (elapsed >= 0.0f && elapsed < 0.85f) {
+			float t = elapsed / 0.85f;
+			anim.currentScale = ofLerp(1.8f, 0.1f, t * t); // Pop big, shrink fast at the end
 			anim.currentAlpha = ofLerp(255, 0, t);
 		} else if (elapsed < 0.0f) {
 			anim.currentAlpha = 0;
 		}
 	}
-	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 0.5f; }), activeRemovedCardAnimations.end());
+	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 0.85f; }), activeRemovedCardAnimations.end());
 
 	for (auto & disp : activeCardDisplays) {
 		float elapsed = time - disp.startTime;
@@ -20438,9 +20438,22 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				// Remove selected indices from the target's deck in descending order
 				std::sort(sel.begin(), sel.end(), std::greater<int>());
 				int removed = 0;
+				float baseTime = ofGetElapsedTimef();
+
 				for (int idx : sel) {
 					if (idx >= 0 && idx < (int)target.deck.size()) {
+						Card destroyed = target.deck[idx];
 						target.deck.erase(target.deck.begin() + idx);
+
+						// Stagger the animations slightly so they don't perfectly overlap
+						RemovedCardAnimation rem;
+						rem.card = destroyed;
+						rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
+						rem.startTime = baseTime + (removed * 0.2f);
+						rem.currentScale = 1.8f;
+						rem.currentAlpha = 255.0f;
+						activeRemovedCardAnimations.push_back(rem);
+
 						removed++;
 					}
 				}
@@ -21800,8 +21813,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			queueFloatingTextVisual(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
 
 			if (!target->deck.empty()) {
-				target->deck.pop_back();
-				queueFloatingTextVisual(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
+				EffectOp rmDeck = {};
+				rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+				rmDeck.data.removeTopCard.targetIndex = findPlayerIndexByID(target->playerID);
+				queueEffect(rmDeck);
+				queueFloatingTextVisual(targetPos + glm::vec3(0, 1.2f, 0), "Destroyed top card", ofColor::purple);
 			}
 		} else {
 			if (maxDistUnits < neededDist - 0.001f) {
@@ -21831,9 +21847,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 					RemovedCardAnimation anim;
 					anim.card = c;
-					anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
-					anim.startTime = ofGetElapsedTimef();
-					anim.currentScale = 1.0f;
+					anim.startPos = glm::vec2(ofGetWidth() / 2.0f + (removedCount * 40.0f - 80.0f), ofGetHeight() / 2.0f - 50.0f);
+					anim.startTime = ofGetElapsedTimef() + (removedCount * 0.15f);
+					anim.currentScale = 1.8f;
+					anim.currentAlpha = 255.0f;
 					activeRemovedCardAnimations.push_back(anim);
 
 					removedCount++;
@@ -23173,21 +23190,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			caster.deck.pop_back();
 			currentCardOutcome.destroyedCardType = destroyed.type;
 
-			StolenCardAnimation newAnim;
-			newAnim.card = destroyed;
-			newAnim.startTime = ofGetElapsedTimef();
-			newAnim.startPos = gridToWorld(caster.x, caster.y);
-			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
-			activeStolenCardAnimations.push_back(newAnim);
-
 			RemovedCardAnimation rem;
 			rem.card = destroyed;
-			rem.startPos = newAnim.targetPos;
-			rem.startTime = ofGetElapsedTimef() + 0.5f;
-			rem.currentScale = 3.0f;
-			rem.currentAlpha = 255;
+			rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+			rem.startTime = ofGetElapsedTimef();
+			rem.currentScale = 1.8f;
+			rem.currentAlpha = 255.0f;
 			activeRemovedCardAnimations.push_back(rem);
+
+			ofLogNotice("ShootArrow") << "Destroyed top card after range roll: '" << destroyed.name << "'.";
 		}
 
 		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
@@ -23330,15 +23341,25 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::REMOVE_TOP_CARD_FROM_DECK: {
-		{
-			int tidx = op.data.removeTopCard.targetIndex;
-			if (tidx >= 0 && tidx < (int)players.size()) {
-				Player & target = players[tidx];
-				if (!target.deck.empty()) {
-					target.deck.pop_back();
-					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Card Removed", ofColor::magenta);
-					ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
+		int tidx = op.data.removeTopCard.targetIndex;
+		if (tidx >= 0 && tidx < (int)players.size()) {
+			Player & target = players[tidx];
+			if (!target.deck.empty()) {
+				Card destroyed = target.deck.back();
+				target.deck.pop_back();
+
+				// If it's not being stolen, show the destruction animation
+				if (!op.data.removeTopCard.isSteal) {
+					RemovedCardAnimation rem;
+					rem.card = destroyed;
+					rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+					rem.startTime = ofGetElapsedTimef();
+					rem.currentScale = 1.8f;
+					rem.currentAlpha = 255.0f;
+					activeRemovedCardAnimations.push_back(rem);
+					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Card Destroyed!", ofColor::magenta);
 				}
+				ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
 			}
 		}
 		opComplete = true;
@@ -26455,7 +26476,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_MIND_THEFT: {
 		if (resolvedTargetIndex == -1) return true;
-		Player * targetPlayer = getPlayer(resolvedTargetIndex);
+
+		Player * targetPlayer = getPlayer(resolvedTargetIndex); // Declared here!
+
 		if (targetPlayer && !targetPlayer->deck.empty()) {
 			Card stolenCard = targetPlayer->deck.back();
 			beginEffectSequence();
@@ -26463,6 +26486,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				EffectOp removeOp = {};
 				removeOp.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
 				removeOp.data.removeTopCard.targetIndex = resolvedTargetIndex;
+				removeOp.data.removeTopCard.isSteal = true; // Tagged as a steal
 				queueEffect(removeOp);
 			}
 			{
@@ -26489,6 +26513,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
 			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
 			activeStolenCardAnimations.push_back(newAnim);
+
 			currentCardOutcome.targetPlayerIndex = resolvedTargetIndex;
 			playedSuccessfully = true;
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);

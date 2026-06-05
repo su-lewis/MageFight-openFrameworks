@@ -483,6 +483,7 @@ struct AddCardToDeckData {
 
 struct RemoveTopCardData {
 	int targetIndex;
+	bool isSteal;
 };
 
 struct ReshuffleDiscardData {
