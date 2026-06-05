@@ -6407,35 +6407,46 @@ void ofApp::prepareGameVisualState() {
 			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
 
 			for (size_t i = 0; i < numCards; i++) {
-				// Calculate horizontal position
 				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
-
-				// Calculate vertical arc drop
 				float fanT = 0.0f;
 				if (numCards >= 4) {
 					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
 				}
-
 				float arcDrop = 0.0f;
 				if (numCards >= 4) {
 					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
 				}
 
-				// Breathing/Bouncing is disabled here for a clean, static hand!
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT);
+				// Enhanced breathing
+				float breathing = 0.0f;
+				if (draggedCardIndex == -1) {
+					breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
+				}
 
-				// Assign the destination target
+				// PURE RESTING POSITION - TargetPos never jumps up!
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
 				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 
-				// 2. Interpolate smoothly toward the target
 				if (static_cast<int>(i) != draggedCardIndex) {
-					// Scale interpolation
-					float scaleLerp = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 0.38f : 0.18f;
+					float dt = ofGetLastFrameTime();
+					if (dt > 0.1f) dt = 0.016f;
+
+					// Apply hover lift dynamically
+					float hoverLift = 0.0f;
+					if (static_cast<int>(i) == hoveredCardIndex && draggedCardIndex == -1) {
+						hoverLift = kHandHoverLiftPx * getUIScaleFromHeight(ofGetHeight());
+					}
+
+					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
+					float scaleLerp = 1.0f - std::exp(-springScale * dt);
 					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
 
-					// Position interpolation (Frame-independent smooth movement)
-					float posLerp = 1.0f - pow(0.005f, deltaTime);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, posLerp);
+					// Interpolate toward the resting position + the hover lift
+					ofVec2f actualTarget = handPlayer->hand[i].targetPos + ofVec2f(0.0f, hoverLift);
+
+					float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
+					float posLerp = 1.0f - std::exp(-springPos * dt);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(actualTarget, posLerp);
 				}
 			}
 		}
@@ -8290,70 +8301,6 @@ void ofApp::updateGameLogic() {
 			return (ofGetElapsedTimef() - s.startTime) >= s.duration;
 		}),
 			activeShuffleAnimations.end());
-	}
-
-	// Card Hand Animation
-	if (!players.empty() && currentPlayerIndex >= 0) {
-
-		// --- CHANGE START: SIMPLIFIED HAND DISPLAY LOGIC ---
-		Player * handPlayer = nullptr;
-
-		// Determine which unit's hand to show at the bottom of the screen.
-		// In multiplayer show only the local active unit; in singleplayer show
-		// whichever unit is currently active so Player 2's hand appears.
-		if (!isMultiplayer || isMyTurn()) {
-			handPlayer = &players[currentPlayerIndex];
-		}
-
-		if (handPlayer) {
-			size_t numCards = handPlayer->hand.size();
-			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
-
-			// Position the cards for the active local unit (player or minion)
-			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
-				float fanT = 0.0f;
-				if (numCards >= 4) {
-					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
-				}
-				float arcDrop = 0.0f;
-				if (numCards >= 4) {
-					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
-				}
-
-				// Enhanced breathing (slightly faster and more pronounced)
-				float breathing = 0.0f;
-				if (draggedCardIndex == -1) {
-					breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
-				}
-
-				// Apply the hover lift directly to the target position so it animates smoothly!
-				float hoverLift = 0.0f;
-				if (static_cast<int>(i) == hoveredCardIndex && draggedCardIndex == -1) {
-					hoverLift = -160.0f * getUIScaleFromHeight(ofGetHeight());
-				}
-
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing + hoverLift;
-				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
-
-				if (static_cast<int>(i) != draggedCardIndex) {
-					// Fetch frame time safely (cap at 0.1s to prevent alt-tab lag spikes)
-					float dt = ofGetLastFrameTime();
-					if (dt > 0.1f) dt = 0.016f;
-
-					// Frame-independent smooth spring physics instead of rigid linear snapping
-					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
-					float scaleLerp = 1.0f - std::exp(-springScale * dt);
-					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
-
-					// Snappy upward movement, gentle settle downward
-					float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
-					float posLerp = 1.0f - std::exp(-springPos * dt);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, posLerp);
-				}
-			}
-		}
-		// --- CHANGE END ---
 	}
 
 	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
@@ -12079,21 +12026,19 @@ void ofApp::drawGame() {
 		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
 		auto drawHandCard = [&](int index, bool isTopCard) {
 			Card & card = currentPlayer.hand[index];
-			// If this card is currently represented by a flying animation,
-			// skip drawing the in-hand instance until the animation finishes.
+			// If this card is currently represented by a flying animation, skip drawing
 			if (card.isAnimating) return;
 
-			// Hearthstone hover: scale up and move upward
+			// Use the smooth physics scale directly (NO double scaling!)
 			float drawScale = card.currentScale;
-			if (!disableHoverScaleForRenewed && isTopCard && index == hoveredCardIndex) {
-				drawScale = card.currentScale * hoverScale; // Scale up on hover
-			}
 
 			float w = handBaseCardWidth * drawScale;
 			float h = baseCardHeight * drawScale;
 
-			float drawX = card.currentPos.x - w / 2;
-			float drawY = card.currentPos.y - h / 2;
+			// Card's physical position is already updated by the spring physics (NO double offset!)
+			float drawX = card.currentPos.x - w / 2.0f;
+			float drawY = card.currentPos.y - h / 2.0f;
+
 			float fanT = 0.0f;
 			if (numCards >= 4) {
 				fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
@@ -12102,19 +12047,18 @@ void ofApp::drawGame() {
 			if (numCards >= 4) {
 				maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
 			}
-			float tiltDeg = (index == hoveredCardIndex) ? 0.0f : (fanT * std::abs(fanT) * maxTiltDeg);
-			if (index == draggedCardIndex) {
-				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
+
+			// Tilt calculation
+			float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
+
+			// Smoothly straighten the card out as it pops up during hover
+			if (index == hoveredCardIndex) {
+				float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, hoverScale - 1.0f), 0.0f, 1.0f);
+				tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
 			}
 
-			// Apply hover offsets
-			if (isTopCard) {
-				if (index == draggedCardIndex) {
-					// Dragged card stays at mouse position perfectly
-					drawX = card.currentPos.x - w / 2;
-					drawY = card.currentPos.y - h / 2;
-				}
-				// (The hover lift is now smoothly animated by the physics engine, so no instant snap is needed here!)
+			if (index == draggedCardIndex) {
+				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
 			}
 
 			ofPushMatrix();
@@ -12124,7 +12068,6 @@ void ofApp::drawGame() {
 
 			if (isTopCard) {
 				ofPushStyle();
-				// Match the card-picture shadow exactly by using the card sprite silhouette.
 				ofSetColor(0, 0, 0, 78);
 				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
 					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
@@ -13266,17 +13209,46 @@ void ofApp::mouseMoved(int x, int y) {
 		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 		int foundHandHover = -1;
+		int numCards = (int)p.hand.size();
 
-		// Check cards in REVERSE order so we find the topmost (rightmost/last drawn) card first
-		for (int i = (int)p.hand.size() - 1; i >= 0; i--) {
-			Card & c = p.hand[i];
-			ofRectangle hitRect = getHandCardRestRect(c, handBaseCardWidth, baseCardHeight);
+		// A. PRIORITY CHECK: Always check the currently popped-up/top card FIRST
+		int topCardIndex = (draggedCardIndex != -1) ? draggedCardIndex : hoveredCardIndex;
+		if (topCardIndex >= 0 && topCardIndex < numCards) {
+			Card & topCard = p.hand[topCardIndex];
+			float w = handBaseCardWidth * std::max(0.9f, topCard.currentScale);
+			float h = baseCardHeight * std::max(0.9f, topCard.currentScale);
+			ofRectangle hitRect(topCard.currentPos.x - w * 0.5f, topCard.currentPos.y - h * 0.5f, w, h);
+
+			// Stretch hitbox down to cover the gap
+			hitRect.height += std::abs(kHandHoverLiftPx) * getUIScaleFromHeight(ofGetHeight());
 
 			if (hitRect.inside((float)x, (float)y)) {
-				foundHandHover = i; // first match wins (top-most card visually)
-				break; // Stop at first hit since we're going in reverse
+				foundHandHover = topCardIndex;
 			}
 		}
+
+		// B. If we didn't hit the top card, check the rest of the hand normally
+		if (foundHandHover == -1) {
+			float bestDist = 999999.0f;
+			for (int i = numCards - 1; i >= 0; i--) {
+				if (i == topCardIndex) continue; // Already checked
+
+				Card & card = p.hand[i];
+				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
+				float h = baseCardHeight * std::max(0.9f, card.currentScale);
+				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
+
+				if (hitRect.inside((float)x, (float)y)) {
+					// Prioritize the card whose center is closest to the mouse horizontally
+					float distX = std::abs(card.currentPos.x - x);
+					if (distX < bestDist) {
+						bestDist = distX;
+						foundHandHover = i;
+					}
+				}
+			}
+		}
+
 		if (foundHandHover != -1) {
 			currentCursor = CURSOR_GRAB;
 			if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
@@ -13369,41 +13341,18 @@ cursor_check_done:;
 
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
-		int foundHoverIndex = -1;
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
 		if (draggedCardIndex == -1) {
-			int numCards = static_cast<int>(currentPlayer.hand.size());
-			int bestIndex = -1;
-			float bestDist = 999999.0f;
-
-			// Check cards in reverse draw order
-			for (int i = numCards - 1; i >= 0; --i) {
-				Card & card = currentPlayer.hand[i];
-				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
-				float h = baseCardHeight * std::max(0.9f, card.currentScale);
-				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
-
-				if (hitRect.inside((float)x, (float)y)) {
-					// Prioritize the card whose center is closest to the mouse horizontally
-					float distX = std::abs(card.currentPos.x - x);
-					if (distX < bestDist) {
-						bestDist = distX;
-						bestIndex = i;
-					}
-				}
-			}
+			int bestIndex = (newHoverType == HOVER_HAND_CARD) ? newHoverCardIndex : -1;
 
 			// Keep highlights stable while holding LMB on a card even if tiny
 			// mouse jitter temporarily leaves the hover rect.
-			if (bestIndex == -1 && ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex >= 0 && pressedCardIndex < numCards) {
+			if (bestIndex == -1 && ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex >= 0 && pressedCardIndex < (int)currentPlayer.hand.size()) {
 				bestIndex = pressedCardIndex;
 			}
 
 			// SET THE HOVER INDEX! (This was the missing part)
-			int foundHoverIndex = bestIndex;
-			hoveredCardIndex = foundHoverIndex;
+			hoveredCardIndex = bestIndex;
 
 			// Update target highlights on hover change (when not dragging)
 			if (hoveredCardIndex != lastHoveredCardIndex) {
@@ -14311,31 +14260,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 			return;
 		}
+
 		Player & currentPlayer = players[currentPlayerIndex];
 		int numCards = static_cast<int>(currentPlayer.hand.size());
+
 		if (numCards > 0) {
-			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+			// We already rigorously calculate the perfect Z-ordered hoveredCardIndex in mouseMoved!
+			// Just grab whatever card is currently hovered.
+			pressedCardIndex = hoveredCardIndex;
 
-			int bestIndex = -1;
-			float bestDist = 999999.0f;
-
-			for (int i = numCards - 1; i >= 0; i--) {
-				Card & card = currentPlayer.hand[i];
-				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
-				float h = baseCardHeight * std::max(0.9f, card.currentScale);
-				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
-
-				if (hitRect.inside((float)x, (float)y)) {
-					float distX = std::abs(card.currentPos.x - x);
-					if (distX < bestDist) {
-						bestDist = distX;
-						bestIndex = i;
-					}
-				}
-			}
-
-			pressedCardIndex = bestIndex;
 			if (pressedCardIndex != -1) {
 				ofLogNotice("CardDrag") << "Card pressed: index=" << pressedCardIndex << " name=" << currentPlayer.hand[pressedCardIndex].name;
 			}
