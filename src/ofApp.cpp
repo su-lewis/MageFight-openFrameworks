@@ -373,6 +373,18 @@ static std::string normalizeCardKey(const std::string & s) {
 	return toLowerCopy(trimCopy(s));
 }
 
+static std::string stripBoldTags(const std::string & in) {
+	std::string out;
+	for (size_t i = 0; i < in.size(); ++i) {
+		if (i + 1 < in.size() && in[i] == '*' && in[i + 1] == '*') {
+			i++; // skip both asterisks
+		} else {
+			out += in[i];
+		}
+	}
+	return out;
+}
+
 static std::vector<std::string> extractAlphaTokens(const std::string & s) {
 	std::vector<std::string> toks;
 	std::string cur;
@@ -1065,7 +1077,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		allCardNames.push_back(card.name);
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
-			allEffectTexts.push_back(it->second.effectText);
+			allEffectTexts.push_back(stripBoldTags(it->second.effectText)); // <--- UPDATED
 			allAPCosts.push_back(it->second.apCost);
 			if (it->second.targeting.size() > longestTargetingText.size()) {
 				longestTargetingText = it->second.targeting;
@@ -1417,6 +1429,110 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofScale(drawScale, drawScale);
 			font.drawString(line, 0, 0);
 			ofPopMatrix();
+		}
+	};
+
+	// --- ADD THE RICH TEXT RENDERER LAMBDA HERE ---
+	auto drawRichEffectText = [&](const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
+		if (text.empty()) return;
+		float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+		float fitW = std::max(1.0f, rect.width - 2.0f);
+
+		// Calculate a tight, proportional space width based on the letter 'A'
+		float customSpaceW = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f) * drawScale;
+
+		struct Token {
+			std::string text;
+			bool bold;
+			float w;
+		};
+		std::vector<Token> tokens;
+		bool currentBold = false;
+		std::string currentWord = "";
+
+		auto flushWord = [&]() {
+			if (!currentWord.empty()) {
+				float fw = font.getStringBoundingBox(currentWord, 0, 0).width * drawScale;
+				if (currentBold) fw += 1.0f * drawScale; // Fake bold adds a pixel of width
+				tokens.push_back({ currentWord, currentBold, fw });
+				currentWord.clear();
+			}
+		};
+
+		for (size_t i = 0; i < text.size(); ++i) {
+			if (i + 1 < text.size() && text[i] == '*' && text[i + 1] == '*') {
+				flushWord();
+				currentBold = !currentBold;
+				i++;
+			} else if (text[i] == ' ') {
+				flushWord();
+				tokens.push_back({ " ", currentBold, customSpaceW }); // Use the tight space!
+			} else if (text[i] == '\n') {
+				flushWord();
+				tokens.push_back({ "\n", currentBold, 0.0f });
+			} else {
+				currentWord += text[i];
+			}
+		}
+		flushWord();
+
+		struct Line {
+			std::vector<Token> toks;
+			float width = 0;
+		};
+		std::vector<Line> lines;
+		Line currentLine;
+		for (auto & t : tokens) {
+			if (t.text == "\n") {
+				lines.push_back(currentLine);
+				currentLine = Line();
+				continue;
+			}
+			if (currentLine.width + t.w > fitW && !currentLine.toks.empty()) {
+				if (t.text == " ") continue; // drop leading spaces on new line
+				lines.push_back(currentLine);
+				currentLine = Line();
+			}
+			currentLine.toks.push_back(t);
+			currentLine.width += t.w;
+		}
+		if (!currentLine.toks.empty()) lines.push_back(currentLine);
+
+		float lineH = std::max(1.0f, font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing));
+		float totalH = lineH * lines.size();
+		float startY = rect.y + 1.0f + std::max(0.0f, (rect.height - totalH) * 0.5f);
+
+		for (size_t li = 0; li < lines.size(); ++li) {
+			auto & l = lines[li];
+			float lineWidth = l.width;
+			while (!l.toks.empty() && l.toks.back().text == " ") {
+				lineWidth -= l.toks.back().w;
+				l.toks.pop_back();
+			}
+
+			float cursorX = rect.x + 1.0f + (fitW - lineWidth) * 0.5f;
+			float ty = startY + li * lineH + lineH * 0.8f;
+
+			for (auto & t : l.toks) {
+				float txSnap = std::round(cursorX);
+				float tySnap = std::round(ty);
+
+				ofSetColor(fillColor);
+				ofPushMatrix();
+				ofTranslate(txSnap, tySnap);
+				ofScale(drawScale, drawScale);
+
+				// Only draw if it's an actual word (don't draw empty space strings to save performance)
+				if (t.text != " " && t.text != "\n") {
+					font.drawString(t.text, 0, 0);
+					// Fake bold: overdraw slightly to the right
+					if (t.bold) font.drawString(t.text, 1.0f / drawScale, 0);
+				}
+
+				ofPopMatrix();
+
+				cursorX += t.w;
+			}
 		}
 	};
 
@@ -1807,14 +1923,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (!summonHPLayout.first.empty()) {
 			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
 		}
-		drawWrappedCenteredTextScaledOutlined(renderEffectFont,
-			rec.effectText,
-			effectTextRect,
-			uniformEffectScale,
-			layout.effectLineSpacing,
-			ofColor(12, 12, 12, 255),
-			ofColor::black,
-			0);
+
+		// --- CALL THE NEW RENDERER HERE ---
+		drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
+
 		ofPopStyle();
 		ofPopMatrix();
 	}
@@ -12353,9 +12465,6 @@ void ofApp::drawGame() {
 
 	// (elideStringToWidth removed — unused helper)
 	// --- DRAW OVERLAY UIs ---
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) {
-		drawMagicBlastChoiceUI();
-	}
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
 		drawGhostRelocateUI();
 	}
@@ -13923,43 +14032,26 @@ cursor_check_done:;
 	}
 	updateAndSendHover(effectiveHoverType, newHoverGridX, newHoverGridY, newHoverCardIndex);
 
-	// --- NEW CODE GOES HERE ---
 	// Sync menu hover state to opponent
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && isMultiplayer && isCurrentPlayerLocal()) {
 		static int lastMenuHoverChoice = 0;
 		int currentHoverChoice = 0;
 
-		updateMenuButtonRectangles(); // ensure rects are fresh for hit testing
+		// STANDARD MENU MATH FOR HITBOXES
+		float w = 720.0f, h = 360.0f;
+		float mx = ofGetWidth() / 2.0f - w / 2.0f;
+		float my = ofGetHeight() / 2.0f - h / 2.0f;
+		float pad = 24.0f, cardH = 160.0f, spacing = 28.0f;
+		float availableW = w - pad * 2.0f - spacing;
+		float cardW = std::min(520.0f, availableW / 2.0f);
 
-		switch (interactingCardType) {
-		case CARD_BURST_OF_LIGHT:
-			if (burstBtnDamage.inside(x, y))
-				currentHoverChoice = 1;
-			else if (burstBtnHeal.inside(x, y))
-				currentHoverChoice = 2;
-			break;
-		case CARD_WISDOM_BOON:
-			if (wisdomBtnDamage.inside(x, y))
-				currentHoverChoice = 1;
-			else if (wisdomBtnBlock.inside(x, y))
-				currentHoverChoice = 2;
-			break;
-		case CARD_DOUBLE_HANDED:
-			if (btnAddPunches.inside(x, y))
-				currentHoverChoice = 1;
-			else if (btnAddBlocks.inside(x, y))
-				currentHoverChoice = 2;
-			break;
-		case CARD_MAGIC_BLAST:
-			// Ensure magic blast buttons exist in this scope
-			if (magicBlastDamageButton.inside(x, y))
-				currentHoverChoice = 1;
-			else if (magicBlastDiscardButton.inside(x, y))
-				currentHoverChoice = 2;
-			break;
-		default:
-			break;
-		}
+		ofRectangle btn1(mx + pad, my + h - pad - cardH, cardW, cardH);
+		ofRectangle btn2(mx + pad + cardW + spacing, my + h - pad - cardH, cardW, cardH);
+
+		if (btn1.inside(x, y))
+			currentHoverChoice = 1;
+		else if (btn2.inside(x, y))
+			currentHoverChoice = 2;
 
 		if (currentHoverChoice != lastMenuHoverChoice) {
 			lastMenuHoverChoice = currentHoverChoice;

@@ -1087,7 +1087,6 @@ private:
 	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
 
 	// === CARD STATE MACHINE HANDLERS ===
-	void updateMenuButtonRectangles(); // Update button rectangles for current menu
 	void processCardStateInput(int mouseX, int mouseY, int button); // Handle clicks during card states
 	void applyAmnesiaSelectionLocal(int targetPlayerIndex, const std::vector<int> & selections);
 	void updateCardStateMachine(); // Called in update() to process state transitions
@@ -1514,7 +1513,6 @@ private:
 	void allocateWorldFbo(int w, int h);
 
 	// Specific UI Drawers
-	void drawMagicBlastChoiceUI();
 	void drawGhostRelocateUI();
 	void drawOpponentMenu(); // Draw opponent's active menu with red outlines
 
