@@ -6268,7 +6268,6 @@ void ofApp::prepareGameVisualState() {
 			float t = ofClamp(elapsed / s.duration, 0.0f, 1.0f);
 			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
 			s.rotation = t * 720.0f;
-			advanceCardState(CARD_PLAY_STATE_DICE);
 			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
 		}
 		activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) { return (ofGetElapsedTimef() - s.startTime) >= s.duration; }), activeShuffleAnimations.end());
@@ -8159,7 +8158,6 @@ void ofApp::updateGameLogic() {
 			// simple pulsing and rotation
 			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
 			s.rotation = t * 720.0f; // degrees
-			advanceCardState(CARD_PLAY_STATE_DICE);
 			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
 		}
 
@@ -18887,7 +18885,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	if (cardInteractionState != CARD_INTERACTION_STATE_MENU) return;
-	if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
+
+	// Exempt Magic Blast from the hand-check because it is already discarded by the time the victim chooses
+	if (interactingCardType != CARD_MAGIC_BLAST && interactingCardType != PSEUDO_CARD_GHOST_RELOCATE) {
+		if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
+	}
 
 	Player & caster = players[currentPlayerIndex];
 	Card & card = caster.hand[interactingCardIndex];
@@ -19057,7 +19059,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			pushOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
 			queueEffect(pushOp);
 
-			advanceCardState(CARD_PLAY_STATE_DICE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		} else { // Pull
 			glm::ivec2 newWallPos = casterPos;
 			glm::ivec2 newCasterPos = casterPos - dir;
@@ -20476,8 +20478,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
 		// Allow menu types that are not tied to a specific card index
-		// (e.g., ghost relocate, teleport destination commit).
-		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT) {
+		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
 
@@ -22468,21 +22469,31 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			if (targetIdx != -1) {
-				magicBlastTargetPlayerIndex = targetIdx;
-				magicBlastChoicesRemaining = 3;
-				magicBlastSplashTargetIndices.clear();
+			magicBlastTargetPlayerIndex = targetIdx;
+			magicBlastChoicesRemaining = (targetIdx != -1) ? 3 : 0; // 3 choices for direct hit
+			magicBlastSplashTargetIndices.clear();
 
-				for (size_t i = 0; i < players.size(); ++i) {
-					if ((int)i == targetIdx) continue;
-					if (players[i].health <= 0) continue;
-					int dx = std::abs(players[i].x - impactTile.x);
-					int dy = std::abs(players[i].y - impactTile.y);
-					if (std::max(dx, dy) == 1) {
-						magicBlastSplashTargetIndices.push_back((int)i);
-					}
+			// Gather all splash targets
+			for (size_t i = 0; i < players.size(); ++i) {
+				if ((int)i == targetIdx) continue;
+				if (players[i].health <= 0) continue;
+				int dx = std::abs(players[i].x - impactTile.x);
+				int dy = std::abs(players[i].y - impactTile.y);
+				if (std::max(dx, dy) == 1) {
+					magicBlastSplashTargetIndices.push_back((int)i);
 				}
+			}
 
+			// If empty tile hit, immediately roll over to the first splash target
+			if (magicBlastChoicesRemaining <= 0) {
+				if (!magicBlastSplashTargetIndices.empty()) {
+					magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+					magicBlastChoicesRemaining = 1;
+				}
+			}
+
+			if (magicBlastTargetPlayerIndex != -1 && magicBlastChoicesRemaining > 0) {
 				Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
 				bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
 
@@ -24301,7 +24312,7 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 
 	auto impactTile = currentCardOutcome.primaryTarget;
 	if (needsDice) {
-		advanceCardState(CARD_PLAY_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	} else {
 		// Visual-only: mark surrounding 8 tiles for yellow outline preview
 		VisualEvent ev = {};
@@ -25101,8 +25112,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	// === DATA DRIVEN FALLBACK ===
 	if (executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult)) return true;
 
-	// Menu cards
-	if (playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_DISPEL || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_TRAIN || playedCard.type == CARD_RENEWED_INSPIRATION) {
+	// Menu cards (Magic Blast removed so it hits the switch statement below)
+	if (playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_DISPEL || playedCard.type == CARD_TRAIN || playedCard.type == CARD_RENEWED_INSPIRATION) {
 		return true;
 	}
 
@@ -25245,7 +25256,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			dmgOp.data.damage.damageFromSlot = 0;
 			queueEffect(dmgOp);
 
-			advanceCardState(CARD_PLAY_STATE_DICE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		} else {
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
@@ -25256,6 +25267,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_MAGIC_BLAST: {
 		beginEffectSequence();
 		interactionTargetTile = glm::vec2(targetX, targetY);
+		interactingCardIndex = cardIndex; // <--- Restored!
 
 		std::vector<int> rawRange;
 		int rangeRoll = resolveDiceRollDetailed(1, 20, rawRange);
@@ -25270,7 +25282,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		queueEffect(applyMb);
 
 		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -25822,7 +25834,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		interactionTargetTile = targetTile;
 		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -26591,7 +26603,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		apply.type = EffectOpType::APPLY_FIREBALL;
 		queueEffect(apply);
 		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -26689,7 +26701,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		queueEffect(dmgOp);
 
 		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -26799,7 +26811,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueEffect(apply);
 		}
 		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -31996,13 +32008,18 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			result.isTargetable = true;
 		} else {
 			bool hasNeighbor = false;
-			for (auto n : neighbors) {
-				int nx = (int)targetTile.x + (int)n.x;
-				int ny = (int)targetTile.y + (int)n.y;
-				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && hasNonSelfUnitOnTile(nx, ny)) {
-					hasNeighbor = true;
-					break;
+			// Check all 8 surrounding tiles
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
+					if (dx == 0 && dy == 0) continue;
+					int nx = (int)targetTile.x + dx;
+					int ny = (int)targetTile.y + dy;
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && hasNonSelfUnitOnTile(nx, ny)) {
+						hasNeighbor = true;
+						break;
+					}
 				}
+				if (hasNeighbor) break;
 			}
 			result.isTargetable = hasNeighbor;
 		}
