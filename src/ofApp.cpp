@@ -3663,12 +3663,12 @@ void ofApp::setup() {
 	}
 
 	// --- Dragging loop sound (Hand) ---
-	if (draggingHandLoop.load("Sounds/Hand/dragging.wav")) {
+	if (draggingHandLoop.load("Sounds/Hand/CardDragging.ogg")) {
 		draggingHandLoop.setMultiPlay(false);
 		draggingHandLoop.setLoop(true);
 		draggingHandLoop.setVolume(0.0f);
 	} else {
-		ofLogError("Sound") << "Could not load Sounds/Hand/dragging.wav";
+		ofLogError("Sound") << "Could not load Sounds/Hand/CardDragging.ogg";
 	}
 
 	// --- 6. MESH GENERATION (Walls & Floor) ---
@@ -5795,6 +5795,12 @@ void ofApp::setupGame() {
 	interactingCardIndex = -1;
 	interactionTargetIndex = -1;
 	interactionTargetTile = glm::vec2(-1, -1);
+
+	opponentInteraction.open = false;
+	opponentInteraction.type = 0;
+	opponentInteraction.targetIndex = -1;
+	opponentInteraction.hoveredChoice = -1;
+	opponentInteraction.cardIndex = -1;
 
 	// --- MULTIPLAYER SYNC ---
 	if (isHost()) {
@@ -14100,7 +14106,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// isn't interacted with. Menu clicks are handled on mouseReleased.
 	// NOTE: Do NOT block `CARD_INTERACTION_STATE_TARGETING` here — targeting
 	// should still allow starting drags and hover interactions.
-	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS)) {
+	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || opponentInteraction.open)) {
 		return;
 	}
 
@@ -16138,13 +16144,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
 	// Keep hover/cursor state up-to-date while a mouse button is held.
-	// Without this, drag events can leave stale hover state from the last mouseMoved event.
 	mouseMoved(x, y);
 
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 		return;
 	}
 
+	if (opponentInteraction.open) {
+		return; // Lock dragging while opponent is deciding
+	}
 	// If we are actively dragging a card, change to the closed fist
 	if (draggedCardIndex != -1) {
 		currentCursor = CURSOR_HOLD;
@@ -16339,16 +16347,29 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			bool canDragOutOfHand = hasEnoughAP && hasPossibleTargets;
 			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
 
+			// If you can't play it, and you drag it out of the hand zone, force drop it!
+			if (!canDragOutOfHand && !handAreaRect.inside(x, y)) {
+				draggedCardIndex = -1;
+				pressedCardIndex = -1;
+				handDragInValidPlayZone = false;
+				playHandFeedbackSfx(0.78f, 0.10f); // Play cancel/error sound
+				if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
+					draggingHandTargetVolume = 0.0f;
+					draggingHandFadeSpeed = 48.0f;
+				}
+				return; // Abort drag
+			}
+			// ----------------------------------------
+
 			if (selectedCardIndex != -1) {
 				selectedCardIndex = -1;
 				// Don't clear highlights here - will update with draggedCardIndex below
 			}
+
 			ofVec2f prevPos = draggedCard.currentPos;
+
+			// No clamping! Let them drag it anywhere so the cursor perfectly tracks.
 			ofVec2f desiredPos = ofVec2f(x, y) - dragOffset;
-			if (!canDragOutOfHand) {
-				desiredPos.x = ofClamp(desiredPos.x, handAreaRect.getLeft(), handAreaRect.getRight());
-				desiredPos.y = ofClamp(desiredPos.y, handAreaRect.getTop(), handAreaRect.getBottom());
-			}
 
 			float playZoneY = ofGetHeight() * kHandPlayZoneYRatio;
 			float upwardDrag = mouseDownPos.y - y;
@@ -16356,13 +16377,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			bool wasInValidPlayZone = handDragInValidPlayZone;
 			handDragInValidPlayZone = isInValidPlayZone;
 
-			if (isInValidPlayZone) {
-				ofVec2f snapTarget(desiredPos.x, std::min(desiredPos.y, playZoneY - 80.0f));
-				desiredPos = desiredPos.getInterpolated(snapTarget, kHandPlayZoneSnapBlend);
-				draggedCard.targetScale = kHandPlayZoneSnapScale;
-			} else {
-				draggedCard.targetScale = 1.0f;
-			}
+			// Keep the scale at 1.0 so the center doesn't shift, no snapping magnetism
+			draggedCard.targetScale = 1.0f;
 
 			if (isInValidPlayZone && !wasInValidPlayZone) {
 				playHandFeedbackSfx(1.18f, 0.12f);
@@ -16370,10 +16386,12 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				playHandFeedbackSfx(0.86f, 0.10f);
 			}
 
-			float follow = handAreaRect.inside(x, y) ? kHandDragFollowInside : kHandDragFollowOutside;
-			draggedCard.currentPos = draggedCard.currentPos.getInterpolated(desiredPos, follow);
-			draggedCard.currentScale = ofLerp(draggedCard.currentScale, draggedCard.targetScale, 0.32f);
+			// PERFECT 1:1 TRACKING: Instant position update, no rubber-banding follow lag
+			draggedCard.currentPos = desiredPos;
+			// Instantly snap scale to 1.0f while dragging so it doesn't pulse/shrink
+			draggedCard.currentScale = 1.0f;
 			handDragVelocity = draggedCard.currentPos - prevPos;
+
 			// While dragging, keep target highlights up-to-date so swipe shows previews without hovering
 			calculateTargetHighlights(draggedCardIndex);
 		} else if (playerAction == PIECE_SELECTED) {
@@ -19498,7 +19516,7 @@ void ofApp::drawActiveCardInteractionUI() {
 				string prompt = "Player " + ofToString(targetPlayer->playerID + 1) + ", choose an effect:";
 				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
 				drawCardChoicePanel(menuRect, prompt, choicesLeft,
-					btn1, btn2, "Take 5 Damage", "Remove Top Card of Deck",
+					btn1, btn2, "Take 5 Magic Damage", "Destroy your top card of unit's deck",
 					ofColor::indianRed, ofColor::darkSlateBlue, true, true);
 			}
 			break;
@@ -20382,6 +20400,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 		break;
 	}
+
 	case CMD_MENU_CHOICE: {
 		int menuType = cmd.params[0];
 		int targetIndex = cmd.params[1];
@@ -20492,6 +20511,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (menuType == CARD_MAGIC_BLAST) {
 			beginEffectSequence();
+
 			if (choice == 1) { // damage
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
@@ -20509,69 +20529,17 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			magicBlastChoicesRemaining--;
 
-			// Advance target if current target is done
-			if (magicBlastChoicesRemaining <= 0) {
-				magicBlastTargetPlayerIndex = -1;
-				while (!magicBlastSplashTargetIndices.empty()) {
-					int nextIdx = magicBlastSplashTargetIndices.front();
-					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-					if (nextIdx >= 0 && nextIdx < (int)players.size() && players[nextIdx].health > 0) {
-						magicBlastTargetPlayerIndex = nextIdx;
-						magicBlastChoicesRemaining = 1;
-						break;
-					}
-				}
-			}
+			// Queue a Wait so damage numbers / animations play out before the menu returns
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			queueEffect(wait);
 
-			// Setup UI for the next choice/target
-			if (magicBlastChoicesRemaining > 0 && magicBlastTargetPlayerIndex != -1) {
-				Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
-				bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
+			// Queue the Menu op to check if we have choices left
+			EffectOp menu = {};
+			menu.type = EffectOpType::APPLY_MAGIC_BLAST_MENU;
+			queueEffect(menu);
 
-				if (turnTimerEnabled) {
-					int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-					int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
-
-					if (deciderOwner != activeOwner) {
-						if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
-						opponentDecisionTimerActive = true;
-						opponentDecisionStartFrame = simulationFrame;
-						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
-						opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
-					} else {
-						if (turnTimerPaused && opponentDecisionTimerActive) {
-							turnTimerPaused = false;
-							turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-							turnTimerPausedRemainingFrames = 0;
-						}
-						opponentDecisionTimerActive = false;
-						opponentDecisionStartFrame = 0;
-						opponentDecisionPlayerIndex = -1;
-					}
-				}
-
-				if (isLocal) {
-					interactionTargetIndex = magicBlastTargetPlayerIndex;
-					opponentInteraction.open = false;
-					cardInteractionState = CARD_INTERACTION_STATE_MENU;
-					interactingCardType = CARD_MAGIC_BLAST;
-					cardPlayState = CARD_PLAY_STATE_MENU;
-					menuOpenStartTime = ofGetElapsedTimef();
-					menuOpenScale = 0.6f;
-				} else {
-					cardInteractionState = CARD_INTERACTION_STATE_IDLE;
-					interactingCardType = CARD_NONE;
-					cardPlayState = CARD_PLAY_STATE_IDLE;
-					opponentInteraction.open = true;
-					opponentInteraction.type = 4;
-					opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
-				}
-			} else {
-				// All choices for all targets completed
-				opponentInteraction.open = false;
-				resetCardInteraction();
-				if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
-			}
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 			break;
 		}
 
@@ -22389,6 +22357,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::WAIT_VISUAL: {
+		// Pauses the effect sequence until all dice and tracers are gone from the screen!
+		bool busy = false;
+		for (const auto & r : activeDiceRolls) {
+			if (!r.isFinishedVisual) busy = true;
+		}
+		if (!activeTracers.empty()) busy = true;
+
+		opComplete = !busy;
+		break;
+	}
+
 	case EffectOpType::APPLY_MAGIC_BLAST: {
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
@@ -22424,7 +22404,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 		glm::vec3 worldStart, worldEnd;
 		computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-		queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 5.0f);
+		queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 1.0f); // Fast 1.0s tracer
 
 		if (isTileWall(impactTile.x, impactTile.y)) {
 			queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -22447,7 +22427,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			magicBlastChoicesRemaining = (targetIdx != -1) ? 3 : 0; // 3 choices for direct hit
 			magicBlastSplashTargetIndices.clear();
 
-			// Gather all splash targets
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
 				if (players[i].health <= 0) continue;
@@ -22458,67 +22437,87 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			// If empty tile hit, immediately roll over to the first splash target
-			if (magicBlastChoicesRemaining <= 0) {
-				if (!magicBlastSplashTargetIndices.empty()) {
-					magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
-					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-					magicBlastChoicesRemaining = 1;
-				}
-			}
+			// Wait for the tracer and dice to finish before showing the menu!
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			queueEffect(wait);
 
-			if (magicBlastTargetPlayerIndex != -1 && magicBlastChoicesRemaining > 0) {
-				Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
-				bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
-
-				if (turnTimerEnabled) {
-					int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-					int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
-
-					if (deciderOwner != activeOwner) {
-						if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
-						opponentDecisionTimerActive = true;
-						opponentDecisionStartFrame = simulationFrame;
-						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
-						opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
-					} else {
-						if (turnTimerPaused && opponentDecisionTimerActive) {
-							turnTimerPaused = false;
-							turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-							turnTimerPausedRemainingFrames = 0;
-						}
-						opponentDecisionTimerActive = false;
-						opponentDecisionStartFrame = 0;
-						opponentDecisionPlayerIndex = -1;
-					}
-				}
-
-				if (isLocal) {
-					interactionTargetIndex = magicBlastTargetPlayerIndex;
-					opponentInteraction.open = false;
-					cardInteractionState = CARD_INTERACTION_STATE_MENU;
-					interactingCardType = CARD_MAGIC_BLAST;
-					cardPlayState = CARD_PLAY_STATE_MENU;
-					menuOpenStartTime = ofGetElapsedTimef();
-					menuOpenScale = 0.6f;
-				} else {
-					cardInteractionState = CARD_INTERACTION_STATE_IDLE;
-					interactingCardType = CARD_NONE;
-					cardPlayState = CARD_PLAY_STATE_IDLE;
-					opponentInteraction.open = true;
-					opponentInteraction.type = 4;
-					opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
-				}
-
-				// Complete the operation so it doesn't loop; the UI will now wait for input
-				opComplete = true;
-				break;
-			} else {
-				resetCardInteraction();
-				if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_FINISHED);
-			}
+			EffectOp menu = {};
+			menu.type = EffectOpType::APPLY_MAGIC_BLAST_MENU;
+			queueEffect(menu);
 		}
 		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_MAGIC_BLAST_MENU: {
+		if (magicBlastChoicesRemaining <= 0) {
+			if (!magicBlastSplashTargetIndices.empty()) {
+				magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+				magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+				magicBlastChoicesRemaining = 1;
+			}
+		}
+
+		if (magicBlastTargetPlayerIndex != -1 && magicBlastChoicesRemaining > 0) {
+			Player * tgt = getPlayer(magicBlastTargetPlayerIndex);
+			bool isLocal = (tgt && (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID)));
+
+			if (turnTimerEnabled) {
+				int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+				int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
+
+				if (deciderOwner != activeOwner) {
+					if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(magicBlastTargetPlayerIndex);
+					opponentDecisionTimerActive = true;
+					opponentDecisionStartFrame = simulationFrame;
+					opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+					opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
+				} else {
+					if (turnTimerPaused && opponentDecisionTimerActive) {
+						turnTimerPaused = false;
+						turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+						turnTimerPausedRemainingFrames = 0;
+					}
+					opponentDecisionTimerActive = false;
+					opponentDecisionStartFrame = 0;
+					opponentDecisionPlayerIndex = -1;
+				}
+			}
+
+			if (isLocal) {
+				interactionTargetIndex = magicBlastTargetPlayerIndex;
+				opponentInteraction.open = false;
+				cardInteractionState = CARD_INTERACTION_STATE_MENU;
+				interactingCardType = CARD_MAGIC_BLAST;
+				cardPlayState = CARD_PLAY_STATE_MENU;
+				menuOpenStartTime = ofGetElapsedTimef();
+				menuOpenScale = 0.6f;
+			} else {
+				cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+				interactingCardType = CARD_NONE;
+				cardPlayState = CARD_PLAY_STATE_IDLE;
+				opponentInteraction.open = true;
+				opponentInteraction.type = 4;
+				opponentInteraction.targetIndex = magicBlastTargetPlayerIndex;
+			}
+		} else {
+			// All choices complete!
+			opponentInteraction.open = false;
+			resetCardInteraction();
+
+			if (turnTimerPaused && opponentDecisionTimerActive) {
+				turnTimerPaused = false;
+				turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+				turnTimerPausedRemainingFrames = 0;
+			}
+			opponentDecisionTimerActive = false;
+			opponentDecisionStartFrame = 0;
+			opponentDecisionPlayerIndex = -1;
+
+			if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_FINISHED);
+		}
+		opComplete = true; // Complete so it doesn't loop; user input takes over
 		break;
 	}
 
@@ -31847,9 +31846,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	};
 
 	if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST) {
-		// Magic Bolt: Can hit unit OR ground if it can splash a nearby unit
-		if (isOccupied && hasNonSelfUnitOnTile((int)targetTile.x, (int)targetTile.y)) {
-			result.isTargetable = true;
+		if (isOccupied) {
+			result.isTargetable = true; // Can hit ANY unit directly
 		} else {
 			bool hasNeighbor = false;
 			// Check all 8 surrounding tiles
@@ -31858,14 +31856,14 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 					if (dx == 0 && dy == 0) continue;
 					int nx = (int)targetTile.x + dx;
 					int ny = (int)targetTile.y + dy;
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && hasNonSelfUnitOnTile(nx, ny)) {
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
 						hasNeighbor = true;
 						break;
 					}
 				}
 				if (hasNeighbor) break;
 			}
-			result.isTargetable = hasNeighbor;
+			result.isTargetable = hasNeighbor; // Can hit empty tile if adjacent to ANY unit
 		}
 	} else {
 		// Fireball / Attacks: Must target unit
