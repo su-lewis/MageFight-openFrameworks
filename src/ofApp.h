@@ -2448,7 +2448,7 @@ private:
 	ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;
 	ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;
 	std::vector<ofSoundPlayer> footstepSounds;
-
+	ofSoundPlayer cardHoverSound;
 	// Dice roll result display
 	// Looping sound while dragging a card in hand
 	ofSoundPlayer draggingHandLoop;

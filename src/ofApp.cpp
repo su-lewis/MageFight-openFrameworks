@@ -3671,6 +3671,12 @@ void ofApp::setup() {
 		ofLogError("Sound") << "Could not load Sounds/Hand/CardDragging.ogg";
 	}
 
+	if (cardHoverSound.load("Sounds/Hand/CardHover.ogg")) {
+		cardHoverSound.setMultiPlay(true);
+	} else {
+		ofLogWarning("Sound") << "Could not load Sounds/Hand/CardHover.ogg";
+	}
+
 	// --- 6. MESH GENERATION (Walls & Floor) ---
 	// (This code remains unchanged as it generates geometry programmatically)
 	float wallSize = TILE_SIZE * 0.8f;
@@ -8314,17 +8320,36 @@ void ofApp::updateGameLogic() {
 				if (numCards >= 4) {
 					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
 				}
+
+				// Enhanced breathing (slightly faster and more pronounced)
 				float breathing = 0.0f;
 				if (draggedCardIndex == -1) {
-					breathing = sinf(ofGetElapsedTimef() * kHandBreathSpeed + (float)i * 0.35f) * kHandBreathAmpPx;
+					breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
 				}
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
+
+				// Apply the hover lift directly to the target position so it animates smoothly!
+				float hoverLift = 0.0f;
+				if (static_cast<int>(i) == hoveredCardIndex && draggedCardIndex == -1) {
+					hoverLift = -160.0f * getUIScaleFromHeight(ofGetHeight());
+				}
+
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing + hoverLift;
 				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
-					float scaleLerp = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? kHandHoverLerpIn : kHandHoverLerpOut;
+					// Fetch frame time safely (cap at 0.1s to prevent alt-tab lag spikes)
+					float dt = ofGetLastFrameTime();
+					if (dt > 0.1f) dt = 0.016f;
+
+					// Frame-independent smooth spring physics instead of rigid linear snapping
+					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
+					float scaleLerp = 1.0f - std::exp(-springScale * dt);
 					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, kHandPosLerp);
+
+					// Snappy upward movement, gentle settle downward
+					float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
+					float posLerp = 1.0f - std::exp(-springPos * dt);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, posLerp);
 				}
 			}
 		}
@@ -12082,16 +12107,14 @@ void ofApp::drawGame() {
 				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
 			}
 
-			// Apply hover offsets - move upward and increase scale
+			// Apply hover offsets
 			if (isTopCard) {
 				if (index == draggedCardIndex) {
-					// Dragged card stays at mouse position
+					// Dragged card stays at mouse position perfectly
 					drawX = card.currentPos.x - w / 2;
 					drawY = card.currentPos.y - h / 2;
-				} else if (!disableHoverScaleForRenewed && index == hoveredCardIndex) {
-					// Move upward and ensure visible on screen
-					drawY += hoverDirection;
 				}
+				// (The hover lift is now smoothly animated by the physics engine, so no instant snap is needed here!)
 			}
 
 			ofPushMatrix();
@@ -13389,7 +13412,20 @@ cursor_check_done:;
 				if (hoveredCardIndex != -1) {
 					calculateTargetHighlights(hoveredCardIndex);
 					if (prevHovered != hoveredCardIndex && !ofGetMousePressed(OF_MOUSE_BUTTON_LEFT)) {
-						playHandFeedbackSfx(0.95f, 0.08f);
+
+						// --- USE NEW HOVER SOUND ---
+						if (cardHoverSound.isLoaded()) {
+							float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+							cardHoverSound.setVolume(vol);
+							// Add a tiny bit of random pitch for variety
+							std::uniform_real_distribution<float> pitchDist(0.95f, 1.05f);
+							cardHoverSound.setSpeed(pitchDist(visualRNG));
+							cardHoverSound.play();
+						} else {
+							// Fallback if missing
+							playHandFeedbackSfx(0.95f, 0.08f);
+						}
+						// ---------------------------
 					}
 					// Send hover packet to show opponent the card targeting
 					updateAndSendHover(HOVER_HAND_CARD, -1, -1, hoveredCardIndex);
@@ -34071,16 +34107,19 @@ void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCard
 	float screenScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 	float scale = screenScale * std::clamp(settingsUIScale, 0.75f, 1.25f);
 
-	// Make cards much more prominent so the draft UI reads clearly.
-	outCardW = kCardPixelWidth * 0.80f * scale;
-	outCardH = kCardPixelHeight * 0.80f * scale;
-	outSpacing = outCardW * 0.15f;
+	// Increased from 0.80f to 1.1f to make the cards much larger and prominent
+	outCardW = kCardPixelWidth * 1.1f * scale;
+	outCardH = kCardPixelHeight * 1.1f * scale;
+
+	// Slightly tighter relative spacing so the 3 larger cards still fit comfortably on screen
+	outSpacing = outCardW * 0.10f;
 
 	float totalWidth = outCardW * 3.0f + outSpacing * 2.0f;
 	outStartX = (ofGetWidth() - totalWidth) / 2.0f;
 
-	// Push the cards lower on the screen.
-	outStartY = (ofGetHeight() - outCardH) / 2.0f + (25.0f * scale);
+	// Perfectly center the cards vertically. (Removed the downward push so they
+	// leave plenty of room for the Accept button below and instructions above).
+	outStartY = (ofGetHeight() - outCardH) / 2.0f;
 }
 
 void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
