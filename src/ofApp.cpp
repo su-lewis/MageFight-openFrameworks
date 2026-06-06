@@ -13229,7 +13229,6 @@ void ofApp::mouseMoved(int x, int y) {
 
 		// B. If we didn't hit the top card, check the rest of the hand normally
 		if (foundHandHover == -1) {
-			float bestDist = 999999.0f;
 			for (int i = numCards - 1; i >= 0; i--) {
 				if (i == topCardIndex) continue; // Already checked
 
@@ -13239,19 +13238,16 @@ void ofApp::mouseMoved(int x, int y) {
 				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
 
 				if (hitRect.inside((float)x, (float)y)) {
-					// Prioritize the card whose center is closest to the mouse horizontally
-					float distX = std::abs(card.currentPos.x - x);
-					if (distX < bestDist) {
-						bestDist = distX;
-						foundHandHover = i;
-					}
+					foundHandHover = i;
+					break; // Z-order priority: highest index is on top
 				}
 			}
 		}
 
 		if (foundHandHover != -1) {
 			currentCursor = CURSOR_GRAB;
-			if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
+			int controlledID = p.isMinion ? p.ownerID : p.playerID;
+			if ((isMultiplayer && controlledID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
 				newHoverType = HOVER_HAND_CARD;
 				newHoverCardIndex = foundHandHover;
 			}
@@ -13351,13 +13347,12 @@ cursor_check_done:;
 				bestIndex = pressedCardIndex;
 			}
 
-			// SET THE HOVER INDEX! (This was the missing part)
-			hoveredCardIndex = bestIndex;
-
 			// Update target highlights on hover change (when not dragging)
-			if (hoveredCardIndex != lastHoveredCardIndex) {
+			if (bestIndex != lastHoveredCardIndex) {
 				int prevHovered = lastHoveredCardIndex;
-				lastHoveredCardIndex = hoveredCardIndex;
+				lastHoveredCardIndex = bestIndex;
+				hoveredCardIndex = bestIndex;
+				
 				if (hoveredCardIndex != -1) {
 					calculateTargetHighlights(hoveredCardIndex);
 					if (prevHovered != hoveredCardIndex && !ofGetMousePressed(OF_MOUSE_BUTTON_LEFT)) {
@@ -13383,6 +13378,8 @@ cursor_check_done:;
 					clearHighlights();
 					updateAndSendHover(HOVER_NONE);
 				}
+			} else {
+				hoveredCardIndex = bestIndex;
 			}
 		}
 		// --- DYNAMIC CARD TOOLTIP LOGIC ---
@@ -14257,6 +14254,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Detect which hand card was clicked (for drag initiation)
 	pressedCardIndex = -1;
 	if (button == OF_MOUSE_BUTTON_LEFT && currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+		if (endTurnLocked) {
+			ofLogNotice("Input") << "Action blocked: Turn timer expired (endTurnLocked).";
+			return;
+		}
+
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 			return;
 		}
@@ -14275,7 +14277,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// === CARD STATE MACHINE INPUT HANDLER ===
+// === CARD STATE MACHINE INPUT HANDLER ===
 	// Centralized interaction state is authoritative for click routing.
 	if (currentState == STATE_GAMEPLAY) {
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
@@ -16215,8 +16217,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		}
 	}
 
-	if (isPlayerAnimating || isDiceSpinning) {
-		ofLogNotice("CardDrag") << "mouseDragged: Early return - isPlayerAnimating=" << isPlayerAnimating << " isDiceSpinning=" << isDiceSpinning;
+	if (isPlayerAnimating || isDiceSpinning || endTurnLocked) {
+		ofLogNotice("CardDrag") << "mouseDragged: Early return - isPlayerAnimating=" << isPlayerAnimating << " isDiceSpinning=" << isDiceSpinning << " endTurnLocked=" << endTurnLocked;
 		return;
 	}
 
@@ -16489,7 +16491,23 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		}
 		if (players.empty() || currentPlayerIndex < 0) return;
 
+		if (endTurnLocked) {
+			ofLogNotice("Input") << "Action blocked: Turn timer expired (endTurnLocked).";
+			if (draggedCardIndex != -1) {
+				Player & currentPlayer = players[currentPlayerIndex];
+				Card & draggedCard = currentPlayer.hand[draggedCardIndex];
+				draggedCard.currentPos = draggedCard.targetPos;
+				draggedCard.currentScale = draggedCard.targetScale;
+			}
+			draggedCardIndex = -1;
+			pressedCardIndex = -1;
+			handDragInValidPlayZone = false;
+			playerAction = NONE;
+			return;
+		}
+
 		Player & currentPlayer = players[currentPlayerIndex];
+
 		const float dragThreshold = kHandDragStartThresholdPx;
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
 
@@ -16573,7 +16591,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				} else {
 					// Snap back if it wasn't a valid play.
 					draggedCard.currentPos = draggedCard.targetPos;
-					draggedCard.currentScale = draggedCard.targetScale;
+					draggedCard.currentScale = draggedCard.targetScale; 
 					playHandFeedbackSfx(0.78f, 0.10f);
 					ofLogNotice("CardDrag") << "Release did not meet play condition, not playing card";
 				}
