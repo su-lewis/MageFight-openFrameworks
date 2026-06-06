@@ -6434,7 +6434,14 @@ void ofApp::prepareGameVisualState() {
 					// Apply hover lift dynamically
 					float hoverLift = 0.0f;
 					if (static_cast<int>(i) == hoveredCardIndex && draggedCardIndex == -1) {
-						hoverLift = kHandHoverLiftPx * getUIScaleFromHeight(ofGetHeight());
+						// Calculate exact lift required so the card "scales upwards" from its bottom edge.
+						// When the card scales by currentScale, its height increases by (currentScale - 1) * baseHeight.
+						// To keep the bottom edge anchored, we must lift the center by exactly half that amount.
+						float heightIncrease = handLayout.cardH * (handPlayer->hand[i].targetScale - 1.0f);
+						hoverLift = -heightIncrease * 0.5f; 
+						
+						// Add a slight extra pop-up on top of the perfect anchor
+						hoverLift -= 20.0f * getUIScaleFromHeight(ofGetHeight());
 					}
 
 					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
@@ -13204,10 +13211,26 @@ void ofApp::mouseMoved(int x, int y) {
 	}
 
 	// 3. Check for "Draggable" things (Cards in hand)
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & p = players[currentPlayerIndex];
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+	Player* handPlayer = nullptr;
+	if (isMultiplayer) {
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+				handPlayer = &players[i];
+				break;
+			}
+		}
+	} else if (!players.empty() && currentPlayerIndex >= 0) {
+		handPlayer = &players[currentPlayerIndex];
+	}
+
+	if (handPlayer) {
+		Player & p = *handPlayer;
+		
+		// Use exact layout math to guarantee pixel-perfect hitboxes matching the draw scale
+		HandLayout handLayout = computeHandLayout(p.hand.size(), (float)ofGetWidth(), (float)ofGetHeight());
+		float handBaseCardWidth = handLayout.cardW;
+		float baseCardHeight = handLayout.cardH;
+		
 		int foundHandHover = -1;
 		int numCards = (int)p.hand.size();
 
@@ -13219,8 +13242,9 @@ void ofApp::mouseMoved(int x, int y) {
 			float h = baseCardHeight * std::max(0.9f, topCard.currentScale);
 			ofRectangle hitRect(topCard.currentPos.x - w * 0.5f, topCard.currentPos.y - h * 0.5f, w, h);
 
-			// Stretch hitbox down to cover the gap
-			hitRect.height += std::abs(kHandHoverLiftPx) * getUIScaleFromHeight(ofGetHeight());
+			// Stretch hitbox down to cover the exact gap created by the dynamic "scale upwards" lift
+			float heightIncrease = baseCardHeight * (kHandHoverScale - 1.0f);
+			hitRect.height += (heightIncrease * 0.5f) + (20.0f * getUIScaleFromHeight(ofGetHeight()));
 
 			if (hitRect.inside((float)x, (float)y)) {
 				foundHandHover = topCardIndex;
@@ -13229,6 +13253,7 @@ void ofApp::mouseMoved(int x, int y) {
 
 		// B. If we didn't hit the top card, check the rest of the hand normally
 		if (foundHandHover == -1) {
+			float bestDist = 999999.0f;
 			for (int i = numCards - 1; i >= 0; i--) {
 				if (i == topCardIndex) continue; // Already checked
 
@@ -13238,16 +13263,20 @@ void ofApp::mouseMoved(int x, int y) {
 				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
 
 				if (hitRect.inside((float)x, (float)y)) {
-					foundHandHover = i;
-					break; // Z-order priority: highest index is on top
+					// Prioritize the card whose center is closest to the mouse horizontally
+					float distX = std::abs(card.currentPos.x - x);
+					if (distX < bestDist) {
+						bestDist = distX;
+						foundHandHover = i;
+					}
 				}
 			}
 		}
 
-		if (foundHandHover != -1) {
+		if (foundHandHover != -1 && newHoverType == HOVER_NONE) {
 			currentCursor = CURSOR_GRAB;
 			int controlledID = p.isMinion ? p.ownerID : p.playerID;
-			if ((isMultiplayer && controlledID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
+			if ((isMultiplayer && controlledID == myLocalPlayerID) || !isMultiplayer) {
 				newHoverType = HOVER_HAND_CARD;
 				newHoverCardIndex = foundHandHover;
 			}
