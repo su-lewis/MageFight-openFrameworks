@@ -31777,6 +31777,13 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 	auto path = getLineOfSightPath(rayStart, rayEnd);
 	if (path.empty()) return true;
 
+	// Use floor() to perfectly match the tile extraction logic used in getLineOfSightPath,
+	// avoiding float-truncation bugs when peeking from negative coordinate faces.
+	int startX = (int)floor(rayStart.x);
+	int startY = (int)floor(rayStart.y);
+	int endX = (int)floor(rayEnd.x);
+	int endY = (int)floor(rayEnd.y);
+
 	// 2. Iterate through the path
 	for (size_t i = 0; i < path.size(); ++i) {
 		glm::vec2 current = path[i];
@@ -31784,17 +31791,15 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 		int cy = (int)current.y;
 
 		// SKIP start and end tiles (we don't block visibility based on where we stand or who we target)
-		bool isStart = (cx == (int)rayStart.x && cy == (int)rayStart.y);
-		bool isEnd = (cx == (int)rayEnd.x && cy == (int)rayEnd.y);
+		bool isStart = (cx == startX && cy == startY);
+		bool isEnd = (cx == endX && cy == endY);
 
 		// --- DIRECT BLOCKING ---
-		// If the tile itself contains a Wall or a Unit (and isn't start/end), it blocks.
 		if (!isStart && !isEnd) {
 			if (isTileBlocked(cx, cy)) return false;
 		}
 
 		// --- DIAGONAL BARRIER (PINCH) CHECK ---
-		// If we step diagonally, check if we are squeezing through two obstacles.
 		if (i < path.size() - 1) {
 			glm::vec2 next = path[i + 1];
 			int nx = (int)next.x;
@@ -31803,7 +31808,6 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 			// Check if movement is diagonal
 			if (cx != nx && cy != ny) {
 				// Determine the two shared neighbors
-				// e.g., moving (0,0) to (1,1), neighbors are (1,0) and (0,1)
 				int n1x = nx;
 				int n1y = cy;
 
@@ -31811,7 +31815,6 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 				int n2y = ny;
 
 				// RULE: If BOTH orthogonal neighbors are blocked, the diagonal gap is closed.
-				// "if they are diagonal to another wall / unit... they form a barrier"
 				bool block1 = isTileBlocked(n1x, n1y);
 				bool block2 = isTileBlocked(n2x, n2y);
 
@@ -31824,7 +31827,6 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 	return true;
 }
 
-// ----------------- FIXED isLosTargetValid (With Ethereal Jolt Support) -----------------
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
 	TargetInfo result;
 	result.reason = VALID;
@@ -31865,8 +31867,6 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			}
 		}
 		if (ghostOccupants > 0 && occupants > ghostOccupants) {
-			// There is at least one ghost and at least one other occupant;
-			// allow targeting the other occupant via this tile click.
 			result.reason = VALID;
 			result.isTargetable = true;
 			return result;
@@ -31874,15 +31874,10 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 		result.reason = INVALID_SELF;
 		return result;
-	} // <-- closes the "if (casterTile == targetTile)" block
+	}
 
 	// --- CHECK IF TARGET IS A WALL ---
 	if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
-
-		// EXCEPTION: Some special cards (Ethereal Jolt, Psionic Wave, Death)
-		// may target tiles that are walls *only* if a unit (e.g. a ghost) is
-		// actually occupying that wall tile. Magic Bolt explicitly should NOT
-		// be allowed to target a wall tile even if no unit is present.
 		bool allowWallTarget = false;
 		if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_PSIONIC_WAVE || cardType == CARD_DEATH || cardType == CARD_MAGIC_BOLT) {
 			if (board[(int)targetTile.x][(int)targetTile.y].hasPlayer) {
@@ -31899,18 +31894,11 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// --- 1. DETERMINE FIRING ORIGINS (VISIBILITY) ---
 	std::vector<glm::vec2> firingOrigins;
 	glm::vec2 casterCenter = casterTile + 0.5f;
-
-	// Neighbors: East, West, South, North
 	glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 
-	// --- GHOST FORM LOGIC START ---
-	// Check if the caster is currently inside a wall (Ghost scenario)
 	if (isTileWall((int)casterTile.x, (int)casterTile.y)) {
-		// If inside a wall, we assume we can shoot out from the center
-		// (Ghosts phase through their own cover)
 		firingOrigins.push_back(casterCenter);
 	} else {
-		// --- STANDARD PEEKING LOGIC ---
 		bool adjacentToWall = false;
 		for (auto n : neighbors) {
 			int nx = (int)casterTile.x + (int)n.x;
@@ -31922,24 +31910,18 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		}
 
 		if (!adjacentToWall) {
-			// Standard: Shoot from Center
 			firingOrigins.push_back(casterCenter);
 		} else {
-			// Peeking: Shoot from centers of faces NOT blocked by walls
 			glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
-
 			for (int i = 0; i < 4; i++) {
 				int nx = (int)casterTile.x + (int)neighbors[i].x;
 				int ny = (int)casterTile.y + (int)neighbors[i].y;
-
-				// If this face is not pressed against a wall, we can shoot from it
 				if (!isTileWall(nx, ny)) {
 					firingOrigins.push_back(casterCenter + faceOffsets[i]);
 				}
 			}
 		}
 	}
-	// --- GHOST FORM LOGIC END ---
 
 	// --- 2. CHECK VISIBILITY (Raycast to Target Center) ---
 	bool hasLineOfSight = false;
@@ -31949,10 +31931,26 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT) {
 		hasLineOfSight = true;
 	} else {
-		for (const auto & origin : firingOrigins) {
-			if (checkRayPhysics(origin, targetCenter)) {
+		// --- 1-TILE ADJACENCY SHORT-CIRCUIT ---
+		int dx = std::abs((int)targetTile.x - (int)casterTile.x);
+		int dy = std::abs((int)targetTile.y - (int)casterTile.y);
+
+		if (dx <= 1 && dy <= 1) {
+			if (dx == 1 && dy == 1) {
+				// Diagonal: only blocked if pinched by two obstacles
+				bool block1 = isTileBlocked((int)casterTile.x + ((int)targetTile.x - (int)casterTile.x), (int)casterTile.y);
+				bool block2 = isTileBlocked((int)casterTile.x, (int)casterTile.y + ((int)targetTile.y - (int)casterTile.y));
+				hasLineOfSight = !(block1 && block2);
+			} else {
+				// Orthogonal adjacent is always visible
 				hasLineOfSight = true;
-				break;
+			}
+		} else {
+			for (const auto & origin : firingOrigins) {
+				if (checkRayPhysics(origin, targetCenter)) {
+					hasLineOfSight = true;
+					break;
+				}
 			}
 		}
 	}
@@ -31963,11 +31961,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	}
 
 	// --- 3. CHECK RANGE ---
-	// Use integer-scaled squared distances to avoid floating-point edge cases.
-	long long distScaledSq = 0;
-	distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
-
-	// Convert maxRangeFeet to scaled half-tile units using integer math.
+	long long distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 	long long maxRangeScaled = ((long long)maxRangeFeet * 2LL) / 5LL;
 
 	if (distScaledSq > maxRangeScaled * maxRangeScaled) {
@@ -31980,7 +31974,6 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 	if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST || cardType == CARD_CHAIN_LIGHTNING) {
 		if (isOccupied) {
-			// Ensure we aren't targeting a tile where WE are the only occupant
 			bool hasOther = false;
 			auto occs = getTileOccupants((int)targetTile.x, (int)targetTile.y);
 			for (int o : occs) {
@@ -31992,14 +31985,12 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			result.isTargetable = hasOther;
 		} else {
 			bool hasNeighbor = false;
-			// Check all 8 surrounding tiles
 			for (int dx = -1; dx <= 1; ++dx) {
 				for (int dy = -1; dy <= 1; ++dy) {
 					if (dx == 0 && dy == 0) continue;
 					int nx = (int)targetTile.x + dx;
 					int ny = (int)targetTile.y + dy;
 					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
-						// Ensure the neighbor isn't JUST the caster
 						auto occs = getTileOccupants(nx, ny);
 						for (int o : occs) {
 							if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
@@ -32012,17 +32003,15 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 				}
 				if (hasNeighbor) break;
 			}
-			result.isTargetable = hasNeighbor; // Can hit empty tile if adjacent to ANY unit other than self
+			result.isTargetable = hasNeighbor;
 		}
 	} else {
-		// Fireball / Attacks: Must target unit
 		result.isTargetable = isOccupied;
 	}
 
 	return result;
 }
 
-//--------------------------------------------------------------
 std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2 endPoint) {
 	std::vector<glm::vec2> path;
 
@@ -32035,9 +32024,6 @@ std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2
 		return path;
 	}
 
-	// Integer, center-to-center grid traversal.
-	// The current codebase always calls this with tile centers, so we can
-	// preserve the existing tile sequence without floating-point comparisons.
 	int currentX = (int)startTile.x;
 	int currentY = (int)startTile.y;
 	int targetX = (int)endTile.x;
@@ -32057,7 +32043,37 @@ std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2
 	const long long tDeltaNum = 2LL;
 
 	while (true) {
-		if (hasXStep && (!hasYStep || tMaxXNum * (long long)absDeltaYScaled < tMaxYNum * (long long)absDeltaXScaled)) {
+		bool doXStep = false;
+
+		if (hasXStep && !hasYStep) {
+			doXStep = true;
+		} else if (!hasXStep && hasYStep) {
+			doXStep = false;
+		} else if (hasXStep && hasYStep) {
+			long long leftSide = tMaxXNum * (long long)absDeltaYScaled;
+			long long rightSide = tMaxYNum * (long long)absDeltaXScaled;
+
+			if (leftSide < rightSide) {
+				doXStep = true;
+			} else if (leftSide > rightSide) {
+				doXStep = false;
+			} else {
+				// Tie-breaker: ray passes exactly through the corner.
+				// Prefer the step that goes into an unblocked tile to resolve diagonal biases.
+				bool blockX = isTileBlocked(currentX + stepX, currentY);
+				bool blockY = isTileBlocked(currentX, currentY + stepY);
+				if (blockY && !blockX) {
+					doXStep = true;
+				} else if (blockX && !blockY) {
+					doXStep = false;
+				} else {
+					// Both blocked (pinch) or both open. Default to X.
+					doXStep = true;
+				}
+			}
+		}
+
+		if (doXStep) {
 			currentX += stepX;
 			tMaxXNum += tDeltaNum;
 		} else {
