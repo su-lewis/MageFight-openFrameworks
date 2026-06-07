@@ -46,13 +46,10 @@ jobs:
         curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
-
         cd openFrameworks/scripts/msys2
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
-
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
-
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -62,9 +59,7 @@ jobs:
         Version: 1.0.3
         Cflags: -I${includedir}
         EOF
-
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
-
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
@@ -73,7 +68,6 @@ jobs:
         cd openFrameworks/scripts/msys2
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
-
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -94,24 +88,34 @@ jobs:
         cd openFrameworks/apps/myApps/MageFight
         mkdir -p bin
         cd bin
-
         echo "Forging Steamworks Library..."
         gendef steam_api64.dll
         dlltool -d steam_api64.def -D steam_api64.dll -l libsteam_api64.a
-
         echo "Forging FMOD Library..."
         gendef fmod.dll
         dlltool -d fmod.def -D fmod.dll -l libfmod.a
-
         echo "Forging Dummy Boost Libraries..."
         echo "void dummy_boost() {}" > dummy.cpp
         g++ -c dummy.cpp
         ar rcs libboost_system-mt.a dummy.o
         ar rcs libboost_filesystem-mt.a dummy.o
         rm dummy.cpp dummy.o
-
         cd ..
         make Release -j4
+
+    - name: Package Dependencies and Clean Up
+      run: |
+        cd openFrameworks/apps/myApps/MageFight/bin
+        echo "Copying required MSYS2 DLLs..."
+        ldd MageFight.exe | grep -o '/mingw64/bin/[^ ]*\.dll' | xargs -I{} cp "{}" .
+        
+        echo "Cleaning up Linux files and compiler stubs..."
+        find . -name "*.so*" -type f -delete
+        find . -name "*.a" -type f -delete
+        find . -name "*.def" -type f -delete
+        rm -f run.sh runsteam.sh Makefile
+        
+        echo "Done! The folder is now perfectly clean for Windows."
 
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
