@@ -440,7 +440,7 @@
 - **AP Cost:** 7
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Ghost until you take 4 Health damage. Invulnerable to Physical and Piercing damage. Gain **Regeneration**. Move freely through walls and units (cannot end turn inside). Take double Holy damage.
+- **Effect Text:** Transform into a Ghost until you take 4 Health damage. **Immune** to Physical and Piercing damage. Gain **Regeneration**. Move freely through walls and units (cannot end turn inside). Take double Holy damage.
 ---
 
 ## 57. Giant Magic Hand
