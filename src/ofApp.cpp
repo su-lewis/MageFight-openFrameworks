@@ -19167,9 +19167,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		break;
 
 	case CARD_AMNESIA: {
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		resetCardState();
 		currentCardOutcome.cardType = CARD_AMNESIA;
-		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -19177,11 +19178,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DISPEL: {
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
 		if (safeChoice == "Barrier") {
 			resetCardState();
 			currentCardOutcome.cardType = CARD_DISPEL;
-			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
@@ -19301,10 +19303,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	case CARD_MAGIC_BLAST: {
 		int safeTarget = interactionTargetIndex; // Cache target securely
+		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
 		resetCardState();
 		currentCardOutcome.cardType = CARD_MAGIC_BLAST;
-		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
@@ -27495,6 +27498,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	else if (card.baseHeal > 0 || card.healDiceNum > 0 || card.healAmount > 0)
 		shouldShowRangedPreview = true;
 
+	// Explicit fallback for cards that lack raw dice range data in JSON
+	if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_DEATH || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
+		shouldShowRangedPreview = true;
+	}
+
 	if (shouldShowRangedPreview) {
 		float maxRangeFeet = 0.0f;
 		// Infinite-range healing / death-like spells
@@ -28066,9 +28074,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							isValidTarget = true;
 						}
 
-						// Mark each tile in the cleave area as a visual targetable tile so the
-						// joined-outline renderer will draw the full 3-tile outline. Respect
-						// diagonal pinch/blocking: skip diagonal tiles that are pinched by walls.
+						// Mark the cleave area. Respect diagonal pinch/blocking:
+						// skip diagonal tiles that are pinched by walls.
 						for (const auto & cleavePos : cleaveTiles) {
 							int cx = (int)cleavePos.x;
 							int cy = (int)cleavePos.y;
@@ -28081,8 +28088,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								if (isTileWall(px + ddx, py) && isTileWall(px, py + ddy)) blockedTile = true;
 							}
 							if (!blockedTile) {
-								// Corner tiles are not directly clickable (orthogonal handled above)
-								board[cx][cy].isTargetPreview = true;
+								board[cx][cy].isTargetPreview = true; // Red area preview
+								if (cx == x && cy == y) {
+									board[cx][cy].isTargetable = true; // Only the center orthogonal tile is green/clickable
+								}
 							}
 						}
 					}
@@ -28357,13 +28366,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool canBeClicked = false;
 				bool isOccupied = board[x][y].hasPlayer;
 
-				// --- CHAIN LIGHTNING LOGIC ---
-				if (card.type == CARD_CHAIN_LIGHTNING) {
+				// --- CHAIN LIGHTNING / MAGIC BLAST LOGIC ---
+				if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
 					if (isPreview) {
 						if (isOccupied) {
 							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
 						} else {
-							// Check 8 neighbors
+							// Check 8 neighbors to see if we can hit an enemy from an empty tile
 							for (int dx = -1; dx <= 1; dx++) {
 								for (int dy = -1; dy <= 1; dy++) {
 									if (dx == 0 && dy == 0) continue;
@@ -28414,8 +28423,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				}
 
-				// --- MAGIC BOLT / MAGIC BLAST LOGIC ---
-				else if (card.type == CARD_MAGIC_BOLT || card.type == CARD_MAGIC_BLAST) {
+				// --- MAGIC BOLT LOGIC ---
+				else if (card.type == CARD_MAGIC_BOLT) {
 					// Require that the tile is a preview (LOS & not wall) before allowing click
 					if (isPreview && info.isTargetable) {
 						canBeClicked = true;
@@ -30933,14 +30942,7 @@ void ofApp::applyDispelEffect(int statusID) {
 	if (!target) return;
 	if (statusID <= STATUS_NONE) return;
 
-	// FIX: Initialize the new card outcome state BEFORE beginning the effect sequence
-	// so the execution flags are not immediately wiped out!
-	if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		resetCardState();
-		currentCardOutcome.cardType = CARD_DISPEL;
-		currentCardOutcome.cardIndex = interactingCardIndex;
-		currentCardOutcome.casterIndex = currentPlayerIndex;
-	}
+	int safeCardIdx = interactingCardIndex; // Cache it!
 
 	beginEffectSequence();
 	EffectOp rm = {};
@@ -30952,8 +30954,14 @@ void ofApp::applyDispelEffect(int statusID) {
 
 	ofLogNotice("Dispel") << "Removed status id " << statusID;
 
-	if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+	// FINALIZATION: route through centralized outcome path so AP/card handling
+	// is consistent with other cards and lockstep-safe.
+	if (safeCardIdx != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		resetCardState();
+		currentCardOutcome.cardType = CARD_DISPEL;
+		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE); // <-- FIXED
 	}
 
 	// Trigger Shell Spike only on the local active player; the actual hit is
@@ -32021,8 +32029,17 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 						auto occs = getTileOccupants(nx, ny);
 						for (int o : occs) {
 							if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
-								hasNeighbor = true;
-								break;
+								// Enforce diagonal pinch rule for splash/bounce path
+								bool blocked = false;
+								if (std::abs(dx) == 1 && std::abs(dy) == 1) {
+									if (isTileWall((int)targetTile.x + dx, (int)targetTile.y) && isTileWall((int)targetTile.x, (int)targetTile.y + dy)) {
+										blocked = true;
+									}
+								}
+								if (!blocked) {
+									hasNeighbor = true;
+									break;
+								}
 							}
 						}
 					}
@@ -32030,7 +32047,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 				}
 				if (hasNeighbor) break;
 			}
-			result.isTargetable = hasNeighbor;
+			result.isTargetable = hasNeighbor; // Can hit empty tile if adjacent to ANY unit other than self
 		}
 	} else {
 		result.isTargetable = isOccupied;
