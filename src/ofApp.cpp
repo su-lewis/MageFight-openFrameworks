@@ -8040,80 +8040,6 @@ void ofApp::updateGameLogic() {
 			}
 		}
 	}
-	// --- Animation Updates ---
-	for (auto & anim : activeStolenCardAnimations) {
-		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
-		if (elapsedTime < 0.8f) {
-			float t = ofMap(elapsedTime, 0, 0.8f, 0.0, 1.0, true);
-			anim.currentPos = glm::mix(glm::vec2(getActiveCamera().worldToScreen(anim.startPos)), anim.targetPos, t);
-			anim.currentScale = ofLerp(0.7f, 1.15f, t);
-			anim.currentAlpha = ofLerp(0, 255, t);
-		} else {
-			anim.currentPos = anim.targetPos;
-			anim.currentScale = 1.15f;
-			anim.currentAlpha = 255;
-		}
-	}
-	activeStolenCardAnimations.erase(std::remove_if(activeStolenCardAnimations.begin(), activeStolenCardAnimations.end(), [](const StolenCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 3.3f; }), activeStolenCardAnimations.end());
-
-	// Played Card Animation (appears at center, holds, then fades out)
-	for (auto & anim : activePlayedCardAnimations) {
-		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
-		// Keep it readable without blowing past the normal card size
-		anim.currentScale = 1.2f;
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-		float w = handBaseCardWidth * anim.currentScale;
-		anim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
-
-		if (elapsedTime < 2.5f) {
-			// Hold at full size/alpha
-			anim.currentAlpha = 255.0f;
-		} else if (elapsedTime < 3.0f) {
-			// Fade out
-			float t = ofMap(elapsedTime, 2.5f, 3.0f, 0.0f, 1.0f, true);
-			anim.currentAlpha = ofLerp(255.0f, 0.0f, t);
-		}
-	}
-	activePlayedCardAnimations.erase(std::remove_if(activePlayedCardAnimations.begin(), activePlayedCardAnimations.end(), [](const PlayedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 3.0f; }), activePlayedCardAnimations.end());
-
-	for (auto & anim : activeRemovedCardAnimations) {
-		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
-
-		// Only update if start time has passed
-		if (elapsedTime >= 0.0f && elapsedTime < 0.5f) {
-			float t = elapsedTime / 0.5f;
-			anim.currentScale = ofLerp(1.1f, 0.15f, t); // Shrink
-
-			anim.currentAlpha = ofLerp(255, 0, t);
-		}
-		// Keep hidden if waiting for delay
-		if (elapsedTime < 0.0f) {
-			anim.currentAlpha = 0;
-		}
-	}
-	// Remove only if finished
-	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [](const RemovedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 0.5f; }), activeRemovedCardAnimations.end());
-
-	// Card Display Animation (Appears, holds, then fades out)
-	for (auto & disp : activeCardDisplays) {
-		float elapsedTime = ofGetElapsedTimef() - disp.startTime;
-		if (elapsedTime < 0.25f) {
-			// Quick pop-in
-			disp.currentScale = ofLerp(disp.startScale, 1.0f, elapsedTime / 0.25f);
-			disp.currentAlpha = 255.0f;
-		} else if (elapsedTime < 0.90f) {
-			// Brief hold
-			disp.currentScale = 1.0f;
-			disp.currentAlpha = 255.0f;
-		} else if (elapsedTime < 1.25f) {
-			// Quick fade out
-			float t = ofMap(elapsedTime, 0.90f, 1.25f, 0.0f, 1.0f, true);
-			disp.currentAlpha = ofLerp(255.0f, 0.0f, t);
-			disp.currentScale = 1.0f;
-		}
-	}
-	// Remove when animation is done
-	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [](const PlayedCardDisplay & disp) { return (ofGetElapsedTimef() - disp.startTime) >= 1.25f; }), activeCardDisplays.end());
 
 	// --- Draw Card Animation Update ---
 	for (auto & anim : activeDrawCardAnimations) {
@@ -15673,8 +15599,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				const Player & currentPlayer = players[currentPlayerIndex];
 				int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-				if (controlledPlayerID != myLocalPlayerID) {
-					// Not our turn in multiplayer - ignore all gameplay clicks
+
+				bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
+				int deciderOwner = -1;
+				if (isOpponentDeciding) {
+					const Player & decider = players[opponentDecisionPlayerIndex];
+					deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
+				}
+
+				if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
+					// Not our turn in multiplayer, and no decision needed - ignore all gameplay clicks
 					return;
 				}
 			}
@@ -16202,7 +16136,15 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		const Player & currentPlayer = players[currentPlayerIndex];
 		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		if (controlledPlayerID != myLocalPlayerID) {
+
+		bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
+		int deciderOwner = -1;
+		if (isOpponentDeciding) {
+			const Player & decider = players[opponentDecisionPlayerIndex];
+			deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
+		}
+
+		if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
 			// Not our turn - only allow camera movement
 			if (button == OF_MOUSE_BUTTON_MIDDLE) {
 				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
@@ -16430,7 +16372,15 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		const Player & currentPlayer = players[currentPlayerIndex];
 		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		if (controlledPlayerID != myLocalPlayerID) {
+
+		bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
+		int deciderOwner = -1;
+		if (isOpponentDeciding) {
+			const Player & decider = players[opponentDecisionPlayerIndex];
+			deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
+		}
+
+		if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
 			// Not our turn - ignore all interactions to avoid interrupting opponent
 			return;
 		}
@@ -19526,7 +19476,7 @@ void ofApp::drawActiveCardInteractionUI() {
 			int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 			Player * targetPlayer = getPlayer(actualTargetIdx);
 			if (targetPlayer) {
-				string prompt = "Player " + ofToString(targetPlayer->playerID + 1) + ", choose an effect:";
+				string prompt = "Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":";
 				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
 				drawCardChoicePanel(menuRect, prompt, choicesLeft,
 					btn1, btn2, "Take 5 Magic Damage", "Destroy your top card of unit's deck",
@@ -24302,7 +24252,14 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		ofRectangle btnSingle(mx + w / 2.0f - cardW / 2.0f, my + h - pad - cardH, cardW, cardH);
 
 		// Sync menu hover state to opponent (for multiplayer visualization)
-		if (isMultiplayer && isCurrentPlayerLocal()) {
+		bool isLocalDecider = false;
+		if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+			const Player & decider = players[opponentDecisionPlayerIndex];
+			int deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
+			isLocalDecider = (deciderOwner == myLocalPlayerID);
+		}
+
+		if (isMultiplayer && (isCurrentPlayerLocal() || isLocalDecider)) {
 			static int lastMenuHoverChoice = 0;
 			int currentHoverChoice = 0;
 
