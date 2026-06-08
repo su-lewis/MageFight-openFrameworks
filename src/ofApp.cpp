@@ -18520,7 +18520,6 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
-
 	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
 	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
 		InputCommandPacket cmd = {};
@@ -18533,7 +18532,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.params[0] = card.type;
 		cmd.params[1] = currentPlayerIndex; // Target self
 		cmd.params[2] = (card.type == CARD_WISDOM_BOON) ? 2 : 1; // Block for wisdom, Barrier for dispel
-		cmd.params[3] = cardIndex;
+		cmd.params[3] = cardIndex; // <--- This carries the card index successfully!
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 		if (isMultiplayer) {
 			sendInputCommand(cmd, true);
@@ -22949,6 +22948,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		EffectOp res = {};
 		res.type = EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE;
 		res.data.damage.damageFromSlot = baseOut;
+		res.data.damage.damageType = DAMAGE_ELECTRIC; // <--- ADD THIS FIX
 		res.data.damage.targetIndex = (int)currentCardOutcome.targetedPlayers.size();
 		queueEffect(res);
 

@@ -65,7 +65,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose an adjacent unit or yourself. Roll 1d4 and **Destroy** that many cards from their deck.
+- **Effect Text:** Choose an adjacent unit or yourself. Roll 1d4 and choose that many cards from their deck to **Destroy**.
 ---
 
 ## 10. Magic Blast
@@ -74,7 +74,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose an adjacent unit or yourself. Roll 1d4 and choose that many cards from their deck to **Destroy**.
+- **Effect Text:** Choose a target. The unit hit chooses 3 times: Take 5 damage or **Destroy** their top card. Adjacent units choose once. 
 ---
 
 ## 11. Fireball
