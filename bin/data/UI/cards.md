@@ -188,7 +188,7 @@
 - **AP Cost:** 3
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** For the next 3 turns: Whenever you play an Electric or Fire card, shuffle a copy into your deck.
+- **Effect Text:** For the next 3 turns: Whenever you play an Electric or Fire card, add a copy to your hand.
 ---
 
 ## 25. Summon Wall

@@ -2076,7 +2076,8 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	Card duplicateCard = playedCard;
 	duplicateCard.isCopied = true;
 	duplicateCard.playedThisTurn = false;
-	duplicateCard.drawnThisTurn = false;
+	duplicateCard.drawnThisTurn = true;
+	duplicateCard.isAnimating = true;
 
 	int ownerIndex = findPlayerIndexByID(caster.playerID);
 	if (ownerIndex < 0) {
@@ -2085,6 +2086,9 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 		queueReplicateQueuedFlag(ownerIndexNow, duplicateCard.type == CARD_REPLICATE);
 		return;
 	}
+
+	// Push to hand immediately to guarantee lockstep safety and accurate checksums
+	caster.hand.push_back(duplicateCard);
 
 	DrawCardAnimation anim;
 	anim.card = duplicateCard;
@@ -2097,34 +2101,14 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	glm::vec3 boardCenter = gridToWorld(3, 3);
 	anim.startPos = boardCenter;
 	anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
+	anim.pendingHandIndex = (int)caster.hand.size() - 1;
 
-	size_t numCards = caster.hand.size() + 1;
-	// Hearthstone-style positioning
-	float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-	float handAreaWidth = ofGetWidth() * 0.85f;
-
-	float spacing = 0.0f;
-	if (numCards > 1) {
-		float totalWidth = numCards * handBaseCardWidth;
-		if (totalWidth < handAreaWidth) {
-			spacing = (handAreaWidth - totalWidth) / (numCards - 1);
-			spacing = std::min(spacing, 120.0f);
-		} else {
-			spacing = 10.0f;
-		}
-	}
-
-	float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
-	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-	float handRestY = ofGetHeight() - 80.0f; // Near bottom (but higher)
-
-	float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-	anim.targetPos = glm::vec2(cardCenterX, handRestY);
+	anim.targetPos = glm::vec2(boardCenter.x, boardCenter.y); // Dynamically updated by draw loop
 	anim.endPos = anim.startPos;
 	anim.startScale = pileCardScale;
 	anim.endScale = 1.0f;
 	anim.currentScale = anim.startScale;
-	anim.commitOnFinish = true;
+	anim.commitOnFinish = false; // We already added it above!
 
 	activeDrawCardAnimations.push_back(anim);
 
@@ -19071,9 +19055,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			bool adjStatus = false;
 			Player & cPlayer = players[currentPlayerIndex];
 			for (auto & p : players) {
-				if (p.playerID == cPlayer.playerID) continue;
+				// REMOVED: if (p.playerID == cPlayer.playerID) continue; <-- This was incorrectly skipping the caster!
 				int dist = abs(p.x - cPlayer.x) + abs(p.y - cPlayer.y);
-				if (dist == 1 && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
+				if (dist <= 1 && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
 					adjStatus = true;
 					break;
 				}
@@ -19539,7 +19523,8 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_MAGIC_BLAST: {
-			Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
+			int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
+			Player * targetPlayer = getPlayer(actualTargetIdx);
 			if (targetPlayer) {
 				string prompt = "Player " + ofToString(targetPlayer->playerID + 1) + ", choose an effect:";
 				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
@@ -20629,6 +20614,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			EffectOp menu = {};
 			menu.type = EffectOpType::APPLY_MAGIC_BLAST_MENU;
 			queueEffect(menu);
+
+			// Close the interaction state so the menu disappears while we wait for visuals
+			resetCardInteraction();
 
 			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 			break;
@@ -24891,11 +24879,43 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 		if (rangeDiceNum > 0 && rangeDiceSides > 0) {
 			float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
+			if (playedCard.type == CARD_MAGIC_BOLT) {
+				float maxAoeFeet = (playedCard.aoeRadiusDiceNum > 0 && playedCard.aoeRadiusDiceSides > 0) ? (float)(playedCard.aoeRadiusDiceNum * playedCard.aoeRadiusDiceSides) : 20.0f;
+				maxRangeFeet += maxAoeFeet;
+			}
+
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = { (float)targetX, (float)targetY };
 			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
 			if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) {
 				return true;
+			}
+
+			if (playedCard.type == CARD_MAGIC_BOLT) {
+				long long maxRangeHalfTiles = ((long long)(rangeDiceNum * rangeDiceSides) * 2LL) / 5LL;
+				long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+				long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+				if (neededDistSq > maxDistSq) {
+					glm::vec2 dir = targetTile - casterTile;
+					if (glm::length(dir) > 0) dir = glm::normalize(dir);
+					float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
+					glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+					glm::ivec2 impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+					if (isTileWall(impactTile.x, impactTile.y)) {
+						queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Path Blocked", ofColor::red);
+						return true; // Abort play, spell hits a wall before reaching target tile and fizzles
+					}
+					// Check LOS from impact to target
+					auto losPath = getLineOfSightPath(glm::vec2(impactTile.x, impactTile.y) + 0.5f, targetTile + 0.5f);
+					for (const auto & step : losPath) {
+						if ((int)step.x == impactTile.x && (int)step.y == impactTile.y) continue;
+						if ((int)step.x == targetX && (int)step.y == targetY) break;
+						if (isTileWall((int)step.x, (int)step.y)) {
+							queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Path Blocked", ofColor::red);
+							return true; // Abort, AOE blocked
+						}
+					}
+				}
 			}
 		}
 	}
@@ -26495,11 +26515,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_MAGIC_BOLT: {
-		float maxRangeFeet = (float)(2 * 20);
+		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
+		if (maxRangeFeet <= 0.0f) maxRangeFeet = 40.0f; // fallback
+		float maxAoeFeet = (playedCard.aoeRadiusDiceNum > 0 && playedCard.aoeRadiusDiceSides > 0) ? (float)(playedCard.aoeRadiusDiceNum * playedCard.aoeRadiusDiceSides) : 20.0f;
 		glm::vec2 cPos((float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f);
 		glm::vec2 tPos((float)targetX + 0.5f, (float)targetY + 0.5f);
 		float distFeet = getFaceToFaceDistance(cPos, tPos) * 5.0f;
-		if (distFeet > maxRangeFeet + 3.0f) return true;
+		if (distFeet > maxRangeFeet + maxAoeFeet + 0.1f) return true;
 		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
 			if (board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) return true;
 		}
@@ -27197,16 +27219,35 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 				// Don't trigger on the Strengthen card itself (safety check, though types differ)
 				if (playedCard.type != CARD_STRENGTHEN_ELEMENTS) {
-					if (!isProcessingEffect) beginEffectSequence();
+					Card copy = playedCard;
+					copy.isCopied = true;
+					copy.playedThisTurn = false;
+					copy.drawnThisTurn = true;
+					copy.isAnimating = true;
 
-					EffectOp copyOp = {};
-					copyOp.type = EffectOpType::ADD_CARD_TO_DECK;
-					copyOp.data.addCard.targetIndex = currentPlayerIndex;
-					copyOp.data.addCard.cardType = (int)playedCard.type;
-					queueEffect(copyOp);
+					// Add immediately to hand for lockstep accuracy
+					currentPlayer.hand.push_back(copy);
+
+					DrawCardAnimation anim;
+					anim.card = copy;
+					anim.startTime = ofGetElapsedTimef();
+					anim.duration = 0.5f;
+					anim.ownerIndex = currentPlayerIndex;
+					anim.ownerPlayerID = currentPlayer.playerID;
+					anim.toMinionHand = currentPlayer.isMinion;
+					anim.startIsScreenSpace = false;
+					anim.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
+					anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+					anim.startScale = pileCardScale;
+					anim.endScale = 1.0f;
+					anim.currentScale = anim.startScale;
+					anim.commitOnFinish = false;
+					anim.pendingHandIndex = (int)currentPlayer.hand.size() - 1;
+
+					activeDrawCardAnimations.push_back(anim);
 
 					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
-					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
+					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to hand.";
 				}
 			}
 		}
@@ -27520,15 +27561,48 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// invalid.
 					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue;
 
-					// Magic Bolt ignores LOS; use edge-to-edge face distance (feet)
-					// Use face-to-face distance for primary targeting (including Magic Bolt main shot)
+					float maxAoeFeet = (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) ? (float)(card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20.0f;
 					float distFeet = getFaceToFaceDistance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
-					if (distFeet <= maxRangeFeet + 3.0f) {
+
+					if (distFeet <= maxRangeFeet + maxAoeFeet + 0.1f) {
+						// Find impact tile
+						glm::vec2 targetTileFloat((float)tx, (float)ty);
+						glm::ivec2 impactTile = { tx, ty };
+
+						long long maxRangeHalfTiles = ((long long)maxRangeFeet * 2LL) / 5LL;
+						long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+						long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetTileFloat);
+
+						bool fallsShort = false;
+						if (neededDistSq > maxDistSq) {
+							fallsShort = true;
+							glm::vec2 dir = targetTileFloat - casterPos;
+							if (glm::length(dir) > 0) dir = glm::normalize(dir);
+							float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
+							glm::vec2 impactPos = casterPos + (dir * maxDistUnits);
+							impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+						}
+
+						if (fallsShort && isTileWall(impactTile.x, impactTile.y)) {
+							continue; // Main spell hits wall, cancels AOE
+						}
+
+						if (fallsShort) {
+							auto losPath = getLineOfSightPath(glm::vec2(impactTile.x, impactTile.y) + 0.5f, targetTileFloat + 0.5f);
+							bool blocked = false;
+							for (const auto & step : losPath) {
+								if ((int)step.x == impactTile.x && (int)step.y == impactTile.y) continue;
+								if ((int)step.x == tx && (int)step.y == ty) break;
+								if (isTileWall((int)step.x, (int)step.y)) {
+									blocked = true;
+									break;
+								}
+							}
+							if (blocked) continue;
+						}
+
 						preview = true;
 
-						// Compute min-roll / hit chance for the tooltip (same logic
-						// as the generic range tooltip calculation) so the UI shows
-						// meaningful numbers for Magic Bolt targets.
 						int minRoll = (int)ceil(distFeet);
 						int maxPossibleRoll = card.numDice * card.diceSides;
 						if (minRoll < card.numDice) minRoll = card.numDice;
@@ -27577,29 +27651,21 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 						board[tx][ty].minRollRequired = minRoll;
 						board[tx][ty].hitChance = hitChance;
+						board[tx][ty].hasTooltipInfo = true;
 
-						// Valid (green) if another unit sits on the tile OR if an AOE
-						// from this tile (max possible dice + 3 ft) could hit another unit.
-						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
-							valid = true;
+						bool hitsSomeone = false;
+						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex)) {
+							hitsSomeone = true;
 						} else {
-							int maxAoeFeet = 0;
-							if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
-								maxAoeFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
-							} else {
-								// Fallback: assume a large AOE (1d20 + 3) for older data
-								maxAoeFeet = 20;
-							}
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
-								// For AOE checks use center-to-face: center distance minus half-tile (2.5ft)
-								float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
+								float centerDistFeetToPlayer = glm::distance(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 								float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
 								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
-									auto losPath = getLineOfSightPath(glm::vec2((float)tx, (float)ty) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
+									auto losPath = getLineOfSightPath(glm::vec2((float)impactTile.x, (float)impactTile.y) + 0.5f, glm::vec2((float)players[i].x, (float)players[i].y) + 0.5f);
 									bool blocked = false;
 									for (const auto & step : losPath) {
-										if ((int)step.x == tx && (int)step.y == ty) continue;
+										if ((int)step.x == impactTile.x && (int)step.y == impactTile.y) continue;
 										if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
 										if (isTileWall((int)step.x, (int)step.y)) {
 											blocked = true;
@@ -27607,14 +27673,15 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 										}
 									}
 									if (!blocked) {
-										// Only valid if it's not the caster's own tile!
-										if (tx != px || ty != py) {
-											valid = true;
-										}
+										hitsSomeone = true;
 										break;
 									}
 								}
 							}
+						}
+
+						if (hitsSomeone && (tx != px || ty != py)) {
+							valid = true;
 						}
 					}
 				} else {
@@ -28057,7 +28124,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								if (isTileWall(px + ddx, py) && isTileWall(px, py + ddy)) blockedTile = true;
 							}
 							if (!blockedTile) {
-								board[cx][cy].isTargetable = true;
+								// Corner tiles are not directly clickable (orthogonal handled above)
 								board[cx][cy].isTargetPreview = true;
 							}
 						}
@@ -30909,6 +30976,15 @@ void ofApp::applyDispelEffect(int statusID) {
 	if (!target) return;
 	if (statusID <= STATUS_NONE) return;
 
+	// FIX: Initialize the new card outcome state BEFORE beginning the effect sequence
+	// so the execution flags are not immediately wiped out!
+	if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		resetCardState();
+		currentCardOutcome.cardType = CARD_DISPEL;
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+	}
+
 	beginEffectSequence();
 	EffectOp rm = {};
 	rm.type = EffectOpType::REMOVE_STATUS;
@@ -30919,14 +30995,8 @@ void ofApp::applyDispelEffect(int statusID) {
 
 	ofLogNotice("Dispel") << "Removed status id " << statusID;
 
-	// FINALIZATION: route through centralized outcome path so AP/card handling
-	// is consistent with other cards and lockstep-safe.
 	if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		resetCardState();
-		currentCardOutcome.cardType = CARD_DISPEL;
-		currentCardOutcome.cardIndex = interactingCardIndex;
-		currentCardOutcome.casterIndex = currentPlayerIndex;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE); // <-- FIXED
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	}
 
 	// Trigger Shell Spike only on the local active player; the actual hit is
@@ -30940,7 +31010,7 @@ void ofApp::applyDispelEffect(int statusID) {
 	dispelMode = 0;
 
 	// Keep Shell Spike targeting prompt alive if it was opened.
-	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) { // <-- FIXED
+	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
 		resetCardInteraction();
 	}
 }
