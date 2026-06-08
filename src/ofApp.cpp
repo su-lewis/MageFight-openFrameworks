@@ -25877,8 +25877,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// 1. Roll range and store in blackboard[0]
 		std::vector<int> rawRange;
-		int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
-		rangeRoll += playedCard.numDice * luckBonus;
+		auto [rNum, rSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
+		int rangeRoll = resolveDiceRollDetailed(rNum, rSides, rawRange);
+		rangeRoll += rNum * luckBonus;
 
 		currentEffectSequence.blackboard[0] = rangeRoll;
 		currentEffectSequence.blackboard[1] = rawRange.size() > 0 ? rawRange[0] : 1;
@@ -27493,37 +27494,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 		}
 	}
-	// Adjacency-based targeting: consult card data instead of special-casing specific cards
-	if (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL || card.targeting == TARGET_EMPTY_ADJACENT || card.targeting == TARGET_ADJACENT_WALL) {
-		glm::ivec2 dirs[5] = { { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 }, { 0, 0 } };
-		for (auto & d : dirs) {
-			// Only process the center tile if the card explicitly allows self-targeting
-			if (d.x == 0 && d.y == 0 && card.targeting != TARGET_ADJACENT_OR_SELF_UNIT) continue;
 
-			int nx = px + d.x;
-			int ny = py + d.y;
-			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-
-			bool ok = false;
-			if (card.targeting == TARGET_EMPTY_ADJACENT) {
-				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) ok = true;
-			} else if (card.targeting == TARGET_ADJACENT_WALL) {
-				if (board[nx][ny].hasWall && !board[nx][ny].hasPlayer) ok = true;
-			} else if (card.targeting == TARGET_ADJACENT_UNIT) {
-				if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) ok = true;
-			} else if (card.targeting == TARGET_ADJACENT_OR_SELF_UNIT) {
-				if ((board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) || (nx == px && ny == py)) ok = true;
-			} else if (card.targeting == TARGET_ADJACENT_UNIT_OR_WALL) {
-				if ((board[nx][ny].hasPlayer && !board[nx][ny].hasWall) || board[nx][ny].hasWall) ok = true;
-			}
-
-			if (ok) {
-				board[nx][ny].isTargetable = true;
-				board[nx][ny].isTargetPreview = true;
-			}
-		}
-		return;
-	}
 	// Check AP (Targeting modes imply AP check passed already)
 	bool inTargetingMode = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
 		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
@@ -27556,6 +27527,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							if (hasEnoughAP) board[x][y].isTargetable = true;
 						}
 						// GHOST LOGIC: Can teleport into wall IF they have AP left after casting
+						// Teleport cost is usually 5. If currentAP > 5, they have 1 left.
 						else if (currentPlayer.inGhostForm) {
 							if (currentAP >= 1) {
 								if (hasEnoughAP) board[x][y].isTargetable = true;
