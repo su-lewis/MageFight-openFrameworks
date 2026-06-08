@@ -490,7 +490,7 @@
 - **AP Cost:** 4
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Summon** an Assistant in an adjacent empty tile. While adjacent, you gain +1 Luck and can reroll AP once if it lands on 0. 
+- **Effect Text:** **Summon** an Assistant in an adjacent empty tile. While adjacent, you gain +1 Luck and can reroll AP once if at 0. 
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
 - **AP:** Coinflip
 - **HP:** 1
