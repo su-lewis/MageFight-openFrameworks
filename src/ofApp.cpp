@@ -27524,6 +27524,50 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 		return;
 	}
+	// Check AP (Targeting modes imply AP check passed already)
+	bool inTargetingMode = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
+		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)
+		|| (selectedCardIndex != -1);
+
+	bool hasEnoughAP = inTargetingMode || (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
+
+	if (card.type == CARD_TELEPORT) {
+		float maxRangeFeet;
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
+			maxRangeFeet = (float)interactionDiceRoll;
+		else {
+			auto [rNum, rSides] = getCardRangeDice(card, card.numDice, card.diceSides);
+			maxRangeFeet = (float)(rNum * rSides);
+		}
+
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				glm::vec2 targetPos(x, y);
+				float distFeet = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
+				if (distFeet <= maxRangeFeet + 0.1f) {
+					board[x][y].isTargetPreview = true;
+
+					bool isWall = board[x][y].hasWall;
+					bool isOccupied = board[x][y].hasPlayer && !(x == px && y == py); // Allow targeting current square
+
+					if (!isOccupied) {
+						if (!isWall) {
+							if (hasEnoughAP) board[x][y].isTargetable = true;
+						}
+						// GHOST LOGIC: Can teleport into wall IF they have AP left after casting
+						else if (currentPlayer.inGhostForm) {
+							if (currentAP >= 1) {
+								if (hasEnoughAP) board[x][y].isTargetable = true;
+							}
+						}
+					}
+				}
+			}
+		}
+		return;
+	}
+
 	// Data-driven preview/targeting for ranged/dice-based cards:
 	// Use card fields from cards.json (rangeDiceNum/rangeDiceSides, numDice/diceSides, targeting, healAmount)
 	bool shouldShowRangedPreview = false;
@@ -27607,8 +27651,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						preview = true;
 
 						// --- FIX: USE RANGE DICE FOR RANGE CALCULATION IN UI ---
-						int rangeNum = card.rangeDiceNum > 0 ? card.rangeDiceNum : card.numDice;
-						int rangeSides = card.rangeDiceSides > 0 ? card.rangeDiceSides : card.diceSides;
+						auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
 
 						int minRoll = (int)ceil(distFeet);
 						int maxPossibleRoll = rangeNum * rangeSides;
@@ -27883,14 +27926,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 		return; // we've set previews for these cards; skip generic logic
 	}
-
-	// Check AP (Targeting modes imply AP check passed already)
-	bool inTargetingMode = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
-		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
-		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)
-		|| (selectedCardIndex != -1);
-
-	bool hasEnoughAP = inTargetingMode || (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
 
 	// --- MOUSE HOVER CALCULATION ---
 	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
@@ -28218,40 +28253,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-			// --- TELEPORT LOGIC ---
-			case TARGET_EMPTY_TILE: {
-				float maxRangeFeet;
-				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
-					maxRangeFeet = (float)interactionDiceRoll;
-				else
-					maxRangeFeet = (float)(card.numDice * card.diceSides);
-
-				if (distFeet <= maxRangeFeet + 0.1f) {
-					isPreview = true;
-
-					bool isWall = board[x][y].hasWall;
-					bool isOccupied = board[x][y].hasPlayer && !(x == px && y == py); // Allow targeting current square
-
-					if (!isOccupied) {
-						if (!isWall) {
-							isValidTarget = true;
-						}
-						// GHOST LOGIC: Can teleport into wall IF they have AP left after casting
-						// Teleport cost is usually 5. If currentAP > 5, they have 1 left.
-						else if (currentPlayer.inGhostForm) {
-							// Check remaining AP (currentAP - cardCost)
-							// Card cost is already deducted? No, playCard only deducts if played successfully.
-							// But for Teleport, we ALREADY deducted AP in playCard before entering targeting mode.
-							// So currentAP is the *remaining* AP.
-							if (currentAP >= 1) {
-								isValidTarget = true;
-							}
-						}
-					}
-				}
-				break;
-			}
-
 			case TARGET_ADJACENT_WALL: {
 				int dist = abs(x - px) + abs(y - py);
 
@@ -28307,7 +28308,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					maxRangeFeet = 2.0f * 20.0f;
 				} else {
 					// Default: dice-based range
-					maxRangeFeet = (float)(card.numDice * card.diceSides);
+					auto [rNum, rSides] = getCardRangeDice(card, card.numDice, card.diceSides);
+					maxRangeFeet = (float)(rNum * rSides);
 				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
@@ -29998,8 +30000,9 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 		float maxRange = 9999.0f; // Default: infinite
 		if (card.type == CARD_MAGIC_BOLT && players[casterIdx].playerID == currentPlayerIndex && interactionDiceRoll > 0) {
 			maxRange = (float)interactionDiceRoll;
-		} else if (card.numDice > 0 && card.diceSides > 0) {
-			maxRange = (float)(card.numDice * card.diceSides);
+		} else {
+			auto [rNum, rSides] = getCardRangeDice(card, card.numDice, card.diceSides);
+			if (rNum > 0 && rSides > 0) maxRange = (float)(rNum * rSides);
 		}
 
 		TargetInfo losInfo = isLosTargetValid(casterTile, targetTile, maxRange, card.type);
@@ -32066,35 +32069,64 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			}
 			result.isTargetable = hasOther;
 		} else {
-			bool hasNeighbor = false;
-			for (int dx = -1; dx <= 1; ++dx) {
-				for (int dy = -1; dy <= 1; ++dy) {
-					if (dx == 0 && dy == 0) continue;
-					int nx = (int)targetTile.x + dx;
-					int ny = (int)targetTile.y + dy;
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
-						auto occs = getTileOccupants(nx, ny);
-						for (int o : occs) {
-							if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
-								// Enforce diagonal pinch rule for splash/bounce path
-								bool blocked = false;
-								if (std::abs(dx) == 1 && std::abs(dy) == 1) {
-									if (isTileWall((int)targetTile.x + dx, (int)targetTile.y) && isTileWall((int)targetTile.x, (int)targetTile.y + dy)) {
-										blocked = true;
+			if (cardType == CARD_MAGIC_BOLT) {
+				bool hasTargetInAoe = false;
+				float maxAoeFeet = 20.0f; // Max roll of 1d20
+				long long maxAoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
+				long long maxAoeDistSq = maxAoeHalfTiles * maxAoeHalfTiles;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (casterIndexForSelfChecks >= 0 && (int)i == casterIndexForSelfChecks) continue;
+					if (players[i].health <= 0) continue;
+					long long distSq = getFaceToFaceDistanceSquaredScaled(targetTile, glm::vec2((float)players[i].x, (float)players[i].y));
+					if (distSq <= maxAoeDistSq) {
+						auto losPath = getLineOfSightPath(targetTile + 0.5f, glm::vec2((float)players[i].x, (float)players[i].y) + 0.5f);
+						bool blocked = false;
+						for (const auto & step : losPath) {
+							if ((int)step.x == (int)targetTile.x && (int)step.y == (int)targetTile.y) continue;
+							if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
+							if (isTileWall((int)step.x, (int)step.y)) {
+								blocked = true;
+								break;
+							}
+						}
+						if (!blocked) {
+							hasTargetInAoe = true;
+							break;
+						}
+					}
+				}
+				result.isTargetable = hasTargetInAoe;
+			} else {
+				bool hasNeighbor = false;
+				for (int dx = -1; dx <= 1; ++dx) {
+					for (int dy = -1; dy <= 1; ++dy) {
+						if (dx == 0 && dy == 0) continue;
+						if (cardType == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
+						int nx = (int)targetTile.x + dx;
+						int ny = (int)targetTile.y + dy;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+							auto occs = getTileOccupants(nx, ny);
+							for (int o : occs) {
+								if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
+									bool blocked = false;
+									if (std::abs(dx) == 1 && std::abs(dy) == 1) {
+										if (isTileWall((int)targetTile.x + dx, (int)targetTile.y) && isTileWall((int)targetTile.x, (int)targetTile.y + dy)) {
+											blocked = true;
+										}
 									}
-								}
-								if (!blocked) {
-									hasNeighbor = true;
-									break;
+									if (!blocked) {
+										hasNeighbor = true;
+										break;
+									}
 								}
 							}
 						}
+						if (hasNeighbor) break;
 					}
 					if (hasNeighbor) break;
 				}
-				if (hasNeighbor) break;
+				result.isTargetable = hasNeighbor;
 			}
-			result.isTargetable = hasNeighbor; // Can hit empty tile if adjacent to ANY unit other than self
 		}
 	} else {
 		result.isTargetable = isOccupied;
