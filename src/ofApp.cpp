@@ -28377,40 +28377,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool canBeClicked = false;
 				bool isOccupied = board[x][y].hasPlayer;
 
-				// --- CHAIN LIGHTNING / MAGIC BLAST LOGIC ---
-				if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
-					if (isPreview) {
-						if (isOccupied) {
-							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
-						} else {
-							// Check 8 neighbors to see if we can hit an enemy from an empty tile
-							for (int dx = -1; dx <= 1; dx++) {
-								for (int dy = -1; dy <= 1; dy++) {
-									if (dx == 0 && dy == 0) continue;
-
-									// FIX: Magic Blast cannot splash diagonally!
-									if (card.type == CARD_MAGIC_BLAST && abs(dx) == 1 && abs(dy) == 1) continue;
-
-									int nx = x + dx;
-									int ny = y + dy;
-									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-										bool blocked = false;
-										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check (Chain Lightning only)
-											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
-										}
-										if (!blocked) {
-											canBeClicked = true;
-											break;
-										}
-									}
-								}
-								if (canBeClicked) break;
-							}
-						}
-					}
-				}
 				// --- HEAL / LESSER HEAL / DEATH LOGIC ---
-				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
+				if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
 					// Heal/Lesser Heal can target self or allies. Death only targets other units.
 					// Only allow clicking if the tile is also a red preview (LOS & not a wall)
 					bool isSelfTile = (x == (int)casterPos.x && y == (int)casterPos.y);
@@ -28438,13 +28406,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				}
 
-				// --- MAGIC BOLT LOGIC ---
-				else if (card.type == CARD_MAGIC_BOLT) {
-					// Require that the tile is a preview (LOS & not wall) before allowing click
-					if (isPreview && info.isTargetable) {
-						canBeClicked = true;
-					}
-				}
 				// --- DEFAULT LOGIC ---
 				else {
 					// Default: require preview (LOS & not wall) AND that the los check marks it targetable
@@ -31649,7 +31610,7 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
 		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
 
-		int secs = (int)std::ceil(remaining);
+		int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
 		std::string secsText = "Decision " + ofToString(secs) + "s";
 		ofSetColor(ofColor::white);
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
@@ -31762,7 +31723,7 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
 		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
 
-		int secs = (int)std::ceil(remaining);
+		int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
 		std::string secsText = "Decision " + ofToString(secs) + "s";
 		ofSetColor(ofColor::white);
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
