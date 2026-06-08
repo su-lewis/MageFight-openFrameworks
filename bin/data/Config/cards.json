@@ -97,6 +97,7 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "cost": 4,
     "class": 2,
+    "baseDamage": 5,
     "rangeDiceNum": 1,
     "rangeDiceSides": 20
   },
@@ -468,6 +469,8 @@
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_ELECTRIC",
+    "damageDiceNum": 1,
+    "damageDiceSides": 10,
     "rangeDiceNum": 2,
     "rangeDiceSides": 10,
     "class": 2

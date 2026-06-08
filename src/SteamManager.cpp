@@ -124,7 +124,9 @@ void SteamManager::createLobby() {
 	ofLogNotice("Steam") << "Requesting Lobby Creation...";
 	// Optimistically mark as host so UI updates immediately. If creation fails, we'll clear it.
 	m_bIsHost = true;
-	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
+
+	// FIX: Use FriendsOnly and a max capacity of 2 players
+	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypeFriendsOnly, 2);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
 
@@ -308,14 +310,15 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 }
 
 void SteamManager::openFriendOverlay() {
-	if (m_bInitialized) SteamFriends()->ActivateGameOverlay("LobbyInvite");
+	// FIX: Explicitly open the dialog targeted to our active Lobby ID
+	if (m_bInitialized && m_LobbyID.IsValid() && SteamFriends()) {
+		SteamFriends()->ActivateGameOverlayInviteDialog(m_LobbyID);
+	}
 }
-
 // ---------------------------------------------------------
 //  CALLBACKS
 // ---------------------------------------------------------
 
-// FIX: Standard function, NOT a STEAM_CALLBACK macro
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
 		ofLogError("Steam") << "Lobby Creation Failed. Result: " << pCallback->m_eResult;
@@ -326,10 +329,17 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 	m_bIsHost = true;
+
+	// FIX: Make sure Steam recognizes this as an active lobby
+	SteamMatchmaking()->SetLobbyData(m_LobbyID, "MageFightLobby", "Active");
+
 	ofLogNotice("Steam") << "Lobby Created. Creating Listen Socket...";
 
 	// -- HOST LOGIC: OPEN LISTENING SOCKET --
 	m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
+
+	// FIX: Automatically pop open the Steam invite dialog as soon as it succeeds!
+	openFriendOverlay();
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback) {

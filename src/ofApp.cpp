@@ -19310,12 +19310,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
+		int dmgAmount = 5;
+		if (safeCardIdx >= 0 && safeCardIdx < (int)players[currentPlayerIndex].hand.size()) {
+			int bd = players[currentPlayerIndex].hand[safeCardIdx].baseDamage;
+			if (bd > 0) dmgAmount = bd;
+		}
+
 		if (safeChoice == "damage" && safeTarget != -1) {
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::DAMAGE;
 			dmgOp.data.damage.targetIndex = safeTarget;
 			dmgOp.data.damage.damageType = DAMAGE_MAGIC;
-			dmgOp.data.damage.fixedDamage = 5;
+			dmgOp.data.damage.fixedDamage = dmgAmount;
 			dmgOp.data.damage.damageFromSlot = -1;
 			queueEffect(dmgOp);
 		} else if (safeTarget != -1) { // "discard"
@@ -19478,10 +19484,16 @@ void ofApp::drawActiveCardInteractionUI() {
 			int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 			Player * targetPlayer = getPlayer(actualTargetIdx);
 			if (targetPlayer) {
+				int dmgAmount = 5;
+				if (interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+					int bd = players[currentPlayerIndex].hand[interactingCardIndex].baseDamage;
+					if (bd > 0) dmgAmount = bd;
+				}
+
 				string prompt = "Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":";
 				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
 				drawCardChoicePanel(menuRect, prompt, choicesLeft,
-					btn1, btn2, "Take 5 Magic Damage", "Destroy your top card of unit's deck",
+					btn1, btn2, "Take " + ofToString(dmgAmount) + " Magic Damage", "Remove Top Card",
 					ofColor::indianRed, ofColor::darkSlateBlue, true, true);
 			}
 			break;
@@ -20540,12 +20552,18 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_MAGIC_BLAST) {
 			beginEffectSequence();
 
+			int dmgAmount = 5;
+			if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
+				int bd = players[currentPlayerIndex].hand[cardIndex].baseDamage;
+				if (bd > 0) dmgAmount = bd;
+			}
+
 			if (choice == 1) { // damage
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
 				dmgOp.data.damage.targetIndex = targetIndex;
 				dmgOp.data.damage.damageType = DAMAGE_MAGIC;
-				dmgOp.data.damage.fixedDamage = 5;
+				dmgOp.data.damage.fixedDamage = dmgAmount;
 				dmgOp.data.damage.damageFromSlot = -1;
 				queueEffect(dmgOp);
 			} else { // discard
@@ -21683,6 +21701,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		// Jolt ignores walls, just checks if a unit is at impactTile
 		Player * target = nullptr;
 		for (auto & p : players) {
+			// REMOVED the safety check. If it lands here, it hits them.
 			if (p.x == impactTile.x && p.y == impactTile.y) {
 				target = &p;
 				break;
@@ -22417,11 +22436,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (players[i].health <= 0) continue;
 				int dx = std::abs(players[i].x - impactTile.x);
 				int dy = std::abs(players[i].y - impactTile.y);
-				if (std::max(dx, dy) == 1) {
+
+				// FIX: Magic Blast splash is strictly Orthogonal! (dx + dy == 1)
+				if (dx + dy == 1) {
 					magicBlastSplashTargetIndices.push_back(players[i].playerID);
 				}
 			}
-
 			// Wait for the tracer and dice to finish before showing the menu!
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
@@ -22550,6 +22570,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int directHitIdx = -1;
 		for (size_t i = 0; i < players.size(); ++i) {
 			if (players[i].x == currentCardOutcome.primaryTarget.x && players[i].y == currentCardOutcome.primaryTarget.y) {
+				// REMOVED the safety check. Let the bolt hit whoever is on the tile.
 				directHitIdx = (int)i;
 				break;
 			}
@@ -22893,12 +22914,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		}
 
 		int finalDamage = currentEffectSequence.blackboard[1];
-		std::vector<int> rawDamage = { currentEffectSequence.blackboard[2] };
-		queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.2f, 0), 1, 10, rawDamage, finalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+		int firstRaw = currentEffectSequence.blackboard[2];
+		int dNum = currentEffectSequence.blackboard[3];
+		if (dNum <= 0) dNum = 1;
+		int dSides = currentEffectSequence.blackboard[4];
+		if (dSides <= 0) dSides = 10;
+
+		std::vector<int> rawDamage = { firstRaw };
+		queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.2f, 0), dNum, dSides, rawDamage, finalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 
 		std::vector<int> aoeTargets;
 		for (size_t i = 0; i < players.size(); ++i) {
-			if ((int)i == currentPlayerIndex) continue;
+			// REMOVED the currentPlayerIndex skip here! The caster CAN be hit!
 			Player & p = players[i];
 			if (p.health <= 0) continue;
 
@@ -26646,11 +26673,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		// 3. Roll Damage
+		int dNum = playedCard.damageDiceNum > 0 ? playedCard.damageDiceNum : 1;
+		int dSides = playedCard.damageDiceSides > 0 ? playedCard.damageDiceSides : 10;
 		std::vector<int> rawDamage;
-		int rawDmgSum = resolveDiceRollDetailed(1, 10, rawDamage);
-		int finalDamage = rawDmgSum + 1 * luckBonus;
+		int rawDmgSum = resolveDiceRollDetailed(dNum, dSides, rawDamage);
+		int finalDamage = rawDmgSum + playedCard.baseDamage + (dNum * luckBonus);
+
 		currentEffectSequence.blackboard[1] = finalDamage;
-		currentEffectSequence.blackboard[2] = rawDamage[0];
+		currentEffectSequence.blackboard[2] = rawDamage.empty() ? 1 : rawDamage[0];
+		currentEffectSequence.blackboard[3] = dNum;
+		currentEffectSequence.blackboard[4] = dSides;
 
 		// 4. Wait for Damage Dice
 		EffectOp waitDamage = {};
@@ -27568,19 +27600,23 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 						preview = true;
 
+						// --- FIX: USE RANGE DICE FOR RANGE CALCULATION IN UI ---
+						int rangeNum = card.rangeDiceNum > 0 ? card.rangeDiceNum : card.numDice;
+						int rangeSides = card.rangeDiceSides > 0 ? card.rangeDiceSides : card.diceSides;
+
 						int minRoll = (int)ceil(distFeet);
-						int maxPossibleRoll = card.numDice * card.diceSides;
-						if (minRoll < card.numDice) minRoll = card.numDice;
+						int maxPossibleRoll = rangeNum * rangeSides;
+						if (minRoll < rangeNum) minRoll = rangeNum;
 						if (minRoll > maxPossibleRoll) minRoll = maxPossibleRoll;
 
 						float hitChance = 0.0f;
 						if (minRoll <= maxPossibleRoll) {
-							if (card.numDice == 1) {
-								int successOutcomes = card.diceSides - minRoll + 1;
-								hitChance = (float)successOutcomes / (float)card.diceSides;
-							} else if (card.numDice == 2 || card.numDice == 3) {
-								int sides = card.diceSides;
-								int numDice = card.numDice;
+							if (rangeNum == 1) {
+								int successOutcomes = rangeSides - minRoll + 1;
+								hitChance = (float)successOutcomes / (float)rangeSides;
+							} else if (rangeNum == 2 || rangeNum == 3) {
+								int sides = rangeSides;
+								int numDice = rangeNum;
 								std::vector<std::vector<int>> dp(numDice + 1, std::vector<int>(maxPossibleRoll + 1, 0));
 								dp[0][0] = 1;
 								for (int d = 1; d <= numDice; d++) {
@@ -27598,8 +27634,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 									totalOutcomes *= sides;
 								hitChance = (float)successCount / (float)totalOutcomes;
 							} else {
-								float mean = card.numDice * (card.diceSides + 1) / 2.0f;
-								float variance = card.numDice * (card.diceSides * card.diceSides - 1) / 12.0f;
+								float mean = rangeNum * (rangeSides + 1) / 2.0f;
+								float variance = rangeNum * (rangeSides * rangeSides - 1) / 12.0f;
 								float stdDev = sqrt(variance);
 								float z = (minRoll - 0.5f - mean) / stdDev;
 								if (z <= -3.0f)
@@ -27619,6 +27655,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						board[tx][ty].hasTooltipInfo = true;
 
 						bool hitsSomeone = false;
+
 						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex)) {
 							hitsSomeone = true;
 						} else {
@@ -28268,39 +28305,35 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
-
 				// --- Determine Red Preview ---
-				// Burst of Light: line-of-sight targeting with NO range cap, but do not
-				// preview wall tiles themselves. Show preview only if there's LOS and
-				// the tile is not a wall.
 				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
 					isPreview = true;
 
 					// --- Calculate Tooltip Data for Range-Based Cards ---
 					// Only calculate for cards with dice rolls (not infinite range cards)
-					if (card.numDice > 0 && card.diceSides > 0 && card.type != CARD_HEAL && card.type != CARD_DEATH && card.type != CARD_LESSER_HEAL && card.type != CARD_BURST_OF_LIGHT) {
+					int rangeNum = card.rangeDiceNum > 0 ? card.rangeDiceNum : card.numDice;
+					int rangeSides = card.rangeDiceSides > 0 ? card.rangeDiceSides : card.diceSides;
+
+					if (rangeNum > 0 && rangeSides > 0 && card.type != CARD_HEAL && card.type != CARD_DEATH && card.type != CARD_LESSER_HEAL && card.type != CARD_BURST_OF_LIGHT) {
 
 						// Calculate minimum roll required to reach this square
-						// Distance is in feet, roll is in feet (numDice * diceSides gives max feet)
 						int minRoll = (int)ceil(distFeet);
-						int maxPossibleRoll = card.numDice * card.diceSides;
+						int maxPossibleRoll = rangeNum * rangeSides;
 
 						// Clamp to valid range
-						if (minRoll < card.numDice) minRoll = card.numDice; // Minimum possible roll
+						if (minRoll < rangeNum) minRoll = rangeNum; // Minimum possible roll
 						if (minRoll > maxPossibleRoll) minRoll = maxPossibleRoll;
 
 						// Calculate hit percentage
 						float hitChance = 0.0f;
 						if (minRoll <= maxPossibleRoll) {
-							if (card.numDice == 1) {
+							if (rangeNum == 1) {
 								// Single die: P(X >= minRoll) = (sides - minRoll + 1) / sides
-								int successOutcomes = card.diceSides - minRoll + 1;
-								hitChance = (float)successOutcomes / (float)card.diceSides;
-							} else if (card.numDice == 2 || card.numDice == 3) {
-								// For 2-3 dice: calculate exact probability using dynamic programming
-								// This gives accurate results for Chain Lightning (2d10), Fireball (2d6), etc.
-								int sides = card.diceSides;
-								int numDice = card.numDice;
+								int successOutcomes = rangeSides - minRoll + 1;
+								hitChance = (float)successOutcomes / (float)rangeSides;
+							} else if (rangeNum == 2 || rangeNum == 3) {
+								int sides = rangeSides;
+								int numDice = rangeNum;
 
 								// DP: dp[d][s] = number of ways to get sum s using d dice
 								std::vector<std::vector<int>> dp(numDice + 1, std::vector<int>(maxPossibleRoll + 1, 0));
@@ -28329,10 +28362,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								hitChance = (float)successCount / (float)totalOutcomes;
 							} else {
 								// For 4+ dice: use normal distribution approximation
-								// Mean = numDice * (diceSides + 1) / 2
-								// Variance = numDice * (diceSides^2 - 1) / 12
-								float mean = card.numDice * (card.diceSides + 1) / 2.0f;
-								float variance = card.numDice * (card.diceSides * card.diceSides - 1) / 12.0f;
+								float mean = rangeNum * (rangeSides + 1) / 2.0f;
+								float variance = rangeNum * (rangeSides * rangeSides - 1) / 12.0f;
 								float stdDev = sqrt(variance);
 
 								// Use continuity correction for better approximation
@@ -28376,11 +28407,15 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							for (int dx = -1; dx <= 1; dx++) {
 								for (int dy = -1; dy <= 1; dy++) {
 									if (dx == 0 && dy == 0) continue;
+
+									// FIX: Magic Blast cannot splash diagonally!
+									if (card.type == CARD_MAGIC_BLAST && abs(dx) == 1 && abs(dy) == 1) continue;
+
 									int nx = x + dx;
 									int ny = y + dy;
 									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
 										bool blocked = false;
-										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check
+										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check (Chain Lightning only)
 											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
 										}
 										if (!blocked) {
@@ -31199,9 +31234,15 @@ void ofApp::drawOpponentMenu() {
 		else if (hover == 2)
 			drawHoverGlow(btn2);
 	} else if (opponentInteraction.type == 4) {
+		int dmgAmount = 5;
+		if (opponentInteraction.cardIndex >= 0 && opponentInteraction.cardIndex < (int)players[currentPlayerIndex].hand.size()) {
+			int bd = players[currentPlayerIndex].hand[opponentInteraction.cardIndex].baseDamage;
+			if (bd > 0) dmgAmount = bd;
+		}
+
 		string desc = "Waiting for player to choose... (" + ofToString(magicBlastChoicesRemaining) + " left)";
 		drawCardChoicePanel(menuRect, "Magic Blast", desc,
-			btn1, btn2, "Take 5 Damage", "Remove Top Card of Deck",
+			btn1, btn2, "Take " + ofToString(dmgAmount) + " Damage", "Remove Top Card",
 			ofColor::indianRed, ofColor::darkSlateBlue, false, false);
 
 		if (hover == 1)
