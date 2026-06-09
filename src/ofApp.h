@@ -39,6 +39,7 @@
 
 enum GameState {
 	STATE_MAIN_MENU,
+	STATE_MULTIPLAYER_MENU,
 	STATE_SETTINGS,
 	STATE_GAMEPLAY,
 	STATE_WAITING_FOR_RECONNECT,
@@ -2386,10 +2387,17 @@ private:
 
 	// --- MENU UI VARIABLES ---
 	ofRectangle mainMenuPlayAIButton;
-	ofRectangle mainMenuMultiplayerButton;
+	ofRectangle mainMenuOnlineButton; // Replaces Host/Invite
 	ofRectangle mainMenuSettingsButton;
 	ofRectangle mainMenuQuitButton;
 	int mainMenuHoveredIndex = -1;
+
+	// Multiplayer Menu UI
+	ofRectangle mpRefreshButton;
+	ofRectangle mpHostButton;
+	ofRectangle mpBackButton;
+	std::vector<ofRectangle> mpLobbyButtons;
+	void drawMultiplayerMenu();
 
 	ofRectangle settingsBackButton;
 	ofRectangle settingsResLeftButton, settingsResRightButton;

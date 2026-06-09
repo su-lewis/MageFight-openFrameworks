@@ -9,11 +9,26 @@
 
 class SteamManager {
 public:
+	// --- NEW STRUCTS ---
+	struct LobbyInfo {
+		CSteamID lobbyID;
+		std::string name;
+		int numPlayers;
+		int maxPlayers;
+	};
+
+	struct LeaderboardEntry {
+		int rank;
+		std::string name;
+		int score;
+	};
+
 	SteamManager();
 	~SteamManager();
 
 	void setup();
 	void update();
+
 	void cleanup();
 	void shutdownAPI();
 
@@ -52,6 +67,14 @@ public:
 	// Packet Queue for ofApp
 	std::queue<std::vector<char>> packetQueue;
 
+	// --- NEW PUBLIC FUNCTIONS ---
+	void refreshLobbies();
+	std::vector<LobbyInfo> getLobbyList();
+	void joinLobbyByID(CSteamID lobbyID);
+
+	void fetchLeaderboard();
+	std::vector<LeaderboardEntry> getLeaderboardEntries();
+
 private:
 	CSteamID m_OpponentID;
 	uint32_t m_nextSeq = 1;
@@ -65,6 +88,19 @@ private:
 	// Networking API Handles
 	HSteamListenSocket m_hListenSocket;
 	HSteamNetConnection m_hConnection;
+
+	std::vector<LobbyInfo> currentLobbies;
+	std::vector<LeaderboardEntry> currentLeaderboard;
+	SteamLeaderboard_t currentLeaderboardHandle;
+
+	CCallResult<SteamManager, LobbyMatchList_t> m_LobbyMatchListCallResult;
+	void OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailure);
+
+	CCallResult<SteamManager, LeaderboardFindResult_t> m_LeaderboardFindCallResult;
+	void OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, bool bIOFailure);
+
+	CCallResult<SteamManager, LeaderboardScoresDownloaded_t> m_LeaderboardScoresDownloadedCallResult;
+	void OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t * pCallback, bool bIOFailure);
 
 	// Callbacks
 	STEAM_CALLBACK(SteamManager, OnLobbyEnter, LobbyEnter_t);

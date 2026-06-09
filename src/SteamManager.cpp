@@ -122,11 +122,10 @@ void SteamManager::createLobby() {
 	if (m_bIsHost) return; // Already hosting?
 
 	ofLogNotice("Steam") << "Requesting Lobby Creation...";
-	// Optimistically mark as host so UI updates immediately. If creation fails, we'll clear it.
 	m_bIsHost = true;
 
-	// FIX: Use FriendsOnly and a max capacity of 2 players
-	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypeFriendsOnly, 2);
+	// Change to Public so it shows up in the Lobby Browser!
+	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 2);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
 
@@ -322,7 +321,6 @@ void SteamManager::openFriendOverlay() {
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
 		ofLogError("Steam") << "Lobby Creation Failed. Result: " << pCallback->m_eResult;
-		// Clear optimistic host flag on failure
 		m_bIsHost = false;
 		return;
 	}
@@ -330,7 +328,9 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 	m_bIsHost = true;
 
-	// FIX: Make sure Steam recognizes this as an active lobby
+	// Set the name so players see whose game it is in the browser
+	std::string lobbyName = std::string(SteamFriends()->GetPersonaName()) + "'s Game";
+	SteamMatchmaking()->SetLobbyData(m_LobbyID, "name", lobbyName.c_str());
 	SteamMatchmaking()->SetLobbyData(m_LobbyID, "MageFightLobby", "Active");
 
 	ofLogNotice("Steam") << "Lobby Created. Creating Listen Socket...";
@@ -338,8 +338,8 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	// -- HOST LOGIC: OPEN LISTENING SOCKET --
 	m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
 
-	// FIX: Automatically pop open the Steam invite dialog as soon as it succeeds!
-	openFriendOverlay();
+	// Optional: we don't open the friend overlay automatically anymore since we have a lobby browser
+	// openFriendOverlay();
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback) {
@@ -469,4 +469,74 @@ bool SteamManager::checkAndClearReconnectFlag() {
 	bool result = opponentReconnected;
 	opponentReconnected = false;
 	return result;
+}
+
+void SteamManager::refreshLobbies() {
+	if (!SteamMatchmaking()) return;
+	// Request a maximum of 50 lobbies
+	SteamMatchmaking()->AddRequestLobbyListResultCountFilter(50);
+	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->RequestLobbyList();
+	m_LobbyMatchListCallResult.Set(hSteamAPICall, this, &SteamManager::OnLobbyMatchList);
+}
+
+void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailure) {
+	currentLobbies.clear();
+	if (bIOFailure) return;
+
+	for (uint32_t i = 0; i < pCallback->m_nLobbiesMatching; i++) {
+		CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
+		LobbyInfo info;
+		info.lobbyID = lobbyID;
+		const char * name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
+		info.name = (name && name[0]) ? name : "Mage Fight Match";
+		info.numPlayers = SteamMatchmaking()->GetNumLobbyMembers(lobbyID);
+		info.maxPlayers = SteamMatchmaking()->GetLobbyMemberLimit(lobbyID);
+		currentLobbies.push_back(info);
+	}
+}
+
+std::vector<SteamManager::LobbyInfo> SteamManager::getLobbyList() {
+	return currentLobbies;
+}
+
+void SteamManager::joinLobbyByID(CSteamID lobbyID) {
+	if (!SteamMatchmaking()) return;
+	SteamMatchmaking()->JoinLobby(lobbyID);
+}
+
+void SteamManager::fetchLeaderboard() {
+	if (!SteamUserStats()) return;
+	SteamAPICall_t hSteamAPICall = SteamUserStats()->FindLeaderboard("Global_Rankings");
+	m_LeaderboardFindCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardFindResult);
+}
+
+void SteamManager::OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, bool bIOFailure) {
+	if (!bIOFailure && pCallback->m_bLeaderboardFound) {
+		currentLeaderboardHandle = pCallback->m_hSteamLeaderboard;
+		// Download top 10 global players
+		SteamAPICall_t hSteamAPICall = SteamUserStats()->DownloadLeaderboardEntries(
+			currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 10);
+		m_LeaderboardScoresDownloadedCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardScoresDownloaded);
+	}
+}
+
+void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t * pCallback, bool bIOFailure) {
+	currentLeaderboard.clear();
+	if (bIOFailure) return;
+
+	for (int index = 0; index < pCallback->m_cEntryCount; index++) {
+		LeaderboardEntry_t leaderboardEntry;
+		SteamUserStats()->GetDownloadedLeaderboardEntry(pCallback->m_hSteamLeaderboardEntries, index, &leaderboardEntry, NULL, 0);
+
+		LeaderboardEntry entry;
+		entry.rank = leaderboardEntry.m_nGlobalRank;
+		entry.score = leaderboardEntry.m_nScore;
+		const char * name = SteamFriends()->GetFriendPersonaName(leaderboardEntry.m_steamIDUser);
+		entry.name = name ? name : "Unknown";
+		currentLeaderboard.push_back(entry);
+	}
+}
+
+std::vector<SteamManager::LeaderboardEntry> SteamManager::getLeaderboardEntries() {
+	return currentLeaderboard;
 }

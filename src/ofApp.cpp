@@ -5049,20 +5049,14 @@ void ofApp::drawMainMenu() {
 
 	drawButton(mainMenuPlayAIButton, "Singleplayer", mainMenuHoveredIndex == 0);
 
-	// Logic: If we are already in a lobby, show "Invite", otherwise show "Host"
 	if (!steamManager.isConnected()) {
-		drawButton(mainMenuHostButton, "Host Steam", mainMenuHoveredIndex == 1);
-		// Draw a grayed out invite button
-		ofSetColor(100);
-		ofDrawRectRounded(mainMenuInviteButton, 15);
-	} else {
-		// We are connected/hosting
-		ofSetColor(ofColor::green); // Highlight that we are online
-		ofDrawRectRounded(mainMenuHostButton, 15);
+		ofSetColor(100); // Grayed out if Steam is not running
+		ofDrawRectRounded(mainMenuOnlineButton, 15);
 		ofSetColor(ofColor::black);
-		uiFont.drawString("Lobby Active", mainMenuHostButton.x + 20, mainMenuHostButton.getCenter().y);
-
-		drawButton(mainMenuInviteButton, "Invite Friend", mainMenuHoveredIndex == 4);
+		ofRectangle tb = uiFont.getStringBoundingBox("Steam Offline", 0, 0);
+		uiFont.drawString("Steam Offline", mainMenuOnlineButton.getCenter().x - tb.width / 2, mainMenuOnlineButton.getCenter().y + tb.height / 2);
+	} else {
+		drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 1);
 	}
 
 	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 2);
@@ -5594,6 +5588,118 @@ void ofApp::drawSaveBrowser() {
 		uiFont.drawString("Cancel", saveBrowserConfirmCancelButton.getCenter().x - cb.getWidth() / 2, saveBrowserConfirmCancelButton.getCenter().y + cb.getHeight() / 2);
 	}
 }
+void ofApp::drawMultiplayerMenu() {
+	ofDisableLighting();
+	ofEnableAlphaBlending();
+
+	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float centerX = ofGetWidth() / 2.0f;
+
+	// Background Panel
+	float panelW = 1200.0f * uiScale;
+	float panelH = ofGetHeight() * 0.85f;
+	float panelY = ofGetHeight() * 0.075f;
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	ofPushStyle();
+	ofSetColor(25, 25, 30, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofNoFill();
+	ofSetLineWidth(2.0f);
+	ofSetColor(80, 80, 90, 255);
+	ofDrawRectRounded(panelRect, 16.0f);
+	ofPopStyle();
+
+	// Title
+	ofSetColor(ofColor::white);
+	string title = "Online Versus";
+	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
+	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, panelY + 50.0f * uiScale);
+
+	// Split panel into two columns
+	float colW = (panelW - 60.0f * uiScale) / 2.0f;
+	float leftColX = panelRect.x + 20.0f * uiScale;
+	float rightColX = centerX + 10.0f * uiScale;
+	float listY = panelY + 120.0f * uiScale;
+
+	// --- LEFT COLUMN: LOBBY LIST ---
+	ofSetColor(ofColor::gold);
+	uiFont.drawString("Available Matches", leftColX, listY - 20.0f * uiScale);
+
+	auto lobbies = steamManager.getLobbyList();
+	mpLobbyButtons.clear();
+	float currentY = listY;
+	float btnH = 50.0f * uiScale;
+
+	if (lobbies.empty()) {
+		ofSetColor(150);
+		uiFont.drawString("No open matches found.", leftColX, currentY + 30);
+	} else {
+		for (size_t i = 0; i < lobbies.size(); ++i) {
+			ofRectangle lRect(leftColX, currentY, colW, btnH);
+			mpLobbyButtons.push_back(lRect);
+
+			ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
+			ofDrawRectRounded(lRect, 8.0f);
+
+			ofSetColor(ofColor::white);
+			std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/" + std::to_string(lobbies[i].maxPlayers) + ")";
+			uiFont.drawString(lobbyText, lRect.x + 15, lRect.y + 35 * uiScale);
+
+			currentY += btnH + 10.0f * uiScale;
+		}
+	}
+
+	// Action Buttons under Lobbies
+	float bottomBtnY = panelRect.getBottom() - 80.0f * uiScale;
+	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
+	mpHostButton.set(leftColX + colW / 2.0f + 10, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
+
+	auto drawBtn = [&](const ofRectangle & r, const std::string & txt) {
+		ofSetColor(r.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::white);
+		ofDrawRectRounded(r, 12);
+		ofSetColor(ofColor::black);
+		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
+		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2 - 2);
+	};
+
+	drawBtn(mpRefreshButton, "Refresh List");
+	drawBtn(mpHostButton, "Host Match");
+
+	// --- RIGHT COLUMN: LEADERBOARD ---
+	ofSetColor(ofColor::cyan);
+	uiFont.drawString("Global Rankings (Elo)", rightColX, listY - 20.0f * uiScale);
+
+	auto leaderboard = steamManager.getLeaderboardEntries();
+	float lbY = listY;
+
+	if (leaderboard.empty()) {
+		ofSetColor(150);
+		uiFont.drawString("Loading rankings...", rightColX, lbY + 30);
+	} else {
+		for (const auto & entry : leaderboard) {
+			ofSetColor(40, 40, 50);
+			ofDrawRectRounded(rightColX, lbY, colW, btnH, 8.0f);
+
+			ofSetColor(ofColor::gold);
+			uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 10, lbY + 35 * uiScale);
+
+			ofSetColor(ofColor::white);
+			uiFont.drawString(entry.name, rightColX + 70 * uiScale, lbY + 35 * uiScale);
+
+			ofSetColor(ofColor::green);
+			std::string scoreStr = std::to_string(entry.score);
+			ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
+			uiFont.drawString(scoreStr, rightColX + colW - sb.width - 15, lbY + 35 * uiScale);
+
+			lbY += btnH + 5.0f * uiScale;
+		}
+	}
+
+	// Back Button
+	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
+	drawBtn(mpBackButton, "Back to Menu");
+}
 //--------------------------------------------------------------
 void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
@@ -5685,9 +5791,7 @@ void ofApp::recalculateUI(int w, int h) {
 
 	// Main Menu
 	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	float halfWidth = (btnWidth / 2.0f) - (10.0f * uiScale);
-	mainMenuHostButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, halfWidth, btnHeight);
-	mainMenuInviteButton.set(centerX + (10.0f * uiScale), startY + btnHeight + btnGap, halfWidth, btnHeight);
+	mainMenuOnlineButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, btnWidth, btnHeight);
 	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
 	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
 
@@ -13302,6 +13406,10 @@ cursor_check_done:;
 	case STATE_DESYNC:
 		break;
 	case STATE_SINGLEPLAYER_MENU:
+		drawSingleplayerMenu();
+		break;
+	case STATE_MULTIPLAYER_MENU:
+		drawMultiplayerMenu();
 		break;
 	case STATE_SAVE_BROWSER:
 		break;
@@ -13904,16 +14012,12 @@ cursor_check_done:;
 		mainMenuHoveredIndex = -1;
 		if (mainMenuPlayAIButton.inside(x, y))
 			mainMenuHoveredIndex = 0;
-		else if (mainMenuHostButton.inside(x, y))
+		else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected())
 			mainMenuHoveredIndex = 1;
 		else if (mainMenuSettingsButton.inside(x, y))
 			mainMenuHoveredIndex = 2;
 		else if (mainMenuQuitButton.inside(x, y))
 			mainMenuHoveredIndex = 3;
-		else if (mainMenuInviteButton.inside(x, y))
-			mainMenuHoveredIndex = 4;
-		else
-			mainMenuHoveredIndex = -1;
 		break;
 	}
 	case STATE_SETTINGS: {
@@ -14101,25 +14205,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = STATE_SINGLEPLAYER_MENU;
 			return;
 		}
-		if (mainMenuHostButton.inside(x, y)) {
-			if (!steamManager.isConnected()) {
-				steamManager.createLobby();
-			} else {
-				steamManager.leaveLobby();
-				isMultiplayer = false;
-				hasReceivedHandshake = false;
-				initialDraftComplete = false;
-				draftAcceptLocked = false;
-				draftAcceptApplied = false;
-				gameplaySeededByHost = false;
-				handshakeRequestInterval = 1.0f;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-			}
-			return;
-		}
-		if (mainMenuInviteButton.inside(x, y)) {
-			if (steamManager.isConnected()) steamManager.openFriendOverlay();
+		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
+			currentState = STATE_MULTIPLAYER_MENU;
+			steamManager.refreshLobbies();
+			steamManager.fetchLeaderboard();
 			return;
 		}
 		if (mainMenuSettingsButton.inside(x, y)) {
@@ -14341,6 +14430,34 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (singleplayerBackButton.inside(x, y)) {
 			currentState = STATE_MAIN_MENU;
 			return;
+		}
+	}
+
+	// --- ONLINE VERSUS MENU CLICKS ---
+	if (currentState == STATE_MULTIPLAYER_MENU && button == OF_MOUSE_BUTTON_LEFT) {
+		if (mpBackButton.inside(x, y)) {
+			currentState = STATE_MAIN_MENU;
+			return;
+		}
+		if (mpRefreshButton.inside(x, y)) {
+			steamManager.refreshLobbies();
+			steamManager.fetchLeaderboard();
+			return;
+		}
+		if (mpHostButton.inside(x, y)) {
+			steamManager.createLobby();
+			addGameLog("Created Lobby. Waiting for opponent...");
+			// The game will start automatically when the opponent joins
+			return;
+		}
+		// Check lobby clicks
+		auto lobbies = steamManager.getLobbyList();
+		for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
+			if (mpLobbyButtons[i].inside(x, y)) {
+				steamManager.joinLobbyByID(lobbies[i].lobbyID);
+				addGameLog("Joining lobby...");
+				return;
+			}
 		}
 	}
 
