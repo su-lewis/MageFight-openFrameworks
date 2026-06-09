@@ -12393,11 +12393,6 @@ void ofApp::drawGame() {
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
 
 	// (elideStringToWidth removed — unused helper)
-	// --- DRAW OVERLAY UIs ---
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
-		drawGhostRelocateUI();
-	}
-
 	// === PHASE 2-3: NEW UNIFIED CARD INTERACTION UI ===
 	drawActiveCardInteractionUI();
 
@@ -13050,9 +13045,9 @@ void ofApp::drawGame() {
 		ofTranslate(btnX + btnW / 2.0f, btnY + btnH / 2.0f);
 		ofScale(1.0f, 1.0f);
 		ofTranslate(-(btnX + btnW / 2.0f), -(btnY + btnH / 2.0f));
-		ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
+		ofSetColor(canAccept ? ofColor(70, 160, 255, 255 * g_menuAlphaMult) : ofColor(100, 100, 100, 255 * g_menuAlphaMult));
 		ofDrawRectRounded(riConfirmBtn, 12);
-		ofSetColor(ofColor::white);
+		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
 		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2.0f, btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f);
 
@@ -13061,7 +13056,7 @@ void ofApp::drawGame() {
 		ofRectangle selectedCountBox = uiFont.getStringBoundingBox(selectedCountText, 0, 0);
 		float selectedCountX = btnX + btnW + std::max(12.0f, 16.0f * uiScale);
 		float selectedCountY = btnY + (btnH + selectedCountBox.height) / 2.0f - 6.0f;
-		ofSetColor(ofColor::white);
+		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		uiFont.drawString(selectedCountText, selectedCountX, selectedCountY);
 		ofPopMatrix();
 	}
@@ -18444,7 +18439,7 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 		opponentDecisionPlayerIndex = -1;
 	}
 	// When entering a menu, start the menu-open scale animation
-	if (newState == CARD_INTERACTION_STATE_MENU) {
+	if (newState == CARD_INTERACTION_STATE_MENU || newState == CARD_INTERACTION_STATE_STATUS) {
 		menuOpenStartTime = ofGetElapsedTimef();
 		// start slightly small
 		menuOpenScale = 0.6f;
@@ -19437,11 +19432,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 void ofApp::drawActiveCardInteractionUI() {
 	if (cardInteractionState == CARD_INTERACTION_STATE_IDLE) return;
 
-	if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-		drawDispelUI();
-		return;
-	}
-
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA) {
 		bool diceSpinning = false;
 		for (const auto & r : activeDiceRolls) {
@@ -19453,11 +19443,37 @@ void ofApp::drawActiveCardInteractionUI() {
 		if (diceSpinning) return;
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType != CARD_RENEWED_INSPIRATION) {
-		drawMenuOverlay();
+	float scale = 1.0f;
+	g_menuAlphaMult = 1.0f;
+	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS);
+
+	if (isAnimatedMenu) {
+		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
+		float t = std::clamp(elapsed / 0.15f, 0.0f, 1.0f); // 150ms fade
+		float ease = 1.0f - powf(1.0f - t, 3.0f);
+		scale = glm::mix(menuOpenScale, 1.0f, ease);
+		g_menuAlphaMult = t;
+
+		// Draw overlay unscaled BEFORE matrix push
+		if (interactingCardType != CARD_RENEWED_INSPIRATION) {
+			drawMenuOverlay();
+		}
+
+		ofPushMatrix();
+		float cx = ofGetWidth() * 0.5f;
+		float cy = ofGetHeight() * 0.5f;
+		ofTranslate(cx, cy);
+		ofScale(scale, scale);
+		ofTranslate(-cx, -cy);
 	}
 
-	float scale = 1.0f;
+	if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+		drawDispelUI();
+		if (isAnimatedMenu) ofPopMatrix();
+		g_menuAlphaMult = 1.0f;
+		return;
+	}
+
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
 		float t = (menuOpenDuration > 0.0f) ? std::clamp(elapsed / menuOpenDuration, 0.0f, 1.0f) : 1.0f;
@@ -19599,16 +19615,15 @@ void ofApp::drawActiveCardInteractionUI() {
 					btnSingle, dummyRect, "Target", "", ofColor(200, 200, 255), ofColor(200, 200, 255), true, false);
 			} else {
 				// Restored Custom Grid Rendering for Amnesia Deck Inspection
-				drawMenuOverlay();
 				float panelWidth = ofGetWidth() * 0.85f;
 				float panelHeight = ofGetHeight() * 0.85f;
 				float panelX = (ofGetWidth() - panelWidth) / 2.0f;
 				float panelY = (ofGetHeight() - panelHeight) / 2.0f;
 				ofRectangle amnesiaRect(panelX, panelY, panelWidth, panelHeight);
 
-				ofSetColor(25, 25, 30, 250);
+				ofSetColor(25, 25, 30, 250 * g_menuAlphaMult);
 				ofDrawRectRounded(amnesiaRect, 15);
-				ofSetColor(ofColor::white);
+				ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 
 				string title = "Amnesia - Select " + ofToString(numCardsToRemove) + " card(s) to remove";
 				ofRectangle titleBox2 = uiFont.getStringBoundingBox(title, 0, 0);
@@ -19634,7 +19649,7 @@ void ofApp::drawActiveCardInteractionUI() {
 					ofRectangle cRect(drawX, drawY, cardW, cardH);
 					amnesiaCardRects.push_back(cRect);
 
-					ofSetColor(255);
+					ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, cardW, cardH,
 						amnesiaDeckCopy[i].textureRect.x, amnesiaDeckCopy[i].textureRect.y,
 						amnesiaDeckCopy[i].textureRect.width, amnesiaDeckCopy[i].textureRect.height);
@@ -19642,13 +19657,13 @@ void ofApp::drawActiveCardInteractionUI() {
 					if (std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), (int)i) != amnesiaSelectedIndices.end()) {
 						ofNoFill();
 						ofSetLineWidth(4.0f);
-						ofSetColor(ofColor::yellow);
+						ofSetColor(255, 255, 0, 255 * g_menuAlphaMult);
 						ofDrawRectangle(cRect);
 						ofFill();
 					} else if (cRect.inside(ofGetMouseX(), ofGetMouseY())) {
 						ofNoFill();
 						ofSetLineWidth(3.0f);
-						ofSetColor(ofColor::white);
+						ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 						ofDrawRectangle(cRect);
 						ofFill();
 					}
@@ -19657,9 +19672,9 @@ void ofApp::drawActiveCardInteractionUI() {
 				// Accept button
 				bool canAccept = (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) || (amnesiaSelectedIndices.size() == amnesiaDeckCopy.size());
 				draftAcceptButtonRect.set(panelX + panelWidth / 2 - 110, panelY + panelHeight - 60, 220, 50);
-				ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
+				ofSetColor(canAccept ? ofColor(70, 160, 255, 255 * g_menuAlphaMult) : ofColor(100, 100, 100, 255 * g_menuAlphaMult));
 				ofDrawRectRounded(draftAcceptButtonRect, 10);
-				ofSetColor(ofColor::white);
+				ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 				ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
 				uiFont.drawString("Accept", draftAcceptButtonRect.getCenter().x - aBox.width / 2, draftAcceptButtonRect.getCenter().y + aBox.height / 2 - 4);
 			}
@@ -19675,9 +19690,10 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+	if (isAnimatedMenu) {
 		ofPopMatrix();
 	}
+	g_menuAlphaMult = 1.0f;
 }
 
 void ofApp::cancelAllTargeting() {
@@ -24534,6 +24550,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		handleCardTargetClick(gridX, gridY);
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 
+		if (ofGetElapsedTimef() - menuOpenStartTime < 0.25f) return; // Prevent accidental instant clicks
+
 		// STANDARD MENU MATH FOR HITBOXES
 		float w = 720.0f, h = 360.0f;
 		float mx = ofGetWidth() / 2.0f - w / 2.0f;
@@ -24784,6 +24802,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			break;
 		}
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+		if (ofGetElapsedTimef() - menuOpenStartTime < 0.25f) return; // Prevent accidental instant clicks
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 		if (isMultiplayer && !isCurrentPlayerLocal()) return;
 
@@ -30462,11 +30481,11 @@ void ofApp::drawDispelUI() {
 	}
 
 	// Background
-	ofSetColor(50, 50, 50, 255);
+	ofSetColor(50, 50, 50, 255 * g_menuAlphaMult);
 	ofDrawRectRounded(statusSelectMenuRect, 15);
 
 	// Title
-	ofSetColor(ofColor::white);
+	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	string title = "Select Status to Remove";
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
 	uiFont.drawString(title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
@@ -30500,7 +30519,7 @@ void ofApp::drawDiceLabel(const string & message, ofColor color, float yPos) {
 //--------------------------------------------------------------
 void ofApp::drawMenuOverlay() {
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(0, 0, 0, 180);
+	ofSetColor(0, 0, 0, 180 * g_menuAlphaMult);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 }
 //--------------------------------------------------------------
@@ -31585,10 +31604,10 @@ void ofApp::drawGhostRelocateUI() {
 	float py = ofGetHeight() / 2.0f - panelH / 2.0f;
 	ofRectangle panel(px, py, panelW, panelH);
 
-	ofSetColor(30, 30, 40, 240);
+	ofSetColor(30, 30, 40, 240 * g_menuAlphaMult);
 	ofDrawRectRounded(panel, 12);
 
-	ofSetColor(ofColor::white);
+	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
 	uiFont.drawString(title, panel.getCenter().x - tbox.getWidth() / 2.0f, panel.y + 48);
 	ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
@@ -31632,7 +31651,7 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 	float spacing = 28.0f;
 
 	// Panel background (caller is expected to draw overlay if desired)
-	ofSetColor(30, 30, 40, 240);
+	ofSetColor(30, 30, 40, 240 * g_menuAlphaMult);
 	ofDrawRectRounded(panelRect, 12);
 
 	// Mini decision timer (used when another player's menu decision pauses the turn timer)
@@ -31645,28 +31664,29 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 		float barX = panelRect.getCenter().x - barW * 0.5f;
 		float barY = panelRect.y - 26.0f;
 
-		ofSetColor(20, 20, 30, 220);
+		ofSetColor(20, 20, 30, 220 * g_menuAlphaMult);
 		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
-		ofSetColor(60, 60, 70);
+		ofSetColor(60, 60, 70, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
-		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
+		ofColor fillC = ofColor::fromHsb(120 * pct, 200, 220);
+		ofSetColor(fillC.r, fillC.g, fillC.b, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
 
 		int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
 		std::string secsText = "Decision " + ofToString(secs) + "s";
-		ofSetColor(ofColor::white);
+		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
 		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
 	}
 
 	// Title
-	ofSetColor(ofColor::white);
+	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
 	uiFont.drawString(title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
 
 	// Description
 	if (!desc.empty()) {
-		ofSetColor(ofColor::white);
+		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
 		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
 	}
@@ -31684,28 +31704,28 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 
 	// Draw primary card panel
 	if (primaryEnabled)
-		ofSetColor(primaryAccent);
+		ofSetColor(primaryAccent.r, primaryAccent.g, primaryAccent.b, 255 * g_menuAlphaMult);
 	else
-		ofSetColor(90, 90, 90);
+		ofSetColor(90, 90, 90, 255 * g_menuAlphaMult);
 	ofDrawRectRounded(primaryRect, 10);
 	// small inner white inset for card-like look
-	ofSetColor(255, 255, 255, 12);
+	ofSetColor(255, 255, 255, 12 * g_menuAlphaMult);
 	ofDrawRectRounded(primaryRect.x + 8, primaryRect.y + 8, primaryRect.width - 16, primaryRect.height - 16, 8);
 	// Label
-	ofSetColor((primaryEnabled && primaryAccent.getBrightness() > 200) ? ofColor::black : ofColor::white);
+	ofSetColor((primaryEnabled && primaryAccent.getBrightness() > 200) ? ofColor(0, 0, 0, 255 * g_menuAlphaMult) : ofColor(255, 255, 255, 255 * g_menuAlphaMult));
 	ofRectangle pBox = uiFont.getStringBoundingBox(primaryLabel, 0, 0);
 	uiFont.drawString(primaryLabel, primaryRect.getCenter().x - pBox.getWidth() / 2, primaryRect.getCenter().y + pBox.getHeight() / 2);
 
 	// Draw secondary card panel if present
 	if (!secondaryLabel.empty()) {
 		if (secondaryEnabled)
-			ofSetColor(secondaryAccent);
+			ofSetColor(secondaryAccent.r, secondaryAccent.g, secondaryAccent.b, 255 * g_menuAlphaMult);
 		else
-			ofSetColor(90, 90, 90);
+			ofSetColor(90, 90, 90, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(secondaryRect, 10);
-		ofSetColor(255, 255, 255, 12);
+		ofSetColor(255, 255, 255, 12 * g_menuAlphaMult);
 		ofDrawRectRounded(secondaryRect.x + 8, secondaryRect.y + 8, secondaryRect.width - 16, secondaryRect.height - 16, 8);
-		ofSetColor((secondaryEnabled && secondaryAccent.getBrightness() > 200) ? ofColor::black : ofColor::white);
+		ofSetColor((secondaryEnabled && secondaryAccent.getBrightness() > 200) ? ofColor(0, 0, 0, 255 * g_menuAlphaMult) : ofColor(255, 255, 255, 255 * g_menuAlphaMult));
 		ofRectangle sBox = uiFont.getStringBoundingBox(secondaryLabel, 0, 0);
 		uiFont.drawString(secondaryLabel, secondaryRect.getCenter().x - sBox.getWidth() / 2, secondaryRect.getCenter().y + sBox.getHeight() / 2);
 	}
@@ -31745,7 +31765,7 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 	float cardH = 160.0f;
 
 	// Panel background
-	ofSetColor(30, 30, 40, 240);
+	ofSetColor(30, 30, 40, 240 * g_menuAlphaMult);
 	ofDrawRectRounded(panelRect, 12);
 
 	// Mini decision timer above panel
@@ -31758,28 +31778,29 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		float barX = panelRect.getCenter().x - barW * 0.5f;
 		float barY = panelRect.y - 26.0f;
 
-		ofSetColor(20, 20, 30, 220);
+		ofSetColor(20, 20, 30, 220 * g_menuAlphaMult);
 		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
-		ofSetColor(60, 60, 70);
+		ofSetColor(60, 60, 70, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
-		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
+		ofColor fillC = ofColor::fromHsb(120 * pct, 200, 220);
+		ofSetColor(fillC.r, fillC.g, fillC.b, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
 
 		int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
 		std::string secsText = "Decision " + ofToString(secs) + "s";
-		ofSetColor(ofColor::white);
+		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
 		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
 	}
 
 	// Title
-	ofSetColor(ofColor::white);
+	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
 	uiFont.drawString(title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
 
 	// Description
 	if (!desc.empty()) {
-		ofSetColor(ofColor::white);
+		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
 		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
 	}
@@ -31807,15 +31828,15 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		bool en = (i < (int)enabled.size()) ? enabled[i] : true;
 		ofColor accent = (i < (int)accents.size()) ? accents[i] : ofColor(120, 120, 120);
 		if (en)
-			ofSetColor(accent);
+			ofSetColor(accent.r, accent.g, accent.b, 255 * g_menuAlphaMult);
 		else
-			ofSetColor(70, 70, 70);
+			ofSetColor(70, 70, 70, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(br, 10);
 
-		ofSetColor(255, 255, 255, 12);
+		ofSetColor(255, 255, 255, 12 * g_menuAlphaMult);
 		ofDrawRectRounded(br.x + 8, br.y + 8, br.width - 16, br.height - 16, 8);
 
-		ofSetColor((en && accent.getBrightness() > 200) ? ofColor::black : ofColor::white);
+		ofSetColor((en && accent.getBrightness() > 200) ? ofColor(0, 0, 0, 255 * g_menuAlphaMult) : ofColor(255, 255, 255, 255 * g_menuAlphaMult));
 		ofRectangle tb = uiFont.getStringBoundingBox(labels[i], 0, 0);
 		float tx = std::round(br.getCenter().x - (tb.x + tb.width * 0.5f));
 		float ty = std::round(br.getCenter().y - (tb.y + tb.height * 0.5f));
