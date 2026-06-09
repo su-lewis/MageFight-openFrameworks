@@ -7491,6 +7491,7 @@ void ofApp::updateGameLogic() {
 						EffectOp apply = {};
 						apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
 						queueEffect(apply);
+						if (!isProcessingEffect) beginEffectSequence(); // <--- CRITICAL FIX: Trigger the damage queue!
 					}
 				}
 
@@ -8799,7 +8800,6 @@ void ofApp::drawGame() {
 				} else if (player.isAssistant) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Raise assistant a tiny bit so it doesn't clip into the floor
 					// Raise assistant a bit so it doesn't clip into the floor
 					modelMat = glm::translate(modelMat, glm::vec3(0, 2.2f, 0));
 				} else {
@@ -9780,7 +9780,17 @@ void ofApp::drawGame() {
 					if (playerTexture.isAllocated()) playerTexture.unbind();
 				}
 			}
+
 			ofPopMatrix();
+
+			// Critical Fix: Nuke any lingering OpenGL materials/colors from custom models
+			// (like Kobold King) so they don't tint the 3D scene geometry on the next frame.
+			ofSetColor(255, 255, 255, 255);
+			glDisable(GL_COLOR_MATERIAL);
+			float defaultAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+			float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+			glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
+			glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
 		}
 
 		// --- HOVER GLOW RENDERING ---
@@ -16290,7 +16300,17 @@ void ofApp::mouseDragged(int x, int y, int button) {
 					return false;
 				}
 				if (candidate.targeting == TARGET_SELF && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
-				if (candidate.type == CARD_TELEPORT || candidate.type == CARD_BLOCKING_BOON) return true;
+				if (candidate.type == CARD_TELEPORT) return true;
+				if (candidate.type == CARD_BLOCKING_BOON) {
+					int phys = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
+					int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
+					if (phys <= 0 && nonPhys <= 0) return false;
+					return true;
+				}
+				if (candidate.type == CARD_CONSTITUTION_BOON) {
+					if (currentPlayer.maxHealth <= 15) return false;
+					return true;
+				}
 
 				calculateTargetHighlights(cardIndex);
 				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -17589,6 +17609,9 @@ void ofApp::startNewTurn() {
 				else
 					continueNewTurn();
 				return;
+			} // <-- ADDED MISSING CLOSING BRACE FOR onFire
+
+			if (startingPlayer.isPoisoned) { // <-- ADDED MISSING IF STATEMENT
 				// Resolve poison roll immediately (authoritative), then queue APPLY_POISON
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[currentPlayerIndex].playerID);
@@ -21745,11 +21768,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-		// Migrated to data-driven `executeCardGeneric` and `cards.json`.
-		// (drain punch resolved via data-driven pipeline)
-		opComplete = true;
-		break;
-
 	case EffectOpType::APPLY_PSIONIC_WAVE: {
 		// Read authoritative cards-to-remove from blackboard[1]
 		int cardsToRemove = currentEffectSequence.blackboard[1];
@@ -22122,7 +22140,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor::yellow, 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -22187,7 +22205,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						if (p.x != impactTile.x || p.y != impactTile.y) {
 							glm::vec3 wStart = gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 0.5f, 0);
 							glm::vec3 wEnd = gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0);
-							queueVisualTracer(wStart, wEnd, ofColor::yellow, 0.4f);
+							queueVisualTracer(wStart, wEnd, ofColor(255, 255, 0), 1.0f);
 						}
 					}
 				}
@@ -25457,6 +25475,25 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnOp.data.spawnUnit.variant = variant;
 		queueEffect(spawnOp);
 
+		// Add specific cards to the golem's deck based on the variant
+		std::vector<CardType> deckAdds;
+		if (variant == 3)
+			deckAdds = { CARD_SHOCK, CARD_SHOCK, CARD_SHOCK, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+		else if (variant == 2)
+			deckAdds = { CARD_FIREBALL, CARD_FIREBALL, CARD_FLAME_HIT, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+		else if (variant == 1)
+			deckAdds = { CARD_ROCK_CRUSH, CARD_ROCK_CRUSH, CARD_BASH, CARD_BASH, CARD_BASH, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+		else
+			deckAdds = { CARD_BASH, CARD_BASH, CARD_BASH, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+
+		for (CardType ct : deckAdds) {
+			EffectOp addCardOp = {};
+			addCardOp.type = EffectOpType::ADD_CARD_TO_DECK;
+			addCardOp.data.addCard.targetIndex = -1; // -1 is resolved to the minion by SPAWN_UNIT
+			addCardOp.data.addCard.cardType = ct;
+			queueEffect(addCardOp);
+		}
+
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -28255,9 +28292,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						if (board[x][y].hasWall) isValidTarget = true;
 					}
 					// 3. Standard Summoning / Creation (Must be empty)
-					// ADD CARD_SUMMON_KOBOLD_KING TO THIS LIST:
-					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_WALL || card.type == CARD_SUMMON_MAGIC_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT) // <--- Add this
-					{
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_WALL || card.type == CARD_SUMMON_MAGIC_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT || card.type == CARD_SUMMON_FAERIE) {
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
 					}
 					// 4. Default Attack (Must have unit)
@@ -28353,8 +28388,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 					// --- Calculate Tooltip Data for Range-Based Cards ---
 					// Only calculate for cards with dice rolls (not infinite range cards)
-					int rangeNum = card.rangeDiceNum > 0 ? card.rangeDiceNum : card.numDice;
-					int rangeSides = card.rangeDiceSides > 0 ? card.rangeDiceSides : card.diceSides;
+					auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
 
 					if (rangeNum > 0 && rangeSides > 0 && card.type != CARD_HEAL && card.type != CARD_DEATH && card.type != CARD_LESSER_HEAL && card.type != CARD_BURST_OF_LIGHT) {
 
@@ -28439,8 +28473,40 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool canBeClicked = false;
 				bool isOccupied = board[x][y].hasPlayer;
 
+				// --- CHAIN LIGHTNING / MAGIC BLAST LOGIC ---
+				if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
+					if (isPreview) {
+						if (isOccupied) {
+							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
+						} else {
+							// Check 8 neighbors to see if we can hit an enemy from an empty tile
+							for (int dx = -1; dx <= 1; dx++) {
+								for (int dy = -1; dy <= 1; dy++) {
+									if (dx == 0 && dy == 0) continue;
+
+									// Magic Blast cannot splash diagonally!
+									if (card.type == CARD_MAGIC_BLAST && abs(dx) == 1 && abs(dy) == 1) continue;
+
+									int nx = x + dx;
+									int ny = y + dy;
+									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+										bool blocked = false;
+										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check (Chain Lightning only)
+											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
+										}
+										if (!blocked) {
+											canBeClicked = true;
+											break;
+										}
+									}
+								}
+								if (canBeClicked) break;
+							}
+						}
+					}
+				}
 				// --- HEAL / LESSER HEAL / DEATH LOGIC ---
-				if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
+				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
 					// Heal/Lesser Heal can target self or allies. Death only targets other units.
 					// Only allow clicking if the tile is also a red preview (LOS & not a wall)
 					bool isSelfTile = (x == (int)casterPos.x && y == (int)casterPos.y);
@@ -35573,8 +35639,6 @@ void ofApp::logDeckStates(const std::string & reason) {
 	std::string filename = "deck_states_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
 	ofBuffer buffer;
 	buffer.set(logEntry.c_str(), logEntry.size());
-
-#pragma GCC diagnostic pop
 
 	ofBufferToFile(filename, buffer, true); // true = append mode
 }
