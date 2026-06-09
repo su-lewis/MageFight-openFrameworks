@@ -37,7 +37,7 @@ static int legacyCardTypeToSummonKind(CardType t);
 // Pending macros migrated; use `networkPending.*` fields.
 
 void ofApp::triggerCameraShake(float intensity, float duration) {
-	cameraShakeIntensity = intensity;
+	cameraShakeIntensity = intensity * 0.6f;
 	cameraShakeDuration = std::max(0.001f, duration);
 	cameraShakeTimer = cameraShakeDuration;
 	// Seed a small initial offset
@@ -2887,7 +2887,8 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, i
 				draftDisplayInteractiveEnabled = false;
 				draftAutoSelectedIndex = -1;
 
-				// In-game key drafts should not pause the active player's turn timer.
+				// Pause the active player's turn timer if this draft belongs to the opponent
+				pauseTurnTimerForOpponentDecision(targetIndex);
 
 				ofColor keyCol = ofColor::gold;
 				if (keySet == 2)
@@ -2903,15 +2904,19 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, i
 
 void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 	if (!turnTimerEnabled) return;
-	// Only pause if it's currently someone's turn and the deciding player is not the active player
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && currentPlayerIndex != decidingPlayerIndex) {
-		if (!turnTimerPaused) {
-			turnTimerPaused = true;
-			turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
-			opponentDecisionTimerActive = true;
-			opponentDecisionStartFrame = simulationFrame;
-			opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
-			opponentDecisionPlayerIndex = decidingPlayerIndex;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && decidingPlayerIndex >= 0 && decidingPlayerIndex < (int)players.size()) {
+		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		int deciderOwner = players[decidingPlayerIndex].isMinion ? players[decidingPlayerIndex].ownerID : players[decidingPlayerIndex].playerID;
+
+		if (activeOwner != deciderOwner) {
+			if (!turnTimerPaused) {
+				turnTimerPaused = true;
+				turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+				opponentDecisionTimerActive = true;
+				opponentDecisionStartFrame = simulationFrame;
+				opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+				opponentDecisionPlayerIndex = decidingPlayerIndex;
+			}
 		}
 	}
 }
@@ -5993,24 +5998,6 @@ void ofApp::initialiseGameStateCommon() {
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
 
-	// Clear expired Study buffs: if a player didn't draw on their turn after Study was used, remove it
-	for (size_t pi = 0; pi < players.size(); ++pi) {
-		Player & p = players[pi];
-		if (p.nextTurnExtraDraw && p.nextTurnExtraDrawSetOnCycle >= 0) {
-			// If this is a new turn (globalTurnCounter) after the one where Study was used, and they haven't drawn, clear it
-			if (globalTurnCounter > p.nextTurnExtraDrawSetOnCycle + 1) {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = (int)pi;
-				rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				if (!isProcessingEffect) beginEffectSequence();
-				ofLogNotice("Study") << "Expired unused Study buff for player " << p.playerID;
-			}
-		}
-	}
-
 	draftStage = 0;
 	draftGenerationCounter = 0; // <--- FIX: reset draft generation counter
 	// ------------------------------------------------------------------
@@ -6819,8 +6806,9 @@ void ofApp::updateGameLogic() {
 	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
 	bool isMagicBlastActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) || (opponentInteraction.open && opponentInteraction.type == 4);
 	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
+	bool isOpponentDraftActive = (currentState == STATE_DRAFTING && isInGameDraft);
 
-	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive)) {
+	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isOpponentDraftActive)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
 		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
 			bool localOwnsDecision = true;
@@ -6859,6 +6847,42 @@ void ofApp::updateGameLogic() {
 						cmd.params[2] = choiceIdx;
 						cmd.params[3] = -1;
 						issuedChoice = true;
+					}
+				} else if (isOpponentDraftActive) {
+					if (!draftAcceptLocked) {
+						int requiredPicks = 1;
+						while ((int)selectedDraftIndices.size() < requiredPicks) {
+							std::vector<int> candidates;
+							for (int poolIdx : currentDraftOptionPoolIndices) {
+								if (poolIdx < 0) continue;
+								bool alreadySelected = false;
+								for (int sel : selectedDraftIndices) {
+									if (sel == poolIdx) {
+										alreadySelected = true;
+										break;
+									}
+								}
+								if (!alreadySelected) candidates.push_back(poolIdx);
+							}
+							if (candidates.empty()) break;
+							std::vector<int> rawRoll;
+							int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
+							int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
+							selectedDraftIndices.push_back(candidates[pickIdx]);
+						}
+
+						if ((int)selectedDraftIndices.size() > 0) {
+							draftAcceptLocked = true;
+							cmd.commandType = CMD_ACCEPT_DRAFT;
+							cmd.params[0] = draftPlayerIndex;
+							cmd.params[1] = currentDraftClassTier;
+							cmd.params[2] = 1; // copiesPerCard
+							cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
+							for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
+								cmd.params[3 + i] = selectedDraftIndices[i];
+							}
+							issuedChoice = true;
+						}
 					}
 				}
 
@@ -7279,22 +7303,22 @@ void ofApp::updateGameLogic() {
 	// so units move slowly and pass through tiles visually.
 	if (isEarthquakeActive) {
 
+		bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
+
 		// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
 
 		// PHASE 1.5: WAIT BEFORE ANIMATION
-		if (earthquakeWaitTimer > 0.0f) {
+		if (earthquakeWaitTimer > 0.0f && !pausedForDraft) {
 			earthquakeWaitTimer -= ofGetLastFrameTime();
 			if (earthquakeWaitTimer <= 0.0f) {
 				earthquakeWaitTimer = 0.0f;
 				isEarthquakeAnimatingStep = true;
 				earthquakeT = 0.0f;
-				// Trigger camera shake at earthquake start (visual only)
-				triggerCameraShake(1.2f, 0.9f);
 			}
 		}
 
 		// PHASE 2: ANIMATION STEP (Simultaneous Movement)
-		if (isEarthquakeAnimatingStep) {
+		if (isEarthquakeAnimatingStep && !pausedForDraft) {
 			// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
 			float earthquakeSpeedScale = 0.2f;
 			// Strictly use the simulation step time, NOT the monitor frame time!
@@ -17394,6 +17418,19 @@ void ofApp::startNewTurn() {
 			queueEffect(clearFlurry);
 			if (!isProcessingEffect) beginEffectSequence();
 		}
+
+		// If the player had an extra draw for this turn but didn't use it, it expires.
+		if (endingPlayer.nextTurnExtraDraw && globalTurnCounter > endingPlayer.nextTurnExtraDrawSetOnCycle) {
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+			if (!isProcessingEffect) beginEffectSequence();
+			ofLogNotice("Study/Hasten") << "Expired unused extra draw buff for player " << endingPlayer.playerID;
+		}
+
 		endingPlayer.freeHandCardTurns = 0;
 		koboldsRemainingToPlace = 0;
 		koboldSummonCount = 0;
@@ -21407,6 +21444,9 @@ bool ofApp::isEffectSequenceComplete() const {
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST && magicBlastChoicesRemaining > 0) {
 		return false;
 	}
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA) {
+		return false;
+	}
 	// Teleport is a two-step flow: roll range first, then wait for destination click.
 	// Keep the card in effect-sequence state while centralized teleport targeting is active
 	// so the card/AP finalization does not happen before destination selection.
@@ -22158,16 +22198,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			// Unconditional +3 AP
-			EffectOp ap = {};
-			ap.type = EffectOpType::MODIFY_STAT;
-			ap.data.modifyStat.targetIndex = currentPlayerIndex;
-			ap.data.modifyStat.statType = 11;
-			ap.data.modifyStat.delta = 3;
-			ap.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(ap);
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+3 AP Next Turn", ofColor::cyan);
-
 			opComplete = true;
 			break;
 		}
@@ -22518,6 +22548,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
 				if (players[i].health <= 0) continue;
+				if (isTileWall(players[i].x, players[i].y)) continue; // Magic Blast splash doesn't penetrate walls
 				int dx = std::abs(players[i].x - impactTile.x);
 				int dy = std::abs(players[i].y - impactTile.y);
 				if (dx + dy == 1) {
@@ -22581,23 +22612,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 		// Transition earthquake state to waiting/animation phase
 		isEarthquakeDiceRolling = false;
-		earthquakeWaitTimer = 2.0f; // countdown before starting animation
-		isEarthquakeAnimatingStep = false;
+		earthquakeWaitTimer = 0.0f; // Start immediately
+		isEarthquakeAnimatingStep = true;
 		earthquakeT = 0.0f;
-
-		// Spawn small directional arrow visuals above each unit to indicate
-		// the chosen gameplayRNG direction. These are short yellow tracers
-		// that persist while the wait timer elapses.
-		for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
-			const auto & eu = earthquakeUnits[i];
-			if (eu.playerIndex < 0) continue;
-			glm::ivec2 sg = eu.startGrid;
-			glm::vec3 start = gridToWorld(sg.x, sg.y);
-			glm::vec3 dirEndWorld = gridToWorld(sg.x + eu.direction.x, sg.y + eu.direction.y);
-			glm::vec3 arrowEnd = glm::mix(start, dirEndWorld, 0.45f) + glm::vec3(0, 0.6f, 0);
-			glm::vec3 arrowStart = start + glm::vec3(0, 0.6f, 0);
-			queueVisualTracer(arrowStart, arrowEnd, ofColor::yellow, std::max(0.6f, earthquakeWaitTimer * 0.9f));
-		}
 
 		opComplete = true;
 		break;
@@ -24060,7 +24077,7 @@ void ofApp::processVisualEvents() {
 				if (ev2.completed) continue;
 				if (ev2.type != VE_DICE) break; // stop when non-dice encountered
 				// Consider them part of the same batch when start times are very close
-				if (std::fabs(ev2.startTime - ev.startTime) <= 0.01f && ev2.dicePurpose == ev.dicePurpose && ev2.targetIndex == ev.targetIndex) {
+				if (std::fabs(ev2.startTime - ev.startTime) <= 0.01f && ev2.dicePurpose == ev.dicePurpose) {
 					startVisualDiceRoll(ev2);
 					ev2.visualStarted = true;
 					ev2.startTime = now;
@@ -25987,6 +26004,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_EARTHQUAKE: {
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		beginEffectSequence();
+
+		triggerCameraShake(1.2f, 0.9f);
+
 		currentCardOutcome.cardIndex = -1;
 		isEarthquakeActive = true;
 		isEarthquakeDiceRolling = true;
@@ -26021,6 +26041,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		for (int i = 0; i < n; ++i) {
 			std::vector<int> rawDist;
 			distances[i] = resolveDiceRollDetailed(1, 4, rawDist);
+
+			// Setup immediate distances so arrows draw during dice roll
+			earthquakeUnits[i].tilesToMove = distances[i];
+			earthquakeUnits[i].originalDistance = distances[i];
+			earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid + earthquakeUnits[i].direction;
+
 			glm::ivec2 sg = earthquakeUnits[i].startGrid;
 			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawDist, distances[i], PURPOSE_EARTHQUAKE_DISTANCE, earthquakeUnits[i].playerIndex, 1.0f);
 		}
@@ -26752,6 +26778,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		apply.type = EffectOpType::APPLY_CHAIN_LIGHTNING;
 		apply.data.damage.fixedDamage = 0; // START AT STEP 0
 		queueEffect(apply);
+
+		EffectOp ap = {};
+		ap.type = EffectOpType::MODIFY_STAT;
+		ap.data.modifyStat.targetIndex = currentPlayerIndex;
+		ap.data.modifyStat.statType = 11;
+		ap.data.modifyStat.delta = 3;
+		ap.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(ap);
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+3 AP Next Turn", ofColor::cyan);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -28405,7 +28440,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						}
 					}
 				}
-
 				// --- DEFAULT LOGIC ---
 				else {
 					// Default: require preview (LOS & not wall) AND that the los check marks it targetable
