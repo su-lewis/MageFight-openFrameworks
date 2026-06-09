@@ -22232,8 +22232,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				aoeDmg.data.damage.damageFromSlot = outSlot;
 				queueEffect(aoeDmg);
 
-				queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
-
 				if (aoeTargets.size() > 1) {
 					EffectOp paralyzeOp = {};
 					paralyzeOp.type = EffectOpType::APPLY_STATUS;
@@ -24904,7 +24902,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT) return false;
+	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -27568,10 +27566,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 	// ================================================================================
 
-	// Safety Check
-	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
+	Card dummyCard;
+	Card * targetCardPtr = nullptr;
 
-	Card & card = currentPlayer.hand[activeCardIndex];
+	// Teleport is discarded instantly upon play (dice roll step), so its hand index
+	// is no longer valid while waiting for the destination click. Supply a dummy.
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
+		dummyCard.type = CARD_TELEPORT;
+		dummyCard.targeting = TARGET_NONE;
+		targetCardPtr = &dummyCard;
+	} else {
+		// Safety Check
+		if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
+		targetCardPtr = &currentPlayer.hand[activeCardIndex];
+	}
+
+	Card & card = *targetCardPtr;
 	int px = currentPlayer.x;
 	int py = currentPlayer.y;
 	glm::vec2 casterPos(px, py);
