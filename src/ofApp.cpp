@@ -27808,7 +27808,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				} else {
 					float maxRangeFeet = 9999.0f;
-					if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) {
+					if (card.type == CARD_MAGIC_BLAST) {
+						maxRangeFeet = 20.0f;
+					} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT && interactionDiceRoll > 0) {
+						maxRangeFeet = (float)interactionDiceRoll;
+					} else if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) {
 						maxRangeFeet = (float)(card.rangeDiceNum * card.rangeDiceSides);
 					} else if (card.numDice > 0 && card.diceSides > 0) {
 						maxRangeFeet = (float)(card.numDice * card.diceSides);
@@ -27820,7 +27824,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 
 					if (info.reason == VALID) {
-						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
+						if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING) {
+							if (info.isTargetable) valid = true;
+						} else if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
 								for (const auto & p : players) {
 									if (p.x == tx && p.y == ty && p.health < p.maxHealth) valid = true;
@@ -27829,15 +27835,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								valid = true;
 							}
 						}
-						// ADD THIS ELSE-IF right below the block above to allow clicking YOURSELF:
-					} else if (info.reason == INVALID_SELF && (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL)) {
-						if (currentPlayer.health < currentPlayer.maxHealth) {
-							valid = true;
-						} else if (card.type == CARD_CHAIN_LIGHTNING) {
-							// Chain lightning bounce target checking
+					} else if (info.reason == INVALID_SELF) {
+						if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
+							if (currentPlayer.health < currentPlayer.maxHealth) {
+								valid = true;
+							}
+						} else if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
+							// Chain lightning / Magic Blast bounce target checking
 							for (int dx = -1; dx <= 1 && !valid; ++dx) {
 								for (int dy = -1; dy <= 1; ++dy) {
 									if (dx == 0 && dy == 0) continue;
+									if (card.type == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
 									int nx = tx + dx;
 									int ny = ty + dy;
 									if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
@@ -27845,7 +27853,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 									if (!tileHasOtherThan(nx, ny, currentPlayerIndex)) continue;
 
 									bool blocked = false;
-									if (abs(dx) == 1 && abs(dy) == 1) {
+									if (std::abs(dx) == 1 && std::abs(dy) == 1) {
 										if (isTileWall(tx + dx, ty) && isTileWall(tx, ty + dy)) {
 											blocked = true;
 										}
