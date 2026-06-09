@@ -1568,7 +1568,33 @@ private:
 	//                            MEMBER VARIABLES
 	// =========================================================================
 
+	// --- REPLAYS & STATS ---
+	struct PlayerMatchStats {
+		int totalDamageDealt = 0;
+		int maxDamageInOneTurn = 0;
+		int currentTurnDamage = 0;
+		int totalHealing = 0;
+		int minionsSpawned = 0;
+		int cardsPlayed = 0;
+	};
+	PlayerMatchStats matchStats[2];
+
+	struct ReplayCommand {
+		uint32_t frame;
+		InputCommandPacket cmd;
+	};
+	std::vector<ReplayCommand> matchReplayLog;
+	std::vector<ReplayCommand> replayPlaybackQueue;
+	size_t replayPlaybackIndex = 0;
+	bool isReplayMode = false;
+	bool replaySavedThisMatch = false;
+
+	void saveReplay(const std::string & filename);
+	void loadReplay(const std::string & filename);
+
 	// --- GAME STATE ---
+	bool g_isGameOver = false;
+	int g_winnerID = -1;
 	GameState currentState = STATE_MAIN_MENU;
 	GameState prevState = STATE_MAIN_MENU;
 	GameState stateBeforeSettings = STATE_MAIN_MENU;
@@ -1589,7 +1615,12 @@ private:
 	ofRectangle singleplayerContinueButton;
 	ofRectangle singleplayerLoadButton;
 	ofRectangle singleplayerNewGameButton;
+	ofRectangle singleplayerReplayButton; // <--- ADDED
 	ofRectangle singleplayerBackButton;
+
+	// Game Over UI
+	ofRectangle gameOverReturnBtn;
+	ofRectangle gameOverReplayBtn;
 
 	// Draw singleplayer menu
 	void drawSingleplayerMenu();

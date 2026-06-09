@@ -2332,6 +2332,16 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 	}
 
 	int finalDamageTaken = remaining;
+
+	// TRACK STATS: Damage Dealt
+	if (finalDamageTaken > 0 && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
+		int owner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
+		if (owner == 0 || owner == 1) {
+			matchStats[owner].totalDamageDealt += finalDamageTaken;
+			matchStats[owner].currentTurnDamage += finalDamageTaken;
+		}
+	}
+
 	if (remaining > 0) {
 		if (targetIndex >= 0) {
 			EffectOp killOp = {};
@@ -5405,6 +5415,10 @@ void ofApp::drawSingleplayerMenu() {
 		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
 
+	// Increase panel height to fit the new replay button
+	panelH = ofGetHeight() * 0.85f;
+	panelRect.set(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
 	// Continue button shows autosave timestamp (YYYY-MM-DD HH:MM)
 	std::string contText = "Continue";
 	try {
@@ -5428,6 +5442,7 @@ void ofApp::drawSingleplayerMenu() {
 	drawBtn(singleplayerNewGameButton, "New Game");
 	drawBtn(singleplayerContinueButton, contText);
 	drawBtn(singleplayerLoadButton, "Load");
+	drawBtn(singleplayerReplayButton, "Watch Last Replay");
 	drawBtn(singleplayerBackButton, "Back");
 
 	// Short customization hint
@@ -5800,7 +5815,8 @@ void ofApp::recalculateUI(int w, int h) {
 	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
 	singleplayerContinueButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, btnWidth, btnHeight);
 	singleplayerLoadButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
-	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
+	singleplayerReplayButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
+	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 4, btnWidth, btnHeight);
 
 	// 3. Pause Menu Buttons (centered stack) - match main menu sizing
 	float pBtnWidth = btnWidth;
@@ -5826,8 +5842,6 @@ void ofApp::recalculateUI(int w, int h) {
 		pauseMenuLoadButton.set(-9999, -9999, 0, 0);
 	}
 }
-static bool g_isGameOver = false;
-static int g_winnerID = -1;
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	// Reset lockstep runtime state for a fresh match.
@@ -5840,6 +5854,16 @@ void ofApp::setupGame() {
 	executedCommandKeys.clear();
 	provisionalSnapshots.clear();
 	provisionalCommands.clear();
+
+	// Reset Stats & Replays
+	matchStats[0] = PlayerMatchStats();
+	matchStats[1] = PlayerMatchStats();
+	replaySavedThisMatch = false;
+
+	// Only clear the log if we aren't currently WATCHING a replay
+	if (!isReplayMode) {
+		matchReplayLog.clear();
+	}
 	nextCommandId = 1;
 	lastProcessedCommandId = 0;
 	currentEffectSequence = EffectSequence();
@@ -13263,13 +13287,39 @@ void ofApp::drawGame() {
 			drawPixelTextCentered(titleFont, "VS", cx, panel.y + 100, 1.5f, ofColor::white);
 		}
 
-		// Return to Menu Button
-		ofRectangle returnBtn(cx - 150, cy + 160, 300, 60);
-		ofSetColor(returnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
-		ofDrawRectRounded(returnBtn, 10);
-		drawPixelTextCentered(uiFont, "Return to Menu", cx, returnBtn.getCenter().y, 1.0f, ofColor::white);
+		// --- DRAW STATS ---
+		// Position everything relative to screen center so it works in both modes
+		float statsY = cy + 140;
+		float p0_statsX = cx - 200;
+		float p1_statsX = cx + 200;
 
-		ofPopStyle();
+		// P0 Stats
+		ofSetColor(180);
+		drawPixelTextCentered(uiFont, "Max Dmg/Turn: " + std::to_string(matchStats[0].maxDamageInOneTurn), p0_statsX, statsY, 0.7f, ofColor::white);
+		drawPixelTextCentered(uiFont, "Minions: " + std::to_string(matchStats[0].minionsSpawned), p0_statsX, statsY + 20, 0.7f, ofColor::white);
+		drawPixelTextCentered(uiFont, "Healed: " + std::to_string(matchStats[0].totalHealing), p0_statsX, statsY + 40, 0.7f, ofColor::white);
+
+		// P1 Stats
+		drawPixelTextCentered(uiFont, "Max Dmg/Turn: " + std::to_string(matchStats[1].maxDamageInOneTurn), p1_statsX, statsY, 0.7f, ofColor::white);
+		drawPixelTextCentered(uiFont, "Minions: " + std::to_string(matchStats[1].minionsSpawned), p1_statsX, statsY + 20, 0.7f, ofColor::white);
+		drawPixelTextCentered(uiFont, "Healed: " + std::to_string(matchStats[1].totalHealing), p1_statsX, statsY + 40, 0.7f, ofColor::white);
+
+		// Return to Menu & Save Replay Buttons
+		gameOverReturnBtn.set(cx - 160, cy + 220, 150, 60);
+		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
+		ofDrawRectRounded(gameOverReturnBtn, 10);
+		drawPixelTextCentered(uiFont, "Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f, ofColor::white);
+
+		gameOverReplayBtn.set(cx + 10, cy + 220, 150, 60);
+		if (replaySavedThisMatch) {
+			ofSetColor(ofColor::darkGreen);
+			ofDrawRectRounded(gameOverReplayBtn, 10);
+			drawPixelTextCentered(uiFont, "Saved!", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f, ofColor::white);
+		} else {
+			ofSetColor(gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
+			ofDrawRectRounded(gameOverReplayBtn, 10);
+			drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f, ofColor::white);
+		}
 	}
 
 } // End of drawGame()
@@ -14220,6 +14270,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
+	// If watching a replay, block ALL gameplay inputs!
+	if (isReplayMode && currentState == STATE_GAMEPLAY) {
+		if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
+			// Allow pausing to exit the replay
+			if (pauseMenuResumeButton.inside(x, y)) { /* fall through to pause menu */
+			} else if (!isChatOpen)
+				return;
+		}
+	}
+
 	// Always track mouse down position at the start for drag detection
 	if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
 		mouseDownPos.set(x, y);
@@ -14462,6 +14522,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (singleplayerNewGameButton.inside(x, y)) {
 			isMultiplayer = false;
 			isLoadingGame = true; // setupGame will be called by update loop
+			currentState = STATE_GAMEPLAY;
+			isReplayMode = false;
+			return;
+		}
+		if (singleplayerReplayButton.inside(x, y)) {
+			loadReplay("last_match_replay.json");
 			currentState = STATE_GAMEPLAY;
 			return;
 		}
@@ -15375,8 +15441,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- GAME OVER SCREEN CLICK ---
 	if (g_isGameOver) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
-			ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 160, 300, 60);
-			if (returnBtn.inside(x, y)) {
+			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
+				saveReplay("last_match_replay.json");
+				replaySavedThisMatch = true;
+				return;
+			}
+
+			if (gameOverReturnBtn.inside(x, y)) {
 				g_isGameOver = false;
 
 				if (isMultiplayer) {
@@ -17548,6 +17619,14 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	// Calculate Max Damage for the turn that just ended
+	for (int i = 0; i < 2; i++) {
+		if (matchStats[i].currentTurnDamage > matchStats[i].maxDamageInOneTurn) {
+			matchStats[i].maxDamageInOneTurn = matchStats[i].currentTurnDamage;
+		}
+		matchStats[i].currentTurnDamage = 0; // Reset for new turn
+	}
+
 	// Mark that turn-start status effects are being handled so updateGame()
 	// does not prematurely send a separate turn-start packet to clients.
 	isHandlingTurnStartEffects = true;
@@ -20299,6 +20378,15 @@ void ofApp::processCommandQueue() {
 
 void ofApp::simulationTick() {
 	inSimulationTick = true;
+
+	// If watching a replay, inject the recorded commands at the exact frame they happened!
+	if (isReplayMode) {
+		while (replayPlaybackIndex < replayPlaybackQueue.size() && replayPlaybackQueue[replayPlaybackIndex].frame <= simulationFrame) {
+			queueInputCommand(replayPlaybackQueue[replayPlaybackIndex].cmd);
+			replayPlaybackIndex++;
+		}
+	}
+
 	// Process all pending commands in this tick
 	processCommandQueue();
 
@@ -20548,7 +20636,20 @@ void ofApp::simulationTick() {
 }
 
 void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
-	// Reject stale player-initiated commands that arrive after the turn advanced.
+	// Log into replay system (if we aren't currently watching a replay)
+	if (!isReplayMode) {
+		ReplayCommand rc;
+		rc.frame = simulationFrame;
+		rc.cmd = cmd;
+		matchReplayLog.push_back(rc);
+
+		// TRACK STATS: Cards Played
+		if (cmd.commandType == CMD_PLAY_CARD && cmd.playerID <= 1) {
+			matchStats[cmd.playerID].cardsPlayed++;
+		}
+	}
+
+	// Reject stale player-initiated commands that arrive after the turn advanced.n advanced.
 	if (cmd.turnNumber != globalTurnCounter) {
 		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_PSEUDO_ACTION) {
 			ofLogWarning("Lockstep") << "Dropped stale command " << cmd.commandType << " from turn " << cmd.turnNumber << " (Current: " << globalTurnCounter << ")";
@@ -23824,6 +23925,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int summonerID = op.data.spawnUnit.summonerPlayerID;
 				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
 				if (spawned) {
+					// TRACK STATS: Minions Spawned
+					int owner = op.data.spawnUnit.ownerPlayerID;
+					if (owner == 0 || owner == 1) matchStats[owner].minionsSpawned++;
 					int newIdx = findPlayerIndexByID(spawned->playerID);
 					// Deterministic key pickup check for spawn-on-key scenarios
 					// (e.g., Raise Dead / Call for Wolves spawning directly on a key tile).
@@ -23889,6 +23993,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		opComplete = true;
 		break;
 	}
+
 	case EffectOpType::HEAL: {
 		int amount = op.data.heal.amount;
 		if (op.data.heal.amountFromSlot >= 0) {
@@ -23902,6 +24007,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int canHeal = std::max(0, target.maxHealth - target.health);
 			int healed = std::min(canHeal, amount);
 			if (healed > 0) {
+				// TRACK STATS: Healing
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					int owner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+					if (owner == 0 || owner == 1) matchStats[owner].totalHealing += healed;
+				}
 				EffectOp healOp = {};
 				healOp.type = EffectOpType::MODIFY_STAT;
 				healOp.data.modifyStat.targetIndex = targetIndex;
@@ -35884,4 +35994,80 @@ int ofApp::resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & ou
 		totalRaw += raw;
 	}
 	return totalRaw;
+}
+
+void ofApp::saveReplay(const std::string & filename) {
+	ofJson j;
+	j["seed"] = currentMapSeed;
+	j["player0"] = player0SteamName;
+	j["player1"] = player1SteamName;
+
+	ofJson cmds = ofJson::array();
+	for (const auto & rc : matchReplayLog) {
+		ofJson cj;
+		cj["frame"] = rc.frame;
+		cj["cmdId"] = rc.cmd.commandId;
+		cj["turn"] = rc.cmd.turnNumber;
+		cj["type"] = rc.cmd.commandType;
+		cj["player"] = rc.cmd.playerID;
+		cj["p0"] = rc.cmd.params[0];
+		cj["p1"] = rc.cmd.params[1];
+		cj["p2"] = rc.cmd.params[2];
+		cj["p3"] = rc.cmd.params[3];
+		cj["p4"] = rc.cmd.params[4];
+		cj["p5"] = rc.cmd.params[5];
+		cj["p6"] = rc.cmd.params[6];
+		cj["p7"] = rc.cmd.params[7];
+		cj["str"] = std::string(rc.cmd.stringData);
+		cmds.push_back(cj);
+	}
+	j["commands"] = cmds;
+
+	std::string path = getSavesDirPath().string() + "/" + filename;
+	ofSaveJson(path, j);
+	ofLogNotice("Replay") << "Saved replay to " << path;
+}
+
+void ofApp::loadReplay(const std::string & filename) {
+	std::string path = getSavesDirPath().string() + "/" + filename;
+	ofJson j = ofLoadJson(path);
+	if (j.empty()) {
+		ofLogError("Replay") << "Failed to load replay: " << path;
+		return;
+	}
+
+	isReplayMode = true;
+	isMultiplayer = false; // Replays play back entirely offline
+
+	currentMapSeed = j.value("seed", 0);
+	player0SteamName = j.value("player0", "Player 1");
+	player1SteamName = j.value("player1", "Player 2");
+
+	replayPlaybackQueue.clear();
+	for (const auto & cj : j["commands"]) {
+		ReplayCommand rc;
+		rc.frame = cj.value("frame", 0);
+		rc.cmd.commandId = cj.value("cmdId", 0);
+		rc.cmd.turnNumber = cj.value("turn", 0);
+		rc.cmd.commandType = cj.value("type", 0);
+		rc.cmd.playerID = cj.value("player", 0);
+		rc.cmd.params[0] = cj.value("p0", 0);
+		rc.cmd.params[1] = cj.value("p1", 0);
+		rc.cmd.params[2] = cj.value("p2", 0);
+		rc.cmd.params[3] = cj.value("p3", 0);
+		rc.cmd.params[4] = cj.value("p4", 0);
+		rc.cmd.params[5] = cj.value("p5", 0);
+		rc.cmd.params[6] = cj.value("p6", 0);
+		rc.cmd.params[7] = cj.value("p7", 0);
+
+		std::string str = cj.value("str", "");
+		strncpy(rc.cmd.stringData, str.c_str(), sizeof(rc.cmd.stringData) - 1);
+		rc.cmd.stringData[sizeof(rc.cmd.stringData) - 1] = '\0';
+
+		replayPlaybackQueue.push_back(rc);
+	}
+
+	replayPlaybackIndex = 0;
+	setupGame(); // Start the game with the forced seed
+	addGameLog("Replay loaded! Watching...");
 }
