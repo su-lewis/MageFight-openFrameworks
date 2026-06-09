@@ -4161,6 +4161,11 @@ void ofApp::updateAudio() {
 			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
 		}
 
+		// FIX: Never suspend if we are in the main menu and connected to Steam (Hosting a lobby)
+		if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
+			windowActive = true;
+		}
+
 		if (!windowActive) {
 			if (!gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = true;
@@ -4438,6 +4443,12 @@ void ofApp::update() {
 			int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
 			int iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
 			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
+		}
+
+		// FIX: Never suspend if we are in the main menu and connected to Steam (Hosting a lobby)
+		// Suspending while the Steam Overlay is open causes it to freeze/crash!
+		if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
+			windowActive = true;
 		}
 
 		if (!windowActive) {
@@ -4876,7 +4887,9 @@ void ofApp::draw() {
 	// Battery saver: when inactive in singleplayer, skip heavy rendering.
 	// Logic still runs in `update()`.
 	if (!isMultiplayer && gameSuspendedDueToInactivity) {
-		return;
+		// FIX: Do NOT return here! Returning skips glClear and breaks the Steam Overlay,
+		// causing it to crash or freeze the game when inviting friends!
+		// The FPS throttle in update() is enough to save battery.
 	}
 
 	// Headless smoke-test mode: skip all rendering to avoid GL/texture calls
@@ -5816,9 +5829,11 @@ void ofApp::setupGame() {
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = true;
 
-		// Get Steam names (host is player 0)
-		player0SteamName = steamManager.getLocalPlayerName();
-		player1SteamName = steamManager.getOpponentName();
+		// Get Steam names (host is player 0). Safe string assignment.
+		std::string p0Name = steamManager.getLocalPlayerName();
+		std::string p1Name = steamManager.getOpponentName();
+		player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
+		player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 
 		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed << " platform=" << MAGEFIGHT_PLATFORM;
 
@@ -34806,9 +34821,11 @@ void ofApp::processNetworkPackets() {
 				isMultiplayer = true;
 				myLocalPlayerID = 1;
 
-				// Get Steam names
-				player0SteamName = steamManager.getOpponentName(); // Host is opponent for client
-				player1SteamName = steamManager.getLocalPlayerName(); // Client is player 1
+				// Get Steam names. Safe string assignment.
+				std::string p0Name = steamManager.getOpponentName(); // Host is opponent for client
+				std::string p1Name = steamManager.getLocalPlayerName(); // Client is player 1
+				player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
+				player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 
 				// Only initialize game if we're not already in a game (reconnection case)
 				if (currentState == STATE_MAIN_MENU) {
