@@ -2805,11 +2805,10 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	if (!minion.isMinion) return;
 
 	int drawCount = minion.isDemon ? 3 : 2;
-	if (minion.nextTurnExtraDraw) {
+	if (minion.nextTurnExtraDraw && globalTurnCounter > minion.nextTurnExtraDrawSetOnCycle) {
 		drawCount++;
 		// DO NOT modify state here; draw execution is lockstep-driven.
 	}
-
 	// Queue the lockstep command only. Execution phase will perform actual draws.
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
@@ -15730,7 +15729,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					int baseDraw = localPlayer->isDemon ? 3 : 2;
-					int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+					int cardsToDraw = localPlayer->nextTurnExtraDraw && globalTurnCounter > localPlayer->nextTurnExtraDrawSetOnCycle ? (baseDraw + 1) : baseDraw;
 
 					// Queue deterministic draw command instead of performing immediate local draw.
 					InputCommandPacket out = {};
@@ -16919,7 +16918,7 @@ void ofApp::keyPressed(int key) {
 		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
 
 		int baseDraw = localPlayer->isDemon ? 3 : 2;
-		int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+		int cardsToDraw = localPlayer->nextTurnExtraDraw && globalTurnCounter > localPlayer->nextTurnExtraDrawSetOnCycle ? (baseDraw + 1) : baseDraw;
 		// Queue a deterministic draw command instead of drawing locally here.
 		InputCommandPacket out = {};
 		out.type = PKT_INPUT_COMMAND;
@@ -20336,7 +20335,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
 			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
 		}
-		{
+
+		// Only remove the buff if we actually used it (i.e. we drew on the NEXT turn)
+		if (lp.nextTurnExtraDraw && globalTurnCounter > lp.nextTurnExtraDrawSetOnCycle) {
 			EffectOp rm = {};
 			rm.type = EffectOpType::REMOVE_STATUS;
 			rm.data.status.targetIndex = targetIdx;
@@ -23728,7 +23729,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
 				lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
 			}
-			{
+
+			// Only remove the buff if we actually used it (i.e. we drew on the NEXT turn)
+			if (lp.nextTurnExtraDraw && globalTurnCounter > lp.nextTurnExtraDrawSetOnCycle) {
 				EffectOp rm = {};
 				rm.type = EffectOpType::REMOVE_STATUS;
 				rm.data.status.targetIndex = playerIndex;
@@ -29031,7 +29034,7 @@ std::string ofApp::buildSnapshotString() {
 		   << (p.isKoboldKing ? 1 : 0) << "\t" << (p.isFaerie ? 1 : 0) << "\t" << (p.isAssistant ? 1 : 0) << "\t"
 		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
 		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.tortoiseAccumulatedDamage << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
-		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t";
+		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t" << p.nextTurnExtraDrawSetOnCycle << "\t";
 
 		auto encodeCards = [&](const std::vector<Card> & cards) {
 			std::string out;
@@ -29302,6 +29305,11 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				p.inGhostForm = (std::stoi(parts[idx++]) != 0);
 				p.ghostDamageTaken = std::stoi(parts[idx++]);
 				p.originalModelType = unescapeField(parts[idx++]);
+				if (idx < (int)parts.size() && parts[idx] != "DECK") {
+					p.nextTurnExtraDrawSetOnCycle = std::stoi(parts[idx++]);
+				} else {
+					p.nextTurnExtraDrawSetOnCycle = globalTurnCounter - 1; // Fallback for old saves
+				}
 
 				auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
 					outVec.clear();
