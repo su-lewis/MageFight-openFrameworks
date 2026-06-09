@@ -29,6 +29,9 @@ std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
 // Menu type for ghost relocation (when ghost materializes inside a wall)
 static const int MENU_GHOST_RELOCATE = 5;
 
+// Global menu alpha multiplier for fade animations
+static float g_menuAlphaMult = 1.0f;
+
 // Forward declaration for legacy mapping helper (defined later).
 static int legacyCardTypeToSummonKind(CardType t);
 
@@ -5857,11 +5860,11 @@ void ofApp::setupGame() {
 	isTopDownView = false;
 
 	// Setup Player 0's camera (south side) — tilt a bit more toward board
-	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.75f);
+	cam.setPosition(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f);
 	cam.lookAt(cameraCurrentPan);
 
 	// Setup Player 1's camera (north side, 180° opposite)
-	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.75f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.35f, -(cameraCurrentZoom * 0.60f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -6015,9 +6018,9 @@ void ofApp::initialiseGameStateCommon() {
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
 
-	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.75f);
+	cam.setPosition(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.75f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.35f, -(cameraCurrentZoom * 0.60f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -6109,8 +6112,8 @@ void ofApp::prepareGameVisualState() {
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
 		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 0.6f, cameraCurrentPan2.z);
 	} else {
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.05f, cameraCurrentPan.z + cameraCurrentZoom * 0.75f);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.05f, cameraCurrentPan2.z - cameraCurrentZoom * 0.75f);
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.35f, cameraCurrentPan.z + cameraCurrentZoom * 0.60f);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.35f, cameraCurrentPan2.z - cameraCurrentZoom * 0.60f);
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
@@ -10377,6 +10380,8 @@ void ofApp::drawGame() {
 
 		// Draw expanding AOE rings for Magic Bolt / Psionic Wave previews
 		drawExpandingAOERings(0.05f);
+
+		ofSetColor(255); // FIX: Prevent color bleed from outlines into the transparent walls
 
 		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -29513,9 +29518,9 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
-	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.75f);
+	cam.setPosition(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.75f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.35f, -(cameraCurrentZoom * 0.60f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
