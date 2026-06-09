@@ -1002,6 +1002,16 @@ public:
 	SteamManager steamManager;
 	bool isMultiplayer = false;
 	int myLocalPlayerID = 0; // 0 = Host, 1 = Client
+
+	// --- Phase 2: XOR Handshake & Elo ---
+	uint32_t localSeedComponent = 0;
+	bool waitingForClientHandshake = false;
+
+	int myElo = 1000;
+	int opponentElo = 1000;
+	int eloChange = 0;
+	bool eloCalculated = false;
+
 	// When true, skip all rendering/texture operations for headless smoke tests
 	bool headless = false;
 	bool hasReceivedHandshake = false;

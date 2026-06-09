@@ -55,6 +55,7 @@ static_assert(sizeof(PacketHeader) == 9, "PacketHeader has unexpected size (cros
 
 struct HandshakePacket : PacketHeader {
 	uint32_t seed; // The RNG seed (Host generates, Client receives)
+	int32_t elo; // <--- ADDED ELO FOR PHASE 2
 };
 
 // Host -> Client: inform clients when a summoned minion is placed (manual placement like Kobolds/Wolves)

@@ -540,3 +540,16 @@ void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t *
 std::vector<SteamManager::LeaderboardEntry> SteamManager::getLeaderboardEntries() {
 	return currentLeaderboard;
 }
+
+int SteamManager::getLocalElo() {
+	if (!SteamUserStats()) return 1000;
+	int32_t elo = 1000;
+	SteamUserStats()->GetStat("elo_rating", &elo);
+	return (int)elo;
+}
+
+void SteamManager::setLocalElo(int elo) {
+	if (!SteamUserStats()) return;
+	SteamUserStats()->SetStat("elo_rating", elo);
+	SteamUserStats()->StoreStats(); // Uploads immediately to Steam
+}

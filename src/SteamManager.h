@@ -75,6 +75,10 @@ public:
 	void fetchLeaderboard();
 	std::vector<LeaderboardEntry> getLeaderboardEntries();
 
+	// Elo Getters/Setters
+	int getLocalElo();
+	void setLocalElo(int elo);
+
 private:
 	CSteamID m_OpponentID;
 	uint32_t m_nextSeq = 1;

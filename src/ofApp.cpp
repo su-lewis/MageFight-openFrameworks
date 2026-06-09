@@ -2978,26 +2978,9 @@ void ofApp::handleOwnerForfeit(int loserOwnerId, const std::string & reason) {
 	addGameLog(msg);
 	ofLogNotice("Forfeit") << msg;
 
-	bool saved = saveGameStateToFile("autosave_forfeit.json");
-	ofLogNotice("Save") << (saved ? "Saved autosave_forfeit.json" : "Failed to save autosave_forfeit.json");
-
-	// Reset multiplayer/session state and return to menu.
-	isMultiplayer = false;
-	hasReceivedHandshake = false;
-	initialDraftComplete = false;
-	draftAcceptLocked = false;
-	draftAcceptApplied = false;
-	gameplaySeededByHost = false;
-	handshakeRequestInterval = 1.0f;
-	waitingForReconnect = false;
-	reconnectTurnTimerPausedByDisconnect = false;
-	reconnectTurnTimerPausedRemainingFrames = 0;
-	turnTimerPaused = false;
-	turnTimerPausedRemainingFrames = 0;
-	reconnectForfeitStartTime = -1.0f;
-
-	cleanupGame();
-	currentState = STATE_MAIN_MENU;
+	// Instead of kicking to menu, trigger the beautiful Game Over screen
+	g_isGameOver = true;
+	g_winnerID = winnerOwnerId;
 }
 
 void ofApp::registerAfkTimeoutForCurrentOwner() {
@@ -4411,8 +4394,23 @@ void ofApp::updateStateMachine() {
 		}
 	}
 }
+
 void ofApp::update() {
 	steamManager.update();
+
+	// --- ELO CALCULATION ---
+	if (g_isGameOver && !eloCalculated && isMultiplayer) {
+		eloCalculated = true;
+
+		float expectedScore = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
+		float actualScore = (g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f;
+
+		eloChange = (int)round(32.0f * (actualScore - expectedScore));
+		myElo += eloChange;
+
+		steamManager.setLocalElo(myElo);
+		ofLogNotice("Elo") << "Game Over. Actual: " << actualScore << ", Expected: " << expectedScore << ", Change: " << eloChange << ", New Elo: " << myElo;
+	}
 
 	// Process any visual-only events (animations, waits)
 	processVisualEvents();
@@ -4636,7 +4634,7 @@ void ofApp::update() {
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
-	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
+	if ((currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) && steamManager.hasOpponent()) {
 		static bool loggedDetection = false;
 		if (!loggedDetection) {
 			ofLogNotice("Network") << "DEBUG: hasOpponent() is true, currentState=" << currentState;
@@ -4644,18 +4642,21 @@ void ofApp::update() {
 		}
 		// Note: Use steamManager.isHost() directly here since isMultiplayer isn't set yet
 		if (steamManager.isHost()) {
-			if (!isMultiplayer) { // Ensure we only run this once
-				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
-				isMultiplayer = true;
-				myLocalPlayerID = 0; // Host is always Player 0
-				lastTurnStartSentPlayer = -1;
-				lastTurnStartSentCounter = -1;
+			if (!isMultiplayer && !waitingForClientHandshake) {
+				ofLogNotice("Network") << "Host: Opponent found. Initiating XOR Handshake.";
+				waitingForClientHandshake = true;
 
-				// Reset sequence tracking for this new game
-				lastReceivedSeqByPlayer[0] = 0;
-				lastReceivedSeqByPlayer[1] = 0;
+				std::random_device rd;
+				localSeedComponent = rd();
+				myElo = steamManager.getLocalElo();
 
-				setupGame(); // Generates seed and sends PKT_HANDSHAKE
+				HandshakePacket pkt = {};
+				pkt.type = PKT_HANDSHAKE;
+				pkt.playerID = 0; // I am Host
+				pkt.seq = 0;
+				pkt.seed = localSeedComponent;
+				pkt.elo = myElo;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
 			}
 		}
 
@@ -5921,38 +5922,26 @@ void ofApp::setupGame() {
 	opponentInteraction.cardIndex = -1;
 
 	// --- MULTIPLAYER SYNC ---
-	if (isHost()) {
-		std::random_device rd;
-		currentMapSeed = rd();
+	if (isHost() && isMultiplayer) {
 		lastTurnStartSentPlayer = -1;
 		lastTurnStartSentCounter = -1;
 
-		// FIX: Seed the gameplay RNG specifically
+		// Apply the XOR'd seed generated during the Handshake
 		gameplayRNG.seed(currentMapSeed);
 		gameplayRngAdvanceCount = 0;
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = true;
 
-		// Get Steam names (host is player 0). Safe string assignment.
 		std::string p0Name = steamManager.getLocalPlayerName();
 		std::string p1Name = steamManager.getOpponentName();
 		player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
 		player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 
-		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed << " platform=" << MAGEFIGHT_PLATFORM;
-
-		HandshakePacket pkt = {};
-		pkt.type = PKT_HANDSHAKE;
-		pkt.playerID = myLocalPlayerID;
-		pkt.seq = 0;
-		pkt.seed = currentMapSeed;
-		ofLogNotice("Setup") << "Host sending handshake: type=" << (int)pkt.type << " playerID=" << pkt.playerID << " seq=" << pkt.seq << " seed=" << pkt.seed << " platform=" << MAGEFIGHT_PLATFORM;
-		steamManager.sendPacket(&pkt, sizeof(pkt));
-
-		// Publish seed and start flag to lobby so clients can begin as well
 		steamManager.setLobbySeed(currentMapSeed);
 		steamManager.setMatchStarted();
+		eloCalculated = false; // Reset Elo lock for the new match
 	}
+
 	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
 	else if (!isMultiplayer) {
 		std::random_device rd;
@@ -13212,26 +13201,75 @@ void ofApp::drawGame() {
 		ofPopStyle();
 	}
 
-	// --- GAME OVER SCREEN ---
+	// --- ELO & GAME OVER SCREEN ---
 	if (g_isGameOver) {
-		ofPushStyle(); // <-- Safety addition
-		ofSetColor(0, 0, 0, 200);
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 230);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY!" : "DEFEAT!";
+		float cx = ofGetWidth() / 2.0f;
+		float cy = ofGetHeight() / 2.0f;
+
+		// Winner Text
+		std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY" : "DEFEAT";
 		if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
 
-		ofSetColor(ofColor::gold);
-		drawPixelTextCentered(titleFont, text, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f - 50.0f, 2.0f, ofColor::gold);
+		ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
+		drawPixelTextCentered(titleFont, text, cx, cy - 200.0f, 2.5f, titleColor);
 
-		ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 50, 300, 60);
-		ofSetColor(ofColor::slateGray);
-		if (returnBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(ofColor::lightGray);
+		if (isMultiplayer) {
+			// Draw Avatars & Elo Panel
+			float panelW = 700;
+			float panelH = 220;
+			ofRectangle panel(cx - panelW / 2, cy - 100, panelW, panelH);
+			ofSetColor(30, 30, 40, 240);
+			ofDrawRectRounded(panel, 15);
+			ofNoFill();
+			ofSetColor(80, 80, 100);
+			ofSetLineWidth(3);
+			ofDrawRectRounded(panel, 15);
+			ofFill();
+
+			// Local Player (Left)
+			ofSetColor(255);
+			if (localAvatarReady) localAvatarImage.draw(panel.x + 50, panel.y + 30, 100, 100);
+			drawPixelTextCentered(uiFont, steamManager.getLocalPlayerName(), panel.x + 100, panel.y + 155, 1.0f, ofColor::white);
+
+			std::string eloStr = "Elo: " + std::to_string(myElo);
+			if (eloCalculated) {
+				std::string sign = (eloChange >= 0) ? "+" : "";
+				eloStr += " (" + sign + std::to_string(eloChange) + ")";
+			}
+			ofColor eloCol = (eloChange >= 0) ? ofColor::green : ofColor::red;
+			if (eloChange == 0) eloCol = ofColor::white;
+			drawPixelTextCentered(uiFont, eloStr, panel.x + 100, panel.y + 190, 1.0f, eloCol);
+
+			// Opponent Player (Right)
+			ofSetColor(255);
+			if (opponentAvatarReady) opponentAvatarImage.draw(panel.x + panelW - 150, panel.y + 30, 100, 100);
+			drawPixelTextCentered(uiFont, steamManager.getOpponentName(), panel.x + panelW - 100, panel.y + 155, 1.0f, ofColor::white);
+
+			int oppEloChange = -eloChange; // Zero sum game!
+			std::string oppEloStr = "Elo: " + std::to_string(opponentElo + oppEloChange);
+			if (eloCalculated) {
+				std::string sign = (oppEloChange >= 0) ? "+" : "";
+				oppEloStr += " (" + sign + std::to_string(oppEloChange) + ")";
+			}
+			ofColor oppEloCol = (oppEloChange >= 0) ? ofColor::green : ofColor::red;
+			if (oppEloChange == 0) oppEloCol = ofColor::white;
+			drawPixelTextCentered(uiFont, oppEloStr, panel.x + panelW - 100, panel.y + 190, 1.0f, oppEloCol);
+
+			// VS text in middle
+			drawPixelTextCentered(titleFont, "VS", cx, panel.y + 100, 1.5f, ofColor::white);
+		}
+
+		// Return to Menu Button
+		ofRectangle returnBtn(cx - 150, cy + 160, 300, 60);
+		ofSetColor(returnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
 		ofDrawRectRounded(returnBtn, 10);
+		drawPixelTextCentered(uiFont, "Return to Menu", cx, returnBtn.getCenter().y, 1.0f, ofColor::white);
 
-		ofSetColor(ofColor::white);
-		drawPixelTextCentered(uiFont, "Return to Menu", ofGetWidth() / 2.0f, returnBtn.getCenter().y, 1.0f, ofColor::white);
-		ofPopStyle(); // <-- Safety addition
+		ofPopStyle();
 	}
 
 } // End of drawGame()
@@ -15337,9 +15375,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- GAME OVER SCREEN CLICK ---
 	if (g_isGameOver) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
-			ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 50, 300, 60);
+			ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 160, 300, 60);
 			if (returnBtn.inside(x, y)) {
 				g_isGameOver = false;
+
+				if (isMultiplayer) {
+					steamManager.leaveLobby();
+					isMultiplayer = false;
+					hasReceivedHandshake = false;
+					initialDraftComplete = false;
+					draftAcceptLocked = false;
+					draftAcceptApplied = false;
+					gameplaySeededByHost = false;
+					handshakeRequestInterval = 1.0f;
+					waitingForClientHandshake = false; // Reset handshake lock
+					waitingForReconnect = false;
+					reconnectTurnTimerPausedByDisconnect = false;
+					reconnectTurnTimerPausedRemainingFrames = 0;
+					turnTimerPaused = false;
+					turnTimerPausedRemainingFrames = 0;
+					reconnectForfeitStartTime = -1.0f;
+				}
+
 				cleanupGame();
 				currentState = STATE_MAIN_MENU;
 			}
@@ -34776,14 +34833,14 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() == 8) {
 			string msg(buffer.begin(), buffer.end());
 			if (msg == "REQ_SEED" && steamManager.isHost()) {
-				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
 				HandshakePacket pkt = {};
 				pkt.type = PKT_HANDSHAKE;
-				pkt.playerID = myLocalPlayerID;
+				pkt.playerID = 0;
 				pkt.seq = 0;
-				pkt.seed = currentMapSeed;
+				pkt.seed = localSeedComponent;
+				pkt.elo = myElo;
 				steamManager.sendPacket(&pkt, sizeof(pkt));
-				continue; // Done with this packet
+				continue;
 			}
 		}
 		// -------------------------------------------------------------------
@@ -34916,57 +34973,63 @@ void ofApp::processNetworkPackets() {
 
 			if (header->type == PKT_HANDSHAKE) {
 				HandshakePacket * pkt = (HandshakePacket *)header;
-				ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed << " platform=" << MAGEFIGHT_PLATFORM;
-				if (hasReceivedHandshake) {
-					// The map seed must never change during a session. If we receive a later
-					// handshake with a different seed, ignore it and log an error.
-					if (pkt->seed != currentMapSeed) {
-						ofLogError("Net") << "Handshake seed changed after initialization! previous=" << currentMapSeed << " new=" << pkt->seed << " -- IGNORING new seed.";
-					} else {
-						ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
-					}
-					continue;
-				}
 
-				// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
-				gameplayRNG.seed(pkt->seed);
-				gameplayRngAdvanceCount = 0;
-				currentMapSeed = pkt->seed;
-				hasReceivedHandshake = true;
-				gameplaySeededByHost = true;
-				handshakeRequestInterval = 1.0f;
-				isMultiplayer = true;
-				myLocalPlayerID = 1;
+				// 1. HOST RECEIVES CLIENT REPLY
+				if (isHost() && pkt->playerID == 1) {
+					opponentElo = pkt->elo;
+					currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
 
-				// Get Steam names. Safe string assignment.
-				std::string p0Name = steamManager.getOpponentName(); // Host is opponent for client
-				std::string p1Name = steamManager.getLocalPlayerName(); // Client is player 1
-				player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-				player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+					ofLogNotice("Network") << "Host received Client XOR Handshake. Final Seed: " << currentMapSeed;
 
-				// Only initialize game if we're not already in a game (reconnection case)
-				if (currentState == STATE_MAIN_MENU) {
-					// Initialize game state for the client now that we have the seed.
-					// NOTE: Do NOT force a state transition here; the host will
-					// send authoritative DraftState/Initiative packets when it's
-					// time to move into drafting or gameplay. Forcing a leave
-					// from the main menu caused clients to miss the proper
-					// sequence on reconnects.
-					ofLogNotice("Network") << "Client: Handshake received. Initializing game (seed=" << currentMapSeed << ") - staying in main menu until host signals next state.";
+					isMultiplayer = true;
+					myLocalPlayerID = 0;
+					waitingForClientHandshake = false;
+
+					lastReceivedSeqByPlayer[0] = 0;
+					lastReceivedSeqByPlayer[1] = 0;
 					setupGame();
+				}
+				// 2. CLIENT RECEIVES HOST REQUEST
+				else if (!isHost() && pkt->playerID == 0 && !hasReceivedHandshake) {
+					opponentElo = pkt->elo;
 
-					// Client: notify host that we've finished local setup and are ready to see the board
-					if (!clientSentReady) {
-						ClientReadyPacket r = {};
-						r.type = PKT_CLIENT_READY;
-						r.playerID = myLocalPlayerID;
-						r.ready = 1;
-						steamManager.sendPacket(&r, sizeof(r));
-						clientSentReady = true;
-						ofLogNotice("Network") << "Client: Sent ClientReady to host.";
+					std::random_device rd;
+					localSeedComponent = rd();
+					myElo = steamManager.getLocalElo();
+
+					currentMapSeed = pkt->seed ^ localSeedComponent; // XOR COMBINATION!
+					ofLogNotice("Network") << "Client received Host XOR Handshake. Final Seed: " << currentMapSeed;
+
+					// Send Client Half back to Host
+					HandshakePacket ack = {};
+					ack.type = PKT_HANDSHAKE;
+					ack.playerID = 1; // I am Client
+					ack.seq = 0;
+					ack.seed = localSeedComponent;
+					ack.elo = myElo;
+					steamManager.sendPacket(&ack, sizeof(ack));
+
+					isMultiplayer = true;
+					myLocalPlayerID = 1;
+					hasReceivedHandshake = true;
+					gameplaySeededByHost = true;
+
+					std::string p0Name = steamManager.getOpponentName();
+					std::string p1Name = steamManager.getLocalPlayerName();
+					player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
+					player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+
+					if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
+						setupGame();
+						if (!clientSentReady) {
+							ClientReadyPacket r = {};
+							r.type = PKT_CLIENT_READY;
+							r.playerID = myLocalPlayerID;
+							r.ready = 1;
+							steamManager.sendPacket(&r, sizeof(r));
+							clientSentReady = true;
+						}
 					}
-				} else {
-					ofLogNotice("Network") << "Client: Handshake received on reconnect. Staying in current game state: " << currentState;
 				}
 				continue;
 			}
