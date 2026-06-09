@@ -16457,6 +16457,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			}
 			// If a committed card is currently in targeting mode, refund AP and restore the card on cancel.
 			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentCardOutcome.apPaid && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
+				// Prevent cancelling Teleport because the network has already rolled its dice!
+				if (interactingCardType == CARD_TELEPORT) {
+					ofLogNotice("Input") << "Right-click ignored for Teleport (dice already rolled).";
+					return;
+				}
+
 				Player & caster = players[currentCardOutcome.casterIndex];
 				auto restoreIt = std::find_if(caster.discardPile.rbegin(), caster.discardPile.rend(), [&](const Card & c) {
 					return c.type == currentCardOutcome.cardType;
@@ -18615,6 +18621,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE); // <--- ADD THIS
+	bool teleportAutoPlay = (card.type == CARD_TELEPORT);
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
@@ -18642,7 +18649,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return;
 	}
 
-	if (amnesiaAutoTargetSelf || psionicAutoPlay) { // <--- ADD PSIONIC HERE
+	if (amnesiaAutoTargetSelf || psionicAutoPlay || teleportAutoPlay) { // <--- ADD PSIONIC HERE
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -18690,7 +18697,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	else if (!wisdomAutoBlockNoAdjacent && !boonAutoPlayNoAdjacent && !dhAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_TELEPORT)) {
+	else if (!wisdomAutoBlockNoAdjacent && !boonAutoPlayNoAdjacent && !dhAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW)) {
 
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
@@ -24897,7 +24904,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON) return false;
+	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
