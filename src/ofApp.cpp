@@ -32,6 +32,9 @@ static const int MENU_GHOST_RELOCATE = 5;
 // Global menu alpha multiplier for fade animations
 static float g_menuAlphaMult = 1.0f;
 
+// Used to defer Shell Spike targeting until after a card has fully resolved
+static bool g_pendingShellSpike = false;
+
 // Forward declaration for legacy mapping helper (defined later).
 static int legacyCardTypeToSummonKind(CardType t);
 
@@ -5875,6 +5878,8 @@ void ofApp::setupGame() {
 	graveyard.clear();
 	floatingKeyInstances.clear();
 
+	g_pendingShellSpike = false;
+
 	// Repopulate default floating key positions so keys are present
 	// when a new game is started (previously keys were only added in setup()).
 	floatingKeyInstances.push_back({ glm::ivec2(4, 4), 1 });
@@ -10660,7 +10665,7 @@ void ofApp::drawGame() {
 		}
 
 		// 5b. Draw Dispel Targeting Highlights
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DISPEL && dispelMode == 2) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
 			// Purge mode: highlight valid targets (self or adjacent with removable statuses)
 			glDepthMask(GL_TRUE);
 			ofEnableDepthTest();
@@ -10676,18 +10681,17 @@ void ofApp::drawGame() {
 
 				if (isValidDistance) {
 					// Check if target has removable statuses
-					bool hasRemovableStatus = p.onFire || p.isParalyzed;
+					bool hasRemovableStatus = p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0;
 
-					glm::vec3 targetPos = gridToWorld(p.x, p.y);
-					ofColor highlightColor = hasRemovableStatus ? ofColor::green : ofColor::white;
-					int alpha = hasRemovableStatus ? 180 : 100;
-
-					ofSetColor(highlightColor, alpha);
-					ofPushMatrix();
-					ofTranslate(targetPos.x, 0.08f, targetPos.z);
-					ofRotateXDeg(90);
-					ofDrawCircle(0, 0, TILE_SIZE * 0.4f);
-					ofPopMatrix();
+					if (hasRemovableStatus) {
+						glm::vec3 targetPos = gridToWorld(p.x, p.y);
+						ofSetColor(ofColor::green, 180);
+						ofPushMatrix();
+						ofTranslate(targetPos.x, 0.08f, targetPos.z);
+						ofRotateXDeg(90);
+						ofDrawCircle(0, 0, TILE_SIZE * 0.4f);
+						ofPopMatrix();
+					}
 				}
 			}
 			ofDisableDepthTest();
@@ -18889,9 +18893,9 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool boonAutoPlayNoAdjacent = (card.type == CARD_BLOCKING_BOON && !boonHasAdjacentUnit);
 	bool dhAutoPlayNoAdjacent = (card.type == CARD_DOUBLE_HANDED && !doubleHandedHasAdjacentUnit);
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
-	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE); // <--- ADD THIS
 	bool teleportAutoPlay = (card.type == CARD_TELEPORT);
+	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
@@ -20193,6 +20197,7 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.startTime = ofGetElapsedTimef();
 		anim.duration = 0.6f;
 		anim.ownerIndex = currentPlayerIndex;
+		anim.ownerPlayerID = currentPlayer.playerID;
 		anim.toMinionHand = false;
 		anim.commitOnFinish = false; // already added to hand
 		anim.pendingHandIndex = (int)numCardsNow - 1;
@@ -21592,7 +21597,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 
 			if (target) {
-				int tortoiseFormDamage = 2;
+				int tortoiseFormDamage = 3;
 				int damageDealt = applyDamageWithMitigations(*target, tortoiseFormDamage, DAMAGE_PHYSICAL, currentPlayerIndex);
 				if (damageDealt > 0) {
 					queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(damageDealt) + " Shell", ofColor(255, 140, 0));
@@ -24033,6 +24038,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				healOp.data.modifyStat.deltaFromSlot = -1;
 				queueEffect(healOp);
 				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
+
+				if (target.inTortoiseForm && targetIndex == currentPlayerIndex) {
+					g_pendingShellSpike = true;
+				}
 			} else {
 				queueFloatingTextVisual(tPos, "Full HP", ofColor::gray);
 			}
@@ -24135,6 +24144,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
 					queueFloatingTextVisual(tPos, s, ofColor::gray);
+					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
 				}
 				break;
 			case 6: // Barrier
@@ -24142,6 +24152,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
 					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
+					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
 				}
 				break;
 			case 7: // HolyBlock
@@ -24149,6 +24160,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
 					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
+					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
 				}
 				break;
 			case 8: // Ward
@@ -24156,6 +24168,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
 					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
+					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
 				}
 				break;
 			case 10: // Luck
@@ -24167,6 +24180,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
 					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
+					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
 				}
 				break;
 			case 14: // Flurry stacks
@@ -24872,6 +24886,13 @@ void ofApp::applyCardOutcomeEffects() {
 	// when cards that resolve instantly (drag-to-play) remove themselves
 	// from the hand during command processing.
 	resetCardInteraction();
+
+	if (g_pendingShellSpike) {
+		g_pendingShellSpike = false;
+		if (isCurrentPlayerLocal()) {
+			tryTriggerShellSpike();
+		}
+	}
 }
 
 void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
@@ -25338,6 +25359,32 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			}
 		}
 	}
+
+	auto queueStatGain = [&](int statType, int delta) {
+		if (delta > 0) {
+			EffectOp statOp = {};
+			statOp.type = EffectOpType::MODIFY_STAT;
+			statOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			statOp.data.modifyStat.statType = statType;
+			statOp.data.modifyStat.delta = delta;
+			statOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(statOp);
+		}
+	};
+
+	queueStatGain(3, playedCard.apGain);
+
+	int finalBlock = playedCard.blockAmount;
+	if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
+		finalBlock *= (1 << currentPlayer.flurryOfFistsStacks);
+	}
+	queueStatGain(5, finalBlock);
+	queueStatGain(6, playedCard.barrierAmount);
+	queueStatGain(7, playedCard.holyBlockAmount);
+	queueStatGain(8, playedCard.wardAmount);
+	queueStatGain(10, playedCard.luckGain);
+	queueStatGain(13, playedCard.fortifyAmount);
+	queueStatGain(1, playedCard.hpDerivedAdd);
 
 	// Roll Heal -> blackboard[2]
 	if (hasHeal) {
@@ -26339,7 +26386,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (mh > 30) {
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
-			currentState = STATE_MAIN_MENU;
+			g_isGameOver = true;
+			g_winnerID = currentPlayer.playerID;
 			playedSuccessfully = true;
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			return true;
@@ -27661,40 +27709,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		// -----------------------------------
 
-		// --- TORTOISE FORM: Deal 3 damage to adjacent after block/heal/ward ---
-		// Note: CARD_DISPEL and CARD_WISDOM_BOON trigger Shell Spike after their menu choice is made
-		if (currentPlayer.inTortoiseForm) {
-			bool isDefensiveCard = (playedCard.type == CARD_HAND_BLOCK) || (playedCard.type == CARD_HEAL) || (playedCard.type == CARD_WARD) || (playedCard.type == CARD_DARK_SHIELD) || (playedCard.type == CARD_FORTIFY);
-
-			if (isDefensiveCard) {
-				// Check if there are any adjacent units (ANY unit, including allies)
-				bool hasAdjacentUnit = false;
-
-				for (const auto & p : players) {
-					if (p.x < 0) continue; // Dead
-					if (&p == &currentPlayer) continue; // Self
-
-					// Check adjacency (orthogonal only — no diagonals)
-					int dx = abs(p.x - currentPlayer.x);
-					int dy = abs(p.y - currentPlayer.y);
-					if ((dx + dy) == 1) {
-						hasAdjacentUnit = true;
-						break;
-					}
-				}
-
-				if (hasAdjacentUnit) {
-					// Enter centralized tortoise damage targeting mode
-					updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, cardIndex, CARD_FORM_OF_TORTOISE);
-					calculateTargetHighlights(); // Show green highlights on valid targets
-					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
-						"Shell Spike!", ofColor::darkGreen);
-					ofLogNotice("Tortoise Form") << "Triggered damage - choose adjacent target.";
-				}
-			}
-		}
-		// -----------------------------------
-
 		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		updatePlayerAP(currentPlayer, currentAP);
@@ -28586,13 +28600,24 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			case TARGET_ADJACENT_OR_SELF_UNIT: {
 				int distGrid = abs(x - px) + abs(y - py);
-				// Amnesia allows targeting self or adjacent units. Ensure self (dist 0)
-				// is treated the same when amnesia targeting is active.
 				if (distGrid == 0 || distGrid == 1) {
-					if (board[x][y].hasPlayer || (distGrid == 0)) {
-						if (!board[x][y].hasWall) {
+					if (card.type == CARD_DISPEL && interactionMenuChoice == "Purge") {
+						bool hasStatus = false;
+						for (auto & p : players) {
+							if (p.x == x && p.y == y) {
+								if (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0) hasStatus = true;
+							}
+						}
+						if (hasStatus) {
 							isPreview = true;
 							isValidTarget = true;
+						}
+					} else {
+						if (board[x][y].hasPlayer || (distGrid == 0)) {
+							if (!board[x][y].hasWall) {
+								isPreview = true;
+								isValidTarget = true;
+							}
 						}
 					}
 				}
