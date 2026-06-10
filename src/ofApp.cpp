@@ -8025,7 +8025,7 @@ void ofApp::updateGameLogic() {
 					// Bonus AP authoritative application handled by APPLY_BONUS_AP effect op
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
 					// Centralized summon handling (inlined from legacy resolver)
-					int count = roll.result;
+					int count = currentEffectSequence.blackboard[0];
 					if (count <= 0) {
 						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
 						// End kobold placement mode
@@ -18898,9 +18898,10 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
 	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
+
+	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
 	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
-	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
+	if (wisdomAutoBlockNoAdjacent) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -19067,7 +19068,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.params[0] = (int)CARD_TELEPORT;
 		cmd.params[1] = gridX;
 		cmd.params[2] = gridY;
-		cmd.params[3] = -1;
+		cmd.params[3] = interactionDiceRoll; // Pass range roll over network
 		strncpy(cmd.stringData, "Teleport", sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
@@ -21057,6 +21058,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_TELEPORT) {
 			int destX = targetIndex;
 			int destY = choice;
+			int passedDiceRoll = cmd.params[3]; // Range passed from client
 			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
 				resetCardInteraction();
 				advanceCardState(CARD_PLAY_STATE_FINISHED);
@@ -21072,7 +21074,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			Player & tpCaster = players[currentPlayerIndex];
 			glm::vec2 casterTile = { (float)tpCaster.x, (float)tpCaster.y };
 			glm::vec2 targetTile = { (float)destX, (float)destY };
-			long long maxRangeHalfTiles = ((long long)interactionDiceRoll * 2LL) / 5LL;
+			long long maxRangeHalfTiles = ((long long)passedDiceRoll * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 			bool inRange = (maxDistSq >= distSq);
@@ -21836,10 +21838,17 @@ bool ofApp::hasFinishedDiceRollFor(DicePurpose purpose, int ownerIndex) const {
 }
 
 void ofApp::updateEffectSequence() {
-	if (currentEffectSequence.isComplete) return;
 	if (currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
 		currentEffectSequence.isComplete = true;
 		isProcessingEffect = false;
+
+		// Trigger any pending Shell Spikes after the entire effect sequence completes
+		if (g_pendingShellSpike) {
+			g_pendingShellSpike = false;
+			if (isCurrentPlayerLocal()) {
+				tryTriggerShellSpike();
+			}
+		}
 		return;
 	}
 
@@ -26846,6 +26855,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int count = resolveDiceRollDetailed(1, 4, raw);
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 			count += luckBonus;
+			currentEffectSequence.blackboard[0] = count;
 			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_SUMMON_KOBOLDS, currentPlayerIndex, 1.0f);
 		}
 
@@ -30477,7 +30487,7 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 
 	// Reject tiles with only the caster occupant (unless card explicitly allows self)
 	if (result.isTargetable && card.targeting != TARGET_SELF && card.type != CARD_DOUBLE_HANDED && card.type != CARD_AMNESIA && card.type != CARD_WISDOM_BOON) {
-		if (!tileHasOtherThan(tx, ty, casterIdx)) {
+		if (board[tx][ty].hasPlayer && !tileHasOtherThan(tx, ty, casterIdx)) {
 			result.isTargetable = false;
 		}
 	}
