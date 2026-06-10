@@ -480,10 +480,10 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a Kobold King in an adjacent empty tile. Its Max Health is 1 + the number of friendly Kobolds.
+- **Effect Text:** **Summon** a Kobold King in an adjacent empty tile. Its Max Health is 1 + the number of Kobolds.
 - **Deck:** 2x Slash, 2x Stab, 2x Full Restore, 1x Call for Kobolds
 - **AP:** 1d6
-- **HP:** 1 + number of friendly Kobolds
+- **HP:** 1 + number of Kobolds
 ---
 
 ## 62. Summon Assistant

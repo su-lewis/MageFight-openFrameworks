@@ -23246,7 +23246,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int roll = currentEffectSequence.blackboard[0];
 		Player * target = getPlayer(currentCardOutcome.targetPlayerIndex);
 		if (target) {
-			if (roll > target->health) {
+			if (roll > target->health || target->sleepTurnsRemaining > 0) {
 				// SUCCESS: kill the target
 				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Executed!", ofColor::red);
 
