@@ -35,9 +35,6 @@ static float g_menuAlphaMult = 1.0f;
 // Used to defer Shell Spike targeting until after a card has fully resolved
 static bool g_pendingShellSpike = false;
 
-// Forward declaration for legacy mapping helper (defined later).
-static int legacyCardTypeToSummonKind(CardType t);
-
 // Path constants
 
 // Pending macros migrated; use `networkPending.*` fields.
@@ -290,7 +287,7 @@ static std::pair<int, int> getCardUtilityDice(const Card & card, int fallbackNum
 }
 
 // Centralized summon dice resolver for HP/count rolls.
-static std::pair<int, int> getCardSummonDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+[[maybe_unused]] static std::pair<int, int> getCardSummonDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
 	if (card.summonDiceNum > 0 && card.summonDiceSides > 0) return { card.summonDiceNum, card.summonDiceSides };
 	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
 	return { fallbackNum, fallbackSides };
@@ -776,7 +773,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 }
 
 // Simplified arc text drawing with fixed scale and basic fan curve
-static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
+[[maybe_unused]] static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const std::string & text,
 	const ofRectangle & rect,
 	float scale,
@@ -789,7 +786,6 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	int outlinePx) {
 	if (text.empty()) return;
 
-	const float spaceTighten = 1.0f;
 	const float localEndDrop = endDropPx;
 
 	std::vector<float> advances;
@@ -1155,7 +1151,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			for (const auto & text : texts) {
 				if (text.empty()) continue;
 
-				const float spaceTighten = 1.0f;
 				const float localEndDrop = endDropPx;
 
 				std::vector<float> advances;
@@ -1695,66 +1690,74 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (pictureToken.empty() && rec.index > 0) {
 			pictureToken = ofToString(rec.index);
 		}
+
+		const ofImage * art = nullptr;
 		if (!pictureToken.empty()) {
-			const ofImage * art = loadCardArtIfNeeded(pictureToken);
-			if (art && art->isAllocated()) {
-				float srcW = (float)art->getWidth();
-				float srcH = (float)art->getHeight();
-				if (srcW > 0.0f && srcH > 0.0f) {
-					float dstW = layout.pictureRect.width;
-					float dstH = layout.pictureRect.height;
-					float dstAspect = dstW / std::max(1.0f, dstH);
-					float srcAspect = srcW / std::max(1.0f, srcH);
+			art = loadCardArtIfNeeded(pictureToken);
+		}
 
-					// Cover + center crop.
-					float cropW = srcW;
-					float cropH = srcH;
-					if (srcAspect > dstAspect) {
-						cropW = srcH * dstAspect; // trim sides
-					} else if (srcAspect < dstAspect) {
-						cropH = srcW / dstAspect; // trim top/bottom
-					}
-					float cropX = (srcW - cropW) * 0.5f;
-					float cropY = (srcH - cropH) * 0.5f;
+		// Fallback to 0.png if specific art is missing or no token exists
+		if (!art || !art->isAllocated()) {
+			art = loadCardArtIfNeeded("0");
+		}
 
-					ofSetColor(255, 255, 255, 255);
-					art->getTexture().drawSubsection(
-						x + layout.pictureRect.x,
-						y + layout.pictureRect.y,
-						dstW,
-						dstH,
-						cropX,
-						cropY,
-						cropW,
-						cropH);
+		if (art && art->isAllocated()) {
+			float srcW = (float)art->getWidth();
+			float srcH = (float)art->getHeight();
+			if (srcW > 0.0f && srcH > 0.0f) {
+				float dstW = layout.pictureRect.width;
+				float dstH = layout.pictureRect.height;
+				float dstAspect = dstW / std::max(1.0f, dstH);
+				float srcAspect = srcW / std::max(1.0f, srcH);
 
-					// Soft black vignette around the picture edges.
-					float rx = x + layout.pictureRect.x;
-					float ry = y + layout.pictureRect.y;
-					float rw = dstW;
-					float rh = dstH;
-					float maxInset = std::max(12.0f, std::min(rw, rh) * 0.10f);
-					const int bands = 28;
-					for (int i = 0; i < bands; ++i) {
-						float t0 = (float)i / (float)bands;
-						float t1 = (float)(i + 1) / (float)bands;
-						float in0 = t0 * maxInset;
-						float in1 = t1 * maxInset;
-						float thickness = std::max(1.0f, in1 - in0);
-						float a = 1.0f - t0;
-						a = a * a;
-						unsigned char alpha = (unsigned char)std::clamp((int)std::round(54.0f * a), 0, 255);
+				// Cover + center crop.
+				float cropW = srcW;
+				float cropH = srcH;
+				if (srcAspect > dstAspect) {
+					cropW = srcH * dstAspect; // trim sides
+				} else if (srcAspect < dstAspect) {
+					cropH = srcW / dstAspect; // trim top/bottom
+				}
+				float cropX = (srcW - cropW) * 0.5f;
+				float cropY = (srcH - cropH) * 0.5f;
 
-						ofSetColor(0, 0, 0, alpha);
-						// top
-						if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, rw - 2.0f * in0, thickness);
-						// bottom
-						if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + rh - in1, rw - 2.0f * in0, thickness);
-						// left
-						if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, thickness, rh - 2.0f * in0);
-						// right
-						if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + rw - in1, ry + in0, thickness, rh - 2.0f * in0);
-					}
+				ofSetColor(255, 255, 255, 255);
+				art->getTexture().drawSubsection(
+					x + layout.pictureRect.x,
+					y + layout.pictureRect.y,
+					dstW,
+					dstH,
+					cropX,
+					cropY,
+					cropW,
+					cropH);
+
+				// Soft black vignette around the picture edges.
+				float rx = x + layout.pictureRect.x;
+				float ry = y + layout.pictureRect.y;
+				float rw = dstW;
+				float rh = dstH;
+				float maxInset = std::max(12.0f, std::min(rw, rh) * 0.10f);
+				const int bands = 28;
+				for (int i = 0; i < bands; ++i) {
+					float t0 = (float)i / (float)bands;
+					float t1 = (float)(i + 1) / (float)bands;
+					float in0 = t0 * maxInset;
+					float in1 = t1 * maxInset;
+					float thickness = std::max(1.0f, in1 - in0);
+					float a = 1.0f - t0;
+					a = a * a;
+					unsigned char alpha = (unsigned char)std::clamp((int)std::round(54.0f * a), 0, 255);
+
+					ofSetColor(0, 0, 0, alpha);
+					// top
+					if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, rw - 2.0f * in0, thickness);
+					// bottom
+					if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + rh - in1, rw - 2.0f * in0, thickness);
+					// left
+					if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, thickness, rh - 2.0f * in0);
+					// right
+					if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + rw - in1, ry + in0, thickness, rh - 2.0f * in0);
 				}
 			}
 		}
@@ -3734,21 +3737,21 @@ void ofApp::setup() {
 		if (mesh.getNumVertices() == 0) return;
 		glm::vec3 minB(1e9f);
 		glm::vec3 maxB(-1e9f);
-		for (int i = 0; i < mesh.getNumVertices(); ++i) {
+		for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
 			glm::vec3 v = mesh.getVertex(i);
 			minB = glm::min(minB, v);
 			maxB = glm::max(maxB, v);
 		}
 		glm::vec3 center = (minB + maxB) * 0.5f;
 		float maxDist = 0.0f;
-		for (int i = 0; i < mesh.getNumVertices(); ++i) {
+		for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
 			glm::vec3 v = mesh.getVertex(i) - center;
 			mesh.setVertex(i, v);
 			maxDist = std::max(maxDist, glm::length(v));
 		}
 		if (maxDist > 0.0f) {
 			float scale = 1.0f / maxDist;
-			for (int i = 0; i < mesh.getNumVertices(); ++i) {
+			for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
 				mesh.setVertex(i, mesh.getVertex(i) * scale);
 			}
 		}
@@ -4724,6 +4727,8 @@ void ofApp::update() {
 	// Check for any "waiting" state that should lock player input
 
 	switch (currentState) {
+	case STATE_MULTIPLAYER_MENU:
+	case STATE_INITIATIVE_ROLL:
 	case STATE_MAIN_MENU:
 		break;
 	case STATE_SETTINGS:
@@ -13113,7 +13118,7 @@ void ofApp::drawGame() {
 	// Legacy per-card targeting instruction blocks removed. Centralized
 	// `cardInteractionState` + `interactingCardType` handles targeting UI.
 
-	// --- GENERIC CARD TARGETING INSTRUCTION ---\
+	// --- GENERIC CARD TARGETING INSTRUCTION ---
 	// For all other cards using the generic targeting system (selectedCardIndex)
 	// Only exclude cards that need custom formatting (Teleport shows range, Amnesia has menu)
 	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)) {
@@ -15030,7 +15035,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// Schedule visual animations for the picked cards (clients and host)
 			{
-				float now = ofGetElapsedTimef();
 				float animCardW, animCardH, animSpacing, animStartX, animStartY;
 				getDraftCardMetrics(false, animCardW, animCardH, animSpacing, animStartX, animStartY);
 				// Determine pools based on current draft class
@@ -15114,7 +15118,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// sees the options disappear even if the authoritative command
 			// hasn't been processed yet (helps singleplayer and client UX).
 			{
-				float now = ofGetElapsedTimef();
 				for (size_t si = 0; si < draftOptionUI.size(); ++si) {
 					auto & ui = draftOptionUI[si];
 					if (!ui.hidden) {
@@ -18898,10 +18901,9 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
 	// Choose-one cards should open their menu immediately on play.
-
-	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
+	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
 	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
-	if (wisdomAutoBlockNoAdjacent) {
+	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -20749,7 +20751,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		CardPlayResult result = CARD_PLAY_RESULT_NOT_PLAYABLE;
 		result = playCard(cardIndex, targetX, targetY);
 		if (result != CARD_PLAY_RESULT_NOT_PLAYABLE && result != CARD_PLAY_RESULT_CANCELLED) {
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
 		}
@@ -20898,7 +20900,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			players[unitIndex].y = originalY;
 		}
 		applyMovement(unitIndex, toX, toY, newAP, &path);
-		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
 		}
 		break;
@@ -21051,7 +21053,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// Close the interaction state so the menu disappears while we wait for visuals
 			resetCardInteraction();
 
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
+			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 			break;
 		}
 
@@ -21099,7 +21101,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			queueEffect(mv);
 			resetCardInteraction();
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
 			break;
@@ -21151,7 +21153,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
 		isExecutingLockstepCommand = false;
-		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
 		}
 
@@ -21366,7 +21368,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			isInGameDraft = false;
 			resumeTurnTimerIfPausedForOpponent(this->draftPlayerIndex); // Use member safely
 			currentState = STATE_GAMEPLAY;
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
+			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 			break;
 		}
 
@@ -21392,7 +21394,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
 			}
 		}
-		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
+		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 
@@ -21674,7 +21676,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusID;
-		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
+		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 	case CMD_RENEWED_INSPIRATION: {
@@ -21765,7 +21767,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		resetCardInteraction();
 
 		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
-		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
+		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 	// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
@@ -22048,7 +22050,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					mv.data.moveUnit.toX = finalDest.x;
 					mv.data.moveUnit.toY = finalDest.y;
 					processEffectOp(mv);
-					queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Pushed!", ofColor::yellow);
+
+					int applied = applyDamageWithMitigations(*victim, dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
+					if (applied > 0) {
+						queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "-" + ofToString(applied) + " Phys", ofColor::red);
+					} else {
+						queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Absorbed", ofColor::gray);
+					}
 				} else {
 					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
 					{
@@ -25247,6 +25255,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 
 	// Complex cards that have generic stats but require custom C++ logic
 	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING) return false;
+
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -25369,6 +25378,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		}
 	}
 
+	// Stat Gains (AP, Block, Ward, etc.)
 	auto queueStatGain = [&](int statType, int delta) {
 		if (delta > 0) {
 			EffectOp statOp = {};
@@ -25453,33 +25463,6 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		drawOp.data.drawCards.numCards = playedCard.drawCount;
 		queueEffect(drawOp);
 	}
-
-	// Stat Gains (AP, Block, Ward, etc.)
-	auto queueStatGain = [&](int statType, int delta) {
-		if (delta > 0) {
-			EffectOp statOp = {};
-			statOp.type = EffectOpType::MODIFY_STAT;
-			statOp.data.modifyStat.targetIndex = currentPlayerIndex;
-			statOp.data.modifyStat.statType = statType;
-			statOp.data.modifyStat.delta = delta;
-			statOp.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(statOp);
-		}
-	};
-
-	queueStatGain(3, playedCard.apGain);
-
-	int finalBlock = playedCard.blockAmount;
-	if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
-		finalBlock *= (1 << currentPlayer.flurryOfFistsStacks);
-	}
-	queueStatGain(5, finalBlock);
-	queueStatGain(6, playedCard.barrierAmount);
-	queueStatGain(7, playedCard.holyBlockAmount);
-	queueStatGain(8, playedCard.wardAmount);
-	queueStatGain(10, playedCard.luckGain);
-	queueStatGain(13, playedCard.fortifyAmount);
-	queueStatGain(1, playedCard.hpDerivedAdd);
 
 	advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	playedSuccessfully = true;
@@ -26231,7 +26214,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					if (board[nx][ny].hasPlayer) {
 						// Identify who is on this tile
 						for (size_t i = 0; i < players.size(); i++) {
-							if (players[i].x == nx && players[i].y == ny && i != currentPlayerIndex) {
+							if (players[i].x == nx && players[i].y == ny && (int)i != currentPlayerIndex) {
 								targetsToDamage.insert(i);
 							}
 						}
