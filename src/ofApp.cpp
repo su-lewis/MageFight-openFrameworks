@@ -7158,6 +7158,7 @@ void ofApp::updateGameLogic() {
 						if (toPlace <= 0) {
 							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 							isShowingTooltip = false;
+							resetCardState();
 							return;
 						}
 
@@ -8024,6 +8025,7 @@ void ofApp::updateGameLogic() {
 						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
 						// End kobold placement mode
 						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+						resetCardState();
 					} else {
 						// Count available adjacent empty tiles
 						int avail = 0;
@@ -8039,6 +8041,7 @@ void ofApp::updateGameLogic() {
 						if (allowed <= 0) {
 							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
 							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+							resetCardState();
 						} else {
 							// MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn
 							if (isCurrentPlayerLocal()) {
@@ -19071,6 +19074,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		}
 
 		resetCardInteraction();
+		resetCardState();
 		return;
 	}
 
@@ -19206,6 +19210,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		return;
 	}
 	switch (interactingCardType) {
+
 	case CARD_FORM_OF_TORTOISE: {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
@@ -19224,6 +19229,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			queueInputCommand(cmd);
 		}
 		resetCardInteraction();
+		resetCardState();
 		return;
 	}
 
@@ -21498,6 +21504,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (koboldsRemainingToPlace <= 0) {
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				isShowingTooltip = false;
+				resetCardState();
 			} else if (isCurrentPlayerLocal()) {
 				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
 				calculateTargetHighlights();
@@ -21540,6 +21547,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 				isShowingTooltip = false;
+				resetCardState();
 			}
 			break;
 		}
@@ -23185,6 +23193,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			// End the sequence
 			updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 			wolfSummonStage = 0;
+			resetCardState();
 		} else {
 			// HEADS: Check if we have space for the 2nd wolf
 			bool hasSpace = false;
@@ -23211,6 +23220,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
 					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 					wolfSummonStage = 0;
+					resetCardState();
 				}
 			} else {
 				// HEADS BUT BLOCKED
@@ -23218,6 +23228,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
+				resetCardState();
 			}
 		}
 
@@ -24984,6 +24995,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				sendInputCommand(cmd, true);
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();
+				resetCardState();
 				return;
 			}
 
@@ -25193,6 +25205,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		if (!clickedOption && !statusSelectMenuRect.inside(mouseX, mouseY)) {
 			cancelDispel();
 			resetCardInteraction();
+			resetCardState();
 		}
 	}
 }
@@ -30866,6 +30879,7 @@ void ofApp::cancelDispel() {
 	statusSelectButtons.clear();
 	statusSelectMenuRect.set(0, 0, 0, 0);
 	dispelMode = 0;
+	resetCardState();
 	ofLogNotice("Dispel") << "Cancelled.";
 }
 
