@@ -30,9 +30,8 @@ void SteamManager::setup() {
 }
 
 bool SteamManager::isConnected() const {
-	// Consider us "connected" for UI purposes if we are hosting (lobby created)
-	// or if we have an active peer connection.
-	return m_bIsHost || m_LobbyID.IsValid() || (m_hConnection != k_HSteamNetConnection_Invalid);
+	// This tells the UI if the Steam Client is running and the API successfully initialized.
+	return m_bInitialized;
 }
 
 bool SteamManager::hasOpponent() const {

@@ -7,6 +7,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -3222,6 +3223,19 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 
 //--------------------------------------------------------------
 void ofApp::setup() {
+	// --- BULLETPROOF STEAM APP ID FIX ---
+	// When launched as a "Non-Steam Game", Steam assigns a random fake AppID (e.g. 14930192)
+	// which completely overrides the steam_appid.txt file and causes SteamAPI_Init() to fail.
+	// Forcing the environment variable here guarantees it always connects as Spacewar (480)
+	// no matter how the user launches it or if they forgot to extract the zip file.
+#ifdef _WIN32
+	_putenv("SteamAppId=480");
+	_putenv("SteamGameId=480");
+#else
+	setenv("SteamAppId", "480", 1);
+	setenv("SteamGameId", "480", 1);
+#endif
+
 	steamManager.setup();
 
 	// Headless mode: when `MAGEFIGHT_HEADLESS` is set, skip rendering and texture operations.
