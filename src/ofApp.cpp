@@ -4700,13 +4700,7 @@ void ofApp::update() {
 					}
 				}
 
-				if (ofGetElapsedTimef() - lastHandshakeRequestTime > handshakeRequestInterval) {
-					string req = "REQ_SEED";
-					steamManager.sendPacket(req.c_str(), req.size());
-					lastHandshakeRequestTime = ofGetElapsedTimef();
-					handshakeRequestInterval = std::min(handshakeRequestInterval * 1.5f, 5.0f);
-					ofLogNotice("Network") << "Sent Seed Request...";
-				}
+				// REQ_SEED loop removed: We now rely on the reliable XOR Handshake packet
 			}
 		}
 	} else if (currentState == STATE_MAIN_MENU && !isMultiplayer) {
@@ -5854,6 +5848,10 @@ void ofApp::setupGame() {
 	executedCommandKeys.clear();
 	provisionalSnapshots.clear();
 	provisionalCommands.clear();
+
+	// FIX: Reset simulation time so replays start from frame 0!
+	simulationFrame = 0;
+	simulationAccumulator = 0.0f;
 
 	// Reset Stats & Replays
 	matchStats[0] = PlayerMatchStats();
@@ -18799,6 +18797,7 @@ void ofApp::resetCardInteraction() {
 	statusSelectLabels.clear();
 	statusSelectButtons.clear();
 	statusSelectMenuRect.set(0, 0, 0, 0);
+	interactionDiceRoll = 0; // Prevent clicking before dice finish!
 	// Keep legacy boolean flags untouched here — other code paths migrated to
 	// respect `cardInteractionState` and `processCardStateInput()` as authority.
 	clearHighlights();
@@ -19049,6 +19048,8 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Teleport destination commit is step 2 of the lockstep flow.
 	// Do not require a live hand index here (card may already be consumed by step 1).
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
+		if (interactionDiceRoll <= 0) return; // Prevent early click lock
+
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -19806,12 +19807,22 @@ void ofApp::drawActiveCardInteractionUI() {
 		ofRectangle btnSingle(mx + w / 2.0f - cardW / 2.0f, my + h - pad - cardH, cardW, cardH);
 
 		switch (interactingCardType) {
+
 		case CARD_BURST_OF_LIGHT: {
 			bool healEnabled = false;
 			Player & caster = players[currentPlayerIndex];
+
 			if (caster.inTortoiseForm) {
-				healEnabled = true;
-			} else {
+				for (const auto & p : players) {
+					if (p.x < 0 || &p == &caster) continue;
+					if (abs(p.x - caster.x) + abs(p.y - caster.y) == 1) {
+						healEnabled = true;
+						break;
+					}
+				}
+			}
+
+			if (!healEnabled) {
 				glm::vec2 casterPos(caster.x, caster.y);
 				for (const auto & p : players) {
 					if (p.health > 0 && p.health < p.maxHealth) {
@@ -19823,6 +19834,7 @@ void ofApp::drawActiveCardInteractionUI() {
 					}
 				}
 			}
+
 			drawCardChoicePanel(menuRect, "Burst of Light", "Choose an effect:", btn1, btn2,
 				"Deal 3 Holy", healEnabled ? "Heal 3 HP" : "No Wounded Targets",
 				ofColor(255, 213, 79), ofColor(144, 238, 144), true, healEnabled);
@@ -20477,135 +20489,138 @@ void ofApp::simulationTick() {
 
 	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
 	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
-	std::vector<int> removeIndices;
-	for (size_t i = 0; i < players.size(); ++i) {
-		// Consider played cards as well when deciding "no cards" for main players.
-		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
-		bool shouldDie = (players[i].health <= 0);
+	// ONLY check if there are no pending spells processing so array indices don't shift!
+	if (!isProcessingEffect && !isEarthquakeActive) {
+		std::vector<int> removeIndices;
+		for (size_t i = 0; i < players.size(); ++i) {
+			// Consider played cards as well when deciding "no cards" for main players.
+			bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
+			bool shouldDie = (players[i].health <= 0);
 
-		// If a unit (player or minion) truly has no cards anywhere (deck,
-		// discard, hand, or played pile), they should be removed.
-		// EXCEPTION 1: Do not kill players during the initial draft.
-		// EXCEPTION 2: Do not kill units on the exact turn they are summoned
-		// (gives Golems/minions time to generate decks via EffectOps).
-		if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
-			shouldDie = true;
-		}
+			// If a unit (player or minion) truly has no cards anywhere (deck,
+			// discard, hand, or played pile), they should be removed.
+			// EXCEPTION 1: Do not kill players during the initial draft.
+			// EXCEPTION 2: Do not kill units on the exact turn they are summoned
+			// (gives Golems/minions time to generate decks via EffectOps).
+			if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
+				shouldDie = true;
+			}
 
-		if (!shouldDie) continue;
+			if (!shouldDie) continue;
 
-		// Attempt Faerie resurrection if applicable
-		Player & dying = players[i];
-		bool resurrected = false;
-		if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-			// Check orthogonally-adjacent tiles for an alive Faerie.
-			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-					if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
-						int nx = dying.x + dx, ny = dying.y + dy;
-						if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
-							Player & p = players[pidx];
-							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-								// Deterministic resurrection roll (decision-time via detailed resolver)
-								std::vector<int> rawRes;
-								int raw = resolveDiceRollDetailed(1, 4, rawRes);
-								int luckBonus = p.luck + computePassiveLuck((int)pidx);
-								int roll = raw + luckBonus; // may exceed 4; that's intentional
-								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
-								// Show dice visual for the faerie roll
-								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
-								int hp = (dying.maxHealth * roll) / 4;
-								if (hp < 1) hp = 1;
-								{
-									EffectOp setHp = {};
-									setHp.type = EffectOpType::MODIFY_STAT;
-									setHp.data.modifyStat.targetIndex = (int)i;
-									setHp.data.modifyStat.statType = 0; // HP
-									setHp.data.modifyStat.delta = hp - dying.health;
-									setHp.data.modifyStat.deltaFromSlot = -1;
-									queueEffect(setHp);
-									if (!isProcessingEffect) beginEffectSequence();
+			// Attempt Faerie resurrection if applicable
+			Player & dying = players[i];
+			bool resurrected = false;
+			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+				// Check orthogonally-adjacent tiles for an alive Faerie.
+				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+						if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
+							int nx = dying.x + dx, ny = dying.y + dy;
+							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+							for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+								Player & p = players[pidx];
+								if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+									// Deterministic resurrection roll (decision-time via detailed resolver)
+									std::vector<int> rawRes;
+									int raw = resolveDiceRollDetailed(1, 4, rawRes);
+									int luckBonus = p.luck + computePassiveLuck((int)pidx);
+									int roll = raw + luckBonus; // may exceed 4; that's intentional
+									if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
+									// Show dice visual for the faerie roll
+									queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
+									int hp = (dying.maxHealth * roll) / 4;
+									if (hp < 1) hp = 1;
+									{
+										EffectOp setHp = {};
+										setHp.type = EffectOpType::MODIFY_STAT;
+										setHp.data.modifyStat.targetIndex = (int)i;
+										setHp.data.modifyStat.statType = 0; // HP
+										setHp.data.modifyStat.delta = hp - dying.health;
+										setHp.data.modifyStat.deltaFromSlot = -1;
+										queueEffect(setHp);
+										if (!isProcessingEffect) beginEffectSequence();
+									}
+									resurrected = true;
 								}
-								resurrected = true;
 							}
 						}
 					}
 				}
 			}
-		}
 
-		if (!resurrected) {
-			removeIndices.push_back((int)i);
+			if (!resurrected) {
+				removeIndices.push_back((int)i);
 
-			// --- GAME OVER CHECK ---
-			if (!players[i].isMinion && (players[i].playerID == 0 || players[i].playerID == 1)) {
-				g_isGameOver = true;
-				g_winnerID = (players[i].playerID == 0) ? 1 : 0;
-			}
-		}
-	}
-
-	if (!removeIndices.empty()) {
-		std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
-		bool activePlayerDied = false;
-
-		for (int idx : removeIndices) {
-			if (idx < 0 || idx >= (int)players.size()) continue;
-
-			DeathMarker death;
-			death.x = players[idx].x;
-			death.y = players[idx].y;
-			death.turnDied = globalTurnCounter;
-			death.deck = players[idx].deck;
-			graveyard.push_back(death);
-
-			if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
-				board[players[idx].x][players[idx].y].hasPlayer = false;
-			}
-
-			// Update active dice associations
-			for (auto & r : activeDiceRolls) {
-				if (r.associatedUnit == idx)
-					r.associatedUnit = -1;
-				else if (r.associatedUnit > idx)
-					r.associatedUnit -= 1;
-			}
-
-			if (currentPlayerIndex == idx) {
-				activePlayerDied = true;
-			}
-
-			// Remove or adjust earthquake unit entries
-			for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
-				if (it->playerIndex == idx) {
-					it = earthquakeUnits.erase(it);
-				} else {
-					if (it->playerIndex > idx) it->playerIndex -= 1;
-					++it;
+				// --- GAME OVER CHECK ---
+				if (!players[i].isMinion && (players[i].playerID == 0 || players[i].playerID == 1)) {
+					g_isGameOver = true;
+					g_winnerID = (players[i].playerID == 0) ? 1 : 0;
 				}
 			}
+		}
 
-			players.erase(players.begin() + idx);
+		if (!removeIndices.empty()) {
+			std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
+			bool activePlayerDied = false;
 
-			if (players.empty()) {
-				currentPlayerIndex = -1;
-			} else {
+			for (int idx : removeIndices) {
+				if (idx < 0 || idx >= (int)players.size()) continue;
+
+				DeathMarker death;
+				death.x = players[idx].x;
+				death.y = players[idx].y;
+				death.turnDied = globalTurnCounter;
+				death.deck = players[idx].deck;
+				graveyard.push_back(death);
+
+				if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
+					board[players[idx].x][players[idx].y].hasPlayer = false;
+				}
+
+				// Update active dice associations
+				for (auto & r : activeDiceRolls) {
+					if (r.associatedUnit == idx)
+						r.associatedUnit = -1;
+					else if (r.associatedUnit > idx)
+						r.associatedUnit -= 1;
+				}
+
 				if (currentPlayerIndex == idx) {
-					currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
-				} else if (currentPlayerIndex > idx) {
-					currentPlayerIndex -= 1;
+					activePlayerDied = true;
+				}
+
+				// Remove or adjust earthquake unit entries
+				for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
+					if (it->playerIndex == idx) {
+						it = earthquakeUnits.erase(it);
+					} else {
+						if (it->playerIndex > idx) it->playerIndex -= 1;
+						++it;
+					}
+				}
+
+				players.erase(players.begin() + idx);
+
+				if (players.empty()) {
+					currentPlayerIndex = -1;
+				} else {
+					if (currentPlayerIndex == idx) {
+						currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
+					} else if (currentPlayerIndex > idx) {
+						currentPlayerIndex -= 1;
+					}
 				}
 			}
-		}
 
-		if (activePlayerDied && !players.empty()) {
-			// Step back so startNewTurn() increments into the correct next unit
-			currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
-			requestStartNewTurn();
-		}
+			if (activePlayerDied && !players.empty()) {
+				// Step back so startNewTurn() increments into the correct next unit
+				currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
+				requestStartNewTurn();
+			}
 
-		invalidateTargetCache();
+			invalidateTargetCache();
+		}
 	}
 
 	// Periodic checksum validation (every 10 simulation frames = ~166ms at 60Hz)
@@ -21070,12 +21085,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toY = destY;
 			queueEffect(mv);
 			resetCardInteraction();
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
 			break;
 		}
-
 		std::string buttonId;
 		switch ((CardType)menuType) {
 		case CARD_BURST_OF_LIGHT:
@@ -22318,18 +22333,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			if (directHitIdx >= 0) {
-				int outSlot = 10;
-				applyDamageWithMitigationsQueued(players[directHitIdx], primaryDamage, DAMAGE_MAGIC, currentPlayerIndex, outSlot);
-
 				EffectOp res = {};
 				res.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				res.data.damage.targetIndex = directHitIdx;
 				res.data.damage.damageType = DAMAGE_MAGIC;
-				res.data.damage.fixedDamage = 0;
-				res.data.damage.damageFromSlot = outSlot;
+				res.data.damage.fixedDamage = primaryDamage;
+				res.data.damage.damageFromSlot = -1;
 				queueEffect(res);
-
-				queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "-" + ofToString(primaryDamage) + " Magic", ofColor::red);
 			} else {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
 			}
@@ -22358,7 +22368,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				long long aoeRadiusSq = aoeRadiusHalfTiles * aoeRadiusHalfTiles;
 				long long aoeDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y), glm::vec2((float)p.x, (float)p.y));
 				if (aoeDistSq <= aoeRadiusSq) {
-					auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
+					auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + 0.5f, glm::vec2(p.x, p.y) + 0.5f);
 					bool blockedByWall = false;
 					for (const auto & stepP : losPath) {
 						if ((int)stepP.x == currentCardOutcome.primaryTarget.x && (int)stepP.y == currentCardOutcome.primaryTarget.y) continue;
@@ -22372,21 +22382,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			int baseOut = 11;
 			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
 				int pidx = aoeTargets[idx];
-				int outSlot = baseOut + (int)idx;
-				applyDamageWithMitigationsQueued(players[pidx], 3, DAMAGE_ELECTRIC, currentPlayerIndex, outSlot);
 
 				EffectOp aoeDmg = {};
 				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				aoeDmg.data.damage.targetIndex = pidx;
 				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
-				aoeDmg.data.damage.fixedDamage = 0;
-				aoeDmg.data.damage.damageFromSlot = outSlot;
+				aoeDmg.data.damage.fixedDamage = 3;
+				aoeDmg.data.damage.damageFromSlot = -1;
 				queueEffect(aoeDmg);
-
-				queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "-3 Electric", ofColor::yellow);
 			}
 			opComplete = true;
 			break;
@@ -22508,18 +22513,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			int baseOut = 8;
 			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
 				int pidx = aoeTargets[idx];
-				int outSlot = baseOut + (int)idx;
-				applyDamageWithMitigationsQueued(players[pidx], dmg, DAMAGE_ELECTRIC, currentPlayerIndex, outSlot);
 
 				EffectOp aoeDmg = {};
 				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				aoeDmg.data.damage.targetIndex = pidx;
 				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
-				aoeDmg.data.damage.fixedDamage = 0;
-				aoeDmg.data.damage.damageFromSlot = outSlot;
+				aoeDmg.data.damage.fixedDamage = dmg;
+				aoeDmg.data.damage.damageFromSlot = -1;
 				queueEffect(aoeDmg);
 
 				if (aoeTargets.size() > 1) {
@@ -26778,20 +26780,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		beginEffectSequence();
 
-		EffectOp spawnKoboldOp = {};
-		spawnKoboldOp.type = EffectOpType::SPAWN_UNIT;
-		spawnKoboldOp.data.spawnUnit.toX = -1;
-		spawnKoboldOp.data.spawnUnit.toY = -1;
-		spawnKoboldOp.data.spawnUnit.summonKind = 1; // KOBOLD
-		spawnKoboldOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnKoboldOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnKoboldOp.data.spawnUnit.maxHealth = 1;
-		spawnKoboldOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnKoboldOp);
-
 		{
 			std::vector<int> raw;
 			int count = resolveDiceRollDetailed(1, 4, raw);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			count += luckBonus;
 			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_SUMMON_KOBOLDS, currentPlayerIndex, 1.0f);
 		}
 
@@ -28140,23 +28133,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 
 					if (info.reason == VALID) {
-						if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING) {
+						if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
 							if (info.isTargetable) valid = true;
 						} else if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
-							if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
-								for (const auto & p : players) {
-									if (p.x == tx && p.y == ty && p.health < p.maxHealth) valid = true;
-								}
-							} else {
-								valid = true;
-							}
+							valid = true;
 						}
 					} else if (info.reason == INVALID_SELF) {
-						if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
-							if (currentPlayer.health < currentPlayer.maxHealth) {
-								valid = true;
-							}
-						} else if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
+						if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
 							// Chain lightning / Magic Blast bounce target checking
 							for (int dx = -1; dx <= 1 && !valid; ++dx) {
 								for (int dy = -1; dy <= 1; ++dy) {
@@ -28384,6 +28367,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 
 		// 2) For unit tiles, apply green targetable outlines based on Burst menu choice
+		bool canTargetFullHp = false;
+		if (caster.inTortoiseForm) {
+			for (const auto & p : players) {
+				if (p.x < 0 || &p == &caster) continue;
+				if (abs(p.x - caster.x) + abs(p.y - caster.y) == 1) {
+					canTargetFullHp = true;
+					break;
+				}
+			}
+		}
+
 		for (const auto & p : players) {
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
 			// Allow valid unit targets to be outlined green. When DAMAGE is chosen
@@ -28391,6 +28385,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			if (info.reason == VALID || info.reason == INVALID_SELF) {
 				if (interactionMenuChoice == "damage" && p.x == (int)caster.x && p.y == (int)caster.y) {
 					// Skip marking self as targetable when dealing damage
+					continue;
+				}
+				if (interactionMenuChoice == "heal" && p.health >= p.maxHealth && !canTargetFullHp) {
+					// Skip marking full HP targets if not tortoise + adjacent
 					continue;
 				}
 				board[p.x][p.y].isTargetable = true; // green outline
@@ -28840,18 +28838,31 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							canBeClicked = true;
 						}
 					} else {
-						// Heal and Lesser Heal can target self or any unit, but only if missing HP.
+						// Heal and Lesser Heal can target self or any unit, but only if missing HP or (Tortoise + Adjacent)
 						bool canReceiveHeal = false;
-						if (isSelfTile) {
-							canReceiveHeal = (currentPlayer.health < currentPlayer.maxHealth);
-						} else if (isOccupied) {
+						bool canTargetFullHp = false;
+
+						if (currentPlayer.inTortoiseForm) {
 							for (const auto & p : players) {
-								if (p.x == x && p.y == y) {
-									canReceiveHeal = (p.health < p.maxHealth);
+								if (p.x < 0 || &p == &currentPlayer) continue;
+								if (abs(p.x - currentPlayer.x) + abs(p.y - currentPlayer.y) == 1) {
+									canTargetFullHp = true;
 									break;
 								}
 							}
 						}
+
+						if (isSelfTile) {
+							canReceiveHeal = (currentPlayer.health < currentPlayer.maxHealth) || canTargetFullHp;
+						} else if (isOccupied) {
+							for (const auto & p : players) {
+								if (p.x == x && p.y == y) {
+									canReceiveHeal = (p.health < p.maxHealth) || canTargetFullHp;
+									break;
+								}
+							}
+						}
+
 						if (isPreview && (isOccupied || isSelfTile) && canReceiveHeal) {
 							canBeClicked = true;
 						}
@@ -34938,22 +34949,6 @@ void ofApp::processNetworkPackets() {
 	while (!steamManager.packetQueue.empty()) {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
-
-		// --- FIX: Only handle REQ_SEED (8 bytes) ---
-		if (buffer.size() == 8) {
-			string msg(buffer.begin(), buffer.end());
-			if (msg == "REQ_SEED" && steamManager.isHost()) {
-				HandshakePacket pkt = {};
-				pkt.type = PKT_HANDSHAKE;
-				pkt.playerID = 0;
-				pkt.seq = 0;
-				pkt.seed = localSeedComponent;
-				pkt.elo = myElo;
-				steamManager.sendPacket(&pkt, sizeof(pkt));
-				continue;
-			}
-		}
-		// -------------------------------------------------------------------
 
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
