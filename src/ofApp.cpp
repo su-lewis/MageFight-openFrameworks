@@ -24726,7 +24726,12 @@ void ofApp::updateCardStateMachine() {
 	if (cardPlayState == CARD_PLAY_STATE_OUTCOME) {
 		// Apply outcome effects locally on both peers (deterministic lockstep)
 		applyCardOutcomeEffects();
-		advanceCardState(CARD_PLAY_STATE_FINISHED);
+		
+		// If applyCardOutcomeEffects triggered a post-play targeting interaction (like Shell Spike),
+		// it will have changed the state to TARGETING. Only advance to FINISHED if we are still in OUTCOME.
+		if (cardPlayState == CARD_PLAY_STATE_OUTCOME) {
+			advanceCardState(CARD_PLAY_STATE_FINISHED);
+		}
 	}
 
 	if (cardPlayState == CARD_PLAY_STATE_FINISHED) {
