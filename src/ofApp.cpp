@@ -4080,8 +4080,7 @@ void ofApp::setup() {
 		isAIvsAI = true;
 		isMultiplayer = false;
 		myLocalPlayerID = 0;
-		setupGame();
-		currentState = STATE_GAMEPLAY;
+		setupGame(); // Naturally begins Initiative Roll -> Real Drafting Phase!
 	}
 
 	// Connect to Python AI if in training mode
@@ -4476,6 +4475,9 @@ void ofApp::updateStateMachine() {
 void ofApp::update() {
 	steamManager.update();
 
+	// --- RUN AI ---
+	updateAI();
+
 	// --- HYPER-SPEED TRAINING RESET ---
 	if (g_isGameOver && headless && isAIvsAI) {
 		float finalReward = (g_winnerID == 1) ? 10.0f : -10.0f; // +10 for AI win, -10 for Human win
@@ -4487,7 +4489,7 @@ void ofApp::update() {
 		ofLogNotice("Training") << "Game Over! Winner: " << g_winnerID << ". Restarting...";
 
 		cleanupGame();
-		setupGame(); // Instantly start the next episode
+		setupGame(); // Instantly starts the next episode with Initiative & Draft!
 		return;
 	}
 
@@ -36275,8 +36277,11 @@ std::vector<float> ofApp::extractGameStateForAI() {
 	state.push_back((float)draftStage);
 	state.push_back((float)draftPicksRemaining);
 
+	// The Network needs to see the board from the perspective of whoever's turn it is
+	int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+	int opponentID = (activeID == 1) ? 0 : 1;
+
 	// --- 2. MAIN PLAYER STATES (32 floats total) ---
-	// Encodes the AI (Player 2) and Human (Player 1) overall stats
 	auto encodePlayer = [&](int pID) {
 		int idx = findPlayerIndexByID(pID);
 		if (idx >= 0 && idx < (int)players.size()) {
@@ -36298,18 +36303,16 @@ std::vector<float> ofApp::extractGameStateForAI() {
 			state.push_back((float)p.deck.size());
 			state.push_back((float)p.discardPile.size());
 		} else {
-			// Dead or missing: pad with 16 zeros
 			for (int i = 0; i < 16; i++)
 				state.push_back(0.0f);
 		}
 	};
-	encodePlayer(1); // AI (Player 2)
-	encodePlayer(0); // Human (Player 1)
+	encodePlayer(activeID); // The AI making the decision
+	encodePlayer(opponentID); // The Enemy
 
 	// --- 3. AI HAND (70 floats: Bag of Cards) ---
-	// Index represents Card ID. Value represents how many copies are in hand.
 	std::vector<float> handCounts(70, 0.0f);
-	int aiIdx = findPlayerIndexByID(1);
+	int aiIdx = findPlayerIndexByID(activeID);
 	if (aiIdx >= 0) {
 		for (const Card & c : players[aiIdx].hand) {
 			int cardId = (int)c.type - 1; // Assuming CARD_NONE is 0, cards are 1-70
@@ -36420,18 +36423,124 @@ std::vector<float> ofApp::extractGameStateForAI() {
 
 int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, bool done) {
 	if (!zmqConnected) {
-		// Simple random fallback so the game doesn't crash if Python isn't connected
+		// Fallback random/basic logic if Python is not connected
 		if (currentState == STATE_DRAFTING) return 30;
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) return 10;
+		int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+		int aiIdx = findPlayerIndexByID(activeID);
+		if (aiIdx >= 0) {
+			Player & aiPlayer = players[aiIdx];
+			bool hasDrawn = (activeID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			if (!hasDrawn && !aiPlayer.deck.empty()) return 1;
+			for (int i = 0; i < (int)aiPlayer.hand.size(); ++i) {
+				if (aiPlayer.ap >= aiPlayer.hand[i].cost) return 10000 + i * (BOARD_WIDTH * BOARD_HEIGHT);
+			}
+		}
 		return 0; // End Turn
 	}
 
+	// --- 1. GENERATE ACTION MASK (20,000 Elements) ---
+	std::vector<float> actionMask(20000, 0.0f);
+	int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+	int aiIdx = findPlayerIndexByID(activeID);
+
+	if (currentState == STATE_DRAFTING) {
+		// Only Draft Combinations are valid
+		actionMask[30] = 1.0f;
+		actionMask[31] = 1.0f;
+		actionMask[32] = 1.0f;
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+		// Only Menu UI interactions are valid
+		for (int i = 10; i <= 29; i++)
+			actionMask[i] = 1.0f;
+		for (int i = 40; i <= 140; i++)
+			actionMask[i] = 1.0f; // Amnesia/Renewed UI
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+		// Raw Targeting modes (Teleport, Spawn wolves, etc.)
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				if (board[x][y].isTargetable) {
+					actionMask[1000 + y * BOARD_WIDTH + x] = 1.0f;
+				}
+			}
+		}
+	} else {
+		// Gameplay Actions
+		actionMask[0] = 1.0f; // End turn is always valid
+
+		if (aiIdx >= 0) {
+			Player & aiPlayer = players[aiIdx];
+
+			// Can we draw?
+			bool hasDrawn = (activeID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			if (!hasDrawn && !aiPlayer.deck.empty()) {
+				actionMask[1] = 1.0f;
+			}
+
+			// Can we use Assistant AP Reroll?
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == activeID && !players[i].assistantRerollUsedThisTurn) {
+					if (abs(players[i].x - players[currentPlayerIndex].x) + abs(players[i].y - players[currentPlayerIndex].y) <= 1) {
+						actionMask[2] = 1.0f;
+						break;
+					}
+				}
+			}
+
+			// Movement Masking (Estimate valid tiles based on AP)
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				for (int x = 0; x < BOARD_WIDTH; x++) {
+					int dist = abs(x - aiPlayer.x) + abs(y - aiPlayer.y);
+					if (dist > 0 && dist <= aiPlayer.ap && !board[x][y].hasWall && !board[x][y].hasPlayer) {
+						actionMask[200 + y * BOARD_WIDTH + x] = 1.0f;
+					}
+				}
+			}
+
+			// Card Playing Masking
+			int savedInteractionState = cardInteractionState;
+			int savedInteractingCardIdx = interactingCardIndex;
+
+			for (int i = 0; i < (int)aiPlayer.hand.size(); ++i) {
+				int cost = getEffectiveCardCostForPlayer(aiPlayer, aiPlayer.hand[i]);
+				if (aiPlayer.ap >= cost) {
+					// Use existing game logic to find mathematically legal targets!
+					interactingCardIndex = i;
+					calculateTargetHighlights(i);
+					bool hasTargets = false;
+
+					for (int y = 0; y < BOARD_HEIGHT; y++) {
+						for (int x = 0; x < BOARD_WIDTH; x++) {
+							if (board[x][y].isTargetable) {
+								actionMask[10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (y * BOARD_WIDTH + x)] = 1.0f;
+								hasTargets = true;
+							}
+						}
+					}
+
+					// Self-target fallback if board returns empty but card is valid (like Time Vortex)
+					if (!hasTargets && (aiPlayer.hand[i].targeting == TARGET_NONE || aiPlayer.hand[i].targeting == TARGET_SELF)) {
+						actionMask[10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (aiPlayer.y * BOARD_WIDTH + aiPlayer.x)] = 1.0f;
+					}
+				}
+			}
+
+			// Restore Game Visual State
+			cardInteractionState = (CardInteractionState)savedInteractionState;
+			interactingCardIndex = savedInteractingCardIdx;
+			calculateTargetHighlights(interactingCardIndex);
+		}
+	}
+
+	// --- 2. BUILD ZMQ PAYLOAD ---
 	std::vector<float> payload;
-	payload.reserve(state.size() + 2);
+	payload.reserve(2 + state.size() + actionMask.size());
 	payload.push_back(done ? 1.0f : 0.0f);
 	payload.push_back(reward);
 	payload.insert(payload.end(), state.begin(), state.end());
+	payload.insert(payload.end(), actionMask.begin(), actionMask.end());
 
+	// --- 3. COMMUNICATE WITH PYTHON ---
 	zmq::message_t request(payload.size() * sizeof(float));
 	memcpy(request.data(), payload.data(), payload.size() * sizeof(float));
 	zmqSocket->send(request, zmq::send_flags::none);
@@ -36450,7 +36559,10 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 void ofApp::executeAIAction(int actionIndex) {
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
-	cmd.playerID = 1; // AI is Player 2
+
+	// In AI vs AI, we command whoever is currently active.
+	cmd.playerID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+
 	cmd.commandId = nextCommandId++;
 	cmd.turnNumber = globalTurnCounter;
 
@@ -36497,17 +36609,37 @@ void ofApp::executeAIAction(int actionIndex) {
 			cmd.params[5] = magicHandTargetTile.y;
 		}
 		sendInputCommand(cmd, true);
-	} else if (actionIndex >= 30 && actionIndex <= 39) {
-		// Action 30-39: Draft Selection (Options 0, 1, or 2)
-		int draftPick = actionIndex - 30;
-		if (draftPick >= 0 && draftPick < (int)currentDraftOptionPoolIndices.size()) {
+	} else if (actionIndex >= 30 && actionIndex <= 32) {
+		// Action 30-32: Draft Selection (Combinations)
+		int draftPick = actionIndex - 30; // 0, 1, or 2
+		if (currentDraftOptionPoolIndices.size() >= 3) {
 			cmd.commandType = CMD_ACCEPT_DRAFT;
 			cmd.params[0] = draftPlayerIndex;
 			cmd.params[1] = currentDraftClassTier;
-			cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-			cmd.params[3] = currentDraftOptionPoolIndices[draftPick];
-			cmd.params[4] = -1;
-			cmd.params[5] = -1;
+
+			if (!isInGameDraft && draftStage == 0) {
+				// Initial Draft Phase 1 (Class 1): Must pick 2 Cards (gets 2 copies each)
+				cmd.params[2] = 2; // Copies
+				// AI combinations: 0=[0,1], 1=[0,2], 2=[1,2]
+				if (draftPick == 0) {
+					cmd.params[3] = currentDraftOptionPoolIndices[0];
+					cmd.params[4] = currentDraftOptionPoolIndices[1];
+				} else if (draftPick == 1) {
+					cmd.params[3] = currentDraftOptionPoolIndices[0];
+					cmd.params[4] = currentDraftOptionPoolIndices[2];
+				} else {
+					cmd.params[3] = currentDraftOptionPoolIndices[1];
+					cmd.params[4] = currentDraftOptionPoolIndices[2];
+				}
+				cmd.params[5] = -1;
+			} else {
+				// Initial Draft Phase 2 (Class 2) or In-Game Draft: Pick 1 card (gets 1 copy)
+				cmd.params[2] = 1; // Copies
+				cmd.params[3] = currentDraftOptionPoolIndices[draftPick];
+				cmd.params[4] = -1;
+				cmd.params[5] = -1;
+			}
+
 			sendInputCommand(cmd, true);
 			draftAcceptLocked = true;
 		}
