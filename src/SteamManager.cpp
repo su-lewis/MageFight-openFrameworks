@@ -1,4 +1,5 @@
 #include "SteamManager.h"
+#include "steam_api_flat.h"
 
 #ifdef _WIN32
 	#pragma comment(lib, "steam_api64.lib")
@@ -124,7 +125,7 @@ void SteamManager::createLobby() {
 	m_bIsHost = true;
 
 	// Change to Public so it shows up in the Lobby Browser!
-	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 2);
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_CreateLobby((intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 2);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
 
@@ -472,9 +473,9 @@ bool SteamManager::checkAndClearReconnectFlag() {
 
 void SteamManager::refreshLobbies() {
 	if (!SteamMatchmaking()) return;
-	// Request a maximum of 50 lobbies
-	SteamMatchmaking()->AddRequestLobbyListResultCountFilter(50);
-	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->RequestLobbyList();
+	// Request a maximum of 50 lobbies using Flat API to avoid MinGW vtable crashes
+	SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter((intptr_t)SteamMatchmaking(), 50);
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_RequestLobbyList((intptr_t)SteamMatchmaking());
 	m_LobbyMatchListCallResult.Set(hSteamAPICall, this, &SteamManager::OnLobbyMatchList);
 }
 
@@ -483,13 +484,13 @@ void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailur
 	if (bIOFailure) return;
 
 	for (uint32_t i = 0; i < pCallback->m_nLobbiesMatching; i++) {
-		CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
+		CSteamID lobbyID(SteamAPI_ISteamMatchmaking_GetLobbyByIndex((intptr_t)SteamMatchmaking(), i));
 		LobbyInfo info;
 		info.lobbyID = lobbyID;
-		const char * name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
+		const char * name = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64(), "name");
 		info.name = (name && name[0]) ? name : "Mage Fight Match";
-		info.numPlayers = SteamMatchmaking()->GetNumLobbyMembers(lobbyID);
-		info.maxPlayers = SteamMatchmaking()->GetLobbyMemberLimit(lobbyID);
+		info.numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
+		info.maxPlayers = SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
 		currentLobbies.push_back(info);
 	}
 }
@@ -500,21 +501,22 @@ std::vector<SteamManager::LobbyInfo> SteamManager::getLobbyList() {
 
 void SteamManager::joinLobbyByID(CSteamID lobbyID) {
 	if (!SteamMatchmaking()) return;
-	SteamMatchmaking()->JoinLobby(lobbyID);
+	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
 }
 
 void SteamManager::fetchLeaderboard() {
 	if (!SteamUserStats()) return;
-	SteamAPICall_t hSteamAPICall = SteamUserStats()->FindLeaderboard("Global_Rankings");
+	// Use Flat API to avoid MinGW vtable crashes
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamUserStats_FindLeaderboard((intptr_t)SteamUserStats(), "Global_Rankings");
 	m_LeaderboardFindCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardFindResult);
 }
 
 void SteamManager::OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, bool bIOFailure) {
 	if (!bIOFailure && pCallback->m_bLeaderboardFound) {
 		currentLeaderboardHandle = pCallback->m_hSteamLeaderboard;
-		// Download top 10 global players
-		SteamAPICall_t hSteamAPICall = SteamUserStats()->DownloadLeaderboardEntries(
-			currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 10);
+		// Download top 10 global players using Flat API
+		SteamAPICall_t hSteamAPICall = SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(
+			(intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 10);
 		m_LeaderboardScoresDownloadedCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardScoresDownloaded);
 	}
 }
@@ -525,12 +527,12 @@ void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t *
 
 	for (int index = 0; index < pCallback->m_cEntryCount; index++) {
 		LeaderboardEntry_t leaderboardEntry;
-		SteamUserStats()->GetDownloadedLeaderboardEntry(pCallback->m_hSteamLeaderboardEntries, index, &leaderboardEntry, NULL, 0);
+		SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry((intptr_t)SteamUserStats(), pCallback->m_hSteamLeaderboardEntries, index, &leaderboardEntry, NULL, 0);
 
 		LeaderboardEntry entry;
 		entry.rank = leaderboardEntry.m_nGlobalRank;
 		entry.score = leaderboardEntry.m_nScore;
-		const char * name = SteamFriends()->GetFriendPersonaName(leaderboardEntry.m_steamIDUser);
+		const char * name = SteamAPI_ISteamFriends_GetFriendPersonaName((intptr_t)SteamFriends(), leaderboardEntry.m_steamIDUser.ConvertToUint64());
 		entry.name = name ? name : "Unknown";
 		currentLeaderboard.push_back(entry);
 	}
@@ -543,12 +545,13 @@ std::vector<SteamManager::LeaderboardEntry> SteamManager::getLeaderboardEntries(
 int SteamManager::getLocalElo() {
 	if (!SteamUserStats()) return 1000;
 	int32_t elo = 1000;
-	SteamUserStats()->GetStat("elo_rating", &elo);
+	// Use Flat API
+	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "elo_rating", &elo);
 	return (int)elo;
 }
 
 void SteamManager::setLocalElo(int elo) {
 	if (!SteamUserStats()) return;
-	SteamUserStats()->SetStat("elo_rating", elo);
-	SteamUserStats()->StoreStats(); // Uploads immediately to Steam
+	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "elo_rating", elo);
+	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats()); // Uploads immediately to Steam
 }
