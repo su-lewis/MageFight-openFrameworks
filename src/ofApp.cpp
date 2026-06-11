@@ -4457,6 +4457,17 @@ void ofApp::updateStateMachine() {
 void ofApp::update() {
 	steamManager.update();
 
+	// --- HYPER-SPEED TRAINING RESET ---
+	if (g_isGameOver && headless && isAIvsAI) {
+		// The AI finished a game!
+		// Here you would send the Reward to Python: +1 for winner, -1 for loser.
+		ofLogNotice("Training") << "Game Over! Winner: " << g_winnerID << ". Restarting...";
+
+		cleanupGame();
+		setupGame(); // Instantly start the next episode
+		return;
+	}
+
 	// --- ELO CALCULATION ---
 	if (g_isGameOver && !eloCalculated && isMultiplayer) {
 		eloCalculated = true;
@@ -5103,7 +5114,8 @@ void ofApp::drawMainMenu() {
 		uiFont.drawString(text, tx, ty);
 	};
 
-	drawButton(mainMenuPlayAIButton, "Singleplayer", mainMenuHoveredIndex == 0);
+	drawButton(mainMenuLocalPvPButton, "Local PvP", mainMenuHoveredIndex == 0);
+	drawButton(mainMenuVsAIButton, "Singleplayer (Vs AI)", mainMenuHoveredIndex == 1);
 
 	if (!steamManager.isConnected()) {
 		ofSetColor(100); // Grayed out if Steam is not running
@@ -5112,11 +5124,11 @@ void ofApp::drawMainMenu() {
 		ofRectangle tb = uiFont.getStringBoundingBox("Steam Offline", 0, 0);
 		uiFont.drawString("Steam Offline", mainMenuOnlineButton.getCenter().x - tb.width / 2, mainMenuOnlineButton.getCenter().y + tb.height / 2);
 	} else {
-		drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 1);
+		drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 2);
 	}
 
-	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 2);
-	drawButton(mainMenuQuitButton, "Quit", mainMenuHoveredIndex == 3);
+	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 3);
+	drawButton(mainMenuQuitButton, "Quit", mainMenuHoveredIndex == 4);
 }
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
@@ -5847,14 +5859,15 @@ void ofApp::recalculateUI(int w, int h) {
 	float btnWidth = 400.0f * uiScale;
 	float btnHeight = 80.0f * uiScale;
 	float centerX = w / 2.0f;
-	float startY = h / 2.0f - btnHeight;
+	float startY = h / 2.0f - (btnHeight * 1.5f);
 	float btnGap = 20.0f * uiScale;
 
 	// Main Menu
-	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	mainMenuOnlineButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, btnWidth, btnHeight);
-	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
-	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
+	mainMenuLocalPvPButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+	mainMenuVsAIButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 1, btnWidth, btnHeight);
+	mainMenuOnlineButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
+	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
+	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 4, btnWidth, btnHeight);
 
 	// Singleplayer Menu
 	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
@@ -6271,6 +6284,7 @@ void ofApp::initialiseGameStateCommon() {
 }
 //--------------------------------------------------------------
 void ofApp::updateGame() {
+	updateAI();
 	prepareGameVisualState();
 	updateGameLogic();
 }
@@ -13406,7 +13420,7 @@ void ofApp::mouseMoved(int x, int y) {
 		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSaveButton.inside(x, y) || pauseMenuLoadButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_MAIN_MENU) {
-		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuHostButton.inside(x, y) || mainMenuInviteButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
+		overMainMenuButton = mainMenuLocalPvPButton.inside(x, y) || mainMenuVsAIButton.inside(x, y) || mainMenuOnlineButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SINGLEPLAYER_MENU) {
 		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerLoadButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y);
@@ -14157,14 +14171,16 @@ cursor_check_done:;
 	}
 	case STATE_MAIN_MENU: {
 		mainMenuHoveredIndex = -1;
-		if (mainMenuPlayAIButton.inside(x, y))
+		if (mainMenuLocalPvPButton.inside(x, y))
 			mainMenuHoveredIndex = 0;
-		else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected())
+		else if (mainMenuVsAIButton.inside(x, y))
 			mainMenuHoveredIndex = 1;
-		else if (mainMenuSettingsButton.inside(x, y))
+		else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected())
 			mainMenuHoveredIndex = 2;
-		else if (mainMenuQuitButton.inside(x, y))
+		else if (mainMenuSettingsButton.inside(x, y))
 			mainMenuHoveredIndex = 3;
+		else if (mainMenuQuitButton.inside(x, y))
+			mainMenuHoveredIndex = 4;
 		break;
 	}
 	case STATE_SETTINGS: {
@@ -14358,8 +14374,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
-		if (mainMenuPlayAIButton.inside(x, y)) {
+		if (mainMenuLocalPvPButton.inside(x, y)) {
+			isVsAI = false;
 			currentState = STATE_SINGLEPLAYER_MENU;
+			return;
+		}
+		if (mainMenuVsAIButton.inside(x, y)) {
+			isVsAI = true;
+			isMultiplayer = false;
+			myLocalPlayerID = 0; // The human is Player 1
+			setupGame();
+			currentState = STATE_GAMEPLAY;
 			return;
 		}
 		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
@@ -24554,6 +24579,19 @@ void ofApp::queueVisualEvent(const VisualEvent & e) {
 // Process visual-only events each frame; completed events are removed
 void ofApp::processVisualEvents() {
 	if (visualEvents.empty()) return;
+
+	// HYPER-SPEED TRAINING: Instantly complete all visual delays!
+	if (headless) {
+		for (auto & ev : visualEvents)
+			ev.completed = true;
+		visualEvents.clear();
+		activeDiceRolls.clear();
+		activeCardDisplays.clear();
+		activeFloatingTexts.clear();
+		isPlayerAnimating = false;
+		return;
+	}
+
 	float now = ofGetElapsedTimef();
 
 	// Process visual events strictly in FIFO order. This ensures that when a
@@ -29467,16 +29505,24 @@ bool ofApp::isMyTurn() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	int pid = players[currentPlayerIndex].playerID;
 	int oid = players[currentPlayerIndex].ownerID;
+	if (isVsAI) {
+		// In Vs AI mode, my turn is strictly when Player 0 (Human) is active
+		return (pid == 0 || oid == 0);
+	}
 	return (pid == myLocalPlayerID || oid == myLocalPlayerID);
 }
 
 //--------------------------------------------------------------
 bool ofApp::isCurrentPlayerLocal() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
-	// In singleplayer allow local control of whichever player is active.
-	if (!isMultiplayer) return true;
 	const Player & p = players[currentPlayerIndex];
-	return p.isMinion ? (p.ownerID == myLocalPlayerID) : (p.playerID == myLocalPlayerID);
+	int activeID = p.isMinion ? p.ownerID : p.playerID;
+	if (isVsAI) {
+		return activeID == 0; // Only local if it's the human's unit
+	}
+	// In Local PvP allow local control of whichever player is active.
+	if (!isMultiplayer) return true;
+	return activeID == myLocalPlayerID;
 }
 
 //--------------------------------------------------------------
@@ -36108,6 +36154,276 @@ std::string ofApp::getDeckStateString(const Player & p) {
 	return result;
 }
 //--------------------------------------------------------------
+// ==============================================================================
+// DEEP REINFORCEMENT LEARNING AI AGENT SCAFFOLDING
+// ==============================================================================
+
+void ofApp::updateAI() {
+	if (!isVsAI && !isAIvsAI) return;
+	if (isVsAI && !isAIvsAI && isMyTurn()) return; // In VsAI, only act if it's the bot's turn
+
+	if (endTurnLocked || g_isGameOver) return;
+
+	// If we are rendering the game normally, wait for visuals and use a think timer
+	if (!headless) {
+		if (isPlayerAnimating || isProcessingEffect || activeDiceRolls.size() > 0) return;
+
+		aiThinkTimer -= ofGetLastFrameTime();
+		if (aiThinkTimer > 0.0f) return;
+		aiThinkTimer = 1.0f; // 1 second between AI actions
+	} else {
+		// IN HEADLESS TRAINING MODE:
+		// We do not wait for the think timer. We just blast actions as fast as CPU allows.
+		// (Visuals are instantly cleared, so we don't need to wait for them either).
+	}
+
+	// 1. EXTRACT STATE FOR NEURAL NETWORK
+	std::vector<float> stateVector = extractGameStateForAI();
+
+	// 2. INFERENCE (Get Action from Model)
+	int actionIndex = getAIActionFromModel(stateVector);
+
+	// 3. EXECUTE ACTION
+	executeAIAction(actionIndex);
+}
+
+std::vector<float> ofApp::extractGameStateForAI() {
+	std::vector<float> state;
+	state.reserve(5700); // Reserve memory to prevent slow allocations
+
+	// --- 1. GLOBAL STATE (5 floats) ---
+	state.push_back((float)globalTurnCounter);
+	state.push_back((float)currentAP);
+	state.push_back(isInGameDraft ? 1.0f : 0.0f);
+	state.push_back((float)draftStage);
+	state.push_back((float)draftPicksRemaining);
+
+	// --- 2. MAIN PLAYER STATES (32 floats total) ---
+	// Encodes the AI (Player 2) and Human (Player 1) overall stats
+	auto encodePlayer = [&](int pID) {
+		int idx = findPlayerIndexByID(pID);
+		if (idx >= 0 && idx < (int)players.size()) {
+			const Player & p = players[idx];
+			state.push_back((float)p.health);
+			state.push_back((float)p.maxHealth);
+			state.push_back((float)p.block);
+			state.push_back((float)p.ward);
+			state.push_back((float)p.fortification);
+			state.push_back((float)p.barrier);
+			state.push_back((float)p.holyBlock);
+			state.push_back((float)p.luck + computePassiveLuck(idx));
+			state.push_back(p.onFire ? 1.0f : 0.0f);
+			state.push_back(p.isPoisoned ? 1.0f : 0.0f);
+			state.push_back(p.isParalyzed ? 1.0f : 0.0f);
+			state.push_back((float)p.sleepTurnsRemaining);
+			state.push_back(p.inTortoiseForm ? 1.0f : 0.0f);
+			state.push_back(p.inGhostForm ? 1.0f : 0.0f);
+			state.push_back((float)p.deck.size());
+			state.push_back((float)p.discardPile.size());
+		} else {
+			// Dead or missing: pad with 16 zeros
+			for (int i = 0; i < 16; i++)
+				state.push_back(0.0f);
+		}
+	};
+	encodePlayer(1); // AI (Player 2)
+	encodePlayer(0); // Human (Player 1)
+
+	// --- 3. AI HAND (70 floats: Bag of Cards) ---
+	// Index represents Card ID. Value represents how many copies are in hand.
+	std::vector<float> handCounts(70, 0.0f);
+	int aiIdx = findPlayerIndexByID(1);
+	if (aiIdx >= 0) {
+		for (const Card & c : players[aiIdx].hand) {
+			int cardId = (int)c.type - 1; // Assuming CARD_NONE is 0, cards are 1-70
+			if (cardId >= 0 && cardId < 70) handCounts[cardId] += 1.0f;
+		}
+	}
+	for (float f : handCounts)
+		state.push_back(f);
+
+	// --- 4. DRAFT OPTIONS (70 floats: Bag of Cards) ---
+	// If drafting, tells the AI which cards are currently on screen to pick from.
+	std::vector<float> draftCounts(70, 0.0f);
+	if (currentState == STATE_DRAFTING) {
+		for (const Card & c : draftOptions) {
+			int cardId = (int)c.type - 1;
+			if (cardId >= 0 && cardId < 70) draftCounts[cardId] += 1.0f;
+		}
+	}
+	for (float f : draftCounts)
+		state.push_back(f);
+
+	// --- 5. BOARD SPATIAL GRID (165 tiles * 33 floats = 5445 floats) ---
+	// This flattens the 15x11 grid so your Neural Network can run 2D Convolutions over it.
+	for (int y = 0; y < BOARD_HEIGHT; ++y) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			const Tile & t = board[x][y];
+
+			// Environment (2 floats)
+			state.push_back(t.hasWall ? 1.0f : 0.0f);
+			state.push_back(t.isMagicWall ? 1.0f : 0.0f);
+
+			// Keys (3 floats)
+			float hasGold = 0, hasSilver = 0, hasBronze = 0;
+			for (const auto & k : floatingKeyInstances) {
+				if (k.pos.x == x && k.pos.y == y) {
+					if (k.set == 1)
+						hasGold = 1.0f;
+					else if (k.set == 2)
+						hasSilver = 1.0f;
+					else if (k.set == 3)
+						hasBronze = 1.0f;
+				}
+			}
+			state.push_back(hasGold);
+			state.push_back(hasSilver);
+			state.push_back(hasBronze);
+
+			// Occupancy (1 float)
+			state.push_back(t.hasPlayer ? 1.0f : 0.0f);
+
+			// Occupant Details (27 floats)
+			bool foundOccupant = false;
+			for (size_t i = 0; i < players.size(); ++i) {
+				const Player & p = players[i];
+				if (p.x == x && p.y == y && p.health > 0) {
+					foundOccupant = true;
+
+					// Ownership: 1.0 for AI team, -1.0 for Human team
+					int owner = p.isMinion ? p.ownerID : p.playerID;
+					state.push_back(owner == 1 ? 1.0f : -1.0f);
+
+					// Unit Type One-Hot (12 floats)
+					state.push_back(!p.isMinion ? 1.0f : 0.0f); // Main Player
+					state.push_back(p.isKobold ? 1.0f : 0.0f);
+					state.push_back(p.isWolf ? 1.0f : 0.0f);
+					state.push_back(p.isHellhound ? 1.0f : 0.0f);
+					state.push_back(p.isDemon ? 1.0f : 0.0f);
+					state.push_back(p.isKoboldKing ? 1.0f : 0.0f);
+					state.push_back(p.isAssistant ? 1.0f : 0.0f);
+					state.push_back(p.isFaerie ? 1.0f : 0.0f);
+					state.push_back(p.isGolem ? 1.0f : 0.0f);
+					state.push_back(p.isSkeleton ? 1.0f : 0.0f);
+					state.push_back((p.isWallUnit && !p.isMagicWallUnit) ? 1.0f : 0.0f);
+					state.push_back(p.isMagicWallUnit ? 1.0f : 0.0f);
+
+					// Combat Stats (7 floats)
+					state.push_back((float)p.health);
+					state.push_back((float)p.maxHealth);
+					state.push_back((float)p.block);
+					state.push_back((float)p.ward);
+					state.push_back((float)p.fortification);
+					state.push_back((float)p.barrier);
+					state.push_back((float)p.holyBlock);
+
+					// Status Effects (7 floats)
+					state.push_back(p.onFire ? 1.0f : 0.0f);
+					state.push_back(p.isPoisoned ? 1.0f : 0.0f);
+					state.push_back(p.isParalyzed ? 1.0f : 0.0f);
+					state.push_back((float)p.sleepTurnsRemaining);
+					state.push_back(p.inTortoiseForm ? 1.0f : 0.0f);
+					state.push_back(p.inGhostForm ? 1.0f : 0.0f);
+					state.push_back(p.hasRegeneration ? 1.0f : 0.0f);
+
+					break; // Only encode top occupant if multiple are somehow here
+				}
+			}
+
+			// If empty, pad the occupant data with zeros to keep tensor shape strict
+			if (!foundOccupant) {
+				for (int i = 0; i < 27; ++i)
+					state.push_back(0.0f);
+			}
+		}
+	}
+
+	return state;
+}
+
+int ofApp::getAIActionFromModel(const std::vector<float> & state) {
+	// TODO: Replace this with ONNX Runtime or a Python Socket later!
+	// For now, build a simple heuristic fallback so the game can be tested immediately.
+
+	// If in a drafting phase, just pick the first option
+	if (currentState == STATE_DRAFTING) return 1000;
+
+	// If a menu is open, pick the first choice
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) return 2000;
+
+	int aiIndex = findPlayerIndexByID(1);
+	if (aiIndex < 0) return 9999; // End turn
+
+	Player & aiPlayer = players[aiIndex];
+
+	// Rule 1: Always draw if able
+	if (!opponentHasDrawnCardsThisTurn && !aiPlayer.deck.empty()) {
+		return 3000; // Code for "Draw Cards"
+	}
+
+	// Rule 2: Try to play a random card
+	for (int i = 0; i < (int)aiPlayer.hand.size(); ++i) {
+		if (aiPlayer.ap >= aiPlayer.hand[i].cost) {
+			// Return a pseudo-action ID that encodes (Play Card Index)
+			// E.g., Action 0-99 = Play Card 0-99 at target (x,y)
+			return i;
+		}
+	}
+
+	// Rule 3: End Turn
+	return 9999;
+}
+
+void ofApp::executeAIAction(int actionIndex) {
+	InputCommandPacket cmd = {};
+	cmd.type = PKT_INPUT_COMMAND;
+	cmd.playerID = 1; // AI Player ID
+	cmd.commandId = nextCommandId++;
+	cmd.turnNumber = globalTurnCounter;
+
+	if (actionIndex == 1000) {
+		// Accept Draft (Pick option 0)
+		cmd.commandType = CMD_ACCEPT_DRAFT;
+		cmd.params[0] = draftPlayerIndex;
+		cmd.params[1] = currentDraftClassTier;
+		cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+		cmd.params[3] = currentDraftOptionPoolIndices[0];
+		cmd.params[4] = -1;
+		cmd.params[5] = -1;
+		sendInputCommand(cmd, true);
+		draftAcceptLocked = true;
+	} else if (actionIndex == 2000) {
+		// Menu Choice (Pick Option 1)
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = interactingCardType;
+		cmd.params[1] = interactionTargetIndex;
+		cmd.params[2] = 1;
+		cmd.params[3] = interactingCardIndex;
+		sendInputCommand(cmd, true);
+	} else if (actionIndex == 3000) {
+		// Draw Cards
+		cmd.commandType = CMD_DRAW_CARDS;
+		cmd.params[0] = currentPlayerIndex;
+		cmd.params[1] = players[currentPlayerIndex].isDemon ? 3 : 2;
+		sendInputCommand(cmd, true);
+	} else if (actionIndex == 9999) {
+		// End Turn
+		cmd.commandType = CMD_END_TURN;
+		sendInputCommand(cmd, true);
+		endTurnLocked = true;
+	} else if (actionIndex >= 0 && actionIndex < 100) {
+		// Play Card (actionIndex is the card index)
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = actionIndex;
+
+		// Target self for now (The Neural Network will output spatial coordinates)
+		cmd.params[1] = players[currentPlayerIndex].x;
+		cmd.params[2] = players[currentPlayerIndex].y;
+
+		sendInputCommand(cmd, true);
+	}
+}
+
 // Anti-cheat: Log all player deck states to file and console
 void ofApp::logDeckStates(const std::string & reason) {
 	std::string timestamp = ofGetTimestampString("%Y-%m-%d %H:%M:%S");

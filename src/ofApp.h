@@ -1000,8 +1000,19 @@ public:
 
 	// Steam
 	SteamManager steamManager;
+
+	// Multiplayer & AI state
 	bool isMultiplayer = false;
-	int myLocalPlayerID = 0; // 0 = Host, 1 = Client
+	bool isVsAI = false; // True if playing against the bot
+	bool isAIvsAI = false; // True for hyper-speed self-play training
+	float aiThinkTimer = 0.0f; // Creates a delay so the AI doesn't play 5 cards in 1 frame
+	int myLocalPlayerID = 0; // 0 for host/player1, 1 for client/player2
+
+	// AI DRL Integration Functions
+	void updateAI();
+	std::vector<float> extractGameStateForAI();
+	int getAIActionFromModel(const std::vector<float> & state);
+	void executeAIAction(int actionIndex);
 
 	// --- Phase 2: XOR Handshake & Elo ---
 	uint32_t localSeedComponent = 0;
@@ -2426,9 +2437,10 @@ private:
 	// `currentCardOutcome.namedDiceResults["status_onfire"]` and
 	// `currentCardOutcome.namedDiceResults["status_poison"]` respectively.
 
-	// --- MENU UI VARIABLES ---
-	ofRectangle mainMenuPlayAIButton;
-	ofRectangle mainMenuOnlineButton; // Replaces Host/Invite
+	// Menu buttons
+	ofRectangle mainMenuLocalPvPButton;
+	ofRectangle mainMenuVsAIButton;
+	ofRectangle mainMenuOnlineButton;
 	ofRectangle mainMenuSettingsButton;
 	ofRectangle mainMenuQuitButton;
 	int mainMenuHoveredIndex = -1;
