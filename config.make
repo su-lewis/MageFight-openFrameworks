@@ -2,13 +2,12 @@
 # This file is included by the main Makefile.
 
 APPNAME = MageFight
-
 # ---------------------------------------------------------------------------
 # CORE SETTINGS
 # ---------------------------------------------------------------------------
 OF_GL_PROGRAMMABLE_RENDERER = 1
 OPTIMIZATION_CFLAGS = -O3
-
+PROJECT_LDFLAGS = -lzmq
 # ---------------------------------------------------------------------------
 # STEAMWORKS SDK (Common Includes for both OSes)
 # ---------------------------------------------------------------------------

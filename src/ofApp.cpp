@@ -4073,6 +4073,15 @@ void ofApp::setup() {
 		glfwMakeContextCurrent(window);
 		glfwSwapInterval(1);
 	}
+
+	// Connect to Python AI if in training mode
+	if (headless && isAIvsAI) {
+		zmqContext = new zmq::context_t(1);
+		zmqSocket = new zmq::socket_t(*zmqContext, zmq::socket_type::req); // Request socket
+		zmqSocket->connect("tcp://localhost:5555");
+		zmqConnected = true;
+		ofLogNotice("AI") << "Connected to Python ZMQ Server on port 5555";
+	}
 }
 //--------------------------------------------------------------
 Player * ofApp::getPlayer(int index) {
@@ -4459,8 +4468,12 @@ void ofApp::update() {
 
 	// --- HYPER-SPEED TRAINING RESET ---
 	if (g_isGameOver && headless && isAIvsAI) {
-		// The AI finished a game!
-		// Here you would send the Reward to Python: +1 for winner, -1 for loser.
+		float finalReward = (g_winnerID == 1) ? 10.0f : -10.0f; // +10 for AI win, -10 for Human win
+
+		// Send final state to Python so it learns from the win/loss
+		std::vector<float> finalState = extractGameStateForAI();
+		getAIActionFromModel(finalState, finalReward, true); // True = Done!
+
 		ofLogNotice("Training") << "Game Over! Winner: " << g_winnerID << ". Restarting...";
 
 		cleanupGame();
@@ -11858,15 +11871,18 @@ void ofApp::drawGame() {
 	}
 
 	// End Turn Button / Turn Indicator
+	// Use uiScale specifically for the End Turn button to perfectly match prepareGameVisualState
+	float uiScaleBtn = getUIScaleFromHeight(ofGetHeight());
+
 	// If UI wasn't snapped on resize (some platforms/window managers),
 	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
-		float btnWidth_tmp = 250 * scale;
-		float visibleY = 20 * scale;
-		float glowMargin = 6.0f * scale + 2.0f * scale;
+		float btnWidth_tmp = 250 * uiScaleBtn;
+		float visibleY = 20 * uiScaleBtn;
+		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
 		// Ensure extra room for stroke/glow so top outlines aren't clipped
-		visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
-		float hiddenY = -100 * scale;
+		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
+		float hiddenY = -100 * uiScaleBtn;
 		bool myTurn = isMyTurn();
 		if (myTurn)
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
@@ -11875,8 +11891,8 @@ void ofApp::drawGame() {
 		endTurnButtonTargetPos = endTurnButtonCurrentPos;
 	}
 
-	float btnWidth_end = 250 * scale;
-	float btnHeight_end = 60 * scale;
+	float btnWidth_end = 250 * uiScaleBtn;
+	float btnHeight_end = 60 * uiScaleBtn;
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
 
 	// Check if it's my turn
@@ -12025,16 +12041,16 @@ void ofApp::drawGame() {
 		// fully visible (avoid relying on stroke rendering which can clip).
 		ofPushStyle();
 		ofSetColor(0, 200, 0, 160);
-		float glow = 6.0f * scale;
+		float glow = 6.0f * uiScaleBtn;
 		ofDrawRectRounded(endTurnButtonRect.x - glow, endTurnButtonRect.y - glow,
 			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
-			(10 * scale) + glow);
+			(10 * uiScaleBtn) + glow);
 
 		// Thin crisp border on top using a modest line width
 		ofNoFill();
 		ofSetColor(ofColor::green);
-		ofSetLineWidth(3 * scale);
-		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
+		ofSetLineWidth(3 * uiScaleBtn);
+		ofDrawRectRounded(endTurnButtonRect, 10 * uiScaleBtn);
 		ofPopStyle();
 	}
 
@@ -26163,30 +26179,20 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// 3. Find Targets
 		psionicWaveTargetIndices.clear();
-		long long maxRangeHalfTiles = ((long long)rangeFeet * 2LL) / 5LL;
-		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 casterCenter = { (float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f };
 
 		for (size_t i = 0; i < players.size(); ++i) {
-			if ((int)i == currentPlayerIndex) continue;
+			if ((int)i == currentPlayerIndex) continue; // Do not affect self
 			Player & p = players[i];
 			if (p.health <= 0) continue;
 
-			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2(p.x, p.y));
-			if (distSq <= maxDistSq) {
-				auto losPath = getLineOfSightPath(casterTile + 0.5f, glm::vec2(p.x, p.y) + 0.5f);
-				bool blocked = false;
-				for (const auto & step : losPath) {
-					if ((int)step.x == currentPlayer.x && (int)step.y == currentPlayer.y) continue;
-					if ((int)step.x == p.x && (int)step.y == p.y) break;
-					if (isTileWall((int)step.x, (int)step.y)) {
-						blocked = true;
-						break;
-					}
-				}
-				if (!blocked) {
-					psionicWaveTargetIndices.push_back((int)i);
-				}
+			glm::vec2 targetCenter = { (float)p.x + 0.5f, (float)p.y + 0.5f };
+			float centerDistFeet = glm::distance(casterCenter, targetCenter) * 5.0f;
+			float distToFaceFeet = std::max(0.0f, centerDistFeet - 2.5f);
+
+			if (distToFaceFeet <= (float)rangeFeet + 0.01f) {
+				// No LOS check - goes through walls!
+				psionicWaveTargetIndices.push_back((int)i);
 			}
 		}
 
@@ -26481,6 +26487,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		(void)casterTile; // Silence unused warning
 		beginEffectSequence();
 
 		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
@@ -28622,6 +28629,30 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// 3. Highlight Logic
 					if (neededFeet <= (int)maxRadiusFeet) {
 						isPreview = true; // Red Square (Potential Range)
+
+						// Compute Hit Chance Tooltip
+						int diceNum = 2;
+						int sides = 20;
+						int minRoll = neededFeet;
+						if (minRoll < diceNum) minRoll = diceNum;
+						std::vector<glm::ivec2> affectedTiles;
+						if (minRoll > maxRadiusFeet) minRoll = maxRadiusFeet;
+
+						float hitChance = 0.0f;
+						if (minRoll <= maxRadiusFeet) {
+							// 2d20 exact probability
+							int successCount = 0;
+							for (int d1 = 1; d1 <= 20; ++d1) {
+								for (int d2 = 1; d2 <= 20; ++d2) {
+									if (d1 + d2 >= minRoll) successCount++;
+								}
+							}
+							hitChance = (float)successCount / 400.0f;
+						}
+
+						board[x][y].minRollRequired = minRoll;
+						board[x][y].hitChance = hitChance;
+						board[x][y].hasTooltipInfo = true;
 
 						// If a unit is here (and not self), it's a valid target
 						if (board[x][y].hasPlayer && (x != px || y != py)) {
@@ -31740,10 +31771,12 @@ void ofApp::drawExpandingAOERings(float surfaceY) {
 		std::vector<glm::ivec2> affectedTiles;
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				float centerDistFeet = glm::distance(glm::vec2(ring.centerTile.x, ring.centerTile.y), glm::vec2(x, y)) * 5.0f;
+				float centerDistFeet = glm::distance(glm::vec2(ring.centerTile.x + 0.5f, ring.centerTile.y + 0.5f), glm::vec2((float)x + 0.5f, (float)y + 0.5f)) * 5.0f;
 				float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
 				int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
 
+				// For Psionic Wave, ignore LOS (walls don't block ring). For Magic Bolt, we check LOS elsewhere,
+				// but visually the expanding ring passing through walls is fine/looks cool.
 				if (neededFeet <= (int)currentRadiusFeet) {
 					affectedTiles.push_back({ x, y });
 				}
@@ -31922,6 +31955,26 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	glm::vec3 targetPos = gridToWorld(target.x, target.y);
 	if (applied > 0) {
 		queueFloatingTextVisual(targetPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
+
+		// --- AI REWARD SHAPING (POINTS) ---
+		// If we are training the AI, give it points for dealing damage, and penalize it for taking damage!
+		if (headless && isAIvsAI && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
+			int aiID = 1; // The AI is Player 2
+
+			// Figure out who the attacker and victim actually are (accounting for minions)
+			int attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
+			int victimOwner = target.isMinion ? target.ownerID : target.playerID;
+
+			if (attackerOwner == aiID && victimOwner != aiID) {
+				// The AI successfully hurt the enemy! Give it +0.2 points per damage dealt.
+				cumulativeReward += (applied * 0.2f);
+			} else if (victimOwner == aiID && attackerOwner != aiID) {
+				// The AI got hurt! Penalize it -0.2 points per damage taken.
+				cumulativeReward -= (applied * 0.2f);
+			}
+		}
+		// ----------------------------------
+
 	} else {
 		queueFloatingTextVisual(targetPos, "-0" + typeLabel, ofColor::gray);
 	}
@@ -35099,7 +35152,16 @@ void ofApp::drawTrainMenuUI() {
 }
 //--------------------------------------------------------------
 void ofApp::exit() {
-	// Save settings on exit
+	// 1. Close network sockets first
+	if (zmqSocket) {
+		zmqSocket->close();
+		delete zmqSocket;
+	}
+	if (zmqContext) {
+		delete zmqContext;
+	}
+
+	// 2. Save settings and shutdown Steam
 	saveSettings();
 	steamManager.cleanup();
 	// Ensure the Steam API is fully shut down on app exit
@@ -36180,8 +36242,13 @@ void ofApp::updateAI() {
 	// 1. EXTRACT STATE FOR NEURAL NETWORK
 	std::vector<float> stateVector = extractGameStateForAI();
 
+	// Calculate a basic reward (e.g., +1 if we killed a unit, -1 if we took damage, etc.)
+	// For now, we pass cumulativeReward which you can update elsewhere in the code.
+	float rewardToSend = cumulativeReward;
+	cumulativeReward = 0.0f; // Reset after sending
+
 	// 2. INFERENCE (Get Action from Model)
-	int actionIndex = getAIActionFromModel(stateVector);
+	int actionIndex = getAIActionFromModel(stateVector, rewardToSend, false);
 
 	// 3. EXECUTE ACTION
 	executeAIAction(actionIndex);
@@ -36341,85 +36408,189 @@ std::vector<float> ofApp::extractGameStateForAI() {
 	return state;
 }
 
-int ofApp::getAIActionFromModel(const std::vector<float> & state) {
-	// TODO: Replace this with ONNX Runtime or a Python Socket later!
-	// For now, build a simple heuristic fallback so the game can be tested immediately.
-
-	// If in a drafting phase, just pick the first option
-	if (currentState == STATE_DRAFTING) return 1000;
-
-	// If a menu is open, pick the first choice
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) return 2000;
-
-	int aiIndex = findPlayerIndexByID(1);
-	if (aiIndex < 0) return 9999; // End turn
-
-	Player & aiPlayer = players[aiIndex];
-
-	// Rule 1: Always draw if able
-	if (!opponentHasDrawnCardsThisTurn && !aiPlayer.deck.empty()) {
-		return 3000; // Code for "Draw Cards"
+int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, bool done) {
+	if (!zmqConnected) {
+		// Simple random fallback so the game doesn't crash if Python isn't connected
+		if (currentState == STATE_DRAFTING) return 30;
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) return 10;
+		return 0; // End Turn
 	}
 
-	// Rule 2: Try to play a random card
-	for (int i = 0; i < (int)aiPlayer.hand.size(); ++i) {
-		if (aiPlayer.ap >= aiPlayer.hand[i].cost) {
-			// Return a pseudo-action ID that encodes (Play Card Index)
-			// E.g., Action 0-99 = Play Card 0-99 at target (x,y)
-			return i;
-		}
-	}
+	std::vector<float> payload;
+	payload.reserve(state.size() + 2);
+	payload.push_back(done ? 1.0f : 0.0f);
+	payload.push_back(reward);
+	payload.insert(payload.end(), state.begin(), state.end());
 
-	// Rule 3: End Turn
-	return 9999;
+	zmq::message_t request(payload.size() * sizeof(float));
+	memcpy(request.data(), payload.data(), payload.size() * sizeof(float));
+	zmqSocket->send(request, zmq::send_flags::none);
+
+	zmq::message_t reply;
+	auto res = zmqSocket->recv(reply, zmq::recv_flags::none);
+
+	if (res.has_value()) {
+		int action = -1;
+		memcpy(&action, reply.data(), sizeof(int));
+		return action;
+	}
+	return 0;
 }
 
 void ofApp::executeAIAction(int actionIndex) {
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
-	cmd.playerID = 1; // AI Player ID
+	cmd.playerID = 1; // AI is Player 2
 	cmd.commandId = nextCommandId++;
 	cmd.turnNumber = globalTurnCounter;
 
-	if (actionIndex == 1000) {
-		// Accept Draft (Pick option 0)
-		cmd.commandType = CMD_ACCEPT_DRAFT;
-		cmd.params[0] = draftPlayerIndex;
-		cmd.params[1] = currentDraftClassTier;
-		cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-		cmd.params[3] = currentDraftOptionPoolIndices[0];
-		cmd.params[4] = -1;
-		cmd.params[5] = -1;
+	if (actionIndex == 0) {
+		// Action 0: End Turn
+		cmd.commandType = CMD_END_TURN;
 		sendInputCommand(cmd, true);
-		draftAcceptLocked = true;
-	} else if (actionIndex == 2000) {
-		// Menu Choice (Pick Option 1)
-		cmd.commandType = CMD_MENU_CHOICE;
-		cmd.params[0] = interactingCardType;
-		cmd.params[1] = interactionTargetIndex;
-		cmd.params[2] = 1;
-		cmd.params[3] = interactingCardIndex;
-		sendInputCommand(cmd, true);
-	} else if (actionIndex == 3000) {
-		// Draw Cards
+		endTurnLocked = true;
+	} else if (actionIndex == 1) {
+		// Action 1: Draw Cards
 		cmd.commandType = CMD_DRAW_CARDS;
 		cmd.params[0] = currentPlayerIndex;
 		cmd.params[1] = players[currentPlayerIndex].isDemon ? 3 : 2;
 		sendInputCommand(cmd, true);
-	} else if (actionIndex == 9999) {
-		// End Turn
-		cmd.commandType = CMD_END_TURN;
+	} else if (actionIndex == 2) {
+		// Action 2: Assistant AP Reroll
+		int assistantIndex = -1;
+		for (int i = 0; i < (int)players.size(); i++) {
+			if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == players[currentPlayerIndex].playerID && !players[i].assistantRerollUsedThisTurn) {
+				if (abs(players[i].x - players[currentPlayerIndex].x) + abs(players[i].y - players[currentPlayerIndex].y) <= 1) {
+					assistantIndex = i;
+					break;
+				}
+			}
+		}
+		if (assistantIndex != -1) {
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			cmd.params[0] = assistantIndex;
+			strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+			sendInputCommand(cmd, true);
+		}
+	} else if (actionIndex >= 10 && actionIndex <= 29) {
+		// Action 10-29: Menu Choices (Choice 1 through 10)
+		int choice = (actionIndex - 10) + 1; // Menus usually 1-based (1 or 2)
+		if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) choice -= 1; // Ghost relocate is 0-based
+
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = interactingCardType;
+		cmd.params[1] = interactionTargetIndex;
+		cmd.params[2] = choice;
+		cmd.params[3] = interactingCardIndex;
+		if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
+			cmd.params[4] = magicHandTargetTile.x;
+			cmd.params[5] = magicHandTargetTile.y;
+		}
 		sendInputCommand(cmd, true);
-		endTurnLocked = true;
-	} else if (actionIndex >= 0 && actionIndex < 100) {
-		// Play Card (actionIndex is the card index)
+	} else if (actionIndex >= 30 && actionIndex <= 39) {
+		// Action 30-39: Draft Selection (Options 0, 1, or 2)
+		int draftPick = actionIndex - 30;
+		if (draftPick >= 0 && draftPick < (int)currentDraftOptionPoolIndices.size()) {
+			cmd.commandType = CMD_ACCEPT_DRAFT;
+			cmd.params[0] = draftPlayerIndex;
+			cmd.params[1] = currentDraftClassTier;
+			cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+			cmd.params[3] = currentDraftOptionPoolIndices[draftPick];
+			cmd.params[4] = -1;
+			cmd.params[5] = -1;
+			sendInputCommand(cmd, true);
+			draftAcceptLocked = true;
+		}
+	} else if (actionIndex >= 40 && actionIndex <= 139) {
+		// Action 40-139: Toggle Amnesia/Renewed Inspiration UI Cards
+		int toggleIdx = actionIndex - 40;
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+			if (interactingCardType == CARD_AMNESIA) {
+				auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), toggleIdx);
+				if (it != amnesiaSelectedIndices.end())
+					amnesiaSelectedIndices.erase(it);
+				else if (amnesiaSelectedIndices.size() < (size_t)numCardsToRemove)
+					amnesiaSelectedIndices.push_back(toggleIdx);
+			} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+				auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), toggleIdx);
+				if (it != renewedSelectedHandIndices.end())
+					renewedSelectedHandIndices.erase(it);
+				else
+					renewedSelectedHandIndices.push_back(toggleIdx);
+			}
+		}
+	} else if (actionIndex == 140) {
+		// Action 140: Click the Accept Button for Amnesia / Renewed Inspiration
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+			if (interactingCardType == CARD_AMNESIA && amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) {
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = (int)CARD_AMNESIA;
+				cmd.params[1] = amnesiaTargetPlayerIndex;
+				cmd.params[2] = 3;
+				cmd.params[4] = amnesiaSelectedIndices.size();
+				for (int i = 0; i < std::min(3, (int)amnesiaSelectedIndices.size()); ++i)
+					cmd.params[5 + i] = amnesiaSelectedIndices[i];
+
+				std::string s;
+				for (size_t i = 0; i < amnesiaSelectedIndices.size(); ++i) {
+					if (i) s += ",";
+					s += std::to_string(amnesiaSelectedIndices[i]);
+				}
+				strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+				sendInputCommand(cmd, true);
+				amnesiaDeckCopy.clear();
+				amnesiaSelectedIndices.clear();
+				resetCardInteraction();
+			} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+				cmd.commandType = CMD_RENEWED_INSPIRATION;
+				cmd.params[0] = currentPlayerIndex;
+				cmd.params[1] = renewedSelectedHandIndices.size();
+				cmd.params[2] = interactingCardIndex;
+
+				std::string s;
+				for (size_t i = 0; i < renewedSelectedHandIndices.size(); ++i) {
+					if (i) s += ",";
+					s += std::to_string(renewedSelectedHandIndices[i]);
+				}
+				strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+				sendInputCommand(cmd, true);
+				renewedSelectedHandIndices.clear();
+				resetCardInteraction();
+			}
+		}
+	} else if (actionIndex >= 200 && actionIndex <= 364) {
+		// Action 200-364: Move Current Unit to specific Tile Index (0-164)
+		int tileIdx = actionIndex - 200;
+		int tx = tileIdx % BOARD_WIDTH; // 0 to 14
+		int ty = tileIdx / BOARD_WIDTH; // 0 to 10
+
+		cmd.commandType = CMD_MOVE_UNIT;
+		cmd.params[0] = players[currentPlayerIndex].x;
+		cmd.params[1] = players[currentPlayerIndex].y;
+		cmd.params[2] = tx;
+		cmd.params[3] = ty;
+		sendInputCommand(cmd, true);
+	} else if (actionIndex >= 1000 && actionIndex <= 1164) {
+		// Action 1000-1164: Raw Target Click on Tile Index (0-164)
+		// Used for resolving Teleport destinations, Shell Spike, and Kobold/Wolf Placement
+		int tileIdx = actionIndex - 1000;
+		int tx = tileIdx % BOARD_WIDTH;
+		int ty = tileIdx / BOARD_WIDTH;
+		handleCardTargetClick(tx, ty);
+	} else if (actionIndex >= 10000) {
+		// Action 10000+: Play Card from Hand at (X, Y)
+		// We decode the single integer back into HandIndex, X, and Y
+		int encodedVal = actionIndex - 10000;
+		int tileIdx = encodedVal % (BOARD_WIDTH * BOARD_HEIGHT); // 0 to 164
+		int handIndex = encodedVal / (BOARD_WIDTH * BOARD_HEIGHT); // 0 to MaxHandSize
+
+		int tx = tileIdx % BOARD_WIDTH;
+		int ty = tileIdx / BOARD_WIDTH;
+
 		cmd.commandType = CMD_PLAY_CARD;
-		cmd.params[0] = actionIndex;
-
-		// Target self for now (The Neural Network will output spatial coordinates)
-		cmd.params[1] = players[currentPlayerIndex].x;
-		cmd.params[2] = players[currentPlayerIndex].y;
-
+		cmd.params[0] = handIndex;
+		cmd.params[1] = tx;
+		cmd.params[2] = ty;
 		sendInputCommand(cmd, true);
 	}
 }

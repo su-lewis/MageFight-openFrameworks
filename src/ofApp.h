@@ -6,7 +6,7 @@
 #include "SteamManager.h"
 #include "ofMain.h"
 #include "ofxAssimpModelLoader.h"
-
+#include <zmq.hpp>
 // --- Standard Library Includes ---
 #include <algorithm>
 #include <array>
@@ -1011,8 +1011,14 @@ public:
 	// AI DRL Integration Functions
 	void updateAI();
 	std::vector<float> extractGameStateForAI();
-	int getAIActionFromModel(const std::vector<float> & state);
+	int getAIActionFromModel(const std::vector<float> & state, float reward, bool done);
 	void executeAIAction(int actionIndex);
+
+	// ZeroMQ connection
+	zmq::context_t * zmqContext = nullptr;
+	zmq::socket_t * zmqSocket = nullptr;
+	bool zmqConnected = false;
+	float cumulativeReward = 0.0f; // Tracks reward to send to Python
 
 	// --- Phase 2: XOR Handshake & Elo ---
 	uint32_t localSeedComponent = 0;
