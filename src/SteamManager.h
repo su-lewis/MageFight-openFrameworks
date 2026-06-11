@@ -111,7 +111,6 @@ private:
 	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
 	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
 	STEAM_CALLBACK(SteamManager, OnNetConnectionStatusChanged, SteamNetConnectionStatusChangedCallback_t);
-
 	// CallResults
 	void OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure);
 	CCallResult<SteamManager, LobbyCreated_t> m_cbLobbyCreated;

@@ -21872,7 +21872,7 @@ void ofApp::updateEffectSequence() {
 	if (currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
 		currentEffectSequence.isComplete = true;
 		isProcessingEffect = false;
-		
+
 		// Trigger any pending Shell Spikes after the entire effect sequence completes
 		// ONLY if we are idling (e.g. from regeneration). If a card was played, applyCardOutcomeEffects handles it!
 		if (g_pendingShellSpike && cardPlayState == CARD_PLAY_STATE_IDLE) {
@@ -24740,7 +24740,7 @@ void ofApp::updateCardStateMachine() {
 	if (cardPlayState == CARD_PLAY_STATE_OUTCOME) {
 		// Apply outcome effects locally on both peers (deterministic lockstep)
 		applyCardOutcomeEffects();
-		
+
 		// If applyCardOutcomeEffects triggered a post-play targeting interaction (like Shell Spike),
 		// it will have changed the state to TARGETING. Only advance to FINISHED if we are still in OUTCOME.
 		if (cardPlayState == CARD_PLAY_STATE_OUTCOME) {
