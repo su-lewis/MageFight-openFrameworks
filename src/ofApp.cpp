@@ -4074,6 +4074,16 @@ void ofApp::setup() {
 		glfwSwapInterval(1);
 	}
 
+	// --- HYPER-SPEED TRAINING AUTO-START ---
+	if (headless) {
+		isVsAI = true;
+		isAIvsAI = true;
+		isMultiplayer = false;
+		myLocalPlayerID = 0;
+		setupGame();
+		currentState = STATE_GAMEPLAY;
+	}
+
 	// Connect to Python AI if in training mode
 	if (headless && isAIvsAI) {
 		zmqContext = new zmq::context_t(1);

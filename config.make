@@ -7,7 +7,7 @@ APPNAME = MageFight
 # ---------------------------------------------------------------------------
 OF_GL_PROGRAMMABLE_RENDERER = 1
 OPTIMIZATION_CFLAGS = -O3
-PROJECT_LDFLAGS = -lzmq
+
 # ---------------------------------------------------------------------------
 # STEAMWORKS SDK (Common Includes for both OSes)
 # ---------------------------------------------------------------------------
@@ -30,6 +30,7 @@ else
     # ==========================================
     # LINUX (Your Bazzite Machine)
     # ==========================================
+    PROJECT_LDFLAGS += -lzmq
     PROJECT_LDFLAGS += -Llibs/steam/lib -lsteam_api
     PROJECT_LDFLAGS += -Wl,-rpath=./libs/steam/lib
     PROJECT_LDFLAGS += -Wl,-rpath-link,/usr/lib
