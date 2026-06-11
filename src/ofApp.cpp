@@ -2129,13 +2129,14 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
 	// Set the per-card `playedThisTurn` flag on the specific instance and move it to discard.
 	bool movedToDiscard = false;
+	bool shouldDiscard = (playedCard.type != CARD_FORM_OF_TORTOISE && playedCard.type != CARD_FORM_OF_GHOST);
 
 	// Case A: card still in hand at handIndex — mark it, push to discard, then erase from hand
 	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
 		if (caster.hand[handIndex].type == playedCard.type && caster.hand[handIndex].value == playedCard.value) {
 			caster.hand[handIndex].playedThisTurn = true;
 			// Move the actual Card instance (with flag) to discard
-			caster.discardPile.push_back(caster.hand[handIndex]);
+			if (shouldDiscard) caster.discardPile.push_back(caster.hand[handIndex]);
 			caster.hand.erase(caster.hand.begin() + handIndex); // Remove the played card from hand
 			applyReplicateCopyToHand(caster, playedCard); // Handle replication
 			movedToDiscard = true;
@@ -2147,7 +2148,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 		for (auto it = caster.playedCardsPile.begin(); it != caster.playedCardsPile.end(); ++it) {
 			if (it->type == playedCard.type && it->value == playedCard.value) {
 				it->playedThisTurn = true;
-				caster.discardPile.push_back(*it);
+				if (shouldDiscard) caster.discardPile.push_back(*it);
 				caster.playedCardsPile.erase(it);
 				movedToDiscard = true;
 				break;
@@ -2156,7 +2157,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 	}
 
 	// Case C: fallback — create a copy of the played card, mark it, and push to discard
-	if (!movedToDiscard) {
+	if (!movedToDiscard && shouldDiscard) {
 		Card copy = playedCard;
 		copy.playedThisTurn = true;
 		caster.discardPile.push_back(copy);
@@ -6380,15 +6381,21 @@ void ofApp::prepareGameVisualState() {
 
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsed = time - anim.startTime;
-		if (elapsed >= 0.0f && elapsed < 0.85f) {
-			float t = elapsed / 0.85f;
-			anim.currentScale = ofLerp(1.8f, 0.1f, t * t); // Pop big, shrink fast at the end
-			anim.currentAlpha = ofLerp(255, 0, t);
+		float holdTime = 1.5f;
+		float shrinkTime = 0.5f;
+		float totalTime = holdTime + shrinkTime;
+		if (elapsed >= 0.0f && elapsed < holdTime) {
+			anim.currentScale = 1.8f;
+			anim.currentAlpha = 255.0f;
+		} else if (elapsed >= holdTime && elapsed < totalTime) {
+			float t = (elapsed - holdTime) / shrinkTime;
+			anim.currentScale = ofLerp(1.8f, 0.1f, t * t);
+			anim.currentAlpha = ofLerp(255.0f, 0.0f, t);
 		} else if (elapsed < 0.0f) {
-			anim.currentAlpha = 0;
+			anim.currentAlpha = 0.0f;
 		}
 	}
-	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 0.85f; }), activeRemovedCardAnimations.end());
+	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 2.0f; }), activeRemovedCardAnimations.end());
 
 	for (auto & disp : activeCardDisplays) {
 		float elapsed = time - disp.startTime;
@@ -16088,6 +16095,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// 3g. End Turn Button (only active during gameplay)
 			if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Must use Shell Spike!", ofColor::yellow);
+					return;
+				}
 				if (isPlayerAnimating) {
 					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
 					ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
@@ -16722,6 +16733,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+				ofLogNotice("Input") << "Right-click ignored for Shell Spike (must target).";
+				return;
+			}
 			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();
@@ -21857,9 +21872,10 @@ void ofApp::updateEffectSequence() {
 	if (currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
 		currentEffectSequence.isComplete = true;
 		isProcessingEffect = false;
-
+		
 		// Trigger any pending Shell Spikes after the entire effect sequence completes
-		if (g_pendingShellSpike) {
+		// ONLY if we are idling (e.g. from regeneration). If a card was played, applyCardOutcomeEffects handles it!
+		if (g_pendingShellSpike && cardPlayState == CARD_PLAY_STATE_IDLE) {
 			g_pendingShellSpike = false;
 			if (isCurrentPlayerLocal()) {
 				tryTriggerShellSpike();
@@ -24345,10 +24361,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					target.inTortoiseForm = false;
 					target.tortoiseDamageTaken = 0;
 					target.tortoiseAccumulatedDamage = 0;
+					if (target.tortoiseFormCard.type == CARD_FORM_OF_TORTOISE) {
+						target.discardPile.push_back(target.tortoiseFormCard);
+						target.tortoiseFormCard.type = CARD_NONE;
+					}
 					break;
 				case STATUS_GHOST_FORM:
 					target.inGhostForm = false;
 					target.ghostDamageTaken = 0;
+					if (target.ghostFormCard.type == CARD_FORM_OF_GHOST) {
+						target.discardPile.push_back(target.ghostFormCard);
+						target.ghostFormCard.type = CARD_NONE;
+					}
 					break;
 				case STATUS_STRENGTHEN_ELEMENTS:
 					target.strengthenElementsTurnsRemaining = 0;
@@ -27857,7 +27881,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		// Highlight all adjacent tiles with units
 		for (int dx = -1; dx <= 1; dx++) {
 			for (int dy = -1; dy <= 1; dy++) {
-				if (dx == 0 && dy == 0) continue; // Skip self
+				if (abs(dx) + abs(dy) != 1) continue; // Orthogonal only
 				int nx = caster.x + dx;
 				int ny = caster.y + dy;
 				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
@@ -28942,7 +28966,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// If the tile is occupied, ensure the occupant is NOT the caster itself,
 			// except for cards that intentionally allow self-target.
-			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL);
+			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DISPEL);
 			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0 && !allowSelfOccupiedTarget) {
 				if (!tileHasOtherThan(x, y, currentPlayerIndex)) {
 					// Only occupant is caster; not a valid non-self target
@@ -30414,7 +30438,7 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 
 	// Self-target check (allow only if card targeting permits)
 	if (casterTile == targetTile) {
-		if (card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_WISDOM_BOON) {
+		if (card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_WISDOM_BOON || card.type == CARD_DISPEL) {
 			result.reason = VALID;
 			result.isTargetable = true;
 			return result;
@@ -30881,10 +30905,10 @@ void ofApp::tryTriggerShellSpike() {
 		if (p.x < 0) continue; // Dead
 		if (&p == &currentPlayer) continue; // Self
 
-		// Check adjacency
+		// Check adjacency (strictly orthogonal)
 		int dx = abs(p.x - currentPlayer.x);
 		int dy = abs(p.y - currentPlayer.y);
-		if ((dx <= 1 && dy <= 1) && (dx + dy > 0)) {
+		if (dx + dy == 1) {
 			hasAdjacentUnit = true;
 			break;
 		}
