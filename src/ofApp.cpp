@@ -2367,6 +2367,20 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 2.0f, 0), "x2!", ofColor::yellow);
 		}
 
+		// WAKE UP FROM SLEEP
+		if (target.sleepTurnsRemaining > 0) {
+			target.sleepTurnsRemaining = 0;
+			if (targetIndex >= 0) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = targetIndex;
+				rm.data.status.statusType = STATUS_SLEEP;
+				rm.data.status.duration = 0;
+				processEffectOp(rm); // Execute immediately
+			}
+			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.2f, 0), "Woken Up!", ofColor::white);
+		}
+
 		if (target.inTortoiseForm) {
 			target.tortoiseDamageTaken += remaining;
 			if (target.tortoiseDamageTaken >= 5) {
@@ -2573,6 +2587,20 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 
 		if (doubledHoly) {
 			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 2.0f, 0), "x2!", ofColor::yellow);
+		}
+
+		// WAKE UP FROM SLEEP
+		if (target.sleepTurnsRemaining > 0) {
+			target.sleepTurnsRemaining = 0;
+			if (targetIndex >= 0) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = targetIndex;
+				rm.data.status.statusType = STATUS_SLEEP;
+				rm.data.status.duration = 0;
+				processEffectOp(rm); // Execute immediately
+			}
+			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.2f, 0), "Woken Up!", ofColor::white);
 		}
 
 		if (target.inTortoiseForm) {
@@ -17888,13 +17916,14 @@ void ofApp::startNewTurn() {
 
 			bool skipTurn = false;
 
-			// Check Status Effects: on fire, poison, paralysis, sleep
+			// 1. On Fire
 			if (startingPlayer.onFire) {
 				std::vector<int> rawFire;
 				int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
 				currentEffectSequence.blackboard[0] = rollResult;
 				int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
 				if (applied > 0)
 					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
 				else
@@ -17915,6 +17944,7 @@ void ofApp::startNewTurn() {
 
 			if (startingPlayer.health <= 0) skipTurn = true;
 
+			// 2. Poison
 			if (!skipTurn && startingPlayer.isPoisoned) {
 				std::vector<int> rawPoison;
 				int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
@@ -17945,6 +17975,7 @@ void ofApp::startNewTurn() {
 
 			if (startingPlayer.health <= 0) skipTurn = true;
 
+			// 3. Paralysis
 			if (!skipTurn && startingPlayer.isParalyzed) {
 				std::vector<int> rawFlip;
 				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
@@ -17973,7 +18004,8 @@ void ofApp::startNewTurn() {
 				queueVisualDelay(1.2f);
 			}
 
-			if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
+			// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
+			if (startingPlayer.sleepTurnsRemaining > 0) {
 				startingPlayer.sleepTurnsRemaining--;
 				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 				skipTurn = true;
@@ -18100,113 +18132,104 @@ void ofApp::startNewTurn() {
 		}
 	}
 
-	// Check status effects: on fire, poison, paralysis, sleep
+	bool skipTurn = false;
+
+	// 1. On Fire
 	if (startingPlayer.onFire) {
-		// Resolve fire damage immediately (authoritative), apply damage now,
-		// then queue visuals/delay but do NOT wait for visuals to continue logic.
-		// Resolve fire status roll locally (pure lockstep: both peers call RNG)
 		std::vector<int> rawFire;
 		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-		currentEffectSequence.blackboard[0] = rollResult;
-		// Apply damage deterministically now
 		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
 		if (applied > 0)
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
 		else
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-		// Handle form breakage (tortoise/ghost) deterministically
-		// Form accumulation and removal handled centrally by applyDamageWithMitigations
-		Player & burningPlayer = players[currentPlayerIndex];
-		// Extinguish check using original roll
+
 		if (rollResult == 1 || rollResult == 2) {
+			startingPlayer.onFire = false;
 			EffectOp rm = {};
 			rm.type = EffectOpType::REMOVE_STATUS;
 			rm.data.status.targetIndex = currentPlayerIndex;
 			rm.data.status.statusType = STATUS_ON_FIRE;
 			rm.data.status.duration = 0;
-			queueEffect(rm);
-			queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+			processEffectOp(rm);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 		}
-		// Queue a short visual delay so the player sees dice/fire text, then continue turn logic
 		queueVisualDelay(1.2f);
-		// Continue turn progression
-		if (burningPlayer.sleepTurnsRemaining > 0)
-			requestStartNewTurn();
-		else
-			continueNewTurn();
-		return;
 	}
-	if (startingPlayer.isPoisoned) {
-		// Resolve poison roll immediately (authoritative), then queue APPLY_POISON
-		currentCardOutcome.poisonTargetPlayerIDs.clear();
-		currentCardOutcome.poisonTargetPlayerIDs.push_back(startingPlayer.playerID);
 
-		// Authoritative poison roll
+	if (startingPlayer.health <= 0) skipTurn = true;
+
+	// 2. Poison
+	if (!skipTurn && startingPlayer.isPoisoned) {
 		std::vector<int> rawPoison;
 		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-		currentEffectSequence.blackboard[0] = poisonRoll;
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
-		EffectOp applyOp = {};
-		applyOp.type = EffectOpType::APPLY_POISON;
-		queueEffect(applyOp);
-
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		beginEffectSequence();
-		return;
-	}
-	if (startingPlayer.isParalyzed) {
-		// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
-		// Authoritative coin flip for paralysis
-		std::vector<int> rawFlip;
-		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-		currentEffectSequence.blackboard[0] = flip;
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
-		// If player is on fire, pre-resolve fire damage into blackboard[1]
-		if (startingPlayer.onFire) {
-			std::vector<int> rawFire2;
-			int fireRoll = resolveDiceRollDetailed(1, 6, rawFire2);
-			currentEffectSequence.blackboard[1] = fireRoll;
+		int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
+		if (actualDamage > 0) {
+			applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+		} else {
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
 		}
 
-		EffectOp applyOp = {};
-		applyOp.type = EffectOpType::APPLY_PARALYSIS;
-		queueEffect(applyOp);
-
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		beginEffectSequence();
-		return;
+		startingPlayer.poisonReduction += 1;
+		if (startingPlayer.poisonReduction >= 6) {
+			startingPlayer.isPoisoned = false;
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_POISONED;
+			rm.data.status.duration = 0;
+			processEffectOp(rm);
+			startingPlayer.poisonReduction = 0;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
+		}
+		queueVisualDelay(1.2f);
 	}
-	if (startingPlayer.sleepTurnsRemaining > 0) {
-		startingPlayer.sleepTurnsRemaining--;
-		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
-		if (startingPlayer.onFire) {
-			// Resolve sleeping fire damage immediately (pure lockstep: both peers call RNG), apply now,
-			// then queue visuals/delay and end the sleeping turn without blocking.
-			std::vector<int> rawSleeping;
-			int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
-			currentEffectSequence.blackboard[0] = rollResult;
-			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-			if (applied > 0)
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
-			else
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-			Player & burningPlayer = players[currentPlayerIndex];
-			if (rollResult == 1 || rollResult == 2) {
+
+	if (startingPlayer.health <= 0) skipTurn = true;
+
+	// 3. Paralysis
+	if (!skipTurn && startingPlayer.isParalyzed) {
+		std::vector<int> rawFlip;
+		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+
+		if (flip == 2) {
+			startingPlayer.paralysisHeadsCount++;
+			if (startingPlayer.paralysisHeadsCount >= 2) {
+				startingPlayer.isParalyzed = false;
 				EffectOp rm = {};
 				rm.type = EffectOpType::REMOVE_STATUS;
 				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_ON_FIRE;
+				rm.data.status.statusType = STATUS_PARALYZED;
 				rm.data.status.duration = 0;
-				queueEffect(rm);
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+				processEffectOp(rm);
+				startingPlayer.paralysisHeadsCount = 0;
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
+			} else {
+				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
 			}
-			queueVisualDelay(1.2f);
-			requestStartNewTurn();
-			return;
+		} else {
+			startingPlayer.paralysisHeadsCount = 0;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
+			skipTurn = true;
 		}
+		queueVisualDelay(1.2f);
+	}
+
+	// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
+	if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
+		startingPlayer.sleepTurnsRemaining--;
+		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+		skipTurn = true;
+		queueVisualDelay(1.2f);
+	}
+
+	if (skipTurn) {
 		requestStartNewTurn();
 		return;
 	}
@@ -18342,48 +18365,110 @@ void ofApp::continueNewTurn() {
 		activeDiceRolls.end());
 	currentAP = 0;
 
-	// --- 1. SLEEP CHECK (New Status) ---
-	if (startingPlayer.sleepTurnsRemaining > 0) {
-		startingPlayer.sleepTurnsRemaining--;
-		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+	// CLIENT: legacy TurnStart wait removed — clients derive turn-start from lockstep commands.
 
-		// If on fire while sleeping, roll damage first, then the update loop will end the turn
-		if (startingPlayer.onFire) {
-			// Resolve sleeping fire damage immediately (authoritative), apply now,
-			// then queue visuals/delay and end the sleeping turn without blocking.
-			std::vector<int> rawSleeping;
-			int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
-			currentEffectSequence.blackboard[0] = rollResult;
-			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-			if (applied > 0)
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
-			else
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-			// Form accumulation and removal handled centrally by applyDamageWithMitigations
-			Player & burningPlayer = players[currentPlayerIndex];
-			// Extinguish check using original roll
-			if (rollResult == 1 || rollResult == 2) {
+	bool skipTurn = false;
+
+	// 1. On Fire
+	if (startingPlayer.onFire) {
+		std::vector<int> rawFire;
+		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
+		currentEffectSequence.blackboard[0] = rollResult;
+		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		if (applied > 0)
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
+		else
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
+
+		if (rollResult == 1 || rollResult == 2) {
+			startingPlayer.onFire = false;
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_ON_FIRE;
+			rm.data.status.duration = 0;
+			processEffectOp(rm);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+		}
+		queueVisualDelay(1.2f);
+	}
+
+	if (startingPlayer.health <= 0) skipTurn = true;
+
+	// 2. Poison
+	if (!skipTurn && startingPlayer.isPoisoned) {
+		std::vector<int> rawPoison;
+		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
+		if (actualDamage > 0) {
+			applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+		} else {
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
+		}
+
+		startingPlayer.poisonReduction += 1;
+		if (startingPlayer.poisonReduction >= 6) {
+			startingPlayer.isPoisoned = false;
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_POISONED;
+			rm.data.status.duration = 0;
+			processEffectOp(rm);
+			startingPlayer.poisonReduction = 0;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
+		}
+		queueVisualDelay(1.2f);
+	}
+
+	if (startingPlayer.health <= 0) skipTurn = true;
+
+	// 3. Paralysis
+	if (!skipTurn && startingPlayer.isParalyzed) {
+		std::vector<int> rawFlip;
+		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+
+		if (flip == 2) {
+			startingPlayer.paralysisHeadsCount++;
+			if (startingPlayer.paralysisHeadsCount >= 2) {
+				startingPlayer.isParalyzed = false;
 				EffectOp rm = {};
 				rm.type = EffectOpType::REMOVE_STATUS;
 				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_ON_FIRE;
+				rm.data.status.statusType = STATUS_PARALYZED;
 				rm.data.status.duration = 0;
-				queueEffect(rm);
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+				processEffectOp(rm);
+				startingPlayer.paralysisHeadsCount = 0;
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
+			} else {
+				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
 			}
-			// Queue a short visual delay so the player sees dice/fire text, then end sleeping turn
-			queueVisualDelay(1.2f);
-			requestStartNewTurn();
-			return;
+		} else {
+			startingPlayer.paralysisHeadsCount = 0;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
+			skipTurn = true;
 		}
+		queueVisualDelay(1.2f);
+	}
 
-		// If not on fire, skip turn immediately
+	// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
+	if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
+		startingPlayer.sleepTurnsRemaining--;
+		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+		skipTurn = true;
+		queueVisualDelay(1.2f);
+	}
+
+	if (skipTurn) {
 		requestStartNewTurn();
 		return;
 	}
-
-	// CLIENT: legacy TurnStart wait removed — clients derive turn-start from lockstep commands.
 
 	// --- AP ROLL LOGIC ---
 
