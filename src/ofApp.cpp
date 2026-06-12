@@ -2897,12 +2897,6 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, i
 				targetIndex = -1;
 			}
 
-			if (targetIndex != -1 && !players[targetIndex].isMinion) {
-				// For this flow, drafted cards should go to the unit that picked up
-				// the key. If caller points to a non-minion, fall back to tile scan.
-				targetIndex = -1;
-			}
-
 			for (int p = 0; p < (int)players.size(); ++p) {
 				if (targetIndex == -1 && players[p].isMinion && players[p].x == x && players[p].y == y) {
 					targetIndex = p;
@@ -4211,6 +4205,8 @@ void ofApp::updateVisuals() {
 }
 
 void ofApp::updateAudio() {
+	if (headless) return; // CRITICAL FIX: Kill battery saver and audio in headless mode
+
 	// --- INACTIVITY BATTERY-SAVER (Singleplayer only) ---
 	if (!isMultiplayer) {
 		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
@@ -4221,10 +4217,13 @@ void ofApp::updateAudio() {
 			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
 		}
 
-		// FIX: Never suspend if we are in the main menu and connected to Steam (Hosting a lobby)
 		if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
 			windowActive = true;
 		}
+
+		// --- CRITICAL FIX 3: NEVER THROTTLE TRAINING SPEED ---
+		if (headless) windowActive = true;
+		// -----------------------------------------------------
 
 		if (!windowActive) {
 			if (!gameSuspendedDueToInactivity) {
@@ -4316,7 +4315,8 @@ void ofApp::updateStateMachine() {
 			initialDraftComplete = true; // <-- CRITICAL: Prevents instant-death bug!
 			ofLogNotice("Draft") << "Processing scheduled draft end: nextPlayer=" << draftEndNextPlayerIndex << " now=" << now;
 			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
-				currentPlayerIndex = draftEndNextPlayerIndex;
+				// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
+				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
 			}
 			currentState = STATE_GAMEPLAY;
 			// Defer authoritative turn start into the deterministic tick
@@ -4339,7 +4339,8 @@ void ofApp::updateStateMachine() {
 		if (picksDone && shufflesDone && diceVisualsFinishedAndLinger()) {
 			networkPending.draftFinalize = false;
 			initialDraftComplete = true;
-			currentPlayerIndex = (draftPlayerIndex + 1) % 2;
+			// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
+			currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
 			currentState = STATE_GAMEPLAY;
 			// Schedule the first turn start to run inside simulationTick()
 			requestStartNewTurn();
@@ -7012,6 +7013,74 @@ void ofApp::prepareGameVisualState() {
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
 }
+#define CHECK_NEEDS_RELOCATE_INLINE(playerIdx, outNeeds)                                                                          \
+	do {                                                                                                                          \
+		outNeeds = false;                                                                                                         \
+		if ((playerIdx) >= 0 && (playerIdx) < (int)players.size()) {                                                              \
+			Player & _p = players[(playerIdx)];                                                                                   \
+			if (_p.health > 0) {                                                                                                  \
+				if (board[_p.x][_p.y].hasWall) {                                                                                  \
+					outNeeds = true;                                                                                              \
+				} else {                                                                                                          \
+					for (size_t _i = 0; _i < players.size(); ++_i) {                                                              \
+						if ((int)_i != (playerIdx) && players[_i].x == _p.x && players[_i].y == _p.y && players[_i].health > 0) { \
+							outNeeds = true;                                                                                      \
+							break;                                                                                                \
+						}                                                                                                         \
+					}                                                                                                             \
+				}                                                                                                                 \
+			}                                                                                                                     \
+		}                                                                                                                         \
+	} while (0)
+
+#define EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(playerIdx)                                         \
+	do {                                                                                         \
+		Player & _p = players[(playerIdx)];                                                      \
+		std::queue<glm::ivec2> _q;                                                               \
+		std::vector<std::vector<int>> _dist(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));    \
+		_q.push({ _p.x, _p.y });                                                                 \
+		_dist[_p.x][_p.y] = 0;                                                                   \
+		int _minDist = -1;                                                                       \
+		ghostRelocateChoices.clear();                                                            \
+		while (!_q.empty()) {                                                                    \
+			glm::ivec2 _curr = _q.front();                                                       \
+			_q.pop();                                                                            \
+			int _d = _dist[_curr.x][_curr.y];                                                    \
+			if (_minDist != -1 && _d > _minDist) continue;                                       \
+			bool _occupied = false;                                                              \
+			for (auto & _op : players) {                                                         \
+				if (_op.health > 0 && _op.x == _curr.x && _op.y == _curr.y) {                    \
+					_occupied = true;                                                            \
+					break;                                                                       \
+				}                                                                                \
+			}                                                                                    \
+			if (!board[_curr.x][_curr.y].hasWall && !_occupied) {                                \
+				_minDist = _d;                                                                   \
+				ghostRelocateChoices.push_back(_curr);                                           \
+				if (ghostRelocateChoices.size() >= 4) break;                                     \
+			} else {                                                                             \
+				glm::ivec2 _dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };              \
+				for (auto & _dir : _dirs) {                                                      \
+					int _nx = _curr.x + _dir.x;                                                  \
+					int _ny = _curr.y + _dir.y;                                                  \
+					if (_nx >= 0 && _nx < BOARD_WIDTH && _ny >= 0 && _ny < BOARD_HEIGHT) {       \
+						if (_dist[_nx][_ny] == -1) {                                             \
+							_dist[_nx][_ny] = _d + 1;                                            \
+							_q.push({ _nx, _ny });                                               \
+						}                                                                        \
+					}                                                                            \
+				}                                                                                \
+			}                                                                                    \
+		}                                                                                        \
+		if (ghostRelocateChoices.empty()) ghostRelocateChoices.push_back({ _p.x, _p.y });        \
+		ghostRelocateTargetIndex = (playerIdx);                                                  \
+		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, -1, PSEUDO_CARD_GHOST_RELOCATE); \
+		opponentDecisionTimerActive = true;                                                      \
+		opponentDecisionStartFrame = simulationFrame;                                            \
+		opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;                          \
+		opponentDecisionPlayerIndex = (playerIdx);                                               \
+		if (isMultiplayer) sendMenuState(5, (playerIdx), -1, -1);                                \
+	} while (0)
 
 void ofApp::updateGameLogic() {
 
@@ -7300,31 +7369,12 @@ void ofApp::updateGameLogic() {
 							if (c.commandType == CMD_END_TURN) hasEndTurnInQueue = true;
 						}
 						if (!hasEndTurnInQueue) {
-							ofLogNotice("Timer") << "Visuals clear. Auto-ending turn.";
-							InputCommandPacket cmd = {};
-							cmd.type = PKT_INPUT_COMMAND;
-							cmd.playerID = myLocalPlayerID;
-							cmd.seq = 0;
-							cmd.commandId = nextCommandId++;
-							cmd.turnNumber = globalTurnCounter;
-							cmd.commandType = CMD_END_TURN;
-							// Queue locally and send to peers so lockstep advances identically
-							sendInputCommand(cmd, true);
-						}
-					}
-					// If I'm the Host waiting for a remote player, allow a small grace period
-					else if (isHost()) {
-						int graceFrames = 3 * turnTimerFramesPerSecond;
-						if (elapsedFrames >= turnDurationFrames + graceFrames) {
-							bool hasEndTurnInQueue = false;
-							for (const auto & c : commandQueue) {
-								if (c.commandType == CMD_END_TURN) hasEndTurnInQueue = true;
-							}
-							if (!hasEndTurnInQueue) {
-								if (!endTurnLocked) {
-									autoPlaceRemainingKoboldsOnTimeout();
-									endTurnLocked = true;
-								}
+							bool needsReloc = false;
+							CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
+							if (needsReloc) {
+								EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+							} else {
+								ofLogNotice("Timer") << "Visuals clear. Auto-ending turn.";
 								InputCommandPacket cmd = {};
 								cmd.type = PKT_INPUT_COMMAND;
 								cmd.playerID = myLocalPlayerID;
@@ -7332,30 +7382,54 @@ void ofApp::updateGameLogic() {
 								cmd.commandId = nextCommandId++;
 								cmd.turnNumber = globalTurnCounter;
 								cmd.commandType = CMD_END_TURN;
+								// Queue locally and send to peers so lockstep advances identically
 								sendInputCommand(cmd, true);
-								ofLogNotice("Timer") << "Host: forcing end-turn due to client timeout.";
+							}
+						}
+						// If I'm the Host waiting for a remote player, allow a small grace period
+						else if (isHost()) {
+							int graceFrames = 3 * turnTimerFramesPerSecond;
+							if (elapsedFrames >= turnDurationFrames + graceFrames) {
+								bool hasEndTurnInQueue = false;
+								for (const auto & c : commandQueue) {
+									if (c.commandType == CMD_END_TURN) hasEndTurnInQueue = true;
+								}
+								if (!hasEndTurnInQueue) {
+									if (!endTurnLocked) {
+										autoPlaceRemainingKoboldsOnTimeout();
+										endTurnLocked = true;
+									}
+									InputCommandPacket cmd = {};
+									cmd.type = PKT_INPUT_COMMAND;
+									cmd.playerID = myLocalPlayerID;
+									cmd.seq = 0;
+									cmd.commandId = nextCommandId++;
+									cmd.turnNumber = globalTurnCounter;
+									cmd.commandType = CMD_END_TURN;
+									sendInputCommand(cmd, true);
+									ofLogNotice("Timer") << "Host: forcing end-turn due to client timeout.";
+								}
 							}
 						}
 					}
 				}
 			}
 		}
-	}
 
-	// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
-	// NOTE: removed automatic early-return here so visual dice and simulation
-	// continue updating while menus are open (prevents modal deadlocks).
+		// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
+		// NOTE: removed automatic early-return here so visual dice and simulation
+		// continue updating while menus are open (prevents modal deadlocks).
 
-	// --- Pile View Hover Logic ---
-	if (isHoveringPile && !isShowingPileView) {
-		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
-			isShowingPileView = true;
-			currentPileView = hoveredPileType;
-			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+		// --- Pile View Hover Logic ---
+		if (isHoveringPile && !isShowingPileView) {
+			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+				isShowingPileView = true;
+				currentPileView = hoveredPileType;
+				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+			}
 		}
-	}
 
-	updateEffectSequence();
+		updateEffectSequence();
 
 #if 0
 	// --- DELTA TIME CLAMP FIX ---
@@ -7528,1109 +7602,1110 @@ void ofApp::updateGameLogic() {
 
 #endif
 
-	// --- EARTHQUAKE LOGIC ---
-	// Frame-based earthquake animation: resolved deterministically in
-	// `CARD_EARTHQUAKE` + `APPLY_EARTHQUAKE`. Re-enable runtime animation
-	// so units move slowly and pass through tiles visually.
-	if (isEarthquakeActive) {
+		// --- EARTHQUAKE LOGIC ---
+		// Frame-based earthquake animation: resolved deterministically in
+		// `CARD_EARTHQUAKE` + `APPLY_EARTHQUAKE`. Re-enable runtime animation
+		// so units move slowly and pass through tiles visually.
+		if (isEarthquakeActive) {
 
-		bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
+			bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
 
-		// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
+			// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
 
-		// PHASE 1.5: WAIT BEFORE ANIMATION
-		if (earthquakeWaitTimer > 0.0f && !pausedForDraft) {
-			earthquakeWaitTimer -= ofGetLastFrameTime();
-			if (earthquakeWaitTimer <= 0.0f) {
-				earthquakeWaitTimer = 0.0f;
-				isEarthquakeAnimatingStep = true;
-				earthquakeT = 0.0f;
-			}
-		}
-
-		// PHASE 2: ANIMATION STEP (Simultaneous Movement)
-		if (isEarthquakeAnimatingStep && !pausedForDraft) {
-			// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
-			float earthquakeSpeedScale = 0.2f;
-			// Strictly use the simulation step time, NOT the monitor frame time!
-			float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
-			earthquakeT += speed;
-
-			bool anyStillMoving = false; // Kept to silence warning, or remove it
-			(void)anyStillMoving;
-
-			// --- PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver) ---
-			if (earthquakeT <= speed) {
-				int n = (int)earthquakeUnits.size();
-
-				// 1. Setup Simulation State
-				std::vector<int> damageDiceCount(n, 0);
-				std::vector<glm::ivec2> currentPos(n);
-				std::vector<glm::ivec2> intendedPos(n);
-				// Track tiles units *attempted* to enter this step (even if they later crash and don't move)
-				std::vector<bool> attemptedEnter(n, false);
-				std::vector<glm::ivec2> attemptedTarget(n, glm::ivec2(-999, -999));
-				std::vector<bool> isStopped(n, false);
-
-				// Initialize State
-				for (int i = 0; i < n; ++i) {
-					currentPos[i] = earthquakeUnits[i].startGrid;
-					if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
-						intendedPos[i] = currentPos[i] + earthquakeUnits[i].direction;
-						isStopped[i] = false;
-					} else {
-						intendedPos[i] = currentPos[i];
-						isStopped[i] = true;
-					}
-				}
-
-				// 2. Iterative Solver
-				bool newCrashFound = true;
-				int iterations = 0;
-				while (newCrashFound && iterations < 20) {
-					newCrashFound = false;
-					iterations++;
-
-					for (int i = 0; i < n; ++i) {
-						if (isStopped[i]) continue;
-
-						bool crashThisLoop = false;
-						glm::ivec2 target = intendedPos[i];
-
-						// A. Wall / Edge Check
-						bool hitWall = false;
-						bool outOfBounds = (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT);
-						if (!outOfBounds) hitWall = board[target.x][target.y].hasWall;
-
-						// GHOST LOGIC
-						bool isGhost = false;
-						if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-							isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
-						}
-
-						if (outOfBounds || (hitWall && !isGhost)) {
-							if (!isGhost) damageDiceCount[i]++;
-							crashThisLoop = true;
-						}
-
-						// B. Unit-to-Unit Checks
-						if (!crashThisLoop) {
-							for (int j = 0; j < n; ++j) {
-								if (i == j) continue;
-								if (currentPos[j] == target && isStopped[j]) {
-									damageDiceCount[i]++;
-									damageDiceCount[j]++;
-									crashThisLoop = true;
-									break;
-								}
-								if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
-									damageDiceCount[i]++;
-									crashThisLoop = true;
-									break;
-								}
-								if (intendedPos[i] == intendedPos[j]) {
-									damageDiceCount[i]++;
-									crashThisLoop = true;
-									break;
-								}
-							}
-						}
-
-						if (crashThisLoop) {
-							// Record that this unit attempted to enter 'target' but was blocked.
-							attemptedEnter[i] = true;
-							attemptedTarget[i] = target;
-
-							isStopped[i] = true;
-							intendedPos[i] = currentPos[i];
-							newCrashFound = true;
-						}
-					}
-				}
-
-				// 3. Apply Results
-				for (int i = 0; i < n; ++i) {
-					if (isStopped[i] && earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
-						earthquakeUnits[i].crashed = true;
-						earthquakeUnits[i].isMoving = false;
-						earthquakeUnits[i].tilesToMove = 0;
-						earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
-
-						if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
-							playerAction = NONE;
-							selectedPieceGridX = -1;
-							selectedPieceGridY = -1;
-							hoverPath.clear();
-						}
-					}
-
-					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
-						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-						// Use pre-rolled crash damage from decision-time (blackboard)
-						int quakeDamageBase = 8;
-						int outSlot;
-						if (i >= 16 - quakeDamageBase)
-							outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
-						else
-							outSlot = quakeDamageBase + i;
-						int crashRoll = currentEffectSequence.blackboard[outSlot];
-						std::vector<int> rawCrash; // pre-rolled raw was queued at decision-time
-						queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
-						// Attach visual metadata to last added activeDiceRoll
-						if (!activeDiceRolls.empty()) {
-							int newIdx = (int)activeDiceRolls.size() - 1;
-							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
-							std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-							glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(visualRNG)), glm::vec3(0, 1, 0));
-							activeDiceRolls[newIdx].finalQuat = wobble * matchFaceToCamera(glm::vec3(0, 1, 0));
-						}
-
-						FloatingText cft;
-						cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
-						cft.worldPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
-						cft.velocity = glm::vec3(0, 0.8f, 0);
-						cft.startTime = ofGetElapsedTimef();
-						cft.duration = 0.8f;
-						cft.color = ofColor::red;
-						activeFloatingTexts.push_back(cft);
-					}
-				}
-
-				// After queuing per-unit crash damage dice, record targets and queue APPLY_EARTHQUAKE_DAMAGE
-				{
-					int quakeDamageBase = 8;
-					bool anyDamage = false;
-					for (int i = 0; i < n; ++i) {
-						if (damageDiceCount[i] > 0) {
-							EarthquakeDamageTarget t;
-							t.playerIndex = earthquakeUnits[i].playerIndex;
-							t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
-							t.gridX = currentPos[i].x;
-							t.gridY = currentPos[i].y;
-							if (i >= 16 - quakeDamageBase)
-								t.blackboardSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
-							else
-								t.blackboardSlot = quakeDamageBase + i;
-							t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
-							earthquakeDamageTargets.push_back(t);
-							anyDamage = true;
-						}
-					}
-					if (anyDamage) {
-						EffectOp apply = {};
-						apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
-						queueEffect(apply);
-						if (!isProcessingEffect) beginEffectSequence(); // <--- CRITICAL FIX: Trigger the damage queue!
-					}
-				}
-
-				// If any unit attempted to enter a tile containing a key but got blocked,
-				// allow them to trigger the key pickup/draft only if a single unit
-				// attempted that same tile. If multiple units attempted the same
-				// tile (bounce scenario), do not grant the key to any of them.
-				int attemptCount[BOARD_WIDTH][BOARD_HEIGHT];
-				memset(attemptCount, 0, sizeof(attemptCount));
-				for (int i = 0; i < n; ++i) {
-					if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
-						int tx = attemptedTarget[i].x;
-						int ty = attemptedTarget[i].y;
-						if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT)
-							attemptCount[tx][ty]++;
-					}
-				}
-
-				for (int i = 0; i < n; ++i) {
-					if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
-						int tx = attemptedTarget[i].x;
-						int ty = attemptedTarget[i].y;
-						if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
-						if (attemptCount[tx][ty] != 1) continue; // skip multi-attempt bounces
-
-						// Check if a floating key exists at that position
-						for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-							if (floatingKeyInstances[k].pos.x == tx && floatingKeyInstances[k].pos.y == ty) {
-								if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-									// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
-									int pid = players[earthquakeUnits[i].playerIndex].isMinion ? players[earthquakeUnits[i].playerIndex].ownerID : players[earthquakeUnits[i].playerIndex].playerID;
-									checkKeyPickupAndDraftAfterSummon(tx, ty, pid, earthquakeUnits[i].playerIndex);
-								}
-								break; // key handled (helper erases instance)
-							}
-						}
-					}
-				}
-			}
-
-			// Update Visuals
-			for (auto & unit : earthquakeUnits) {
-				if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) continue;
-				glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
-				glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
-
-				if (unit.crashed) {
-					float t = earthquakeT;
-					if (t < 0.5f) {
-						glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
-						unit.visualPos = pStart + dir3 * (t * 0.8f * TILE_SIZE);
-					} else {
-						glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
-						unit.visualPos = pStart + dir3 * ((1.0f - t) * 0.8f * TILE_SIZE);
-					}
-				} else {
-					unit.visualPos = glm::mix(pStart, pEnd, earthquakeT);
-				}
-			}
-
-			// --- END OF STEP ---
-			if (earthquakeT >= 1.0f) {
-				earthquakeT = 0.0f;
-				earthquakeStep++;
-				bool roundComplete = true;
-
-				for (auto & unit : earthquakeUnits) {
-					if (unit.crashed) {
-						unit.crashed = false;
-						unit.isMoving = false;
-						unit.tilesToMove = 0;
-					} else if (unit.isMoving) {
-						int oldX = unit.startGrid.x;
-						int oldY = unit.startGrid.y;
-						int newX = unit.nextGrid.x;
-						int newY = unit.nextGrid.y;
-
-						if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
-						if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
-
-						unit.startGrid = unit.nextGrid;
-						unit.nextGrid = unit.startGrid + unit.direction;
-						unit.tilesToMove--;
-
-						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
-							players[unit.playerIndex].x = unit.startGrid.x;
-							players[unit.playerIndex].y = unit.startGrid.y;
-						}
-
-						// Check for keys at the new position and trigger draft pickup if present.
-						// Use the player's network ID so minion owners resolve to their non-minion owner.
-						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
-							// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
-							int pid = players[unit.playerIndex].isMinion ? players[unit.playerIndex].ownerID : players[unit.playerIndex].playerID;
-							checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid, unit.playerIndex);
-						}
-
-						if (unit.tilesToMove > 0)
-							roundComplete = false;
-						else
-							unit.isMoving = false;
-					}
-				}
-
-				if (roundComplete) {
-					isEarthquakeActive = false;
-					for (int bx = 0; bx < BOARD_WIDTH; ++bx)
-						for (int by = 0; by < BOARD_HEIGHT; ++by)
-							board[bx][by].hasPlayer = false;
-
-					for (size_t pi = 0; pi < players.size(); ++pi) {
-						players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
-						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
-						board[players[pi].x][players[pi].y].hasPlayer = true;
-					}
-
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
-					}
-					animationPath.clear();
-					currentPathIndex = 0;
-					isPlayerAnimating = false;
-					animatingPlayerIndex = -1;
-					earthquakeUnits.clear();
-					earthquakeDiceAssignCounter = 0;
+			// PHASE 1.5: WAIT BEFORE ANIMATION
+			if (earthquakeWaitTimer > 0.0f && !pausedForDraft) {
+				earthquakeWaitTimer -= ofGetLastFrameTime();
+				if (earthquakeWaitTimer <= 0.0f) {
 					earthquakeWaitTimer = 0.0f;
-					invalidateTargetCache();
+					isEarthquakeAnimatingStep = true;
+					earthquakeT = 0.0f;
 				}
 			}
 
-			if (currentPlayerIndex >= 0) {
-				for (auto & u : earthquakeUnits) {
-					if (u.playerIndex == currentPlayerIndex) {
-						playerVisualPos = u.visualPos;
-						break;
-					}
-				}
-			}
+			// PHASE 2: ANIMATION STEP (Simultaneous Movement)
+			if (isEarthquakeAnimatingStep && !pausedForDraft) {
+				// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
+				float earthquakeSpeedScale = 0.2f;
+				// Strictly use the simulation step time, NOT the monitor frame time!
+				float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
+				earthquakeT += speed;
 
-			// --- DICE RESOLUTION ---
-			for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
-				DiceRoll & roll = *it;
-				float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-				float spinDuration = 1.0f;
+				bool anyStillMoving = false; // Kept to silence warning, or remove it
+				(void)anyStillMoving;
 
-				if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
-					roll.isFinishedVisual = true;
-					if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-						// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
-						it = activeDiceRolls.erase(it);
-						continue;
-					}
-				}
-				++it;
-			}
-			return;
-		}
-	}
+				// --- PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver) ---
+				if (earthquakeT <= speed) {
+					int n = (int)earthquakeUnits.size();
 
-	// --- FLAIL RESOLUTION ---
+					// 1. Setup Simulation State
+					std::vector<int> damageDiceCount(n, 0);
+					std::vector<glm::ivec2> currentPos(n);
+					std::vector<glm::ivec2> intendedPos(n);
+					// Track tiles units *attempted* to enter this step (even if they later crash and don't move)
+					std::vector<bool> attemptedEnter(n, false);
+					std::vector<glm::ivec2> attemptedTarget(n, glm::ivec2(-999, -999));
+					std::vector<bool> isStopped(n, false);
 
-	// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
-	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
-		DiceRoll & roll = *it;
-		float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-		float spinDuration = 1.0f;
-		float hangTime = 2.5f;
-		roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-
-		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
-			roll.isFinishedVisual = true;
-
-			// Build dice result text when dice finish
-			// Check if this is part of a group and if all in the group are finished
-			bool allGroupFinished = true;
-			std::vector<DiceRoll *> groupRolls;
-			DicePurpose checkPurpose = roll.purpose;
-
-			// Group dice rolls by purpose (combine AP and BONUS_AP together)
-			for (auto & r : activeDiceRolls) {
-				if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
-					groupRolls.push_back(&r);
-					if (!r.isFinishedVisual) allGroupFinished = false;
-				}
-			}
-
-			// Build result text when all dice in group finish (show for ALL dice types)
-			if (allGroupFinished && !groupRolls.empty()) {
-				std::string resultText = "";
-				int total = 0;
-				(void)total; // unused
-				int headsCount = 0;
-				int tailsCount = 0;
-
-				// Check if coins
-				bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
-
-				if (isCoins) {
-					// Count heads and tails
-					for (auto * r : groupRolls) {
-						if (r->result == 2)
-							headsCount++;
-						else if (r->result == 1)
-							tailsCount++;
-					}
-
-					if (groupRolls.size() == 1) {
-						resultText = (roll.result == 2) ? "Heads" : "Tails";
-					} else {
-						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
-					}
-				} else {
-					// Regular dice - show results for ALL dice types (damage, HP, healing, range, etc.)
-					if (groupRolls.size() == 1) {
-						int rawRoll = roll.rawResult;
-						int finalRoll = roll.result;
-						int luckApplied = finalRoll - rawRoll;
-
-						if (luckApplied > 0) {
-							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
+					// Initialize State
+					for (int i = 0; i < n; ++i) {
+						currentPos[i] = earthquakeUnits[i].startGrid;
+						if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
+							intendedPos[i] = currentPos[i] + earthquakeUnits[i].direction;
+							isStopped[i] = false;
 						} else {
-							resultText = "Rolled " + ofToString(finalRoll);
-						}
-					} else {
-						// Multiple dice - show individual rolls in order, then total
-						if (currentState == STATE_INITIATIVE_ROLL) {
-							resultText = "";
-						} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-							// FIX: Do not sum or show global UI text for individual earthquake rolls
-							resultText = "";
-						} else {
-							int rawTotal = 0;
-							int finalTotal = 0;
-							resultText = "Rolled ";
-							for (size_t i = 0; i < groupRolls.size(); i++) {
-								resultText += ofToString(groupRolls[i]->result);
-								finalTotal += groupRolls[i]->result;
-								rawTotal += groupRolls[i]->rawResult;
-								if (i < groupRolls.size() - 1) {
-									resultText += " + ";
-								}
-							}
-							int luckApplied = finalTotal - rawTotal;
-							if (luckApplied > 0) {
-								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
-							} else {
-								resultText += " = " + ofToString(finalTotal);
-							}
+							intendedPos[i] = currentPos[i];
+							isStopped[i] = true;
 						}
 					}
-				}
 
-				// Set the text for display (works for ALL dice purposes)
-				if (!resultText.empty()) {
-					diceRollResultText = resultText;
-					diceRollResultStartTime = ofGetElapsedTimef();
-				}
-			}
+					// 2. Iterative Solver
+					bool newCrashFound = true;
+					int iterations = 0;
+					while (newCrashFound && iterations < 20) {
+						newCrashFound = false;
+						iterations++;
 
-			// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
-			// THEN execute all the game-related logic inside this block.
-			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
-				if (roll.purpose == PURPOSE_AP) {
-					// Inlined resolveAPRoll() -> migrate AP resolution into effect/op flow
-					if (!apResolvedThisTurn) {
-						int apSum = 0;
-						for (const auto & r : activeDiceRolls) {
-							if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-								apSum += r.result;
+						for (int i = 0; i < n; ++i) {
+							if (isStopped[i]) continue;
+
+							bool crashThisLoop = false;
+							glm::ivec2 target = intendedPos[i];
+
+							// A. Wall / Edge Check
+							bool hitWall = false;
+							bool outOfBounds = (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT);
+							if (!outOfBounds) hitWall = board[target.x][target.y].hasWall;
+
+							// GHOST LOGIC
+							bool isGhost = false;
+							if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+								isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
 							}
-						}
-						ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
-						int deltaAP = apSum - currentAP;
-						if (deltaAP != 0) {
-							EffectOp apOp = {};
-							apOp.type = EffectOpType::MODIFY_STAT;
-							apOp.data.modifyStat.targetIndex = currentPlayerIndex;
-							apOp.data.modifyStat.statType = 3; // AP (current)
-							apOp.data.modifyStat.delta = deltaAP;
-							apOp.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(apOp);
-							if (!isProcessingEffect) beginEffectSequence();
-						}
 
-						if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
-							int bonus = players[currentPlayerIndex].nextTurnAPBonus;
-							EffectOp bonusOp = {};
-							bonusOp.type = EffectOpType::MODIFY_STAT;
-							bonusOp.data.modifyStat.targetIndex = currentPlayerIndex;
-							bonusOp.data.modifyStat.statType = 11; // Next-turn AP bonus
-							bonusOp.data.modifyStat.delta = -bonus; // consume
-							bonusOp.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(bonusOp);
-							if (!isProcessingEffect) beginEffectSequence();
-						}
+							if (outOfBounds || (hitWall && !isGhost)) {
+								if (!isGhost) damageDiceCount[i]++;
+								crashThisLoop = true;
+							}
 
-						// Sync AP to player struct
-						updatePlayerAP(players[currentPlayerIndex], currentAP);
-						ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
-
-						if (currentAP == 0) {
-							Player & actor = players[currentPlayerIndex];
-							for (auto & a : players) {
-								if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
-									int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
-									if (dist <= 1) {
-										int assistantIdx = findPlayerIndexByID(a.playerID);
-										if (assistantIdx >= 0) {
-											EffectOp op = {};
-											op.type = EffectOpType::APPLY_STATUS;
-											op.data.status.targetIndex = assistantIdx;
-											op.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
-											op.data.status.duration = 0;
-											queueEffect(op);
-											if (!isProcessingEffect) beginEffectSequence();
-										}
-										int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-										int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-										for (auto & oldR : activeDiceRolls) {
-											if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-										}
-										// Assistant reroll: host resolves RNG and writes to
-										// blackboard[5], then queues APPLY_BONUS_AP and visuals.
-										std::vector<int> rawReroll;
-										int rawBonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-										int luckBonus = 0;
-										if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-											luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-										}
-										int bonus = rawBonus + luckBonus;
-										EffectOp apply = {};
-										apply.type = EffectOpType::APPLY_BONUS_AP;
-										apply.data.modifyStat.targetIndex = currentPlayerIndex;
-										apply.data.modifyStat.statType = 3; // AP (current)
-										apply.data.modifyStat.delta = bonus;
-										apply.data.modifyStat.deltaFromSlot = -1;
-										queueEffect(apply);
-										if (!isProcessingEffect) beginEffectSequence();
-										queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
-										queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
+							// B. Unit-to-Unit Checks
+							if (!crashThisLoop) {
+								for (int j = 0; j < n; ++j) {
+									if (i == j) continue;
+									if (currentPos[j] == target && isStopped[j]) {
+										damageDiceCount[i]++;
+										damageDiceCount[j]++;
+										crashThisLoop = true;
+										break;
+									}
+									if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
+										damageDiceCount[i]++;
+										crashThisLoop = true;
+										break;
+									}
+									if (intendedPos[i] == intendedPos[j]) {
+										damageDiceCount[i]++;
+										crashThisLoop = true;
+										break;
 									}
 								}
 							}
-						}
-						ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
-					} else {
-						ofLogNotice("APDebug") << "AP already resolved earlier: currentAP=" << currentAP;
-					}
 
-					// HOST: Send TurnStart packet after AP has been resolved authoritatively.
-					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
-					if (isHost() && isMultiplayer && apResolvedThisTurn && !alreadySent && !isHandlingTurnStartEffects) {
-						// Migration note: Host no longer sends a separate turn-start packet.
-						// Clients deterministically resolve AP from the effect blackboard
-						// and no longer require a dedicated host turn-start packet. Preserve checksum
-						// timing for desync detection by sending a ChecksumPacket here.
-						ChecksumPacket chk = {};
-						chk.type = PKT_CHECKSUM_CHECK;
-						chk.playerID = myLocalPlayerID;
-						chk.checksum = calculateChecksum();
-						chk.turnNumber = globalTurnCounter;
-						steamManager.sendPacket(&chk, sizeof(chk));
-						ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
-						turnStartBackupSnapshot = buildSnapshotString();
-						ofLogNotice("Network") << "Host saved Turn-Start Master Backup (no TurnStart packet sent).";
+							if (crashThisLoop) {
+								// Record that this unit attempted to enter 'target' but was blocked.
+								attemptedEnter[i] = true;
+								attemptedTarget[i] = target;
 
-						lastTurnStartSentPlayer = currentPlayerIndex;
-						lastTurnStartSentCounter = globalTurnCounter;
-					}
-
-				} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-					// Find associated unit and apply damage now (during animation)
-					int uidx = roll.associatedUnit;
-					if (uidx >= 0 && uidx < (int)players.size()) {
-						// If we already applied immediate crash damage for this earthquake unit,
-						// don't apply again here (pre-spawn logic may have applied it).
-						bool alreadyApplied = false;
-						for (const auto & eu : earthquakeUnits) {
-							if (eu.playerIndex == uidx && eu.crashDamageApplied) {
-								alreadyApplied = true;
-								break;
+								isStopped[i] = true;
+								intendedPos[i] = currentPos[i];
+								newCrashFound = true;
 							}
 						}
-						if (!alreadyApplied) {
-							// Use centralized damage application so shields/statuses and effects
-							// are handled consistently (and deterministic via effect ops when
-							// used elsewhere).
-							applyDamageTo(players[uidx], roll.result, DAMAGE_PHYSICAL, -1);
-							ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+					}
+
+					// 3. Apply Results
+					for (int i = 0; i < n; ++i) {
+						if (isStopped[i] && earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
+							earthquakeUnits[i].crashed = true;
+							earthquakeUnits[i].isMoving = false;
+							earthquakeUnits[i].tilesToMove = 0;
+							earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
+
+							if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
+								playerAction = NONE;
+								selectedPieceGridX = -1;
+								selectedPieceGridY = -1;
+								hoverPath.clear();
+							}
+						}
+
+						if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
+							earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
+							// Use pre-rolled crash damage from decision-time (blackboard)
+							int quakeDamageBase = 8;
+							int outSlot;
+							if (i >= 16 - quakeDamageBase)
+								outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
+							else
+								outSlot = quakeDamageBase + i;
+							int crashRoll = currentEffectSequence.blackboard[outSlot];
+							std::vector<int> rawCrash; // pre-rolled raw was queued at decision-time
+							queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
+							// Attach visual metadata to last added activeDiceRoll
+							if (!activeDiceRolls.empty()) {
+								int newIdx = (int)activeDiceRolls.size() - 1;
+								activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
+								std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+								glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(visualRNG)), glm::vec3(0, 1, 0));
+								activeDiceRolls[newIdx].finalQuat = wobble * matchFaceToCamera(glm::vec3(0, 1, 0));
+							}
+
+							FloatingText cft;
+							cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
+							cft.worldPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
+							cft.velocity = glm::vec3(0, 0.8f, 0);
+							cft.startTime = ofGetElapsedTimef();
+							cft.duration = 0.8f;
+							cft.color = ofColor::red;
+							activeFloatingTexts.push_back(cft);
+						}
+					}
+
+					// After queuing per-unit crash damage dice, record targets and queue APPLY_EARTHQUAKE_DAMAGE
+					{
+						int quakeDamageBase = 8;
+						bool anyDamage = false;
+						for (int i = 0; i < n; ++i) {
+							if (damageDiceCount[i] > 0) {
+								EarthquakeDamageTarget t;
+								t.playerIndex = earthquakeUnits[i].playerIndex;
+								t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
+								t.gridX = currentPos[i].x;
+								t.gridY = currentPos[i].y;
+								if (i >= 16 - quakeDamageBase)
+									t.blackboardSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
+								else
+									t.blackboardSlot = quakeDamageBase + i;
+								t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
+								earthquakeDamageTargets.push_back(t);
+								anyDamage = true;
+							}
+						}
+						if (anyDamage) {
+							EffectOp apply = {};
+							apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
+							queueEffect(apply);
+							if (!isProcessingEffect) beginEffectSequence(); // <--- CRITICAL FIX: Trigger the damage queue!
+						}
+					}
+
+					// If any unit attempted to enter a tile containing a key but got blocked,
+					// allow them to trigger the key pickup/draft only if a single unit
+					// attempted that same tile. If multiple units attempted the same
+					// tile (bounce scenario), do not grant the key to any of them.
+					int attemptCount[BOARD_WIDTH][BOARD_HEIGHT];
+					memset(attemptCount, 0, sizeof(attemptCount));
+					for (int i = 0; i < n; ++i) {
+						if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
+							int tx = attemptedTarget[i].x;
+							int ty = attemptedTarget[i].y;
+							if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT)
+								attemptCount[tx][ty]++;
+						}
+					}
+
+					for (int i = 0; i < n; ++i) {
+						if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
+							int tx = attemptedTarget[i].x;
+							int ty = attemptedTarget[i].y;
+							if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+							if (attemptCount[tx][ty] != 1) continue; // skip multi-attempt bounces
+
+							// Check if a floating key exists at that position
+							for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+								if (floatingKeyInstances[k].pos.x == tx && floatingKeyInstances[k].pos.y == ty) {
+									if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+										// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
+										int pid = players[earthquakeUnits[i].playerIndex].isMinion ? players[earthquakeUnits[i].playerIndex].ownerID : players[earthquakeUnits[i].playerIndex].playerID;
+										checkKeyPickupAndDraftAfterSummon(tx, ty, pid, earthquakeUnits[i].playerIndex);
+									}
+									break; // key handled (helper erases instance)
+								}
+							}
+						}
+					}
+				}
+
+				// Update Visuals
+				for (auto & unit : earthquakeUnits) {
+					if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) continue;
+					glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
+					glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
+
+					if (unit.crashed) {
+						float t = earthquakeT;
+						if (t < 0.5f) {
+							glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
+							unit.visualPos = pStart + dir3 * (t * 0.8f * TILE_SIZE);
 						} else {
-							ofLogNotice("Earthquake") << "Skipping duplicate quake damage for Player " << uidx << ".";
+							glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
+							unit.visualPos = pStart + dir3 * ((1.0f - t) * 0.8f * TILE_SIZE);
 						}
-					}
-				} else if (roll.purpose == PURPOSE_BONUS_AP) {
-					// Bonus AP authoritative application handled by APPLY_BONUS_AP effect op
-				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
-					// Centralized summon handling (inlined from legacy resolver)
-					int count = currentEffectSequence.blackboard[0];
-					if (count <= 0) {
-						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-						// End kobold placement mode
-						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-						resetCardState();
 					} else {
-						// Count available adjacent empty tiles
-						int avail = 0;
-						glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-						for (auto & d : adj) {
-							int nx = koboldPlacementSourceX + (int)d.x;
-							int ny = koboldPlacementSourceY + (int)d.y;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-							}
-						}
-						int allowed = std::min<int>(count, std::min(avail, 4));
-						if (allowed <= 0) {
-							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-							resetCardState();
-						} else {
-							// MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn
-							if (isCurrentPlayerLocal()) {
-								koboldsRemainingToPlace = allowed;
-								koboldSummonCount = 0;
-								updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-								ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
-								tooltipText = "Place Kobold: click an adjacent empty tile";
-								isShowingTooltip = true;
-								queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-								invalidateTargetCache();
-							} else {
-								ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
-							}
-						}
-					}
-					// allow dice cleanup below (do not early return)
-				}
-			}
-		}
-
-		// This part correctly removes the dice after their hang time.
-		if (elapsedTime > spinDuration + hangTime) {
-			it = activeDiceRolls.erase(it);
-		} else {
-			++it;
-		}
-	} // This is the closing brace of the "for (auto it = activeDiceRolls.begin()..." loop
-
-	// Blocking Boon sequencing is now handled by APPLY_BLOCKING_BOON_* ops
-
-	// ================== PASTE YOUR NEW CODE HERE ==================
-	// Check if we need to start a chained draft
-	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && !networkPending.draftQueue.empty()) {
-		// Start drafts from lower class to higher class.
-		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end());
-
-		int nextClass = networkPending.draftQueue.front();
-		networkPending.draftQueue.erase(networkPending.draftQueue.begin());
-
-		isInGameDraft = true;
-		draftPlayerIndex = currentPlayerIndex;
-		generateDraftOptions(nextClass);
-		draftPicksRemaining = 1;
-		// No pending draft toggles tracking — clear selections on start
-		selectedDraftIndices.clear();
-		draftStage = 0;
-		currentState = STATE_DRAFTING;
-		resetDraftPhaseTimerWindow();
-
-		// Reset draft display state for new draft screen
-		draftDisplayStartTime = ofGetElapsedTimef();
-		draftDisplayInteractiveEnabled = false;
-		draftAutoSelectedIndex = -1;
-
-		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
-	}
-
-	// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips.
-	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
-		blockingBoonPendingPhysicalAfterDraft = false;
-
-		const int casterIdx = blockingBoonPendingCasterIndex;
-		if (casterIdx >= 0 && casterIdx < (int)players.size() && !blockingBoonPendingCoinRawResults.empty()) {
-			int coinTotal = 0;
-			for (int raw : blockingBoonPendingCoinRawResults)
-				coinTotal += raw;
-			queueVisualDiceRoll(gridToWorld(players[casterIdx].x, players[casterIdx].y) + glm::vec3(0, 1.0f, 0), (int)blockingBoonPendingCoinRawResults.size(), 2, blockingBoonPendingCoinRawResults, coinTotal, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
-
-			if (!isProcessingEffect) beginEffectSequence();
-
-			for (int raw : blockingBoonPendingCoinRawResults) {
-				if (raw >= 2) {
-					EffectOp incMax = {};
-					incMax.type = EffectOpType::MODIFY_STAT;
-					incMax.data.modifyStat.targetIndex = casterIdx;
-					incMax.data.modifyStat.statType = 1; // MaxHP
-					incMax.data.modifyStat.delta = 1;
-					incMax.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(incMax);
-					queueFloatingTextVisual(gridToWorld(players[casterIdx].x, players[casterIdx].y), "+1 Max HP", ofColor::green);
-				} else {
-					Player * t = getPlayer(blockingBoonTargetIndex);
-					if (t) {
-						int tgtIdx = blockingBoonTargetIndex;
-						EffectOp decMax = {};
-						decMax.type = EffectOpType::MODIFY_STAT;
-						decMax.data.modifyStat.targetIndex = tgtIdx;
-						decMax.data.modifyStat.statType = 1; // MaxHP
-						decMax.data.modifyStat.delta = -1;
-						decMax.data.modifyStat.deltaFromSlot = -1;
-						queueEffect(decMax);
-
-						int newMax = std::max(1, t->maxHealth - 1);
-						int hpDelta = std::min(0, newMax - t->health);
-						if (hpDelta != 0) {
-							EffectOp hpClamp = {};
-							hpClamp.type = EffectOpType::MODIFY_STAT;
-							hpClamp.data.modifyStat.targetIndex = tgtIdx;
-							hpClamp.data.modifyStat.statType = 0; // HP
-							hpClamp.data.modifyStat.delta = hpDelta;
-							hpClamp.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(hpClamp);
-						}
-						queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+						unit.visualPos = glm::mix(pStart, pEnd, earthquakeT);
 					}
 				}
-			}
-		}
 
-		blockingBoonPendingCoinRawResults.clear();
-		blockingBoonPendingCasterIndex = -1;
-		blockingBoonActive = false;
-	}
-	// ==============================================================
+				// --- END OF STEP ---
+				if (earthquakeT >= 1.0f) {
+					earthquakeT = 0.0f;
+					earthquakeStep++;
+					bool roundComplete = true;
 
-	// Update Floating Text
-	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
+					for (auto & unit : earthquakeUnits) {
+						if (unit.crashed) {
+							unit.crashed = false;
+							unit.isMoving = false;
+							unit.tilesToMove = 0;
+						} else if (unit.isMoving) {
+							int oldX = unit.startGrid.x;
+							int oldY = unit.startGrid.y;
+							int newX = unit.nextGrid.x;
+							int newY = unit.nextGrid.y;
 
-		float dt = ofGetLastFrameTime();
-		it->worldPos += it->velocity * dt;
-		it->velocity.y *= 0.95f; // Slow down upward movement (gravity drag)
+							if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
+							if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
 
-		if (ofGetElapsedTimef() - it->startTime > it->duration) {
-			it = activeFloatingTexts.erase(it);
-		} else {
-			++it;
-		}
-	}
+							unit.startGrid = unit.nextGrid;
+							unit.nextGrid = unit.startGrid + unit.direction;
+							unit.tilesToMove--;
 
-	// Recompute horizontal offsets for grouped floating texts so that when older
-	// texts expire, remaining texts slide left into their place.
-	{
-		float spacing = 0.8f;
-		// Group texts by anchor position (within small epsilon)
-		for (size_t i = 0; i < activeFloatingTexts.size(); ++i) {
-			// Find all texts with same anchor and sort by startTime
-			std::vector<size_t> groupIdx;
-			for (size_t j = 0; j < activeFloatingTexts.size(); ++j) {
-				if (glm::length(activeFloatingTexts[j].anchorPos - activeFloatingTexts[i].anchorPos) < 0.01f) {
-					groupIdx.push_back(j);
-				}
-			}
-			if (groupIdx.size() <= 1) continue;
-			std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) {
-				return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime;
-			});
-			// Center the group around the anchor so items expand left/right
-			// symmetrically as more texts appear.
-			for (size_t k = 0; k < groupIdx.size(); ++k) {
-				float centered = ((float)k - ((float)groupIdx.size() - 1.0f) * 0.5f) * spacing;
-				activeFloatingTexts[groupIdx[k]].xOffset = centered;
-				// Update worldPos.x to match new offset (do not override worldPos.y so
-				// upward drift remains smooth)
-				activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
-			}
-		}
-	}
-
-	// --- Draw Card Animation Update ---
-	for (auto & anim : activeDrawCardAnimations) {
-		float elapsed = ofGetElapsedTimef() - anim.startTime;
-		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
-		// Smooth the approach so the card doesn't appear to "snap" at the end.
-		float tSmooth = t * t * (3.0f - 2.0f * t); // smoothstep
-		// Use a separate scale curve that changes earlier during the flight so
-		// size transition is visible while moving (instead of mostly at landing).
-		float tScale = 1.0f - (1.0f - t) * (1.0f - t); // ease-out quad
-
-		// Visual-only draws are already in-hand; keep their animation target synced
-		// to the real slot so each card flies directly to its own destination.
-		if (!anim.commitOnFinish && anim.pendingHandIndex >= 0) {
-			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
-			if (owner >= 0 && owner < (int)players.size()) {
-				Player & p = players[owner];
-				if (anim.pendingHandIndex < (int)p.hand.size()) {
-					anim.targetPos = p.hand[anim.pendingHandIndex].targetPos;
-				}
-			}
-		}
-
-		// Project 3D start into 2D (or use screen-space start) and clamp so it doesn't start off-screen
-		glm::vec2 start2D;
-		if (anim.startIsScreenSpace) {
-			// startPos already contains screen coordinates
-			start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
-		} else {
-			ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
-			start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
-		}
-		// Prevent start point from being below the bottom of the window (keeps flight arc on-screen)
-		float minY = 40.0f;
-		float maxY = ofGetHeight() - 80.0f;
-		start2D.y = ofClamp(start2D.y, minY, maxY);
-
-		// Build an elevated control point for a nice arc (Hearthstone-like)
-		glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
-		// Reduce arc slightly: smaller lift multiplier and lower minimum
-		float lift = std::max(80.0f, glm::distance(start2D, anim.targetPos) * 0.35f);
-		glm::vec2 control = mid - glm::vec2(0.0f, lift); // negative y = up on screen
-
-		// Quadratic Bezier interpolation (gives a smooth arc)
-		float u = 1.0f - tSmooth;
-		anim.currentPos = (u * u) * start2D + (2.0f * u * tSmooth) * control + (tSmooth * tSmooth) * anim.targetPos;
-
-		// Animate scale from deck size up to normal in-hand multiplier.
-		// NOTE: Draw code already bakes `kHandCardVisualScale` into base width/height,
-		// so in-hand cards should use multiplier 1.0f (not `kHandCardVisualScale` again).
-		anim.currentScale = ofLerp(anim.startScale, anim.endScale, tScale);
-
-		// Keep fully opaque for clarity
-		anim.currentAlpha = 255.0f;
-	}
-	// Commit finished draw animations into players' hands, then remove them
-	{
-		float now = ofGetElapsedTimef();
-		// First, add finished animations' cards to the appropriate player's hand
-		for (const auto & anim : activeDrawCardAnimations) {
-			if ((now - anim.startTime) >= anim.duration) {
-				int owner = -1;
-				// Prefer resolving by stable playerID (handles reordering/resizing)
-				if (anim.ownerPlayerID != -1) {
-					owner = findPlayerIndexByID(anim.ownerPlayerID);
-				} else {
-					owner = anim.ownerIndex;
-				}
-				if (owner >= 0 && owner < (int)players.size()) {
-					Player & p = players[owner];
-					if (anim.commitOnFinish) {
-						// Initialize visual state from the finished animation so the
-						// committed card appears at the correct screen position.
-						// Note: do not skip based on name+drawnThisTurn, as legitimate
-						// duplicate-name cards should both be allowed in hand.
-						Card c = anim.card;
-						// Place the card at the animation's final screen pos.
-						// For player hands (non-minion), immediately set to the normal
-						// hand display scale so it doesn't lerp up from a smaller size.
-						c.currentPos = anim.targetPos;
-						c.targetPos = anim.targetPos;
-						// Set to hand display scale immediately for all draws
-						c.currentScale = 1.0f;
-						c.targetScale = 1.0f;
-						// Only mark as drawn if it's not a copied card
-						if (!c.isCopied) {
-							c.drawnThisTurn = true;
-						}
-						ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
-						p.hand.push_back(c);
-						ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
-					} else {
-						// Visual-only animation: reveal the already-added hand card by clearing its animating flag
-						for (auto & hc : p.hand) {
-							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
-								hc.currentPos = anim.targetPos;
-								hc.targetPos = anim.targetPos;
-								hc.currentScale = 1.0f;
-								hc.targetScale = 1.0f;
-								hc.isAnimating = false;
-								break;
+							if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+								players[unit.playerIndex].x = unit.startGrid.x;
+								players[unit.playerIndex].y = unit.startGrid.y;
 							}
+
+							// Check for keys at the new position and trigger draft pickup if present.
+							// Use the player's network ID so minion owners resolve to their non-minion owner.
+							if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+								// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
+								int pid = players[unit.playerIndex].isMinion ? players[unit.playerIndex].ownerID : players[unit.playerIndex].playerID;
+								checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid, unit.playerIndex);
+							}
+
+							if (unit.tilesToMove > 0)
+								roundComplete = false;
+							else
+								unit.isMoving = false;
 						}
 					}
+
+					if (roundComplete) {
+						isEarthquakeActive = false;
+						for (int bx = 0; bx < BOARD_WIDTH; ++bx)
+							for (int by = 0; by < BOARD_HEIGHT; ++by)
+								board[bx][by].hasPlayer = false;
+
+						for (size_t pi = 0; pi < players.size(); ++pi) {
+							players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
+							players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
+							board[players[pi].x][players[pi].y].hasPlayer = true;
+						}
+
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+							playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+						}
+						animationPath.clear();
+						currentPathIndex = 0;
+						isPlayerAnimating = false;
+						animatingPlayerIndex = -1;
+						earthquakeUnits.clear();
+						earthquakeDiceAssignCounter = 0;
+						earthquakeWaitTimer = 0.0f;
+						invalidateTargetCache();
+					}
 				}
-			}
-		}
 
-		// Then remove finished animations from the active list
-		activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [now](const DrawCardAnimation & anim) {
-			return (now - anim.startTime) >= anim.duration;
-		}),
-			activeDrawCardAnimations.end());
-
-		// --- Discard Animation Update (hand -> discard visual-only) ---
-		for (auto & anim : activeDiscardCardAnimations) {
-			// Keep discard target synced to the unit's actual discard UI location.
-			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
-			if (owner >= 0 && owner < (int)players.size()) {
-				Player & p = players[owner];
-				ofRectangle targetRect;
-				bool foundTarget = false;
-
-				if (p.isMinion) {
-					for (const auto & ui : activeMinionUIs) {
-						if (ui.playerIndex == owner) {
-							targetRect = ui.discardRect;
-							foundTarget = true;
+				if (currentPlayerIndex >= 0) {
+					for (auto & u : earthquakeUnits) {
+						if (u.playerIndex == currentPlayerIndex) {
+							playerVisualPos = u.visualPos;
 							break;
 						}
 					}
 				}
 
-				if (!foundTarget) {
-					int ownerSide = p.isMinion ? p.ownerID : p.playerID;
-					bool localSide = isMultiplayer ? (ownerSide == myLocalPlayerID) : (ownerSide == 0);
-					targetRect = localSide ? p0_discardRect : p1_discardRect;
+				// --- DICE RESOLUTION ---
+				for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
+					DiceRoll & roll = *it;
+					float elapsedTime = ofGetElapsedTimef() - roll.startTime;
+					float spinDuration = 1.0f;
+
+					if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
+						roll.isFinishedVisual = true;
+						if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+							// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
+							it = activeDiceRolls.erase(it);
+							continue;
+						}
+					}
+					++it;
+				}
+				return;
+			}
+		}
+
+		// --- FLAIL RESOLUTION ---
+
+		// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
+		for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
+			DiceRoll & roll = *it;
+			float elapsedTime = ofGetElapsedTimef() - roll.startTime;
+			float spinDuration = 1.0f;
+			float hangTime = 2.5f;
+			roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
+
+			if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
+				roll.isFinishedVisual = true;
+
+				// Build dice result text when dice finish
+				// Check if this is part of a group and if all in the group are finished
+				bool allGroupFinished = true;
+				std::vector<DiceRoll *> groupRolls;
+				DicePurpose checkPurpose = roll.purpose;
+
+				// Group dice rolls by purpose (combine AP and BONUS_AP together)
+				for (auto & r : activeDiceRolls) {
+					if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
+						groupRolls.push_back(&r);
+						if (!r.isFinishedVisual) allGroupFinished = false;
+					}
 				}
 
-				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
-				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
-				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
+				// Build result text when all dice in group finish (show for ALL dice types)
+				if (allGroupFinished && !groupRolls.empty()) {
+					std::string resultText = "";
+					int total = 0;
+					(void)total; // unused
+					int headsCount = 0;
+					int tailsCount = 0;
 
-				float animBaseW = kCardPixelWidth * kHandCardVisualScale;
-				float animBaseH = kCardPixelHeight * kHandCardVisualScale;
-				anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
+					// Check if coins
+					bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
+
+					if (isCoins) {
+						// Count heads and tails
+						for (auto * r : groupRolls) {
+							if (r->result == 2)
+								headsCount++;
+							else if (r->result == 1)
+								tailsCount++;
+						}
+
+						if (groupRolls.size() == 1) {
+							resultText = (roll.result == 2) ? "Heads" : "Tails";
+						} else {
+							resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
+						}
+					} else {
+						// Regular dice - show results for ALL dice types (damage, HP, healing, range, etc.)
+						if (groupRolls.size() == 1) {
+							int rawRoll = roll.rawResult;
+							int finalRoll = roll.result;
+							int luckApplied = finalRoll - rawRoll;
+
+							if (luckApplied > 0) {
+								resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
+							} else {
+								resultText = "Rolled " + ofToString(finalRoll);
+							}
+						} else {
+							// Multiple dice - show individual rolls in order, then total
+							if (currentState == STATE_INITIATIVE_ROLL) {
+								resultText = "";
+							} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+								// FIX: Do not sum or show global UI text for individual earthquake rolls
+								resultText = "";
+							} else {
+								int rawTotal = 0;
+								int finalTotal = 0;
+								resultText = "Rolled ";
+								for (size_t i = 0; i < groupRolls.size(); i++) {
+									resultText += ofToString(groupRolls[i]->result);
+									finalTotal += groupRolls[i]->result;
+									rawTotal += groupRolls[i]->rawResult;
+									if (i < groupRolls.size() - 1) {
+										resultText += " + ";
+									}
+								}
+								int luckApplied = finalTotal - rawTotal;
+								if (luckApplied > 0) {
+									resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
+								} else {
+									resultText += " = " + ofToString(finalTotal);
+								}
+							}
+						}
+					}
+
+					// Set the text for display (works for ALL dice purposes)
+					if (!resultText.empty()) {
+						diceRollResultText = resultText;
+						diceRollResultStartTime = ofGetElapsedTimef();
+					}
+				}
+
+				// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
+				// THEN execute all the game-related logic inside this block.
+				if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
+					if (roll.purpose == PURPOSE_AP) {
+						// Inlined resolveAPRoll() -> migrate AP resolution into effect/op flow
+						if (!apResolvedThisTurn) {
+							int apSum = 0;
+							for (const auto & r : activeDiceRolls) {
+								if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+									apSum += r.result;
+								}
+							}
+							ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
+							int deltaAP = apSum - currentAP;
+							if (deltaAP != 0) {
+								EffectOp apOp = {};
+								apOp.type = EffectOpType::MODIFY_STAT;
+								apOp.data.modifyStat.targetIndex = currentPlayerIndex;
+								apOp.data.modifyStat.statType = 3; // AP (current)
+								apOp.data.modifyStat.delta = deltaAP;
+								apOp.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(apOp);
+								if (!isProcessingEffect) beginEffectSequence();
+							}
+
+							if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
+								int bonus = players[currentPlayerIndex].nextTurnAPBonus;
+								EffectOp bonusOp = {};
+								bonusOp.type = EffectOpType::MODIFY_STAT;
+								bonusOp.data.modifyStat.targetIndex = currentPlayerIndex;
+								bonusOp.data.modifyStat.statType = 11; // Next-turn AP bonus
+								bonusOp.data.modifyStat.delta = -bonus; // consume
+								bonusOp.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(bonusOp);
+								if (!isProcessingEffect) beginEffectSequence();
+							}
+
+							// Sync AP to player struct
+							updatePlayerAP(players[currentPlayerIndex], currentAP);
+							ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
+
+							if (currentAP == 0) {
+								Player & actor = players[currentPlayerIndex];
+								for (auto & a : players) {
+									if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
+										int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
+										if (dist <= 1) {
+											int assistantIdx = findPlayerIndexByID(a.playerID);
+											if (assistantIdx >= 0) {
+												EffectOp op = {};
+												op.type = EffectOpType::APPLY_STATUS;
+												op.data.status.targetIndex = assistantIdx;
+												op.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
+												op.data.status.duration = 0;
+												queueEffect(op);
+												if (!isProcessingEffect) beginEffectSequence();
+											}
+											int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+											int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+											for (auto & oldR : activeDiceRolls) {
+												if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+											}
+											// Assistant reroll: host resolves RNG and writes to
+											// blackboard[5], then queues APPLY_BONUS_AP and visuals.
+											std::vector<int> rawReroll;
+											int rawBonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+											int luckBonus = 0;
+											if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+												luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+											}
+											int bonus = rawBonus + luckBonus;
+											EffectOp apply = {};
+											apply.type = EffectOpType::APPLY_BONUS_AP;
+											apply.data.modifyStat.targetIndex = currentPlayerIndex;
+											apply.data.modifyStat.statType = 3; // AP (current)
+											apply.data.modifyStat.delta = bonus;
+											apply.data.modifyStat.deltaFromSlot = -1;
+											queueEffect(apply);
+											if (!isProcessingEffect) beginEffectSequence();
+											queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+											queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
+										}
+									}
+								}
+							}
+							ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
+						} else {
+							ofLogNotice("APDebug") << "AP already resolved earlier: currentAP=" << currentAP;
+						}
+
+						// HOST: Send TurnStart packet after AP has been resolved authoritatively.
+						bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
+						if (isHost() && isMultiplayer && apResolvedThisTurn && !alreadySent && !isHandlingTurnStartEffects) {
+							// Migration note: Host no longer sends a separate turn-start packet.
+							// Clients deterministically resolve AP from the effect blackboard
+							// and no longer require a dedicated host turn-start packet. Preserve checksum
+							// timing for desync detection by sending a ChecksumPacket here.
+							ChecksumPacket chk = {};
+							chk.type = PKT_CHECKSUM_CHECK;
+							chk.playerID = myLocalPlayerID;
+							chk.checksum = calculateChecksum();
+							chk.turnNumber = globalTurnCounter;
+							steamManager.sendPacket(&chk, sizeof(chk));
+							ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+							turnStartBackupSnapshot = buildSnapshotString();
+							ofLogNotice("Network") << "Host saved Turn-Start Master Backup (no TurnStart packet sent).";
+
+							lastTurnStartSentPlayer = currentPlayerIndex;
+							lastTurnStartSentCounter = globalTurnCounter;
+						}
+
+					} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+						// Find associated unit and apply damage now (during animation)
+						int uidx = roll.associatedUnit;
+						if (uidx >= 0 && uidx < (int)players.size()) {
+							// If we already applied immediate crash damage for this earthquake unit,
+							// don't apply again here (pre-spawn logic may have applied it).
+							bool alreadyApplied = false;
+							for (const auto & eu : earthquakeUnits) {
+								if (eu.playerIndex == uidx && eu.crashDamageApplied) {
+									alreadyApplied = true;
+									break;
+								}
+							}
+							if (!alreadyApplied) {
+								// Use centralized damage application so shields/statuses and effects
+								// are handled consistently (and deterministic via effect ops when
+								// used elsewhere).
+								applyDamageTo(players[uidx], roll.result, DAMAGE_PHYSICAL, -1);
+								ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+							} else {
+								ofLogNotice("Earthquake") << "Skipping duplicate quake damage for Player " << uidx << ".";
+							}
+						}
+					} else if (roll.purpose == PURPOSE_BONUS_AP) {
+						// Bonus AP authoritative application handled by APPLY_BONUS_AP effect op
+					} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
+						// Centralized summon handling (inlined from legacy resolver)
+						int count = currentEffectSequence.blackboard[0];
+						if (count <= 0) {
+							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+							// End kobold placement mode
+							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+							resetCardState();
+						} else {
+							// Count available adjacent empty tiles
+							int avail = 0;
+							glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+							for (auto & d : adj) {
+								int nx = koboldPlacementSourceX + (int)d.x;
+								int ny = koboldPlacementSourceY + (int)d.y;
+								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+									if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+								}
+							}
+							int allowed = std::min<int>(count, std::min(avail, 4));
+							if (allowed <= 0) {
+								queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+								updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+								resetCardState();
+							} else {
+								// MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn
+								if (isCurrentPlayerLocal()) {
+									koboldsRemainingToPlace = allowed;
+									koboldSummonCount = 0;
+									updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+									ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
+									tooltipText = "Place Kobold: click an adjacent empty tile";
+									isShowingTooltip = true;
+									queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+									invalidateTargetCache();
+								} else {
+									ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
+								}
+							}
+						}
+						// allow dice cleanup below (do not early return)
+					}
+				}
 			}
 
+			// This part correctly removes the dice after their hang time.
+			if (elapsedTime > spinDuration + hangTime) {
+				it = activeDiceRolls.erase(it);
+			} else {
+				++it;
+			}
+		} // This is the closing brace of the "for (auto it = activeDiceRolls.begin()..." loop
+
+		// Blocking Boon sequencing is now handled by APPLY_BLOCKING_BOON_* ops
+
+		// ================== PASTE YOUR NEW CODE HERE ==================
+		// Check if we need to start a chained draft
+		if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && !networkPending.draftQueue.empty()) {
+			// Start drafts from lower class to higher class.
+			std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end());
+
+			int nextClass = networkPending.draftQueue.front();
+			networkPending.draftQueue.erase(networkPending.draftQueue.begin());
+
+			isInGameDraft = true;
+			draftPlayerIndex = currentPlayerIndex;
+			generateDraftOptions(nextClass);
+			draftPicksRemaining = 1;
+			// No pending draft toggles tracking — clear selections on start
+			selectedDraftIndices.clear();
+			draftStage = 0;
+			currentState = STATE_DRAFTING;
+			resetDraftPhaseTimerWindow();
+
+			// Reset draft display state for new draft screen
+			draftDisplayStartTime = ofGetElapsedTimef();
+			draftDisplayInteractiveEnabled = false;
+			draftAutoSelectedIndex = -1;
+
+			ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
+		}
+
+		// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips.
+		if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
+			blockingBoonPendingPhysicalAfterDraft = false;
+
+			const int casterIdx = blockingBoonPendingCasterIndex;
+			if (casterIdx >= 0 && casterIdx < (int)players.size() && !blockingBoonPendingCoinRawResults.empty()) {
+				int coinTotal = 0;
+				for (int raw : blockingBoonPendingCoinRawResults)
+					coinTotal += raw;
+				queueVisualDiceRoll(gridToWorld(players[casterIdx].x, players[casterIdx].y) + glm::vec3(0, 1.0f, 0), (int)blockingBoonPendingCoinRawResults.size(), 2, blockingBoonPendingCoinRawResults, coinTotal, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
+
+				if (!isProcessingEffect) beginEffectSequence();
+
+				for (int raw : blockingBoonPendingCoinRawResults) {
+					if (raw >= 2) {
+						EffectOp incMax = {};
+						incMax.type = EffectOpType::MODIFY_STAT;
+						incMax.data.modifyStat.targetIndex = casterIdx;
+						incMax.data.modifyStat.statType = 1; // MaxHP
+						incMax.data.modifyStat.delta = 1;
+						incMax.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(incMax);
+						queueFloatingTextVisual(gridToWorld(players[casterIdx].x, players[casterIdx].y), "+1 Max HP", ofColor::green);
+					} else {
+						Player * t = getPlayer(blockingBoonTargetIndex);
+						if (t) {
+							int tgtIdx = blockingBoonTargetIndex;
+							EffectOp decMax = {};
+							decMax.type = EffectOpType::MODIFY_STAT;
+							decMax.data.modifyStat.targetIndex = tgtIdx;
+							decMax.data.modifyStat.statType = 1; // MaxHP
+							decMax.data.modifyStat.delta = -1;
+							decMax.data.modifyStat.deltaFromSlot = -1;
+							queueEffect(decMax);
+
+							int newMax = std::max(1, t->maxHealth - 1);
+							int hpDelta = std::min(0, newMax - t->health);
+							if (hpDelta != 0) {
+								EffectOp hpClamp = {};
+								hpClamp.type = EffectOpType::MODIFY_STAT;
+								hpClamp.data.modifyStat.targetIndex = tgtIdx;
+								hpClamp.data.modifyStat.statType = 0; // HP
+								hpClamp.data.modifyStat.delta = hpDelta;
+								hpClamp.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(hpClamp);
+							}
+							queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+						}
+					}
+				}
+			}
+
+			blockingBoonPendingCoinRawResults.clear();
+			blockingBoonPendingCasterIndex = -1;
+			blockingBoonActive = false;
+		}
+		// ==============================================================
+
+		// Update Floating Text
+		for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
+
+			float dt = ofGetLastFrameTime();
+			it->worldPos += it->velocity * dt;
+			it->velocity.y *= 0.95f; // Slow down upward movement (gravity drag)
+
+			if (ofGetElapsedTimef() - it->startTime > it->duration) {
+				it = activeFloatingTexts.erase(it);
+			} else {
+				++it;
+			}
+		}
+
+		// Recompute horizontal offsets for grouped floating texts so that when older
+		// texts expire, remaining texts slide left into their place.
+		{
+			float spacing = 0.8f;
+			// Group texts by anchor position (within small epsilon)
+			for (size_t i = 0; i < activeFloatingTexts.size(); ++i) {
+				// Find all texts with same anchor and sort by startTime
+				std::vector<size_t> groupIdx;
+				for (size_t j = 0; j < activeFloatingTexts.size(); ++j) {
+					if (glm::length(activeFloatingTexts[j].anchorPos - activeFloatingTexts[i].anchorPos) < 0.01f) {
+						groupIdx.push_back(j);
+					}
+				}
+				if (groupIdx.size() <= 1) continue;
+				std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) {
+					return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime;
+				});
+				// Center the group around the anchor so items expand left/right
+				// symmetrically as more texts appear.
+				for (size_t k = 0; k < groupIdx.size(); ++k) {
+					float centered = ((float)k - ((float)groupIdx.size() - 1.0f) * 0.5f) * spacing;
+					activeFloatingTexts[groupIdx[k]].xOffset = centered;
+					// Update worldPos.x to match new offset (do not override worldPos.y so
+					// upward drift remains smooth)
+					activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
+				}
+			}
+		}
+
+		// --- Draw Card Animation Update ---
+		for (auto & anim : activeDrawCardAnimations) {
 			float elapsed = ofGetElapsedTimef() - anim.startTime;
 			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+			// Smooth the approach so the card doesn't appear to "snap" at the end.
+			float tSmooth = t * t * (3.0f - 2.0f * t); // smoothstep
+			// Use a separate scale curve that changes earlier during the flight so
+			// size transition is visible while moving (instead of mostly at landing).
+			float tScale = 1.0f - (1.0f - t) * (1.0f - t); // ease-out quad
+
+			// Visual-only draws are already in-hand; keep their animation target synced
+			// to the real slot so each card flies directly to its own destination.
+			if (!anim.commitOnFinish && anim.pendingHandIndex >= 0) {
+				int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
+				if (owner >= 0 && owner < (int)players.size()) {
+					Player & p = players[owner];
+					if (anim.pendingHandIndex < (int)p.hand.size()) {
+						anim.targetPos = p.hand[anim.pendingHandIndex].targetPos;
+					}
+				}
+			}
+
+			// Project 3D start into 2D (or use screen-space start) and clamp so it doesn't start off-screen
 			glm::vec2 start2D;
 			if (anim.startIsScreenSpace) {
+				// startPos already contains screen coordinates
 				start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
 			} else {
 				ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
 				start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
 			}
+			// Prevent start point from being below the bottom of the window (keeps flight arc on-screen)
 			float minY = 40.0f;
 			float maxY = ofGetHeight() - 80.0f;
 			start2D.y = ofClamp(start2D.y, minY, maxY);
 
+			// Build an elevated control point for a nice arc (Hearthstone-like)
 			glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
-			float lift = std::max(40.0f, glm::distance(start2D, anim.targetPos) * 0.25f);
-			glm::vec2 control = mid - glm::vec2(0.0f, lift);
+			// Reduce arc slightly: smaller lift multiplier and lower minimum
+			float lift = std::max(80.0f, glm::distance(start2D, anim.targetPos) * 0.35f);
+			glm::vec2 control = mid - glm::vec2(0.0f, lift); // negative y = up on screen
 
-			float u = 1.0f - t;
-			anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
+			// Quadratic Bezier interpolation (gives a smooth arc)
+			float u = 1.0f - tSmooth;
+			anim.currentPos = (u * u) * start2D + (2.0f * u * tSmooth) * control + (tSmooth * tSmooth) * anim.targetPos;
 
-			// Scale from in-hand size to actual discard UI size.
-			anim.currentScale = ofLerp(anim.startScale, anim.endScale, t);
-			anim.currentAlpha = ofLerp(255.0f, 180.0f, t);
+			// Animate scale from deck size up to normal in-hand multiplier.
+			// NOTE: Draw code already bakes `kHandCardVisualScale` into base width/height,
+			// so in-hand cards should use multiplier 1.0f (not `kHandCardVisualScale` again).
+			anim.currentScale = ofLerp(anim.startScale, anim.endScale, tScale);
+
+			// Keep fully opaque for clarity
+			anim.currentAlpha = 255.0f;
 		}
-
-		// Remove discard animations once finished
-		float now2 = ofGetElapsedTimef();
-		activeDiscardCardAnimations.erase(std::remove_if(activeDiscardCardAnimations.begin(), activeDiscardCardAnimations.end(), [now2](const DrawCardAnimation & anim) {
-			return (now2 - anim.startTime) >= (anim.duration + 0.25f);
-		}),
-			activeDiscardCardAnimations.end());
-
-		// --- Shuffle Animation Update ---
-		for (auto & s : activeShuffleAnimations) {
-			float elapsed = ofGetElapsedTimef() - s.startTime;
-			float t = ofClamp(elapsed / s.duration, 0.0f, 1.0f);
-			// simple pulsing and rotation
-			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
-			s.rotation = t * 720.0f; // degrees
-			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
-		}
-
-		// Remove finished shuffle animations
-		activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) {
-			return (ofGetElapsedTimef() - s.startTime) >= s.duration;
-		}),
-			activeShuffleAnimations.end());
-	}
-
-	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-		// In-game key drafts pause movement visuals at the current tile. Movement
-		// resumes automatically once the draft closes (state returns to gameplay).
-		if (currentState == STATE_DRAFTING && isInGameDraft) {
-			animationSegmentStartTime = ofGetElapsedTimef();
-		} else {
-			// Per-segment eased movement with hop for nicer motion
-			auto easeInOutCubic = [](float t) {
-				if (t < 0.5f) return 4.0f * t * t * t;
-				float f = ((2.0f * t) - 2.0f);
-				return 0.5f * f * f * f + 1.0f;
-			};
-
-			// Ensure we have at least two points (start + next) for a valid segment
-			if (currentPathIndex < 0) currentPathIndex = 0;
-			if (currentPathIndex + 1 >= (int)animationPath.size()) {
-				// Nothing to move to: finish animation
-				isPlayerAnimating = false;
-				animatingPlayerIndex = -1;
-			} else {
-				glm::vec3 startPos = animationPath[currentPathIndex];
-				glm::vec3 targetPos = animationPath[currentPathIndex + 1];
-
-				float segmentDuration = 0.20f; // seconds per tile (slower movement)
-				float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
-				float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
-				float easeT = easeInOutCubic(t);
-
-				// Facing based on movement direction (horizontal X/Z plane)
-				glm::vec3 dir = targetPos - startPos;
-				if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
-					playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
-					players[animatingPlayerIndex].facingAngle = playerFacingAngle;
-				}
-
-				// Interpolate with easing
-				playerVisualPos = glm::mix(startPos, targetPos, easeT);
-
-				// Add a small vertical hop for visual weight
-				float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
-				playerVisualPos.y += hop;
-
-				// Arrival
-				if (t >= 0.999f) {
-					// Snap to exact tile
-					playerVisualPos = targetPos;
-
-					// Key pickup: trigger when the unit visually reaches this tile,
-					// not immediately when movement command is applied.
-					{
-						glm::vec2 arrivedGridF = worldToGrid(targetPos);
-						int arrivedX = (int)std::round(arrivedGridF.x);
-						int arrivedY = (int)std::round(arrivedGridF.y);
-						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
-							&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-							if (!pendingVisualKeyDraftQueue.empty()
-								&& pendingVisualKeyDraftQueue.front().tileX == arrivedX
-								&& pendingVisualKeyDraftQueue.front().tileY == arrivedY
-								&& pendingVisualKeyDraftQueue.front().targetIndex >= 0
-								&& pendingVisualKeyDraftQueue.front().targetIndex < (int)players.size()) {
-								const PendingVisualKeyDraft draft = pendingVisualKeyDraftQueue.front();
-								pendingVisualKeyDraftQueue.erase(pendingVisualKeyDraftQueue.begin());
-
-								isInGameDraft = true;
-								inGameDraftTargetIdx = draft.targetIndex;
-								draftPlayerIndex = draft.targetIndex;
-								std::vector<int> forcedIndices;
-								for (int idx : draft.poolIndices) {
-									if (idx >= 0) forcedIndices.push_back(idx);
+		// Commit finished draw animations into players' hands, then remove them
+		{
+			float now = ofGetElapsedTimef();
+			// First, add finished animations' cards to the appropriate player's hand
+			for (const auto & anim : activeDrawCardAnimations) {
+				if ((now - anim.startTime) >= anim.duration) {
+					int owner = -1;
+					// Prefer resolving by stable playerID (handles reordering/resizing)
+					if (anim.ownerPlayerID != -1) {
+						owner = findPlayerIndexByID(anim.ownerPlayerID);
+					} else {
+						owner = anim.ownerIndex;
+					}
+					if (owner >= 0 && owner < (int)players.size()) {
+						Player & p = players[owner];
+						if (anim.commitOnFinish) {
+							// Initialize visual state from the finished animation so the
+							// committed card appears at the correct screen position.
+							// Note: do not skip based on name+drawnThisTurn, as legitimate
+							// duplicate-name cards should both be allowed in hand.
+							Card c = anim.card;
+							// Place the card at the animation's final screen pos.
+							// For player hands (non-minion), immediately set to the normal
+							// hand display scale so it doesn't lerp up from a smaller size.
+							c.currentPos = anim.targetPos;
+							c.targetPos = anim.targetPos;
+							// Set to hand display scale immediately for all draws
+							c.currentScale = 1.0f;
+							c.targetScale = 1.0f;
+							// Only mark as drawn if it's not a copied card
+							if (!c.isCopied) {
+								c.drawnThisTurn = true;
+							}
+							ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
+							p.hand.push_back(c);
+							ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
+						} else {
+							// Visual-only animation: reveal the already-added hand card by clearing its animating flag
+							for (auto & hc : p.hand) {
+								if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
+									hc.currentPos = anim.targetPos;
+									hc.targetPos = anim.targetPos;
+									hc.currentScale = 1.0f;
+									hc.targetScale = 1.0f;
+									hc.isAnimating = false;
+									break;
 								}
-								generateDraftOptions(draft.classTier, forcedIndices.empty() ? nullptr : &forcedIndices);
-								draftPicksRemaining = 1;
-								selectedDraftIndices.clear();
-								currentState = STATE_DRAFTING;
-								resetDraftPhaseTimerWindow();
-								draftDisplayStartTime = ofGetElapsedTimef();
-								draftDisplayInteractiveEnabled = false;
-								draftAutoSelectedIndex = -1;
+							}
+						}
+					}
+				}
+			}
 
-								ofColor keyCol = ofColor::gold;
-								if (draft.classTier == 2)
-									keyCol = ofColor(192, 192, 192);
-								else if (draft.classTier == 1)
-									keyCol = ofColor(205, 127, 50);
-								queueFloatingTextVisual(gridToWorld(arrivedX, arrivedY), "Key Found!", keyCol);
+			// Then remove finished animations from the active list
+			activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [now](const DrawCardAnimation & anim) {
+				return (now - anim.startTime) >= anim.duration;
+			}),
+				activeDrawCardAnimations.end());
+
+			// --- Discard Animation Update (hand -> discard visual-only) ---
+			for (auto & anim : activeDiscardCardAnimations) {
+				// Keep discard target synced to the unit's actual discard UI location.
+				int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
+				if (owner >= 0 && owner < (int)players.size()) {
+					Player & p = players[owner];
+					ofRectangle targetRect;
+					bool foundTarget = false;
+
+					if (p.isMinion) {
+						for (const auto & ui : activeMinionUIs) {
+							if (ui.playerIndex == owner) {
+								targetRect = ui.discardRect;
+								foundTarget = true;
+								break;
 							}
 						}
 					}
 
-					// Advance to next segment
-					currentPathIndex++;
-					animationSegmentStartTime = ofGetElapsedTimef();
+					if (!foundTarget) {
+						int ownerSide = p.isMinion ? p.ownerID : p.playerID;
+						bool localSide = isMultiplayer ? (ownerSide == myLocalPlayerID) : (ownerSide == 0);
+						targetRect = localSide ? p0_discardRect : p1_discardRect;
+					}
 
-					// If reaching this tile triggered an in-game draft, pause movement here
-					// until the draft is resolved. Do not continue to next segment yet.
-					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
-					if (!pausedForKeyDraft) {
-						// Play Footstep Sound when starting next segment
-						if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
-							std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-							int idx = footIdx(visualRNG);
-							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-							footstepSounds[idx].play();
+					float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
+					float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
+					anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
+
+					float animBaseW = kCardPixelWidth * kHandCardVisualScale;
+					float animBaseH = kCardPixelHeight * kHandCardVisualScale;
+					anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
+				}
+
+				float elapsed = ofGetElapsedTimef() - anim.startTime;
+				float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+				glm::vec2 start2D;
+				if (anim.startIsScreenSpace) {
+					start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
+				} else {
+					ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
+					start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
+				}
+				float minY = 40.0f;
+				float maxY = ofGetHeight() - 80.0f;
+				start2D.y = ofClamp(start2D.y, minY, maxY);
+
+				glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
+				float lift = std::max(40.0f, glm::distance(start2D, anim.targetPos) * 0.25f);
+				glm::vec2 control = mid - glm::vec2(0.0f, lift);
+
+				float u = 1.0f - t;
+				anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
+
+				// Scale from in-hand size to actual discard UI size.
+				anim.currentScale = ofLerp(anim.startScale, anim.endScale, t);
+				anim.currentAlpha = ofLerp(255.0f, 180.0f, t);
+			}
+
+			// Remove discard animations once finished
+			float now2 = ofGetElapsedTimef();
+			activeDiscardCardAnimations.erase(std::remove_if(activeDiscardCardAnimations.begin(), activeDiscardCardAnimations.end(), [now2](const DrawCardAnimation & anim) {
+				return (now2 - anim.startTime) >= (anim.duration + 0.25f);
+			}),
+				activeDiscardCardAnimations.end());
+
+			// --- Shuffle Animation Update ---
+			for (auto & s : activeShuffleAnimations) {
+				float elapsed = ofGetElapsedTimef() - s.startTime;
+				float t = ofClamp(elapsed / s.duration, 0.0f, 1.0f);
+				// simple pulsing and rotation
+				s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
+				s.rotation = t * 720.0f; // degrees
+				s.currentAlpha = ofLerp(255.0f, 0.0f, t);
+			}
+
+			// Remove finished shuffle animations
+			activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) {
+				return (ofGetElapsedTimef() - s.startTime) >= s.duration;
+			}),
+				activeShuffleAnimations.end());
+		}
+
+		if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+			// In-game key drafts pause movement visuals at the current tile. Movement
+			// resumes automatically once the draft closes (state returns to gameplay).
+			if (currentState == STATE_DRAFTING && isInGameDraft) {
+				animationSegmentStartTime = ofGetElapsedTimef();
+			} else {
+				// Per-segment eased movement with hop for nicer motion
+				auto easeInOutCubic = [](float t) {
+					if (t < 0.5f) return 4.0f * t * t * t;
+					float f = ((2.0f * t) - 2.0f);
+					return 0.5f * f * f * f + 1.0f;
+				};
+
+				// Ensure we have at least two points (start + next) for a valid segment
+				if (currentPathIndex < 0) currentPathIndex = 0;
+				if (currentPathIndex + 1 >= (int)animationPath.size()) {
+					// Nothing to move to: finish animation
+					isPlayerAnimating = false;
+					animatingPlayerIndex = -1;
+				} else {
+					glm::vec3 startPos = animationPath[currentPathIndex];
+					glm::vec3 targetPos = animationPath[currentPathIndex + 1];
+
+					float segmentDuration = 0.20f; // seconds per tile (slower movement)
+					float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
+					float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
+					float easeT = easeInOutCubic(t);
+
+					// Facing based on movement direction (horizontal X/Z plane)
+					glm::vec3 dir = targetPos - startPos;
+					if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
+						playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
+						players[animatingPlayerIndex].facingAngle = playerFacingAngle;
+					}
+
+					// Interpolate with easing
+					playerVisualPos = glm::mix(startPos, targetPos, easeT);
+
+					// Add a small vertical hop for visual weight
+					float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
+					playerVisualPos.y += hop;
+
+					// Arrival
+					if (t >= 0.999f) {
+						// Snap to exact tile
+						playerVisualPos = targetPos;
+
+						// Key pickup: trigger when the unit visually reaches this tile,
+						// not immediately when movement command is applied.
+						{
+							glm::vec2 arrivedGridF = worldToGrid(targetPos);
+							int arrivedX = (int)std::round(arrivedGridF.x);
+							int arrivedY = (int)std::round(arrivedGridF.y);
+							if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
+								&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+								if (!pendingVisualKeyDraftQueue.empty()
+									&& pendingVisualKeyDraftQueue.front().tileX == arrivedX
+									&& pendingVisualKeyDraftQueue.front().tileY == arrivedY
+									&& pendingVisualKeyDraftQueue.front().targetIndex >= 0
+									&& pendingVisualKeyDraftQueue.front().targetIndex < (int)players.size()) {
+									const PendingVisualKeyDraft draft = pendingVisualKeyDraftQueue.front();
+									pendingVisualKeyDraftQueue.erase(pendingVisualKeyDraftQueue.begin());
+
+									isInGameDraft = true;
+									inGameDraftTargetIdx = draft.targetIndex;
+									draftPlayerIndex = draft.targetIndex;
+									std::vector<int> forcedIndices;
+									for (int idx : draft.poolIndices) {
+										if (idx >= 0) forcedIndices.push_back(idx);
+									}
+									generateDraftOptions(draft.classTier, forcedIndices.empty() ? nullptr : &forcedIndices);
+									draftPicksRemaining = 1;
+									selectedDraftIndices.clear();
+									currentState = STATE_DRAFTING;
+									resetDraftPhaseTimerWindow();
+									draftDisplayStartTime = ofGetElapsedTimef();
+									draftDisplayInteractiveEnabled = false;
+									draftAutoSelectedIndex = -1;
+
+									ofColor keyCol = ofColor::gold;
+									if (draft.classTier == 2)
+										keyCol = ofColor(192, 192, 192);
+									else if (draft.classTier == 1)
+										keyCol = ofColor(205, 127, 50);
+									queueFloatingTextVisual(gridToWorld(arrivedX, arrivedY), "Key Found!", keyCol);
+								}
+							}
 						}
 
-						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
-							// Finished all segments
-							isPlayerAnimating = false;
-							animatingPlayerIndex = -1;
-							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-								playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+						// Advance to next segment
+						currentPathIndex++;
+						animationSegmentStartTime = ofGetElapsedTimef();
+
+						// If reaching this tile triggered an in-game draft, pause movement here
+						// until the draft is resolved. Do not continue to next segment yet.
+						bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
+						if (!pausedForKeyDraft) {
+							// Play Footstep Sound when starting next segment
+							if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
+								std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+								int idx = footIdx(visualRNG);
+								std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+								footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+								footstepSounds[idx].play();
 							}
 
-							// Key pickup: trigger draft after movement animation completes visually
-							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-								// Key pickup/draft trigger is resolved in lockstep command processing
-								// (CMD_MOVE_UNIT / effect ops). Do not trigger from visual animation.
+							if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
+								// Finished all segments
+								isPlayerAnimating = false;
+								animatingPlayerIndex = -1;
+								if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+									playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+								}
+
+								// Key pickup: trigger draft after movement animation completes visually
+								if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+									// Key pickup/draft trigger is resolved in lockstep command processing
+									// (CMD_MOVE_UNIT / effect ops). Do not trigger from visual animation.
+								}
 							}
 						}
 					}
 				}
 			}
 		}
+
+		const float cardDisplayDuration = 1.25f;
+		while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
+			activeCardDisplays.erase(activeCardDisplays.begin());
+		}
+
+		// Secondary timer handling: gameplay-only movement pause/resume.
+		// Draft timer logic is handled earlier in this frame and must not be duplicated,
+		// otherwise draft clicks can lock and timer state can desync/freeze.
+
+		if (hasUnlimitedAP) currentAP = 99;
 	}
-
-	const float cardDisplayDuration = 1.25f;
-	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
-		activeCardDisplays.erase(activeCardDisplays.begin());
-	}
-
-	// Secondary timer handling: gameplay-only movement pause/resume.
-	// Draft timer logic is handled earlier in this frame and must not be duplicated,
-	// otherwise draft clicks can lock and timer state can desync/freeze.
-
-	if (hasUnlimitedAP) currentAP = 99;
 }
 //----------------------------------------------------
 void ofApp::buildLevelMesh() {
@@ -12291,6 +12366,18 @@ void ofApp::drawGame() {
 			}
 
 			drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+
+			// Cost Overlay for 0-cost Hand cards (or reduced cards)
+			int effCost = getEffectiveCardCostForPlayer(currentPlayer, card);
+			if (effCost != card.cost) {
+				float cx = drawX + w * 0.125f;
+				float cy = drawY + h * 0.088f;
+				float r = w * 0.075f;
+				ofSetColor(20, 20, 20, 240);
+				ofDrawCircle(cx, cy, r);
+				drawPixelTextCentered(titleFont, ofToString(effCost), cx, cy, drawScale * 0.65f, ofColor::green, 1, ofColor::black);
+				ofSetColor(255);
+			}
 
 			// Draw hover glow (white for local, red for opponent)
 			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
@@ -16200,23 +16287,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				if (endTurnLocked) return;
 
-				// --- GHOST FORM CHECK: Cannot end turn in wall/unit unless 0 AP left ---
-				Player & p = players[currentPlayerIndex];
-				bool isInWall = board[p.x][p.y].hasWall;
-
-				// Check properly for units
-				bool isInUnitTile = false;
-				for (size_t i = 0; i < players.size(); ++i) {
-					if ((int)i != currentPlayerIndex && players[i].x == p.x && players[i].y == p.y) {
-						isInUnitTile = true;
-						break;
-					}
-				}
-
-				// Can't end turn in wall or unit unless AP is 0
-				if ((isInWall || isInUnitTile) && currentAP > 0) {
-					queueFloatingTextVisual(gridToWorld(p.x, p.y), "Must use remaining AP or move out!", ofColor::red);
-					ofLogNotice("Game") << "Prevented ending turn in wall/unit with AP remaining.";
+				// --- GHOST FORM CHECK: Must relocate if trapped! ---
+				bool needsReloc = false;
+				CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
+				if (needsReloc) {
+					EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
 					return;
 				}
 				// -----------------------------------------------
@@ -17064,7 +17139,7 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	// Handle encyclopedia scrolling
 	if (isCardEncyclopediaOpen && encyclopediaRect.inside(x, y)) {
 		// Scroll for lower rows while keeping Accept area clear.
-		const float kCardAspectRatio = 1.4f;
+		const float encyScrollAspect = 1.4f;
 		const int cols = 10;
 		const float padX = 8.0f;
 		const float padY = 10.0f;
@@ -17078,7 +17153,7 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 
 		float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
 		cardW = std::max(12.0f, cardW);
-		float cardH = cardW * kCardAspectRatio;
+		float cardH = cardW * encyScrollAspect;
 		float rowStep = cardH + padY + nameBand;
 
 		int cardCount = (int)allCards.size();
@@ -17426,10 +17501,10 @@ void ofApp::keyPressed(int key) {
 		}
 		if (endTurnLocked) return;
 		// Ghost form check similar to mouse click
-		Player & p = players[currentPlayerIndex];
-		if (p.inGhostForm && board[p.x][p.y].hasWall && p.enteredWallByClick) {
-			queueFloatingTextVisual(gridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
-			ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form, clicked in).";
+		bool needsReloc = false;
+		CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
+		if (needsReloc) {
+			EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
 			return;
 		}
 		endTurnLocked = true;
@@ -20107,14 +20182,14 @@ void ofApp::drawActiveCardInteractionUI() {
 				ofRectangle titleBox2 = uiFont.getStringBoundingBox(title, 0, 0);
 				uiFont.drawString(title, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
-				const float kCardAspectRatio = 1.4f;
+				const float amnesiaCardAspect = 1.4f;
 				const int cols = 10;
 				const float padX = 8.0f;
 				const float padY = 10.0f;
 
 				float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
 				cardW = std::max(12.0f, cardW);
-				float cardH = cardW * kCardAspectRatio;
+				float cardH = cardW * amnesiaCardAspect;
 				float startX = panelX + padX;
 				float startY = panelY + 60;
 
@@ -20941,9 +21016,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (targetIndex != -1 && (players[targetIndex].x != x || players[targetIndex].y != y)) {
 				targetIndex = -1;
 			}
-			if (targetIndex != -1 && !players[targetIndex].isMinion) {
-				targetIndex = -1;
-			}
 			for (int p = 0; p < (int)players.size(); ++p) {
 				if (targetIndex == -1 && players[p].isMinion && players[p].x == x && players[p].y == y) {
 					targetIndex = p;
@@ -21151,13 +21223,25 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			rm.data.status.statusType = STATUS_GHOST_FORM;
 			rm.data.status.duration = 0;
 			queueEffect(rm);
+
 			// Visual / cleanup
-			// Close any open opponent visualization and local menu
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
 			resetCardInteraction();
 			ghostRelocateChoices.clear();
 			ghostRelocateTargetIndex = -1;
 			opponentInteraction.open = false;
+
+			// End turn immediately after escaping the wall!
+			if (isHost() && currentPlayerIndex == tgt) {
+				InputCommandPacket endCmd = {};
+				endCmd.type = PKT_INPUT_COMMAND;
+				endCmd.playerID = myLocalPlayerID;
+				endCmd.commandId = nextCommandId++;
+				endCmd.turnNumber = globalTurnCounter;
+				endCmd.commandType = CMD_END_TURN;
+				sendInputCommand(endCmd, true);
+			}
+
 			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
@@ -24606,9 +24690,8 @@ void ofApp::queueVisualEvent(const VisualEvent & e) {
 
 // Process visual-only events each frame; completed events are removed
 void ofApp::processVisualEvents() {
-	if (visualEvents.empty()) return;
-
 	// HYPER-SPEED TRAINING: Instantly complete all visual delays!
+	// ALWAYS do this first so ghost tracers/dice don't get stuck in memory.
 	if (headless) {
 		for (auto & ev : visualEvents)
 			ev.completed = true;
@@ -24616,9 +24699,12 @@ void ofApp::processVisualEvents() {
 		activeDiceRolls.clear();
 		activeCardDisplays.clear();
 		activeFloatingTexts.clear();
+		activeTracers.clear();
 		isPlayerAnimating = false;
 		return;
 	}
+
+	if (visualEvents.empty()) return;
 
 	float now = ofGetElapsedTimef();
 
@@ -26433,10 +26519,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			beginEffectSequence();
 
 			int totalDamage = playedCard.baseDamage;
+			int draws = 1;
+			int freeTurns = 1;
 
 			// Previous flurry stacks double this damage too!
 			if (currentPlayer.flurryOfFistsStacks > 0) {
-				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+				int mult = (1 << currentPlayer.flurryOfFistsStacks);
+				totalDamage *= mult;
+				draws *= mult;
+				freeTurns *= mult;
 			}
 
 			// 1. Deal Physical Damage
@@ -26448,15 +26539,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			dmgOp.data.damage.damageFromSlot = -1;
 			queueEffect(dmgOp);
 
-			// 2. Draw 1 Card
+			// 2. Draw Cards
 			EffectOp drawOp = {};
 			drawOp.type = EffectOpType::DRAW_CARDS;
 			drawOp.data.drawCards.playerIndex = currentPlayerIndex;
-			drawOp.data.drawCards.numCards = 1;
+			drawOp.data.drawCards.numCards = draws;
 			queueEffect(drawOp);
 
 			// 3. Make the next hand-related card played cost 0 AP
-			currentPlayer.freeHandCardTurns += 1;
+			currentPlayer.freeHandCardTurns += freeTurns;
 
 			// 4. Double future Hand-Related Cards
 			EffectOp flurryOp = {};
@@ -31351,7 +31442,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	uiFont.drawString("X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
 
 	// Card grid - 10 cards per row, fills width; vertical scrolling for extra rows
-	const float kCardAspectRatio = 1.4f;
+	const float encyCardAspect = 1.4f;
 
 	float contentY = panelY + 60;
 	float acceptW = 160.0f;
@@ -31406,7 +31497,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	const float nameBand = 16.0f; // reserved text strip below each card
 	float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
 	cardW = std::max(12.0f, cardW);
-	float cardH = cardW * kCardAspectRatio;
+	float cardH = cardW * encyCardAspect;
 	float rowStep = cardH + padY + nameBand;
 	float gridWidth = cols * cardW + (cols - 1) * padX;
 	float startX = panelX + (panelWidth - gridWidth) / 2.0f;
@@ -36234,35 +36325,37 @@ std::string ofApp::getDeckStateString(const Player & p) {
 
 void ofApp::updateAI() {
 	if (!isVsAI && !isAIvsAI) return;
-	if (isVsAI && !isAIvsAI && isMyTurn()) return; // In VsAI, only act if it's the bot's turn
+	if (isVsAI && !isAIvsAI && !isMyTurn()) return;
 
 	if (endTurnLocked || g_isGameOver) return;
 
-	// If we are rendering the game normally, wait for visuals and use a think timer
-	if (!headless) {
-		if (isPlayerAnimating || isProcessingEffect || activeDiceRolls.size() > 0) return;
-
-		aiThinkTimer -= ofGetLastFrameTime();
-		if (aiThinkTimer > 0.0f) return;
-		aiThinkTimer = 1.0f; // 1 second between AI actions
-	} else {
-		// IN HEADLESS TRAINING MODE:
-		// We do not wait for the think timer. We just blast actions as fast as CPU allows.
-		// (Visuals are instantly cleared, so we don't need to wait for them either).
+	bool isGameBusy = false;
+	if (isProcessingEffect || isEarthquakeActive || isPlayerAnimating) isGameBusy = true;
+	for (const auto & roll : activeDiceRolls) {
+		if (!roll.isFinishedVisual) isGameBusy = true;
 	}
 
-	// 1. EXTRACT STATE FOR NEURAL NETWORK
+	// CRITICAL FIX: Allow AI to act when it needs to click a target or place a unit!
+	if (cardPlayState != CARD_PLAY_STATE_IDLE && cardInteractionState != CARD_INTERACTION_STATE_MENU && cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
+		isGameBusy = true;
+	}
+
+	if (currentState == STATE_DRAFTING && draftOptions.empty()) isGameBusy = true;
+
+	if (isGameBusy) return;
+
+	// If watching the AI play normally (not headless), add a tiny delay
+	if (!headless) {
+		aiThinkTimer -= ofGetLastFrameTime();
+		if (aiThinkTimer > 0.0f) return;
+		aiThinkTimer = 0.05f;
+	}
+
 	std::vector<float> stateVector = extractGameStateForAI();
-
-	// Calculate a basic reward (e.g., +1 if we killed a unit, -1 if we took damage, etc.)
-	// For now, we pass cumulativeReward which you can update elsewhere in the code.
 	float rewardToSend = cumulativeReward;
-	cumulativeReward = 0.0f; // Reset after sending
+	cumulativeReward = 0.0f;
 
-	// 2. INFERENCE (Get Action from Model)
 	int actionIndex = getAIActionFromModel(stateVector, rewardToSend, false);
-
-	// 3. EXECUTE ACTION
 	executeAIAction(actionIndex);
 }
 

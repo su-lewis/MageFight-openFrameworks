@@ -74,7 +74,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. The unit hit chooses 3 times: Take 5 damage or **Destroy** their top card. Adjacent units choose once. 
+- **Effect Text:** Choose a target. A unit on the tile hit chooses 3 times: Take 5 damage or **Destroy** their top card. Adjacent units choose once.
 ---
 
 ## 11. Fireball
@@ -114,7 +114,7 @@
 - **Targeting:** 3d6 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll, then choose an empty tile to teleport to. Can target through walls.
+- **Effect Text:** Roll, then choose an empty tile within that distance to teleport to. Can target through walls.
 ---
 
 ## 16. Hasten
@@ -202,7 +202,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = friendly Skeletons and Hellhounds).
+- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = friendly Skeletons and friendly Hellhounds).
 ---
 
 ## 27. Drain Punch
@@ -273,7 +273,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 1d6 + 2 damage to units in all 8 surrounding tiles.
+- **Effect Text:** Deal 1d6+2 damage to units in all 8 surrounding tiles.
 ---
 
 ## 36. Summon Hellhound
@@ -355,7 +355,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if hand-related, it costs 0 AP this turn. All hand-related cards have double effect this turn.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if hand-related, it costs 0 AP this turn. This turn, hand-related card effects happen X additional times (X = Flurries played this turn).
 ---
 
 ## 46. Form of Tortoise
@@ -371,7 +371,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose an adjacent wall. Gain +X **Fortification** until your next turn (X = walls in the link). Deal 3 damage to all other units adjacent to the link.
+- **Effect Text:** Choose an adjacent wall. Gain +X **Fortification** until your next turn (X = contiguous walls connected). Deal 3 damage to all other units adjacent to those walls.
 ---
 
 ## 48. Vampire Bite
@@ -492,7 +492,7 @@
 - **Picture:** 
 - **Effect Text:** **Summon** an Assistant in an adjacent empty tile. While adjacent, you gain +1 Luck and can reroll AP once if at 0. 
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
-- **AP:** Coinflip
+- **AP:** Heads: 1 Tails: 0
 - **HP:** 1
 ---
 
@@ -554,7 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a Faerie in an adjacent empty tile. It has **Regeneration**. While adjacent, if you die, resurrect with (25% Max Health * 1d4) and clear all status effects.
+- **Effect Text:** **Summon** a Faerie in an adjacent empty tile. It has **Regeneration**. While adjacent, if you die, resurrect with 25% of your Max Health multiplied by 1d4 and clear all status effects.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5

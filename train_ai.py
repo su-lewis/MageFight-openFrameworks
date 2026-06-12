@@ -15,12 +15,11 @@ class MageFightFeatureExtractor(BaseFeaturesExtractor):
         
         # State layout from C++:
         # 5 (Global) + 16 (P0) + 16 (P1) + 70 (Hand) + 70 (Draft) = 177 Global Features
-        # 15 * 11 * 33 = 5445 Board Features
-        # Total = 5622 (C++ pads to 5700)
+        # Board is 13x9, with 33 features per tile
         self.global_dim = 177
         self.board_channels = 33
-        self.board_width = 15
-        self.board_height = 11
+        self.board_width = 13
+        self.board_height = 9
         
         # Spatial network
         self.cnn = nn.Sequential(
@@ -55,7 +54,10 @@ class MageFightEnv(gym.Env):
         super(MageFightEnv, self).__init__()
         
         self.action_space = spaces.Discrete(20000)
-        self.observation_space = spaces.Box(low=-1000.0, high=1000.0, shape=(5700,), dtype=np.float32)
+        
+        # Observation space matches exact C++ state size (177 + 3861 = 4038)
+        self.state_size = 177 + (33 * 13 * 9) # 4038
+        self.observation_space = spaces.Box(low=-1000.0, high=1000.0, shape=(self.state_size,), dtype=np.float32)
         
         context = zmq.Context()
         self.socket = context.socket(zmq.REP)
@@ -63,10 +65,9 @@ class MageFightEnv(gym.Env):
         print("Python AI Server listening on port 5555...")
         
         self.current_mask = np.zeros(20000, dtype=np.int8)
-        self.last_state = np.zeros(5700, dtype=np.float32)
+        self.last_state = np.zeros(self.state_size, dtype=np.float32)
 
     def action_masks(self):
-        # MaskablePPO will call this automatically to filter invalid actions
         return self.current_mask
 
     def reset(self, seed=None, options=None):
@@ -78,18 +79,15 @@ class MageFightEnv(gym.Env):
         old_ap = self.last_state[1]
         old_turn = self.last_state[0]
         
-        # Send action to C++
         self.socket.send(struct.pack('i', int(action)))
         
-        # Wait for simulation to run
         state, reward, done = self._receive_state_from_cpp()
         self.last_state = state
         
-        # Punish stalling or illegal moves
         if not done and state[1] == old_ap and state[0] == old_turn:
             reward -= 0.05
             
-        reward -= 0.001 # Time penalty
+        reward -= 0.001 
         
         return state, reward, done, False, {}
 
@@ -99,19 +97,18 @@ class MageFightEnv(gym.Env):
         
         done = bool(data[0])
         reward = float(data[1])
-        state = data[2:5702]
         
-        # Binary mask from C++ 
-        # Float 0.0/1.0 converted to bool/int8 for sb3-contrib
-        mask_floats = data[5702:25702]
+        # Dynamic slicing based on exact sizes
+        state = data[2 : 2 + self.state_size]
+        mask_floats = data[2 + self.state_size : 2 + self.state_size + 20000]
+        
         self.current_mask = (mask_floats > 0.5).astype(np.int8) 
 
-        # Guarantee at least ONE valid action to prevent SB3 crashes
         if not np.any(self.current_mask):
-            self.current_mask[0] = 1 # Fallback: End Turn is always valid
+            self.current_mask[0] = 1 # Fallback
         
-        padded_state = np.zeros(5700, dtype=np.float32)
-        length = min(len(state), 5700)
+        padded_state = np.zeros(self.state_size, dtype=np.float32)
+        length = min(len(state), self.state_size)
         padded_state[:length] = state[:length]
         
         return padded_state, reward, done
