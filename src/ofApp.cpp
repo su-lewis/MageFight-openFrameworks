@@ -20559,46 +20559,46 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 
 // Send an input command: optionally apply locally (optimistic) and send over network
 bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
-	// Assign a canonical commandId for the originating peer
-	if (cmd.commandId == 0) {
-		cmd.commandId = nextCommandId++;
-	}
+	// FIX: Enforce Server-Sequenced Lockstep.
+	// Clients NEVER execute optimistically. They send intents to the Host.
 
-	// Fill header
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.playerID = myLocalPlayerID;
 	cmd.seq = ++watchdogClientActionCounter;
 
-	// If multiplayer, prepare reliable send bookkeeping
 	if (isMultiplayer) {
-		lastSentActionPacket = cmd;
-		lastSentActionValid = true;
-		lastSentActionTime = ofGetElapsedTimef();
-		lastSentActionResendCount = 0;
+		if (isClient()) {
+			// Client acts as a dumb terminal. Do NOT assign a command ID. Do NOT execute locally.
+			cmd.commandId = 0;
+			lastSentActionPacket = cmd;
+			lastSentActionValid = true;
+			lastSentActionTime = ofGetElapsedTimef();
+			lastSentActionResendCount = 0;
+
+			steamManager.sendPacket(&cmd, sizeof(cmd));
+			ofLogNotice("Lockstep") << "Client sent input intent to Host. Waiting for sequence.";
+			return true;
+		} else if (isHost()) {
+			// Host assigns the authoritative global Sequence ID
+			cmd.commandId = nextCommandId++;
+
+			// Host queues it for execution in its own deterministic tick
+			queueInputCommand(cmd);
+
+			// Host broadcasts the officially sequenced command to all clients
+			steamManager.sendPacket(&cmd, sizeof(cmd));
+			ofLogNotice("Lockstep") << "Host sequenced and broadcast command ID: " << cmd.commandId;
+			return true;
+		}
 	}
 
-	ofLogNotice("Lockstep") << "sendInputCommand: id=" << cmd.commandId << " type=" << cmd.commandType << " applyLocally=" << applyLocally << " player=" << cmd.playerID << " params=(" << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << "," << cmd.params[3] << ")";
+	// Singleplayer Mode
+	cmd.commandId = nextCommandId++;
+	queueInputCommand(cmd);
 
-	// If applying locally (optimistic), snapshot current state before executing
-	if (applyLocally) {
-		// Build a compact snapshot string for rollback if needed
-		std::string snap = buildSnapshotString();
-		provisionalSnapshots[cmd.commandId] = snap;
-		provisionalCommands[cmd.commandId] = cmd;
-		ofLogNotice("NetTrace") << "Stored provisional snapshot for cmdId=" << cmd.commandId << " (provisionalSnapshots.size=" << provisionalSnapshots.size() << ")";
-
-		// Queue and attempt to process immediately (acting player usually has next id)
-		queueInputCommand(cmd);
+	// Execute immediately in singleplayer to preserve snappy UI feel
+	if (applyLocally && !isMultiplayer) {
 		processCommandQueue();
-	} else {
-		// Not applying locally: just queue awaiting authoritative arrival
-		queueInputCommand(cmd);
-	}
-
-	// Send over network (singleplayer still benefits from local queue)
-	if (isMultiplayer) {
-		bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
-		return ok;
 	}
 	return true;
 }
@@ -23718,30 +23718,21 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::WAIT_VISUAL: {
-		// Pauses the effect sequence until visuals are gone from the screen!
-		// mode 0 = wait for everything, mode 1 = wait for dice + delays only (let tracers linger!)
-		int waitMode = op.data.damage.fixedDamage;
-		bool busy = false;
+		// FIX: Deterministic wait. Logic must NEVER pause based on real-time rendering.
+		// We utilize the unused 'damageFromSlot' to track remaining simulation ticks.
 
-		if (waitMode == 0) {
-			if (!activeTracers.empty()) busy = true;
+		if (op.data.damage.damageFromSlot <= 0) {
+			// Initialize the deterministic tick timer on the first frame of this operation.
+			// 1.5 seconds translates to a fixed number of simulation ticks (e.g., 1.5 / 0.016 = ~93 ticks)
+			int waitMode = op.data.damage.fixedDamage;
+			float waitSeconds = (waitMode == 0) ? 1.5f : 1.2f;
+			op.data.damage.damageFromSlot = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
 		}
 
-		if (waitMode == 0 || waitMode == 1) {
-			for (const auto & r : activeDiceRolls) {
-				if (!r.isFinishedVisual) busy = true;
-			}
-			for (const auto & v : visualEvents) {
-				if (!v.completed && v.type == VE_DICE) busy = true;
-			}
-		}
+		op.data.damage.damageFromSlot--;
 
-		// Always wait for pure VE_WAIT timed delays
-		for (const auto & v : visualEvents) {
-			if (!v.completed && v.type == VE_WAIT) busy = true;
-		}
-
-		opComplete = !busy;
+		// The operation is only complete when the deterministic tick counter hits zero.
+		opComplete = (op.data.damage.damageFromSlot <= 0);
 		break;
 	}
 
@@ -35535,21 +35526,24 @@ void ofApp::processNetworkPackets() {
 
 				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
 
-				// If this is an echo of a command we sent and we're a client
-				// which already applied it optimistically, skip re-applying it
-				// when the authoritative packet arrives. Also clear provisional
-				// snapshots/commands for this id so we don't leak memory.
-				if (!isHost() && cmd->playerID == (uint32_t)myLocalPlayerID) {
-					uint32_t cid = cmd->commandId;
-					if (provisionalSnapshots.find(cid) != provisionalSnapshots.end() || provisionalCommands.find(cid) != provisionalCommands.end()) {
-						ofLogNotice("NetTrace") << "Dropping echoed own input command cmdId=" << cid;
-						provisionalSnapshots.erase(cid);
-						provisionalCommands.erase(cid);
-						continue;
+				if (isHost()) {
+					// FIX: Host receives Client's intent. Assign the authoritative global ID,
+					// queue it for local execution, and echo it back to the client.
+					if (cmd->playerID != myLocalPlayerID) {
+						cmd->commandId = nextCommandId++;
+						queueInputCommand(*cmd);
+						steamManager.sendPacket(cmd, sizeof(InputCommandPacket));
+						ofLogNotice("Lockstep") << "Host received client intent, sequenced as ID " << cmd->commandId << " and echoed.";
 					}
+				} else {
+					// FIX: Client receives the officially sequenced command from the Host.
+					// If this is an echo of our own command, mark our local resend watchdog as resolved.
+					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID == lastSentActionPacket.clientActionID) {
+						lastSentActionValid = false;
+					}
+					// Queue for execution. It is now guaranteed to execute in the exact same order as the Host.
+					queueInputCommand(*cmd);
 				}
-
-				queueInputCommand(*cmd);
 				continue;
 			}
 
@@ -35925,10 +35919,20 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.ghostDamageTaken);
 		mix((uint64_t)p.freeKickTurns);
 
-		// NOTE: We do NOT include deck/discard/hand sizes in checksum because:
-		// 1. Network packet timing causes desyncs (DrawCards packets arrive after checksum)
-		// 2. Opponent's deck/hand are hidden information anyway
-		// 3. Cards are synchronized via explicit DrawCards/PlayCard packets
+		// FIX: Restored arrays to the checksum. With true Host-Sequenced Lockstep
+		// and decoupled visual timers, the network timing desync is fixed.
+		// These arrays MUST be verified to guarantee determinism.
+		mix((uint64_t)p.deck.size());
+		for (const auto & c : p.deck)
+			mix((uint64_t)c.type);
+
+		mix((uint64_t)p.hand.size());
+		for (const auto & c : p.hand)
+			mix((uint64_t)c.type);
+
+		mix((uint64_t)p.discardPile.size());
+		for (const auto & c : p.discardPile)
+			mix((uint64_t)c.type);
 	}
 
 	// NOTE: Do NOT include visual/timing-dependent arrays (like activeDiceRolls)
