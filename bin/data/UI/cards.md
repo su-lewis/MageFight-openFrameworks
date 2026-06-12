@@ -106,7 +106,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Choose One:** Remove a negative status effect from an adjacent unit or yourself; or roll 1d20 and gain that much **Barrier** until your next turn.
+- **Effect Text:** Choose an adjacent unit or yourself. **Choose One:** Remove a negative status effect; or roll 1d20 and gain that much Barrier until their next turn.
 ---
 
 ## 15. Teleport

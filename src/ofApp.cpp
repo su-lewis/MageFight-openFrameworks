@@ -19060,6 +19060,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool doubleHandedHasAdjacentUnit = false;
 	bool amnesiaHasAdjacentUnit = false;
 	bool dispelHasAnyStatus = false;
+	bool dispelHasAdjacentUnit = false; // <--- ADDED
 
 	// Check for Dispel statuses on self
 	Player & cPlayer = players[currentPlayerIndex];
@@ -19080,6 +19081,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 			if (card.type == CARD_BLOCKING_BOON) boonHasAdjacentUnit = true;
 			if (card.type == CARD_DOUBLE_HANDED) doubleHandedHasAdjacentUnit = true;
 			if (card.type == CARD_AMNESIA) amnesiaHasAdjacentUnit = true;
+			if (card.type == CARD_DISPEL) dispelHasAdjacentUnit = true; // <--- ADDED
 		}
 
 		// Dispel status check on adjacent units
@@ -19099,7 +19101,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
 	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE);
 	bool teleportAutoPlay = (card.type == CARD_TELEPORT);
-	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
+	// FIX: Auto-Barrier on self only happens if NO adjacent units AND NO status effects
+	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus && !dispelHasAdjacentUnit);
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
@@ -19608,29 +19611,49 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		}
 
-		// Dispel Purge Router (Target first, then Status Menu)
-		if (interactingCardType == CARD_DISPEL && buttonId == "Purge") {
-			bool adjStatus = false;
-			Player & cPlayer = players[currentPlayerIndex];
-			for (auto & p : players) {
-				// REMOVED: if (p.playerID == cPlayer.playerID) continue; <-- This was incorrectly skipping the caster!
-				int dist = abs(p.x - cPlayer.x) + abs(p.y - cPlayer.y);
-				if (dist <= 1 && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
-					adjStatus = true;
-					break;
+		// Dispel Router (Handles both Barrier and Purge targeting flows)
+		if (interactingCardType == CARD_DISPEL) {
+			if (buttonId == "Purge") {
+				bool adjStatus = false;
+				Player & cPlayer = players[currentPlayerIndex];
+				for (auto & p : players) {
+					int dist = abs(p.x - cPlayer.x) + abs(p.y - cPlayer.y);
+					if (dist <= 1 && (p.onFire || p.isParalyzed || p.isPoisoned || p.sleepTurnsRemaining > 0)) {
+						adjStatus = true;
+						break;
+					}
+				}
+
+				if (adjStatus) {
+					updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, CARD_DISPEL);
+					interactionMenuChoice = "Purge";
+					calculateTargetHighlights(interactingCardIndex);
+				} else {
+					interactionTargetIndex = currentPlayerIndex;
+					updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
+					determineStatusOptions(getPlayer(currentPlayerIndex));
+				}
+				return;
+			} else if (buttonId == "Barrier") {
+				bool hasAdj = false;
+				Player & cPlayer = players[currentPlayerIndex];
+				for (auto & p : players) {
+					if (&p == &cPlayer || p.health <= 0) continue;
+					if (abs(p.x - cPlayer.x) + abs(p.y - cPlayer.y) == 1) {
+						hasAdj = true;
+						break;
+					}
+				}
+
+				if (hasAdj && interactionTargetIndex < 0) {
+					updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, CARD_DISPEL);
+					interactionMenuChoice = "Barrier";
+					calculateTargetHighlights(interactingCardIndex);
+					return;
+				} else if (interactionTargetIndex < 0) {
+					interactionTargetIndex = currentPlayerIndex;
 				}
 			}
-
-			if (adjStatus) {
-				updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, CARD_DISPEL);
-				interactionMenuChoice = "Purge";
-				calculateTargetHighlights(interactingCardIndex);
-			} else {
-				interactionTargetIndex = currentPlayerIndex;
-				updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
-				determineStatusOptions(getPlayer(currentPlayerIndex));
-			}
-			return;
 		}
 
 		if (choice > 0 && choiceNeedsTarget && interactionTargetIndex < 0) {
@@ -19801,11 +19824,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			barrierAmount += luckBonus;
 
 			currentEffectSequence.blackboard[0] = barrierAmount;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, barrierAmount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+			// Get target position for the visual dice
+			int tgtIdx = interactionTargetIndex >= 0 ? interactionTargetIndex : currentPlayerIndex;
+			Player & targetUnit = players[tgtIdx];
+			queueVisualDiceRoll(gridToWorld(targetUnit.x, targetUnit.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, barrierAmount, PURPOSE_DEBUG, tgtIdx, 1.0f);
 
 			EffectOp barrierOp = {};
 			barrierOp.type = EffectOpType::MODIFY_STAT;
-			barrierOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			// FIX: Apply the barrier to the targeted unit!
+			barrierOp.data.modifyStat.targetIndex = tgtIdx;
 			barrierOp.data.modifyStat.statType = 6; // Barrier
 			barrierOp.data.modifyStat.delta = 0;
 			barrierOp.data.modifyStat.deltaFromSlot = 0; // Read from blackboard
