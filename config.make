@@ -25,6 +25,7 @@ ifeq ($(OS),Windows_NT)
     # ==========================================
     # Link to the dynamically forged GCC libraries we are about to create!
     PROJECT_LDFLAGS += -Lbin -lsteam_api64 -lfmod
+    PROJECT_LDFLAGS += -lzmq
 
 else
     # ==========================================

@@ -24,6 +24,8 @@ jobs:
           mingw-w64-x86_64-pkgconf
           mingw-w64-x86_64-wget
           mingw-w64-x86_64-tools
+          mingw-w64-x86_64-zeromq
+          mingw-w64-x86_64-cppzmq
           unzip
           curl
           rsync
