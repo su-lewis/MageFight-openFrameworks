@@ -7976,20 +7976,21 @@ void ofApp::updateGameLogic() {
 				roll.isFinishedVisual = true;
 
 				// Build dice result text when dice finish
-				// Check if this is part of a group and if all in the group are finished
 				bool allGroupFinished = true;
 				std::vector<DiceRoll *> groupRolls;
 				DicePurpose checkPurpose = roll.purpose;
 
 				// Group dice rolls by purpose (combine AP and BONUS_AP together)
 				for (auto & r : activeDiceRolls) {
-					if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
-						groupRolls.push_back(&r);
-						if (!r.isFinishedVisual) allGroupFinished = false;
+					// Ensure we only group dice belonging to the SAME unit to prevent cross-turn/initiative hangups
+					if (r.associatedUnit == roll.associatedUnit) {
+						if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
+							groupRolls.push_back(&r);
+							if (!r.isFinishedVisual) allGroupFinished = false;
+						}
 					}
 				}
 
-				// Build result text when all dice in group finish (show for ALL dice types)
 				if (allGroupFinished && !groupRolls.empty()) {
 					std::string resultText = "";
 					int total = 0;

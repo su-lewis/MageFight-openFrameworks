@@ -33,7 +33,9 @@ bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
 
 #ifdef _WIN32
 	#pragma comment(lib, "steam_api64.lib")
+	#include <windows.h>
 #endif
+#include <fstream>
 
 SteamManager::SteamManager()
 	: m_bInitialized(false)
@@ -47,6 +49,20 @@ SteamManager::~SteamManager() {
 }
 
 void SteamManager::setup() {
+	// --- BULLETPROOF STEAM APP ID FIX ---
+	std::ofstream appidFile("steam_appid.txt");
+	if (appidFile.is_open()) {
+		appidFile << "480";
+		appidFile.close();
+	}
+
+#ifdef _WIN32
+	// _putenv doesn't always sync to the Win32 environment block which steam_api64.dll reads.
+	// Force it using the native Windows API just to be absolutely certain.
+	SetEnvironmentVariableA("SteamAppId", "480");
+	SetEnvironmentVariableA("SteamGameId", "480");
+#endif
+
 	if (SteamAPI_Init()) {
 		m_bInitialized = true;
 		m_LocalID = CSteamID((uint64)SteamAPI_ISteamUser_GetSteamID((intptr_t)SteamUser()));
