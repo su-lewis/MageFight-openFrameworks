@@ -32851,7 +32851,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// --- 0. BASIC SANITY CHECKS ---
 	if (casterTile == targetTile) {
 		// Special-case: Heal / Lesser heal on self
-		if (cardType == CARD_HEAL || cardType == CARD_LESSER_HEAL) {
+		if (cardType == CARD_HEAL || cardType == CARD_LESSER_HEAL || cardType == CARD_BURST_OF_LIGHT) {
 			if (casterIndexForSelfChecks >= 0 && players[casterIndexForSelfChecks].health >= players[casterIndexForSelfChecks].maxHealth) {
 				result.reason = INVALID_SELF;
 				result.isTargetable = false;
