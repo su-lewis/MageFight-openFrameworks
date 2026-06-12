@@ -2799,12 +2799,12 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 		}
 		minion.deck = { hb, hb, pu, callCard };
 	} else if (minion.isWolf) {
-		Card hb, pu;
+		Card sl, callCard;
 		for (const auto & c : allCards) {
-			if (c.name == "Hand Block") hb = c;
-			if (c.name == "Punch") pu = c;
+			if (c.name == "Slash") sl = c;
+			if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
 		}
-		minion.deck = { pu, pu, pu, hb };
+		minion.deck = { sl, sl, sl, callCard };
 	} else if (minion.isKoboldKing) {
 		Card slash = findCard("Slash", CARD_SLASH);
 		Card stab = findCard("Stab", CARD_STAB);
@@ -9947,33 +9947,57 @@ void ofApp::drawGame() {
 				// --- KOBOLD KING ---
 				else if (player.isKoboldKing) {
 					ofTranslate(pos.x, 0.1f, pos.z);
-
-					// 1. Apply Game Facing Logic
 					ofRotateYDeg(unitFacingAngle);
-
-					// 2. Apply Model Correction (West -> North)
 					ofRotateYDeg(-90);
-
-					// Raise the king so its base doesn't clip through the floor
-					// Use TILE_SIZE so the offset scales with board size
-					// Increased to 0.6 to ensure feet clear the board
 					ofTranslate(0, TILE_SIZE * 0.6f, 0);
 
-					// Ensure white color so texture isn't tinted
-					ofSetColor(255);
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(koboldKingModel.getModelMatrix());
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 
-					bool texBound = false;
-					if (koboldKingTexture.isAllocated()) {
-						koboldKingTexture.bind();
-						texBound = true;
-					}
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
 
-					glDisable(GL_CULL_FACE);
-					koboldKingModel.drawFaces();
-					glEnable(GL_CULL_FACE);
+						if (koboldKingTexture.isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", koboldKingTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else {
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						}
 
-					if (texBound) {
-						koboldKingTexture.unbind();
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+
+						glDisable(GL_CULL_FACE);
+						for (unsigned int mi = 0; mi < koboldKingModel.getMeshCount(); ++mi) {
+							koboldKingModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						}
+						glEnable(GL_CULL_FACE);
+
+						pbrShader.end();
+					} else {
+						ofSetColor(255);
+						bool texBound = false;
+						if (koboldKingTexture.isAllocated()) {
+							koboldKingTexture.bind();
+							texBound = true;
+						}
+
+						glDisable(GL_CULL_FACE);
+						koboldKingModel.drawFaces();
+						glEnable(GL_CULL_FACE);
+
+						if (texBound) koboldKingTexture.unbind();
 					}
 				}
 				// --- FAERIE ---
@@ -14639,7 +14663,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (currentState == STATE_GAMEPLAY) {
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 			processCardStateInput(x, y, button);
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) return;
+			// FIX: ALWAYS return after processing a modal input! Do not let it fall through
+			// and trigger self-click cancellations or other board logic!
+			return;
 		}
 
 		// Keep dice lockout from the legacy play-state while visuals are still active.
@@ -16050,7 +16076,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					break;
 				}
 			}
-			if (isPlayerAnimating || isDiceSpinning) return;
+			// FIX: Do NOT return here if dice are spinning. Allow the user to hover over UI, Piles, and tooltips!
+			// We only want to prevent them from moving pieces or playing cards, which is handled in mousePressed.
+			if (isPlayerAnimating) return;
 
 			// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
 			if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -16859,8 +16887,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-				ofLogNotice("Input") << "Right-click ignored for Shell Spike (must target).";
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && (interactingCardType == CARD_FORM_OF_TORTOISE || interactingCardType == CARD_BLOCKING_BOON)) {
+				ofLogNotice("Input") << "Right-click ignored for mandatory targeting (Shell Spike/Blocking Boon).";
+				return;
+			}
+			if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+				ofLogNotice("Input") << "Right-click ignored for mandatory unit placement.";
 				return;
 			}
 			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
@@ -21219,8 +21251,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
+
 		// Allow menu types that are not tied to a specific card index
-		// FIX: Added CARD_BLOCKING_BOON to the bypass list so its targeting click isn't rejected!
 		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST && menuType != CARD_BLOCKING_BOON) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
@@ -21230,8 +21262,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			int tgt = targetIndex;
 			if (tgt < 0 || tgt >= (int)players.size()) break;
 
-			// FIX: Read destination directly from packet parameters!
-			// We no longer rely on ghostRelocateChoices bounds checking.
+			// Read destination directly from packet parameters
 			glm::ivec2 dest(cmd.params[4], cmd.params[5]);
 
 			beginEffectSequence();
@@ -21241,6 +21272,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toX = dest.x;
 			mv.data.moveUnit.toY = dest.y;
 			queueEffect(mv);
+
 			EffectOp rm = {};
 			rm.type = EffectOpType::REMOVE_STATUS;
 			rm.data.status.targetIndex = tgt;
@@ -21404,7 +21436,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				queueEffect(step);
 			}
 			opponentInteraction.open = false;
-			break; // out of CMD_MENU_CHOICE switch
+			break;
 		}
 
 		std::string buttonId;
@@ -21447,20 +21479,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		interactionTargetIndex = targetIndex;
 		cardInteractionState = CARD_INTERACTION_STATE_MENU;
 
-		if (menuType == CARD_GIANT_MAGIC_HAND) {
-			ofLogNotice("Lockstep") << "CMD_MENU_CHOICE GiantMagicHand: targetIndex=" << targetIndex << " choice=" << choice << " cardIndex=" << cardIndex;
-		}
-
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
 		isExecutingLockstepCommand = false;
 		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
 		}
-
-		ofLogNotice("Lockstep") << "Execute CMD_MENU_CHOICE: menuType=" << menuType << " choice=" << choice;
 		break;
 	}
+
 	case CMD_RESOLVE_DICE: {
 		// Host packs die faces into cmd.stringData using LockstepUtils::packDiceFaces.
 		// Layout (params): params[0]=numDice, params[1]=sides, params[2]=dicePurpose, params[3]=ownerIndex, params[4]=targetX, params[5]=targetY
@@ -21768,6 +21795,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 		break;
 	}
+
 	case CMD_PSEUDO_ACTION: {
 		int targetX = cmd.params[0];
 		int targetY = cmd.params[1];
@@ -21853,7 +21881,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				applyOp.type = EffectOpType::APPLY_WOLF_COIN;
 				queueEffect(applyOp);
 			} else {
-				// Second wolf placed; finish interaction.
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 				isShowingTooltip = false;
@@ -21864,13 +21891,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		// Handle deterministic TurnStart visuals published by host
 		if (actionName.rfind("TurnStart", 0) == 0) {
-			// Clients only: host already queued visuals locally
 			if (isHost()) break;
 			int ownerIndex = cmd.params[0];
 			int numDice = cmd.params[1];
 			int sides = cmd.params[2];
 			int finalTotal = cmd.params[3];
-			// Parse CSV raw faces after prefix "TurnStart:"
 			std::string s = cmd.stringData;
 			auto pos = s.find(':');
 			std::vector<int> raw;
@@ -21892,7 +21917,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "Shell Spike") {
-			// Find player at target coordinates
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].x == targetX && players[i].y == targetY) {
@@ -21902,8 +21926,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 
 			if (targetIdx != -1) {
-				// FIX: Queue damage deterministically so it doesn't execute out-of-order
-				// and break the simulation loop if the target dies.
 				if (!isProcessingEffect) beginEffectSequence();
 
 				EffectOp dmgOp = {};
@@ -21914,7 +21936,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				dmgOp.data.damage.damageFromSlot = -1;
 				queueEffect(dmgOp);
 			}
-			break; // FIX: Added break so it exits the case properly!
+			break;
 		}
 
 		if (actionName == "AssistantReroll") {
@@ -21956,9 +21978,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		ofLogNotice("Lockstep") << "Execute CMD_PSEUDO_ACTION: " << actionName << " at (" << targetX << "," << targetY << ")";
 		break;
 	}
+
 	case CMD_STATUS_ACTION: {
 		int cardIndex = cmd.params[0];
 		int targetX = cmd.params[1];
@@ -23820,8 +23842,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		// We use targetIndex (which is normally unused for WAIT_VISUAL) to track remaining ticks.
 		if (op.data.damage.targetIndex <= 0) {
 			int waitMode = op.data.damage.fixedDamage;
-			float waitSeconds = (waitMode == 0) ? 1.5f : 1.2f;
-			// Convert seconds to ticks (e.g. 1.5s / 0.016 = ~93 ticks)
+			// Drastically reduce wait times so the game feels snappy and doesn't hang!
+			float waitSeconds = (waitMode == 0) ? 0.7f : 0.5f;
+			// Convert seconds to ticks (e.g. 0.7s / 0.016 = ~43 ticks)
 			op.data.damage.targetIndex = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
 		}
 
@@ -24398,9 +24421,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueEffect(healOp);
 				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
 
-				if (target.inTortoiseForm && targetIndex == currentPlayerIndex) {
-					g_pendingShellSpike = true;
-				}
+				// FIX: Trigger if the target is a Tortoise OR the caster is the Tortoise!
+				bool isSpike = false;
+				if (target.inTortoiseForm) isSpike = true;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+
+				if (isSpike) g_pendingShellSpike = true;
 			} else {
 				queueFloatingTextVisual(tPos, "Full HP", ofColor::gray);
 			}
@@ -24503,7 +24529,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
 					queueFloatingTextVisual(tPos, s, ofColor::gray);
-					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
+					if (delta > 0) {
+						bool isSpike = false;
+						if (target.inTortoiseForm) isSpike = true;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (isSpike) g_pendingShellSpike = true;
+					}
 				}
 				break;
 			case 6: // Barrier
@@ -24511,7 +24542,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
 					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
-					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
+					if (delta > 0) {
+						bool isSpike = false;
+						if (target.inTortoiseForm) isSpike = true;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (isSpike) g_pendingShellSpike = true;
+					}
 				}
 				break;
 			case 7: // HolyBlock
@@ -24519,7 +24555,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
 					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
-					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
+					if (delta > 0) {
+						bool isSpike = false;
+						if (target.inTortoiseForm) isSpike = true;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (isSpike) g_pendingShellSpike = true;
+					}
 				}
 				break;
 			case 8: // Ward
@@ -24527,7 +24568,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
 					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
-					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
+					if (delta > 0) {
+						bool isSpike = false;
+						if (target.inTortoiseForm) isSpike = true;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (isSpike) g_pendingShellSpike = true;
+					}
 				}
 				break;
 			case 10: // Luck
@@ -24539,7 +24585,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
 					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
-					if (delta > 0 && target.inTortoiseForm && targetIndex == currentPlayerIndex) g_pendingShellSpike = true;
+					if (delta > 0) {
+						bool isSpike = false;
+						if (target.inTortoiseForm) isSpike = true;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (isSpike) g_pendingShellSpike = true;
+					}
 				}
 				break;
 			case 14: // Flurry stacks
@@ -28431,6 +28482,26 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 						// --- FIX: USE RANGE DICE FOR RANGE CALCULATION IN UI ---
 						auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
+
+						// HARDCODE FALLBACK: If the JSON failed to map range dice, enforce them here
+						if (rangeNum <= 0 || rangeSides <= 0) {
+							if (card.type == CARD_MAGIC_BOLT || card.type == CARD_SHOOT_ARROW) {
+								rangeNum = 2;
+								rangeSides = 20;
+							} else if (card.type == CARD_CHAIN_LIGHTNING) {
+								rangeNum = 2;
+								rangeSides = 10;
+							} else if (card.type == CARD_ETHEREAL_JOLT) {
+								rangeNum = 1;
+								rangeSides = 20;
+							} else if (card.type == CARD_FIREBALL) {
+								rangeNum = 2;
+								rangeSides = 6;
+							} else if (card.type == CARD_MAGIC_BLAST) {
+								rangeNum = 1;
+								rangeSides = 20;
+							}
+						}
 
 						int minRoll = (int)ceil(distFeet);
 						int maxPossibleRoll = rangeNum * rangeSides;
