@@ -231,7 +231,7 @@
 - **AP Cost:** 7
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a Wolf in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck/discard.
+- **Effect Text:** **Summon** a Wolf in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck or discard.
 - **Deck:** 3x Slash, 1x Call for Wolves
 - **AP:** 1d10
 - **HP:** 4

@@ -4200,7 +4200,7 @@ void ofApp::updateVisuals() {
 	// Update active dice visuals (visual-only; does not affect authoritative state)
 	for (auto & d : activeDiceRolls) {
 		d.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-		if (ofGetElapsedTimef() - d.startTime > 1.0f) d.isFinishedVisual = true;
+		// FIX: Removed the redundant isFinishedVisual setter here that caused text to occasionally skip!
 	}
 }
 
@@ -7965,8 +7965,12 @@ void ofApp::updateGameLogic() {
 		for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 			DiceRoll & roll = *it;
 			float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-			float spinDuration = 1.0f;
-			float hangTime = 2.5f;
+
+			// FIX: The dice visually stops completely at ~0.8s due to easing.
+			// Set spin to 0.8s to eliminate the dead hanging delay!
+			float spinDuration = 0.8f;
+			float hangTime = 2.7f;
+
 			roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
 
 			if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
@@ -13683,17 +13687,8 @@ cursor_check_done:;
 	case STATE_WAITING_FOR_RECONNECT:
 		break;
 	case STATE_GAMEPLAY: {
-		bool isDiceSpinning = false;
-		for (const auto & roll : activeDiceRolls) {
-			if (!roll.isFinishedVisual) {
-				isDiceSpinning = true;
-				break;
-			}
-		}
-		if (isDiceSpinning) {
-			hoverPath.clear();
-			return;
-		}
+		// FIX: Removed the isDiceSpinning lock here!
+		// You can now freely hover over decks, tooltips, and the UI while dice spin!
 
 		if (playerAction == PIECE_SELECTED) {
 			ofVec2f boardPos = mouseToBoard(x, y);
@@ -16069,460 +16064,458 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		bool isDiceSpinning = false;
-		{
-			for (const auto & roll : activeDiceRolls) {
-				if (!roll.isFinishedVisual) {
-					isDiceSpinning = true;
-					break;
-				}
+		for (const auto & roll : activeDiceRolls) {
+			if (!roll.isFinishedVisual) {
+				isDiceSpinning = true;
+				break;
 			}
-			// FIX: Do NOT return here if dice are spinning. Allow the user to hover over UI, Piles, and tooltips!
-			// We only want to prevent them from moving pieces or playing cards, which is handled in mousePressed.
-			if (isPlayerAnimating) return;
+		}
 
-			// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
-			if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				const Player & currentPlayer = players[currentPlayerIndex];
-				int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		// In mousePressed, we DO want to block left clicks so you can't play cards while dice spin
+		if (isPlayerAnimating || isDiceSpinning) return;
 
-				bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
-				int deciderOwner = -1;
-				if (isOpponentDeciding) {
-					const Player & decider = players[opponentDecisionPlayerIndex];
-					deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
-				}
+		// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
+		if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			const Player & currentPlayer = players[currentPlayerIndex];
+			int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 
-				if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
-					// Not our turn in multiplayer, and no decision needed - ignore all gameplay clicks
-					return;
-				}
+			bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
+			int deciderOwner = -1;
+			if (isOpponentDeciding) {
+				const Player & decider = players[opponentDecisionPlayerIndex];
+				deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
 			}
 
-			// 3d. Deck Clicking (Drawing Cards)
-			if (button == OF_MOUSE_BUTTON_LEFT) {
+			if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
+				// Not our turn in multiplayer, and no decision needed - ignore all gameplay clicks
+				return;
+			}
+		}
 
-				// --- MINION DECK CLICK LOGIC ---
-				for (const auto & ui : activeMinionUIs) {
-					// Check if it's this minion's turn and their deck UI was clicked
-					if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y)) {
-						if (ui.playerIndex < 0 || ui.playerIndex >= (int)players.size()) continue;
-						Player & uiMinion = players[ui.playerIndex];
+		// 3d. Deck Clicking (Drawing Cards)
+		if (button == OF_MOUSE_BUTTON_LEFT) {
 
-						// Hard gate: each acting minion can only draw once per turn.
-						if (uiMinion.hasDrawnThisTurn) {
-							return; // Click handled; no additional draws this turn.
-						}
+			// --- MINION DECK CLICK LOGIC ---
+			for (const auto & ui : activeMinionUIs) {
+				// Check if it's this minion's turn and their deck UI was clicked
+				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y)) {
+					if (ui.playerIndex < 0 || ui.playerIndex >= (int)players.size()) continue;
+					Player & uiMinion = players[ui.playerIndex];
 
-						// Determine owner/player identity for this minion
-						int ownerIndex = uiMinion.isMinion ? uiMinion.ownerID : uiMinion.playerID;
-
-						// Decide which "has drawn" flag applies: if the minion belongs to the local player
-						// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
-						bool belongsToLocalPlayer = (uiMinion.ownerID == myLocalPlayerID);
-						bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
-						if (!canDraw) continue;
-
-						// Call the unified draw function. It handles draw count and networking internally.
-						this->drawMinionCard(ui.playerIndex, ownerIndex);
-
-						// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
-						if (belongsToLocalPlayer) {
-							hasDrawnCardsThisTurn = true;
-							uiMinion.hasDrawnThisTurn = true;
-						} else {
-							opponentHasDrawnCardsThisTurn = true;
-							uiMinion.hasDrawnThisTurn = true;
-						}
-						return; // Click handled
+					// Hard gate: each acting minion can only draw once per turn.
+					if (uiMinion.hasDrawnThisTurn) {
+						return; // Click handled; no additional draws this turn.
 					}
-				}
 
-				if (players.empty() || currentPlayerIndex < 0) return;
+					// Determine owner/player identity for this minion
+					int ownerIndex = uiMinion.isMinion ? uiMinion.ownerID : uiMinion.playerID;
 
-				// --- MAIN PLAYER DECK CLICK LOGIC ---
-				Player * p0 = nullptr;
-				Player * p1 = nullptr;
-				for (auto & p : players) {
-					if (p.playerID == 0 && !p.isMinion) p0 = &p;
-					if (p.playerID == 1 && !p.isMinion) p1 = &p;
-				}
+					// Decide which "has drawn" flag applies: if the minion belongs to the local player
+					// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
+					bool belongsToLocalPlayer = (uiMinion.ownerID == myLocalPlayerID);
+					bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
+					if (!canDraw) continue;
 
-				if (!p0 || !p1) return;
+					// Call the unified draw function. It handles draw count and networking internally.
+					this->drawMinionCard(ui.playerIndex, ownerIndex);
 
-				Player & activePlayer = players[currentPlayerIndex];
-
-				// Determine which local player object represents "us" for drawing.
-				// In multiplayer this is fixed by `myLocalPlayerID`. In singleplayer
-				// the local controller should be whichever player is currently active
-				// so that Player 2 can be clicked to draw when it's their turn.
-				Player * localPlayer = nullptr;
-				if (isMultiplayer) {
-					localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
-				} else {
-					localPlayer = &activePlayer;
-				}
-
-				bool isLocalPlayersTurnForMainDeck = false;
-				if (isMultiplayer) {
-					isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
-				} else {
-					// Singleplayer: allow drawing for whichever non-minion is currently active
-					isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
-				}
-
-				// Main Deck Click: determine which player's deck UI should be clickable
-				ofRectangle activeDeckRect = (activePlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
-				// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
-				bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
-				bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-				if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
-					int localPlayerIndex = -1;
-					if (isMultiplayer) {
-						for (size_t i = 0; i < players.size(); i++) {
-							if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-								localPlayerIndex = (int)i;
-								break;
-							}
-						}
-						if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback
+					// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
+					if (belongsToLocalPlayer) {
+						hasDrawnCardsThisTurn = true;
+						uiMinion.hasDrawnThisTurn = true;
 					} else {
-						// Singleplayer: the authoritative index is the active player
-						localPlayerIndex = currentPlayerIndex;
+						opponentHasDrawnCardsThisTurn = true;
+						uiMinion.hasDrawnThisTurn = true;
 					}
-
-					int baseDraw = localPlayer->isDemon ? 3 : 2;
-					int cycle = localPlayer->nextTurnExtraDrawSetOnCycle & 0xFFFF;
-					int count = (localPlayer->nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
-					int extra = (localPlayer->nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
-					int cardsToDraw = baseDraw + extra;
-
-					// Queue deterministic draw command instead of performing immediate local draw.
-					InputCommandPacket out = {};
-					out.type = PKT_INPUT_COMMAND;
-					out.playerID = myLocalPlayerID;
-					out.commandId = nextCommandId++;
-					out.turnNumber = globalTurnCounter;
-					out.commandType = CMD_DRAW_CARDS;
-					out.params[0] = localPlayerIndex;
-					out.params[1] = cardsToDraw;
-					if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
-					// Optimistic UI: apply locally immediately in multiplayer (turn-based, no simultaneous inputs expected)
-					bool applyLocally = true;
-					sendInputCommand(out, applyLocally);
+					return; // Click handled
 				}
 			}
 
-			// 3e. Card clicks: click-to-select is disabled (use drag-to-play).
-			// If the player clicks a hand card, clear transient highlights and ignore the click.
-			if (button == OF_MOUSE_BUTTON_LEFT) {
-				int foundClickIndex = hoveredCardIndex;
-				if (foundClickIndex != -1) {
-					playerAction = NONE;
-					clearHighlights();
-					return;
-				}
+			if (players.empty() || currentPlayerIndex < 0) return;
+
+			// --- MAIN PLAYER DECK CLICK LOGIC ---
+			Player * p0 = nullptr;
+			Player * p1 = nullptr;
+			for (auto & p : players) {
+				if (p.playerID == 0 && !p.isMinion) p0 = &p;
+				if (p.playerID == 1 && !p.isMinion) p1 = &p;
 			}
 
-			// 3g-ALT. Reroll Button
-			if (rerollButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-				Player & curr = players[currentPlayerIndex];
+			if (!p0 || !p1) return;
 
-				// Find the assistant to consume
-				int assistantIndex = -1;
-				for (int i = 0; i < (int)players.size(); i++) {
-					Player & p = players[i];
-					if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
-						int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
-						if (dist <= 1) {
-							assistantIndex = i;
+			Player & activePlayer = players[currentPlayerIndex];
+
+			// Determine which local player object represents "us" for drawing.
+			// In multiplayer this is fixed by `myLocalPlayerID`. In singleplayer
+			// the local controller should be whichever player is currently active
+			// so that Player 2 can be clicked to draw when it's their turn.
+			Player * localPlayer = nullptr;
+			if (isMultiplayer) {
+				localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
+			} else {
+				localPlayer = &activePlayer;
+			}
+
+			bool isLocalPlayersTurnForMainDeck = false;
+			if (isMultiplayer) {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+			} else {
+				// Singleplayer: allow drawing for whichever non-minion is currently active
+				isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
+			}
+
+			// Main Deck Click: determine which player's deck UI should be clickable
+			ofRectangle activeDeckRect = (activePlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
+			bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
+			bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
+				int localPlayerIndex = -1;
+				if (isMultiplayer) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+							localPlayerIndex = (int)i;
 							break;
 						}
 					}
+					if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback
+				} else {
+					// Singleplayer: the authoritative index is the active player
+					localPlayerIndex = currentPlayerIndex;
 				}
 
-				if (assistantIndex != -1) {
-					// Route through lockstep command queue to keep both peers in sync
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_PSEUDO_ACTION;
-					cmd.params[0] = assistantIndex; // pass the assistant we are using
-					cmd.params[1] = 0;
-					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
-					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+				int baseDraw = localPlayer->isDemon ? 3 : 2;
+				int cycle = localPlayer->nextTurnExtraDrawSetOnCycle & 0xFFFF;
+				int count = (localPlayer->nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+				int extra = (localPlayer->nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
+				int cardsToDraw = baseDraw + extra;
 
-					// Send to network so both peers execute the RNG together
-					sendInputCommand(cmd, true);
-				}
+				// Queue deterministic draw command instead of performing immediate local draw.
+				InputCommandPacket out = {};
+				out.type = PKT_INPUT_COMMAND;
+				out.playerID = myLocalPlayerID;
+				out.commandId = nextCommandId++;
+				out.turnNumber = globalTurnCounter;
+				out.commandType = CMD_DRAW_CARDS;
+				out.params[0] = localPlayerIndex;
+				out.params[1] = cardsToDraw;
+				if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
+				// Optimistic UI: apply locally immediately in multiplayer (turn-based, no simultaneous inputs expected)
+				bool applyLocally = true;
+				sendInputCommand(out, applyLocally);
+			}
+		}
+
+		// 3e. Card clicks: click-to-select is disabled (use drag-to-play).
+		// If the player clicks a hand card, clear transient highlights and ignore the click.
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			int foundClickIndex = hoveredCardIndex;
+			if (foundClickIndex != -1) {
+				playerAction = NONE;
+				clearHighlights();
 				return;
 			}
+		}
 
-			// 3g. End Turn Button (only active during gameplay)
-			if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Must use Shell Spike!", ofColor::yellow);
-					return;
-				}
-				if (isPlayerAnimating) {
-					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
-					ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
-					return;
-				}
-				// Prevent ending turn while AP roll animation is still running for this unit
-				bool apRollActiveLocal = false;
-				for (const auto & r : activeDiceRolls) {
-					if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-						apRollActiveLocal = true;
+		// 3g-ALT. Reroll Button
+		if (rerollButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			Player & curr = players[currentPlayerIndex];
+
+			// Find the assistant to consume
+			int assistantIndex = -1;
+			for (int i = 0; i < (int)players.size(); i++) {
+				Player & p = players[i];
+				if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+					if (dist <= 1) {
+						assistantIndex = i;
 						break;
 					}
 				}
-				if (apRollActiveLocal) {
-					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
-					ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
-					return;
-				}
-				if (endTurnLocked) return;
+			}
 
-				// --- GHOST FORM CHECK: Must relocate if trapped! ---
-				bool needsReloc = false;
-				CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
-				if (needsReloc) {
-					EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
-					return;
-				}
-				// -----------------------------------------------
+			if (assistantIndex != -1) {
+				// Route through lockstep command queue to keep both peers in sync
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_PSEUDO_ACTION;
+				cmd.params[0] = assistantIndex; // pass the assistant we are using
+				cmd.params[1] = 0;
+				strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-				endTurnLocked = true;
-				if (isMultiplayer && isCurrentPlayerLocal()) {
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.seq = 0;
-					cmd.commandId = nextCommandId++;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_END_TURN;
-					sendInputCommand(cmd, true);
+				// Send to network so both peers execute the RNG together
+				sendInputCommand(cmd, true);
+			}
+			return;
+		}
+
+		// 3g. End Turn Button (only active during gameplay)
+		if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Must use Shell Spike!", ofColor::yellow);
+				return;
+			}
+			if (isPlayerAnimating) {
+				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
+				ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
+				return;
+			}
+			// Prevent ending turn while AP roll animation is still running for this unit
+			bool apRollActiveLocal = false;
+			for (const auto & r : activeDiceRolls) {
+				if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+					apRollActiveLocal = true;
+					break;
+				}
+			}
+			if (apRollActiveLocal) {
+				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
+				ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
+				return;
+			}
+			if (endTurnLocked) return;
+
+			// --- GHOST FORM CHECK: Must relocate if trapped! ---
+			bool needsReloc = false;
+			CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
+			if (needsReloc) {
+				EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+				return;
+			}
+			// -----------------------------------------------
+
+			endTurnLocked = true;
+			if (isMultiplayer && isCurrentPlayerLocal()) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_END_TURN;
+				sendInputCommand(cmd, true);
+			} else {
+				requestStartNewTurn();
+			}
+			return;
+		}
+
+		// 3h. Unit Movement Selection
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
+
+			// Clicked Outside? Ignore (do not deselect) — keep current selection.
+			if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
+				return;
+			}
+
+			// In multiplayer, client should always interact with their own player
+			// In single player, use currentPlayer
+			Player * controlledPlayer = nullptr;
+			if (isMultiplayer && isClient()) {
+				// Find the player with matching playerID
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+						controlledPlayer = &players[i];
+						break;
+					}
+				}
+			} else {
+				controlledPlayer = &currentPlayer;
+			}
+
+			if (!controlledPlayer) return;
+
+			// --- HANDLE CARD TARGETING: If a card is selected, play it on the clicked tile ---
+			if (selectedCardIndex >= 0 && selectedCardIndex < (int)currentPlayer.hand.size()) {
+				Card & selectedCard = currentPlayer.hand[selectedCardIndex];
+
+				// Find the nearest targetable tile (helps with wall outlines which are higher)
+				int targetGridX = gridX, targetGridY = gridY;
+				if (findNearestTargetableTile(gridX, gridY, targetGridX, targetGridY)) {
+					// Check if player has enough AP
+					if (currentAP >= selectedCard.cost) {
+						const std::string cardName = selectedCard.name;
+
+						// Always queue as a deterministic input command; singleplayer will be processed locally.
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND; // deterministic input command
+						cmd.playerID = myLocalPlayerID;
+						cmd.seq = 0;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_PLAY_CARD;
+						cmd.params[0] = selectedCardIndex;
+						cmd.params[1] = targetGridX;
+						cmd.params[2] = targetGridY;
+						cmd.params[3] = 0;
+						strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+						if (isMultiplayer) {
+							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Play selected card send failed (no connection).";
+						} else {
+							queueInputCommand(cmd);
+						}
+
+						// Clear selection and highlights
+						selectedCardIndex = -1;
+						calculateTargetHighlights();
+						return;
+					} else {
+						queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
+						return;
+					}
 				} else {
-					requestStartNewTurn();
+					// Clicked on non-targetable tile - show feedback but don't cancel selection
+					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
+					return;
+				}
+			}
+
+			// Clicked Self? Select for Movement.
+			if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
+				if (playerAction == PIECE_SELECTED) {
+					playerAction = NONE;
+					clearHighlights();
+				} else {
+					selectedPieceGridX = controlledPlayer->x;
+					selectedPieceGridY = controlledPlayer->y;
+					playerAction = PIECE_SELECTED;
+					selectedCardIndex = -1;
+					calculateTargetHighlights();
+					calculateHighlights();
 				}
 				return;
 			}
 
-			// 3h. Unit Movement Selection
-			if (button == OF_MOUSE_BUTTON_LEFT) {
-				ofVec2f boardPos = mouseToBoard(x, y);
-				int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
+			// Clicked Move Destination?
+			if (playerAction == PIECE_SELECTED) {
+				if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
 
-				// Clicked Outside? Ignore (do not deselect) — keep current selection.
-				if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
-					return;
-				}
+					// --- GHOST FORM LOGIC: Check if destination is valid ---
+					bool isWall = board[gridX][gridY].hasWall;
+					bool hasUnitAlready = board[gridX][gridY].hasPlayer;
+					bool canEnter = !isWall && !hasUnitAlready; // Normal units can't enter walls or occupied tiles
 
-				// In multiplayer, client should always interact with their own player
-				// In single player, use currentPlayer
-				Player * controlledPlayer = nullptr;
-				if (isMultiplayer && isClient()) {
-					// Find the player with matching playerID
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-							controlledPlayer = &players[i];
-							break;
-						}
-					}
-				} else {
-					controlledPlayer = &currentPlayer;
-				}
+					// Ghosts can move through both walls AND units (no movement restrictions)
+					if (controlledPlayer->inGhostForm) canEnter = true;
 
-				if (!controlledPlayer) return;
+					if (canEnter) {
+						int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
 
-				// --- HANDLE CARD TARGETING: If a card is selected, play it on the clicked tile ---
-				if (selectedCardIndex >= 0 && selectedCardIndex < (int)currentPlayer.hand.size()) {
-					Card & selectedCard = currentPlayer.hand[selectedCardIndex];
-
-					// Find the nearest targetable tile (helps with wall outlines which are higher)
-					int targetGridX = gridX, targetGridY = gridY;
-					if (findNearestTargetableTile(gridX, gridY, targetGridX, targetGridY)) {
-						// Check if player has enough AP
-						if (currentAP >= selectedCard.cost) {
-							const std::string cardName = selectedCard.name;
-
-							// Always queue as a deterministic input command; singleplayer will be processed locally.
-							InputCommandPacket cmd = {};
-							cmd.type = PKT_INPUT_COMMAND; // deterministic input command
-							cmd.playerID = myLocalPlayerID;
-							cmd.seq = 0;
-							cmd.commandId = nextCommandId++;
-							cmd.turnNumber = globalTurnCounter;
-							cmd.commandType = CMD_PLAY_CARD;
-							cmd.params[0] = selectedCardIndex;
-							cmd.params[1] = targetGridX;
-							cmd.params[2] = targetGridY;
-							cmd.params[3] = 0;
-							strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
-							cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-							if (isMultiplayer) {
-								if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Play selected card send failed (no connection).";
-							} else {
-								queueInputCommand(cmd);
+						// Get the controlled player's index for AP calculations
+						int controlledPlayerIndex = currentPlayerIndex;
+						if (isMultiplayer && isClient()) {
+							// Find the index of the controlled player
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+									controlledPlayerIndex = i;
+									break;
+								}
 							}
-
-							// Clear selection and highlights
-							selectedCardIndex = -1;
-							calculateTargetHighlights();
-							return;
-						} else {
-							queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
-							return;
 						}
-					} else {
-						// Clicked on non-targetable tile - show feedback but don't cancel selection
-						queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
-						return;
-					}
-				}
 
-				// Clicked Self? Select for Movement.
-				if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
-					if (playerAction == PIECE_SELECTED) {
-						playerAction = NONE;
-						clearHighlights();
-					} else {
-						selectedPieceGridX = controlledPlayer->x;
-						selectedPieceGridY = controlledPlayer->y;
-						playerAction = PIECE_SELECTED;
-						selectedCardIndex = -1;
-						calculateTargetHighlights();
-						calculateHighlights();
-					}
-					return;
-				}
+						// Recompute available AP from any dice that have finished spinning this frame
+						int apNow = 0;
+						for (const auto & r : activeDiceRolls) {
+							if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == controlledPlayerIndex) {
+								apNow += r.result;
+							}
+						}
+						if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
+							ofLogNotice("APDebug") << "Movement: nextTurnAPBonus present (will NOT be consumed here). bonus=" << players[controlledPlayerIndex].nextTurnAPBonus;
+						}
+						if (currentAP > 0) apNow = std::max(apNow, currentAP);
 
-				// Clicked Move Destination?
-				if (playerAction == PIECE_SELECTED) {
-					if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
+						ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
+						if (apNow >= moveAPCost) {
+							int remainingAP = apNow - moveAPCost;
 
-						// --- GHOST FORM LOGIC: Check if destination is valid ---
-						bool isWall = board[gridX][gridY].hasWall;
-						bool hasUnitAlready = board[gridX][gridY].hasPlayer;
-						bool canEnter = !isWall && !hasUnitAlready; // Normal units can't enter walls or occupied tiles
+							// Check if entering wall/unit: Calculate if player can escape to nearest empty tile
+							if (isWall || hasUnitAlready) {
+								// Use BFS to find nearest empty tile and calculate escape cost
+								std::queue<std::pair<int, int>> bfsQueue;
+								std::vector<std::vector<int>> distMap(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));
 
-						// Ghosts can move through both walls AND units (no movement restrictions)
-						if (controlledPlayer->inGhostForm) canEnter = true;
+								bfsQueue.push({ gridX, gridY });
+								distMap[gridX][gridY] = 0;
 
-						if (canEnter) {
-							int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
+								int escapeAPCost = INT_MAX;
 
-							// Get the controlled player's index for AP calculations
-							int controlledPlayerIndex = currentPlayerIndex;
-							if (isMultiplayer && isClient()) {
-								// Find the index of the controlled player
-								for (size_t i = 0; i < players.size(); i++) {
-									if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-										controlledPlayerIndex = i;
+								while (!bfsQueue.empty() && escapeAPCost == INT_MAX) {
+									auto [cx, cy] = bfsQueue.front();
+									bfsQueue.pop();
+
+									// Check if current tile is empty (can escape here)
+									if (!(board[cx][cy].hasWall || board[cx][cy].hasPlayer)) {
+										escapeAPCost = distMap[cx][cy];
 										break;
 									}
-								}
-							}
 
-							// Recompute available AP from any dice that have finished spinning this frame
-							int apNow = 0;
-							for (const auto & r : activeDiceRolls) {
-								if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == controlledPlayerIndex) {
-									apNow += r.result;
-								}
-							}
-							if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
-								ofLogNotice("APDebug") << "Movement: nextTurnAPBonus present (will NOT be consumed here). bonus=" << players[controlledPlayerIndex].nextTurnAPBonus;
-							}
-							if (currentAP > 0) apNow = std::max(apNow, currentAP);
+									// Explore neighbors
+									int dx[] = { 0, 1, 0, -1 };
+									int dy[] = { 1, 0, -1, 0 };
 
-							ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
-							if (apNow >= moveAPCost) {
-								int remainingAP = apNow - moveAPCost;
+									for (int d = 0; d < 4; ++d) {
+										int nx = cx + dx[d];
+										int ny = cy + dy[d];
 
-								// Check if entering wall/unit: Calculate if player can escape to nearest empty tile
-								if (isWall || hasUnitAlready) {
-									// Use BFS to find nearest empty tile and calculate escape cost
-									std::queue<std::pair<int, int>> bfsQueue;
-									std::vector<std::vector<int>> distMap(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));
-
-									bfsQueue.push({ gridX, gridY });
-									distMap[gridX][gridY] = 0;
-
-									int escapeAPCost = INT_MAX;
-
-									while (!bfsQueue.empty() && escapeAPCost == INT_MAX) {
-										auto [cx, cy] = bfsQueue.front();
-										bfsQueue.pop();
-
-										// Check if current tile is empty (can escape here)
-										if (!(board[cx][cy].hasWall || board[cx][cy].hasPlayer)) {
-											escapeAPCost = distMap[cx][cy];
-											break;
-										}
-
-										// Explore neighbors
-										int dx[] = { 0, 1, 0, -1 };
-										int dy[] = { 1, 0, -1, 0 };
-
-										for (int d = 0; d < 4; ++d) {
-											int nx = cx + dx[d];
-											int ny = cy + dy[d];
-
-											if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && distMap[nx][ny] == -1) {
-												distMap[nx][ny] = distMap[cx][cy] + 1;
-												bfsQueue.push({ nx, ny });
-											}
+										if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && distMap[nx][ny] == -1) {
+											distMap[nx][ny] = distMap[cx][cy] + 1;
+											bfsQueue.push({ nx, ny });
 										}
 									}
-
-									// If can't escape (no empty tiles found), block the move
-									if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
-										queueFloatingTextVisual(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
-										ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
-										playerAction = NONE;
-										clearHighlights();
-										return;
-									}
 								}
 
-								// Enqueue deterministic move command instead of executing locally
-								InputCommandPacket mcmd = {};
-								mcmd.type = PKT_INPUT_COMMAND;
-								mcmd.playerID = myLocalPlayerID;
-								mcmd.commandId = nextCommandId++;
-								mcmd.turnNumber = globalTurnCounter;
-								mcmd.commandType = CMD_MOVE_UNIT;
-								// params: fromX, fromY, toX, toY
-								mcmd.params[0] = controlledPlayer->x;
-								mcmd.params[1] = controlledPlayer->y;
-								mcmd.params[2] = gridX;
-								mcmd.params[3] = gridY;
-
-								// Queue locally (singleplayer/host will process it) and send over network when appropriate
-								if (isMultiplayer) {
-									ofLogNotice("Movement") << "Enqueue CMD_MOVE_UNIT: from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ") player=" << mcmd.playerID << " cmdId=" << mcmd.commandId;
-									bool ok = steamManager.sendPacket(&mcmd, sizeof(mcmd));
-									if (!ok) ofLogWarning("Network") << "Movement send failed (no connection).";
-									// Also queue locally so the sender processes its own command via the lockstep queue
-									queueInputCommand(mcmd);
-								} else {
-									ofLogNotice("Movement") << "Enqueue CMD_MOVE_UNIT (local): from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ") player=" << mcmd.playerID << " cmdId=" << mcmd.commandId;
-									queueInputCommand(mcmd);
+								// If can't escape (no empty tiles found), block the move
+								if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
+									queueFloatingTextVisual(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
+									ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
+									playerAction = NONE;
+									clearHighlights();
+									return;
 								}
+							}
+
+							// Enqueue deterministic move command instead of executing locally
+							InputCommandPacket mcmd = {};
+							mcmd.type = PKT_INPUT_COMMAND;
+							mcmd.playerID = myLocalPlayerID;
+							mcmd.commandId = nextCommandId++;
+							mcmd.turnNumber = globalTurnCounter;
+							mcmd.commandType = CMD_MOVE_UNIT;
+							// params: fromX, fromY, toX, toY
+							mcmd.params[0] = controlledPlayer->x;
+							mcmd.params[1] = controlledPlayer->y;
+							mcmd.params[2] = gridX;
+							mcmd.params[3] = gridY;
+
+							// Queue locally (singleplayer/host will process it) and send over network when appropriate
+							if (isMultiplayer) {
+								ofLogNotice("Movement") << "Enqueue CMD_MOVE_UNIT: from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ") player=" << mcmd.playerID << " cmdId=" << mcmd.commandId;
+								bool ok = steamManager.sendPacket(&mcmd, sizeof(mcmd));
+								if (!ok) ofLogWarning("Network") << "Movement send failed (no connection).";
+								// Also queue locally so the sender processes its own command via the lockstep queue
+								queueInputCommand(mcmd);
+							} else {
+								ofLogNotice("Movement") << "Enqueue CMD_MOVE_UNIT (local): from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ") player=" << mcmd.playerID << " cmdId=" << mcmd.commandId;
+								queueInputCommand(mcmd);
 							}
 						}
 					}
-					playerAction = NONE;
-					clearHighlights();
-					return;
 				}
-
-				// Clicked an empty/non-actionable tile: do not deselect selection.
-				// (Selection persists; only real-target clicks or right-click cancel.)
+				playerAction = NONE;
+				clearHighlights();
+				return;
 			}
+
+			// Clicked an empty/non-actionable tile: do not deselect selection.
+			// (Selection persists; only real-target clicks or right-click cancel.)
 		}
 		break;
 	}
@@ -16654,16 +16647,9 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		return;
 	}
 
-	bool isDiceSpinning = false;
-	for (const auto & roll : activeDiceRolls) {
-		if (!roll.isFinishedVisual) {
-			isDiceSpinning = true;
-			break;
-		}
-	}
-
-	if (isPlayerAnimating || isDiceSpinning || endTurnLocked) {
-		ofLogNotice("CardDrag") << "mouseDragged: Early return - isPlayerAnimating=" << isPlayerAnimating << " isDiceSpinning=" << isDiceSpinning << " endTurnLocked=" << endTurnLocked;
+	// FIX: Removed isDiceSpinning lock so you can drag cards to preview them while dice spin!
+	if (isPlayerAnimating || endTurnLocked) {
+		ofLogNotice("CardDrag") << "mouseDragged: Early return - isPlayerAnimating=" << isPlayerAnimating << " endTurnLocked=" << endTurnLocked;
 		return;
 	}
 
@@ -17562,6 +17548,16 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
+	// FIX: Block all hotkeys BEFORE checking 'C' or other keys
+	if (isChatOpen) {
+		return;
+	}
+
+	// FIX: If the Card Spawner input is open, consume key releases so typing
+	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
+		return;
+	}
+
 	// 'c' - Open Card Spawner (debug tool; independent of menu visibility)
 	if ((key == 'c' || key == 'C') && currentState == STATE_GAMEPLAY) {
 		isCardSpawnerOpen = !isCardSpawnerOpen;
@@ -17573,17 +17569,6 @@ void ofApp::keyReleased(int key) {
 		} else {
 			ofLogNotice("Debug") << "Card Spawner closed";
 		}
-		return;
-	}
-
-	// Block all hotkeys when chat is open
-	if (isChatOpen) {
-		return;
-	}
-
-	// If the Card Spawner input is open, consume key releases so typing
-	// (e.g. pressing 't') doesn't trigger global hotkeys like top-down view.
-	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
 		return;
 	}
 
@@ -34712,7 +34697,9 @@ void ofApp::drawInitiativeRoll() {
 			// Draw in Instruction Area (Top Center)
 			ofRectangle mBox = titleFont.getStringBoundingBox(msg, 0, 0);
 			float tx = (ofGetWidth() / 2.0f) - (mBox.width / 2.0f);
-			float ty = ofGetHeight() * 0.25f;
+
+			// FIX: Push this text down slightly so it doesn't overlap the Dice result text!
+			float ty = ofGetHeight() * 0.35f;
 
 			ofSetColor(0, 0, 0, 255);
 			titleFont.drawString(msg, tx + 2, ty + 2);
