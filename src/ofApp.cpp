@@ -7943,7 +7943,7 @@ void ofApp::updateGameLogic() {
 				for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 					DiceRoll & roll = *it;
 					float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-					float spinDuration = 1.0f;
+					float spinDuration = 0.8f;
 
 					if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 						roll.isFinishedVisual = true;
@@ -7966,10 +7966,9 @@ void ofApp::updateGameLogic() {
 			DiceRoll & roll = *it;
 			float elapsedTime = ofGetElapsedTimef() - roll.startTime;
 
-			// FIX: The dice visually stops completely at ~0.8s due to easing.
-			// Set spin to 0.8s to eliminate the dead hanging delay!
+			// FIX: Perfectly sync the logic popup with the visual easing curve stopping (0.8s)
 			float spinDuration = 0.8f;
-			float hangTime = 2.7f;
+			float hangTime = 2.5f;
 
 			roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
 
@@ -10215,9 +10214,9 @@ void ofApp::drawGame() {
 
 			// Apply Rotation
 			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime);
+			float t = (ofGetElapsedTimef() - roll.startTime) / 0.8f;
 			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float t_ease = 1.0f - pow(1.0f - t, 3.0f);
 				float remainingSpin = (1.0f - t_ease) * 1080.0f; // Spin amount
 				if (roll.sides == 4) remainingSpin *= 0.5f; // D4 spins less violently
 				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
@@ -23827,9 +23826,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		// We use targetIndex (which is normally unused for WAIT_VISUAL) to track remaining ticks.
 		if (op.data.damage.targetIndex <= 0) {
 			int waitMode = op.data.damage.fixedDamage;
-			// Drastically reduce wait times so the game feels snappy and doesn't hang!
-			float waitSeconds = (waitMode == 0) ? 0.7f : 0.5f;
-			// Convert seconds to ticks (e.g. 0.7s / 0.016 = ~43 ticks)
+			// Match the visual spin duration exactly so control returns fluidly!
+			float waitSeconds = (waitMode == 0) ? 0.8f : 0.4f;
+			// Convert seconds to ticks (e.g. 0.8s / 0.016 = ~48 ticks)
 			op.data.damage.targetIndex = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
 		}
 
@@ -24882,8 +24881,9 @@ void ofApp::processVisualEvents() {
 				}
 			}
 		}
-		// When dice visual duration expires, simply complete the event.
-		if (now - ev.startTime >= ev.duration) {
+		// Complete the visual event queue exactly when the dice stop spinning (0.8s)
+		// This strictly prevents the game loop from hanging while waiting for the queue to clear.
+		if (now - ev.startTime >= 0.8f) {
 			ev.completed = true;
 		}
 		break;
