@@ -18437,6 +18437,57 @@ void ofApp::continueNewTurn() {
 		return;
 	}
 
+	// --- C. DEFENSIVE STAT EXPIRATION ---
+	// Tortoise form: ALL defensive stats don't expire
+	if (!startingPlayer.inTortoiseForm) {
+		int sidx = currentPlayerIndex;
+		if (startingPlayer.block > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 5; // Block
+			op.data.modifyStat.delta = -startingPlayer.block;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.holyBlock > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 7; // HolyBlock
+			op.data.modifyStat.delta = -startingPlayer.holyBlock;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.ward > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 8; // Ward
+			op.data.modifyStat.delta = -startingPlayer.ward;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.fortification > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 13; // Fortification
+			op.data.modifyStat.delta = -startingPlayer.fortification;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.barrier > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 6; // Barrier
+			op.data.modifyStat.delta = -startingPlayer.barrier;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+	}
+
 	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
 	currentTurnOwnerID = getOwnerIdForActorIndex(currentPlayerIndex);
 	currentTurnHadMeaningfulAction = false;
@@ -18486,109 +18537,6 @@ void ofApp::continueNewTurn() {
 	currentAP = 0;
 
 	// CLIENT: legacy TurnStart wait removed — clients derive turn-start from lockstep commands.
-
-	bool skipTurn = false;
-
-	// 1. On Fire
-	if (startingPlayer.onFire) {
-		std::vector<int> rawFire;
-		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-		currentEffectSequence.blackboard[0] = rollResult;
-		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-		if (applied > 0)
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
-		else
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-
-		if (rollResult == 1 || rollResult == 2) {
-			startingPlayer.onFire = false;
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_ON_FIRE;
-			rm.data.status.duration = 0;
-			processEffectOp(rm);
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-		}
-		queueVisualDelay(1.2f);
-	}
-
-	if (startingPlayer.health <= 0) skipTurn = true;
-
-	// 2. Poison
-	if (!skipTurn && startingPlayer.isPoisoned) {
-		std::vector<int> rawPoison;
-		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-		int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
-		if (actualDamage > 0) {
-			applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
-		} else {
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
-		}
-
-		startingPlayer.poisonReduction += 1;
-		if (startingPlayer.poisonReduction >= 6) {
-			startingPlayer.isPoisoned = false;
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_POISONED;
-			rm.data.status.duration = 0;
-			processEffectOp(rm);
-			startingPlayer.poisonReduction = 0;
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
-		}
-		queueVisualDelay(1.2f);
-	}
-
-	if (startingPlayer.health <= 0) skipTurn = true;
-
-	// 3. Paralysis
-	if (!skipTurn && startingPlayer.isParalyzed) {
-		std::vector<int> rawFlip;
-		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
-
-		if (flip == 2) {
-			startingPlayer.paralysisHeadsCount++;
-			if (startingPlayer.paralysisHeadsCount >= 2) {
-				startingPlayer.isParalyzed = false;
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_PARALYZED;
-				rm.data.status.duration = 0;
-				processEffectOp(rm);
-				startingPlayer.paralysisHeadsCount = 0;
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
-			} else {
-				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
-			}
-		} else {
-			startingPlayer.paralysisHeadsCount = 0;
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
-			skipTurn = true;
-		}
-		queueVisualDelay(1.2f);
-	}
-
-	// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
-	if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
-		startingPlayer.sleepTurnsRemaining--;
-		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
-		skipTurn = true;
-		queueVisualDelay(1.2f);
-	}
-
-	if (skipTurn) {
-		requestStartNewTurn();
-		return;
-	}
 
 	// --- AP ROLL LOGIC ---
 
@@ -32862,7 +32810,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			return result;
 		}
 
-		if (cardType == CARD_DOUBLE_HANDED || cardType == CARD_AMNESIA || cardType == CARD_WISDOM_BOON) {
+		if (cardType == CARD_DOUBLE_HANDED || cardType == CARD_AMNESIA || cardType == CARD_WISDOM_BOON || cardType == CARD_DISPEL) {
 			result.reason = VALID;
 			result.isTargetable = true;
 			return result;
