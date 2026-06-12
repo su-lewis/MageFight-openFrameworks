@@ -19095,14 +19095,12 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
-	// FIX: Removed boonAutoPlayNoAdjacent. Let Blocking Boon ALWAYS enter targeting mode
-	// so the user can easily target themselves or the adjacent enemy.
 	bool dhAutoPlayNoAdjacent = (card.type == CARD_DOUBLE_HANDED && !doubleHandedHasAdjacentUnit);
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
 	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE);
 	bool teleportAutoPlay = (card.type == CARD_TELEPORT);
-	// FIX: Auto-Barrier on self only happens if NO adjacent units AND NO status effects
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus && !dispelHasAdjacentUnit);
+	bool blockingBoonAutoPlay = (card.type == CARD_BLOCKING_BOON); // <--- ADD THIS
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
@@ -19130,7 +19128,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return;
 	}
 
-	if (amnesiaAutoTargetSelf || psionicAutoPlay || teleportAutoPlay) { // <--- ADD PSIONIC HERE
+	if (amnesiaAutoTargetSelf || psionicAutoPlay || teleportAutoPlay || blockingBoonAutoPlay) { // <--- ADDED BLOCKING BOON
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
