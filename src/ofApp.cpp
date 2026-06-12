@@ -4807,10 +4807,12 @@ void ofApp::update() {
 	// Check for any "waiting" state that should lock player input
 
 	switch (currentState) {
-	case STATE_MULTIPLAYER_MENU:
-	case STATE_INITIATIVE_ROLL:
 	case STATE_MAIN_MENU:
+		drawMainMenu();
 		break;
+	case STATE_MULTIPLAYER_MENU: // <--- ADD THIS
+		drawMultiplayerMenu(); // <--- ADD THIS
+		break; // <--- ADD THIS
 	case STATE_SETTINGS:
 	case STATE_DESYNC:
 		break;
@@ -20559,35 +20561,44 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 
 // Send an input command: optionally apply locally (optimistic) and send over network
 bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
-	// FIX: Enforce Server-Sequenced Lockstep.
-	// Clients NEVER execute optimistically. They send intents to the Host.
-
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.playerID = myLocalPlayerID;
-	cmd.seq = ++watchdogClientActionCounter;
 
 	if (isMultiplayer) {
 		if (isClient()) {
-			// Client acts as a dumb terminal. Do NOT assign a command ID. Do NOT execute locally.
-			cmd.commandId = 0;
+			cmd.seq = ++watchdogClientActionCounter;
+			cmd.clientActionID = cmd.seq; // Tag with local prediction ID
+			cmd.commandId = 0; // Host assigns the official ID
+
 			lastSentActionPacket = cmd;
 			lastSentActionValid = true;
 			lastSentActionTime = ofGetElapsedTimef();
 			lastSentActionResendCount = 0;
 
 			steamManager.sendPacket(&cmd, sizeof(cmd));
-			ofLogNotice("Lockstep") << "Client sent input intent to Host. Waiting for sequence.";
+
+			if (applyLocally) {
+				// Optimistic Execution: Execute locally to make UI snappy
+				uint32_t predictedId = nextCommandId++;
+				cmd.commandId = predictedId;
+
+				std::string snap = buildSnapshotString();
+				provisionalSnapshots[cmd.clientActionID] = snap; // Store via Action ID
+				provisionalCommands[cmd.clientActionID] = cmd;
+
+				queueInputCommand(cmd);
+				processCommandQueue();
+			}
 			return true;
 		} else if (isHost()) {
-			// Host assigns the authoritative global Sequence ID
-			cmd.commandId = nextCommandId++;
+			cmd.seq = ++watchdogClientActionCounter;
+			cmd.commandId = nextCommandId++; // Host assigns official ID
 
-			// Host queues it for execution in its own deterministic tick
-			queueInputCommand(cmd);
-
-			// Host broadcasts the officially sequenced command to all clients
+			if (applyLocally) {
+				queueInputCommand(cmd);
+				processCommandQueue();
+			}
 			steamManager.sendPacket(&cmd, sizeof(cmd));
-			ofLogNotice("Lockstep") << "Host sequenced and broadcast command ID: " << cmd.commandId;
 			return true;
 		}
 	}
@@ -20595,9 +20606,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	// Singleplayer Mode
 	cmd.commandId = nextCommandId++;
 	queueInputCommand(cmd);
-
-	// Execute immediately in singleplayer to preserve snappy UI feel
-	if (applyLocally && !isMultiplayer) {
+	if (applyLocally) {
 		processCommandQueue();
 	}
 	return true;
@@ -35513,24 +35522,37 @@ void ofApp::processNetworkPackets() {
 
 				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
 
-				// If this is an echo of a command we sent and we're a client
-				// which already applied it optimistically, skip re-applying it
-				// when the authoritative packet arrives.
-				if (!isHost() && cmd->playerID == (uint32_t)myLocalPlayerID) {
-					// FIX: Match based on clientActionID to safely drop our own echoed commands.
-					// The Host might have assigned a different global commandId than we did locally.
-					if (cmd->clientActionID != 0 && cmd->clientActionID <= lastSentActionPacket.clientActionID) {
-						ofLogNotice("NetTrace") << "Dropping echoed optimistic command clientActionID=" << cmd->clientActionID;
-
-						// Clean up provisional memory
-						uint32_t cid = cmd->commandId;
-						provisionalSnapshots.erase(cid);
-						provisionalCommands.erase(cid);
-						continue;
+				if (isHost()) {
+					if (cmd->playerID != myLocalPlayerID) {
+						// Host receives client intent. Assign official ID, execute, and echo.
+						cmd->commandId = nextCommandId++;
+						queueInputCommand(*cmd);
+						steamManager.sendPacket(cmd, sizeof(InputCommandPacket));
 					}
-				}
+				} else {
+					// Client receives officially sequenced command from Host.
+					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID != 0) {
+						// This is the Host echoing the command we already predicted!
+						if (provisionalSnapshots.find(cmd->clientActionID) != provisionalSnapshots.end()) {
+							ofLogNotice("Lockstep") << "Dropping echoed optimistic command clientActionID=" << cmd->clientActionID;
+							provisionalSnapshots.erase(cmd->clientActionID);
+							provisionalCommands.erase(cmd->clientActionID);
 
-				queueInputCommand(*cmd);
+							// Stop the resend watchdog
+							if (cmd->clientActionID == lastSentActionPacket.clientActionID) {
+								lastSentActionValid = false;
+							}
+
+							// Sync local command ID counter to match Host's numbering
+							if (cmd->commandId >= nextCommandId) {
+								nextCommandId = cmd->commandId + 1;
+							}
+							continue; // We already executed this locally, do not queue it again!
+						}
+					}
+					// It's the opponent's command, or a command we didn't predict. Execute it.
+					queueInputCommand(*cmd);
+				}
 				continue;
 			}
 
