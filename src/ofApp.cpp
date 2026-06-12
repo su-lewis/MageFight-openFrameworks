@@ -16198,7 +16198,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					int baseDraw = localPlayer->isDemon ? 3 : 2;
-					int cardsToDraw = localPlayer->nextTurnExtraDraw && globalTurnCounter > localPlayer->nextTurnExtraDrawSetOnCycle ? (baseDraw + 1) : baseDraw;
+					int cycle = localPlayer->nextTurnExtraDrawSetOnCycle & 0xFFFF;
+					int count = (localPlayer->nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+					int extra = (localPlayer->nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
+					int cardsToDraw = baseDraw + extra;
 
 					// Queue deterministic draw command instead of performing immediate local draw.
 					InputCommandPacket out = {};
@@ -17399,7 +17402,11 @@ void ofApp::keyPressed(int key) {
 		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
 
 		int baseDraw = localPlayer->isDemon ? 3 : 2;
-		int cardsToDraw = localPlayer->nextTurnExtraDraw && globalTurnCounter > localPlayer->nextTurnExtraDrawSetOnCycle ? (baseDraw + 1) : baseDraw;
+		int cycle = localPlayer->nextTurnExtraDrawSetOnCycle & 0xFFFF;
+		int count = (localPlayer->nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+		int extra = (localPlayer->nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
+		int cardsToDraw = baseDraw + extra;
+
 		// Queue a deterministic draw command instead of drawing locally here.
 		InputCommandPacket out = {};
 		out.type = PKT_INPUT_COMMAND;
@@ -17908,7 +17915,8 @@ void ofApp::startNewTurn() {
 		}
 
 		// If the player had an extra draw for this turn but didn't use it, it expires.
-		if (endingPlayer.nextTurnExtraDraw && globalTurnCounter > endingPlayer.nextTurnExtraDrawSetOnCycle) {
+		int cycle = endingPlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+		if (endingPlayer.nextTurnExtraDraw && globalTurnCounter > cycle) {
 			EffectOp rm = {};
 			rm.type = EffectOpType::REMOVE_STATUS;
 			rm.data.status.targetIndex = currentPlayerIndex;
@@ -19120,10 +19128,11 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 
 	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
-	bool boonAutoPlayNoAdjacent = (card.type == CARD_BLOCKING_BOON && !boonHasAdjacentUnit);
+	// FIX: Removed boonAutoPlayNoAdjacent. Let Blocking Boon ALWAYS enter targeting mode
+	// so the user can easily target themselves or the adjacent enemy.
 	bool dhAutoPlayNoAdjacent = (card.type == CARD_DOUBLE_HANDED && !doubleHandedHasAdjacentUnit);
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
-	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE); // <--- ADD THIS
+	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE);
 	bool teleportAutoPlay = (card.type == CARD_TELEPORT);
 	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 
@@ -19201,7 +19210,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	else if (!wisdomAutoBlockNoAdjacent && !boonAutoPlayNoAdjacent && !dhAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW)) {
+	else if (!wisdomAutoBlockNoAdjacent && !dhAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW)) {
 
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
@@ -19304,11 +19313,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		if (isMultiplayer) {
 			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport destination send failed (no connection).";
 		} else {
-			queueInputCommand(cmd);
+			sendInputCommand(cmd, true);
 		}
 
 		resetCardInteraction();
-		resetCardState();
+		// FIX: Removed resetCardState() so the Teleport effect sequence can finish resolving the card successfully!
 		return;
 	}
 
@@ -20932,7 +20941,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		// Only remove the buff if we actually used it (i.e. we drew on the NEXT turn)
-		if (lp.nextTurnExtraDraw && globalTurnCounter > lp.nextTurnExtraDrawSetOnCycle) {
+		int cycle = lp.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+		if (lp.nextTurnExtraDraw && globalTurnCounter > cycle) {
 			EffectOp rm = {};
 			rm.type = EffectOpType::REMOVE_STATUS;
 			rm.data.status.targetIndex = targetIdx;
@@ -23409,10 +23419,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int numCardsToRemoveLocal = std::min(result, (int)amnesiaTarget->deck.size());
 			if (numCardsToRemoveLocal > 0) {
 				numCardsToRemove = numCardsToRemoveLocal;
-				// Only open the menu if THIS client controls the chooser player.
-				bool chooserIsLocal = (myLocalPlayerID == amnesiaChooserPlayerID);
+
+				// FIX: Singleplayer/Local PvP plays on the same screen, so it is always Local.
+				bool chooserIsLocal = (!isMultiplayer) || (myLocalPlayerID == amnesiaChooserPlayerID);
 				if (!chooserIsLocal) {
-					// Also allow if the chooser is represented by a minion owned by us
 					for (const auto & p : players) {
 						if (p.isMinion && p.playerID == amnesiaChooserPlayerID && p.ownerID == myLocalPlayerID) {
 							chooserIsLocal = true;
@@ -24487,11 +24497,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				case STATUS_ASSISTANT_REROLL_USED:
 					target.assistantRerollUsedThisTurn = true;
 					break;
-				case STATUS_NEXT_TURN_EXTRA_DRAW:
+				case STATUS_NEXT_TURN_EXTRA_DRAW: {
+					int currentCycle = target.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+					int count = (target.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+					if (currentCycle != globalTurnCounter) {
+						currentCycle = globalTurnCounter;
+						count = 0;
+					}
+					count++; // Increment stacked draws
+					target.nextTurnExtraDrawSetOnCycle = (count << 16) | (currentCycle & 0xFFFF);
 					target.nextTurnExtraDraw = true;
-					// Record when this flag was set so other logic can expire it deterministically
-					target.nextTurnExtraDrawSetOnCycle = globalTurnCounter;
 					break;
+				}
 				case STATUS_NEXT_TURN_D10AP:
 					target.nextTurnD10AP = true;
 					break;
@@ -25359,6 +25376,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.params[0] = (int)interactingCardType;
 						cmd.params[1] = amnesiaTargetPlayerIndex;
 						cmd.params[2] = 3;
+						cmd.params[3] = interactingCardIndex; // FIX: Ensure the lockstep command knows which card we played!
 
 						int n = std::min((int)amnesiaSelectedIndices.size(), 8);
 						cmd.params[4] = n;
@@ -25582,7 +25600,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		}
 
 		if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
-			totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+			totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
 		}
 
 		currentEffectSequence.blackboard[1] = totalDamage;
@@ -25667,7 +25685,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 
 	int finalBlock = playedCard.blockAmount;
 	if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
-		finalBlock *= (1 << currentPlayer.flurryOfFistsStacks);
+		finalBlock *= (1 + currentPlayer.flurryOfFistsStacks);
 	}
 	queueStatGain(5, finalBlock);
 	queueStatGain(6, playedCard.barrierAmount);
@@ -26511,7 +26529,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			// Previous flurry stacks double this damage too!
 			if (currentPlayer.flurryOfFistsStacks > 0) {
-				int mult = (1 << currentPlayer.flurryOfFistsStacks);
+				int mult = (1 + currentPlayer.flurryOfFistsStacks);
 				totalDamage *= mult;
 				draws *= mult;
 				freeTurns *= mult;
@@ -26775,7 +26793,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			// Apply Flurry of Fists multiplier if active
 			if (currentPlayer.flurryOfFistsStacks > 0) {
-				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+				totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
 			}
 
 			// 1. Deal Damage
@@ -27317,7 +27335,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			// Apply Flurry of Fists multiplier if active
 			if (currentPlayer.flurryOfFistsStacks > 0) {
-				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+				totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
 			}
 
 			// 1. Queue the Damage Effect
@@ -32768,8 +32786,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	bool hasLineOfSight = false;
 	glm::vec2 targetCenter = targetTile + 0.5f;
 
-	// FIX: Magic Bolt and Ethereal Jolt ignore walls for visibility
-	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT) {
+	// FIX: Magic Bolt, Ethereal Jolt, and Teleport ignore walls for visibility
+	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT || cardType == CARD_TELEPORT) {
 		hasLineOfSight = true;
 	} else {
 		// --- 1-TILE ADJACENCY SHORT-CIRCUIT ---
@@ -33338,6 +33356,11 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.isAoe = cardJson.value("isAoe", false);
 		newCard.isHandRelated = cardJson.value("isHandRelated", false);
 
+		// FIX: Since Blocking Boon has no specific targeting field in cards.md, it must be forced
+		// so that the player can choose an adjacent unit to subtract HP from.
+		if (newCard.type == CARD_BLOCKING_BOON) {
+			newCard.targeting = TARGET_ADJACENT_OR_SELF_UNIT;
+		}
 		// Defensive amounts
 		// Defensive amounts: support both legacy names and the new *Gain names
 		newCard.blockAmount = cardJson.value("blockAmount", 0);
