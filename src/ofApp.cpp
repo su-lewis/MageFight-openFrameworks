@@ -31199,16 +31199,9 @@ int ofApp::getGameRandom(int min, int max) {
 }
 //--------------------------------------------------------------
 bool ofApp::diceVisualsFinishedAndLinger() const {
-	// All dice visuals finished?
-	bool allFinished = std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; });
-
-	if (!allFinished) return false;
-
-	// If no global dice result text is present, don't wait for linger
-	if (diceRollResultText.empty()) return true;
-
-	// Otherwise wait until the configured duration elapses
-	return (ofGetElapsedTimef() - diceRollResultStartTime) >= diceRollResultDuration;
+	// Return true the exact millisecond the dice stop spinning.
+	// Do NOT wait for the text popup to disappear, so control is returned instantly!
+	return std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; });
 }
 //--------------------------------------------------------------
 std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
