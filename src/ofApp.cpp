@@ -20862,19 +20862,10 @@ void ofApp::simulationTick() {
 		}
 	}
 
-	// Periodic checksum validation (every 10 simulation frames = ~166ms at 60Hz)
-	if (isMultiplayer && simulationFrame % 10 == 0) {
-		if (isHost()) {
-			// Host sends checksum for validation
-			ChecksumPacket chk = {};
-			chk.type = PKT_CHECKSUM_CHECK;
-			chk.playerID = myLocalPlayerID;
-			chk.checksum = calculateChecksum();
-			chk.turnNumber = globalTurnCounter;
-			steamManager.sendPacket(&chk, sizeof(chk));
-		}
-		// Clients will validate against received checksum in processNetworkPackets()
-	}
+	// FIX: Removed periodic mid-turn checksums.
+	// Optimistic UI intentionally causes temporary state drift between client and host during a turn.
+	// Validating mid-turn guarantees false-positive desyncs.
+	// The game now relies exclusively on the PKT_CHECKSUM_CHECK sent at the start of a new turn.
 
 	// Other deterministic game logic runs here
 	// (AI decisions, passive effects, turn timers, etc.)
@@ -23718,21 +23709,17 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::WAIT_VISUAL: {
-		// FIX: Deterministic wait. Logic must NEVER pause based on real-time rendering.
-		// We utilize the unused 'damageFromSlot' to track remaining simulation ticks.
-
-		if (op.data.damage.damageFromSlot <= 0) {
-			// Initialize the deterministic tick timer on the first frame of this operation.
-			// 1.5 seconds translates to a fixed number of simulation ticks (e.g., 1.5 / 0.016 = ~93 ticks)
+		// FIX: Deterministic wait based on Simulation Ticks instead of real-world frame time.
+		// We use targetIndex (which is normally unused for WAIT_VISUAL) to track remaining ticks.
+		if (op.data.damage.targetIndex <= 0) {
 			int waitMode = op.data.damage.fixedDamage;
 			float waitSeconds = (waitMode == 0) ? 1.5f : 1.2f;
-			op.data.damage.damageFromSlot = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
+			// Convert seconds to ticks (e.g. 1.5s / 0.016 = ~93 ticks)
+			op.data.damage.targetIndex = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
 		}
 
-		op.data.damage.damageFromSlot--;
-
-		// The operation is only complete when the deterministic tick counter hits zero.
-		opComplete = (op.data.damage.damageFromSlot <= 0);
+		op.data.damage.targetIndex--;
+		opComplete = (op.data.damage.targetIndex <= 0);
 		break;
 	}
 
@@ -35526,24 +35513,24 @@ void ofApp::processNetworkPackets() {
 
 				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
 
-				if (isHost()) {
-					// FIX: Host receives Client's intent. Assign the authoritative global ID,
-					// queue it for local execution, and echo it back to the client.
-					if (cmd->playerID != myLocalPlayerID) {
-						cmd->commandId = nextCommandId++;
-						queueInputCommand(*cmd);
-						steamManager.sendPacket(cmd, sizeof(InputCommandPacket));
-						ofLogNotice("Lockstep") << "Host received client intent, sequenced as ID " << cmd->commandId << " and echoed.";
+				// If this is an echo of a command we sent and we're a client
+				// which already applied it optimistically, skip re-applying it
+				// when the authoritative packet arrives.
+				if (!isHost() && cmd->playerID == (uint32_t)myLocalPlayerID) {
+					// FIX: Match based on clientActionID to safely drop our own echoed commands.
+					// The Host might have assigned a different global commandId than we did locally.
+					if (cmd->clientActionID != 0 && cmd->clientActionID <= lastSentActionPacket.clientActionID) {
+						ofLogNotice("NetTrace") << "Dropping echoed optimistic command clientActionID=" << cmd->clientActionID;
+
+						// Clean up provisional memory
+						uint32_t cid = cmd->commandId;
+						provisionalSnapshots.erase(cid);
+						provisionalCommands.erase(cid);
+						continue;
 					}
-				} else {
-					// FIX: Client receives the officially sequenced command from the Host.
-					// If this is an echo of our own command, mark our local resend watchdog as resolved.
-					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID == lastSentActionPacket.clientActionID) {
-						lastSentActionValid = false;
-					}
-					// Queue for execution. It is now guaranteed to execute in the exact same order as the Host.
-					queueInputCommand(*cmd);
 				}
+
+				queueInputCommand(*cmd);
 				continue;
 			}
 
@@ -35919,9 +35906,9 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.ghostDamageTaken);
 		mix((uint64_t)p.freeKickTurns);
 
-		// FIX: Restored arrays to the checksum. With true Host-Sequenced Lockstep
-		// and decoupled visual timers, the network timing desync is fixed.
-		// These arrays MUST be verified to guarantee determinism.
+		// FIX: Include Deck, Hand, and Discard in the deterministic checksum.
+		// Now that mid-turn periodic checksums are removed, optimistic prediction
+		// won't trigger false positives, making it safe to verify full card state at turn boundaries.
 		mix((uint64_t)p.deck.size());
 		for (const auto & c : p.deck)
 			mix((uint64_t)c.type);
