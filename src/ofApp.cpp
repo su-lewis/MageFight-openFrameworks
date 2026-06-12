@@ -7147,6 +7147,9 @@ void ofApp::updateGameLogic() {
 						cmd.params[1] = opponentDecisionPlayerIndex;
 						cmd.params[2] = choiceIdx;
 						cmd.params[3] = -1;
+						// FIX: Pass the fallback X and Y coordinates
+						cmd.params[4] = ghostRelocateChoices[choiceIdx].x;
+						cmd.params[5] = ghostRelocateChoices[choiceIdx].y;
 						issuedChoice = true;
 					}
 				} else if (isOpponentDraftActive) {
@@ -8274,61 +8277,23 @@ void ofApp::updateGameLogic() {
 			ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
 		}
 
-		// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips.
+		// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips ONE BY ONE.
 		if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
 			blockingBoonPendingPhysicalAfterDraft = false;
 
-			const int casterIdx = blockingBoonPendingCasterIndex;
-			if (casterIdx >= 0 && casterIdx < (int)players.size() && !blockingBoonPendingCoinRawResults.empty()) {
-				int coinTotal = 0;
-				for (int raw : blockingBoonPendingCoinRawResults)
-					coinTotal += raw;
-				queueVisualDiceRoll(gridToWorld(players[casterIdx].x, players[casterIdx].y) + glm::vec3(0, 1.0f, 0), (int)blockingBoonPendingCoinRawResults.size(), 2, blockingBoonPendingCoinRawResults, coinTotal, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
-
-				if (!isProcessingEffect) beginEffectSequence();
-
-				for (int raw : blockingBoonPendingCoinRawResults) {
-					if (raw >= 2) {
-						EffectOp incMax = {};
-						incMax.type = EffectOpType::MODIFY_STAT;
-						incMax.data.modifyStat.targetIndex = casterIdx;
-						incMax.data.modifyStat.statType = 1; // MaxHP
-						incMax.data.modifyStat.delta = 1;
-						incMax.data.modifyStat.deltaFromSlot = -1;
-						queueEffect(incMax);
-						queueFloatingTextVisual(gridToWorld(players[casterIdx].x, players[casterIdx].y), "+1 Max HP", ofColor::green);
-					} else {
-						Player * t = getPlayer(blockingBoonTargetIndex);
-						if (t) {
-							int tgtIdx = blockingBoonTargetIndex;
-							EffectOp decMax = {};
-							decMax.type = EffectOpType::MODIFY_STAT;
-							decMax.data.modifyStat.targetIndex = tgtIdx;
-							decMax.data.modifyStat.statType = 1; // MaxHP
-							decMax.data.modifyStat.delta = -1;
-							decMax.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(decMax);
-
-							int newMax = std::max(1, t->maxHealth - 1);
-							int hpDelta = std::min(0, newMax - t->health);
-							if (hpDelta != 0) {
-								EffectOp hpClamp = {};
-								hpClamp.type = EffectOpType::MODIFY_STAT;
-								hpClamp.data.modifyStat.targetIndex = tgtIdx;
-								hpClamp.data.modifyStat.statType = 0; // HP
-								hpClamp.data.modifyStat.delta = hpDelta;
-								hpClamp.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(hpClamp);
-							}
-							queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
-						}
-					}
-				}
+			int coinsLeft = 0;
+			if (!blockingBoonPendingCoinRawResults.empty()) {
+				coinsLeft = blockingBoonPendingCoinRawResults[0]; // Read coins left
 			}
 
-			blockingBoonPendingCoinRawResults.clear();
-			blockingBoonPendingCasterIndex = -1;
-			blockingBoonActive = false;
+			if (coinsLeft > 0) {
+				beginEffectSequence();
+				EffectOp step = {};
+				step.type = EffectOpType::APPLY_BLOCKING_BOON_COIN; // Using existing Enum for Step
+				step.data.damage.fixedDamage = coinsLeft;
+				step.data.damage.targetIndex = blockingBoonPendingCasterIndex;
+				queueEffect(step);
+			}
 		}
 		// ==============================================================
 
@@ -19310,14 +19275,35 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		strncpy(cmd.stringData, "Teleport", sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-		if (isMultiplayer) {
-			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport destination send failed (no connection).";
-		} else {
-			sendInputCommand(cmd, true);
-		}
+		sendInputCommand(cmd, true);
 
 		resetCardInteraction();
-		// FIX: Removed resetCardState() so the Teleport effect sequence can finish resolving the card successfully!
+		// FIX: Removed resetCardState() so the Teleport effect sequence can finish resolving!
+		return;
+	}
+
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == gridX && players[i].y == gridY && players[i].health > 0) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex != -1) {
+			// This "Menu Choice" packet is just secretly carrying our board click!
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = (int)CARD_BLOCKING_BOON;
+			cmd.params[1] = targetIndex;
+			sendInputCommand(cmd, true);
+
+			resetCardInteraction();
+		}
 		return;
 	}
 
@@ -21208,18 +21194,20 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
 		// Allow menu types that are not tied to a specific card index
-		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST) {
+		// FIX: Added CARD_BLOCKING_BOON to the bypass list so its targeting click isn't rejected!
+		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST && menuType != CARD_BLOCKING_BOON) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
 
 		// Special-case: ghost relocation menu (deterministic teleport choice)
 		if (menuType == MENU_GHOST_RELOCATE) {
 			int tgt = targetIndex;
-			int ch = choice;
 			if (tgt < 0 || tgt >= (int)players.size()) break;
-			if (ch < 0 || ch >= (int)ghostRelocateChoices.size()) break;
-			// Execute deterministic move + remove ghost status
-			glm::ivec2 dest = ghostRelocateChoices[ch];
+
+			// FIX: Read destination directly from packet parameters!
+			// We no longer rely on ghostRelocateChoices bounds checking.
+			glm::ivec2 dest(cmd.params[4], cmd.params[5]);
+
 			beginEffectSequence();
 			EffectOp mv = {};
 			mv.type = EffectOpType::MOVE_UNIT;
@@ -21350,6 +21338,49 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 			break;
 		}
+
+		if (menuType == CARD_BLOCKING_BOON) {
+			int tgtIdx = targetIndex;
+			Player * t = getPlayer(tgtIdx);
+			if (t) {
+				beginEffectSequence();
+				EffectOp decMax = {};
+				decMax.type = EffectOpType::MODIFY_STAT;
+				decMax.data.modifyStat.targetIndex = tgtIdx;
+				decMax.data.modifyStat.statType = 1; // MaxHP
+				decMax.data.modifyStat.delta = -1;
+				decMax.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(decMax);
+
+				int newMax = std::max(1, t->maxHealth - 1);
+				int hpDelta = std::min(0, newMax - t->health);
+				if (hpDelta != 0) {
+					EffectOp hpClamp = {};
+					hpClamp.type = EffectOpType::MODIFY_STAT;
+					hpClamp.data.modifyStat.targetIndex = tgtIdx;
+					hpClamp.data.modifyStat.statType = 0; // HP
+					hpClamp.data.modifyStat.delta = hpDelta;
+					hpClamp.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(hpClamp);
+				}
+				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+
+				int coinsLeft = 0;
+				if (!blockingBoonPendingCoinRawResults.empty()) {
+					coinsLeft = blockingBoonPendingCoinRawResults[0];
+				}
+
+				// Queue next step
+				EffectOp step = {};
+				step.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+				step.data.damage.fixedDamage = coinsLeft;
+				step.data.damage.targetIndex = blockingBoonPendingCasterIndex;
+				queueEffect(step);
+			}
+			opponentInteraction.open = false;
+			break; // out of CMD_MENU_CHOICE switch
+		}
+
 		std::string buttonId;
 		switch ((CardType)menuType) {
 		case CARD_BURST_OF_LIGHT:
@@ -21836,21 +21867,28 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (actionName == "Shell Spike") {
 			// Find player at target coordinates
-			Player * target = nullptr;
-			for (auto & p : players) {
-				if (p.x == targetX && p.y == targetY) {
-					target = &p;
+			int targetIdx = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIdx = (int)i;
 					break;
 				}
 			}
 
-			if (target) {
-				int tortoiseFormDamage = 3;
-				int damageDealt = applyDamageWithMitigations(*target, tortoiseFormDamage, DAMAGE_PHYSICAL, currentPlayerIndex);
-				if (damageDealt > 0) {
-					queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(damageDealt) + " Shell", ofColor(255, 140, 0));
-				}
+			if (targetIdx != -1) {
+				// FIX: Queue damage deterministically so it doesn't execute out-of-order
+				// and break the simulation loop if the target dies.
+				if (!isProcessingEffect) beginEffectSequence();
+
+				EffectOp dmgOp = {};
+				dmgOp.type = EffectOpType::DAMAGE;
+				dmgOp.data.damage.targetIndex = targetIdx;
+				dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
+				dmgOp.data.damage.fixedDamage = 3;
+				dmgOp.data.damage.damageFromSlot = -1;
+				queueEffect(dmgOp);
 			}
+			break; // FIX: Added break so it exits the case properly!
 		}
 
 		if (actionName == "AssistantReroll") {
@@ -23557,104 +23595,128 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_BLOCKING_BOON_COIN: {
-		// Read authoritative coin flip result from blackboard slot 0 (1=Tails, 2=Heads)
-		int flip = currentEffectSequence.blackboard[0];
+	case EffectOpType::APPLY_BLOCKING_BOON_COIN: { // Step Logic
+		int coinsLeft = op.data.damage.fixedDamage;
+		int casterIdx = op.data.damage.targetIndex;
 
-		if (flip >= 2) {
-			// Heads: raise own max HP deterministically
+		if (coinsLeft <= 0) {
+			opComplete = true;
+			break;
+		}
+
+		Player & caster = players[casterIdx];
+
+		// Check for adjacent units
+		bool hasAdj = false;
+		for (size_t i = 0; i < players.size(); i++) {
+			if ((int)i == casterIdx) continue;
+			if (players[i].health <= 0) continue;
+			int dist = abs(players[i].x - caster.x) + abs(players[i].y - caster.y);
+			if (dist == 1) {
+				hasAdj = true;
+				break;
+			}
+		}
+
+		if (!hasAdj) {
+			// No adjacent targets! Roll all remaining coins instantly.
+			std::vector<int> rawCoins;
+			int totalHeads = 0;
+			for (int i = 0; i < coinsLeft; ++i) {
+				std::vector<int> tr;
+				int r = resolveDiceRollDetailed(1, 2, tr);
+				rawCoins.push_back(tr[0]);
+				if (r == 2) totalHeads++;
+			}
+
+			queueVisualDiceRoll(gridToWorld(caster.x, caster.y) + glm::vec3(0, 1.0f, 0), coinsLeft, 2, rawCoins, 0, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
+
+			if (totalHeads > 0) {
+				EffectOp incMax = {};
+				incMax.type = EffectOpType::MODIFY_STAT;
+				incMax.data.modifyStat.targetIndex = casterIdx;
+				incMax.data.modifyStat.statType = 1; // MaxHP
+				incMax.data.modifyStat.delta = totalHeads;
+				incMax.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(incMax);
+				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+" + ofToString(totalHeads) + " Max HP", ofColor::green);
+			} else {
+				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "All Tails (Fizzle)", ofColor::gray);
+			}
+
+			opComplete = true;
+		} else {
+			// Roll exactly 1 coin
+			coinsLeft--;
+
+			std::vector<int> rawCoin;
+			int flip = resolveDiceRollDetailed(1, 2, rawCoin);
+			currentEffectSequence.blackboard[0] = flip; // Store flip result
+
+			queueVisualDiceRoll(gridToWorld(caster.x, caster.y) + glm::vec3(0, 1.0f, 0), 1, 2, rawCoin, flip, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
+
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 1; // wait for dice
+			queueEffect(wait);
+
+			EffectOp resolve = {};
+			resolve.type = EffectOpType::APPLY_BLOCKING_BOON_D20; // Reusing this enum for Resolve Step
+			resolve.data.damage.fixedDamage = coinsLeft;
+			resolve.data.damage.targetIndex = casterIdx;
+			queueEffect(resolve);
+
+			opComplete = true;
+		}
+		break;
+	}
+
+	case EffectOpType::APPLY_BLOCKING_BOON_D20: { // Resolve Logic
+		int flip = currentEffectSequence.blackboard[0];
+		int coinsLeft = op.data.damage.fixedDamage;
+		int casterIdx = op.data.damage.targetIndex;
+		Player & caster = players[casterIdx];
+
+		if (flip == 2) {
+			// Heads: +1 Max HP
 			EffectOp incMax = {};
 			incMax.type = EffectOpType::MODIFY_STAT;
-			incMax.data.modifyStat.targetIndex = currentPlayerIndex;
+			incMax.data.modifyStat.targetIndex = casterIdx;
 			incMax.data.modifyStat.statType = 1; // MaxHP
 			incMax.data.modifyStat.delta = 1;
 			incMax.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(incMax);
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+1 Max HP", ofColor::green);
+
+			// Keep sequence going for next coin
+			EffectOp step = {};
+			step.type = EffectOpType::APPLY_BLOCKING_BOON_COIN; // Back to Step
+			step.data.damage.fixedDamage = coinsLeft;
+			step.data.damage.targetIndex = casterIdx;
+			queueEffect(step);
+			opComplete = true;
 		} else {
-			// Tails: lower target max HP deterministically
-			Player * t = getPlayer(blockingBoonTargetIndex);
-			if (t) {
-				int tgtIdx = blockingBoonTargetIndex;
-				EffectOp decMax = {};
-				decMax.type = EffectOpType::MODIFY_STAT;
-				decMax.data.modifyStat.targetIndex = tgtIdx;
-				decMax.data.modifyStat.statType = 1; // MaxHP
-				decMax.data.modifyStat.delta = -1;
-				decMax.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(decMax);
-				// If current HP exceeds new MaxHP, queue HP clamp (set to new max). Read authoritative new max will be applied when MODIFY_STAT for MaxHP is processed; here we conservatively queue a HP reduction by 0 which the processor will handle in order.
-				// We'll queue a HP adjust after the MaxHP change to ensure determinism: compute desired HP delta now
-				int newMax = std::max(1, t->maxHealth - 1);
-				int hpDelta = std::min(0, newMax - t->health);
-				if (hpDelta != 0) {
-					EffectOp hpClamp = {};
-					hpClamp.type = EffectOpType::MODIFY_STAT;
-					hpClamp.data.modifyStat.targetIndex = tgtIdx;
-					hpClamp.data.modifyStat.statType = 0; // HP
-					hpClamp.data.modifyStat.delta = hpDelta;
-					hpClamp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(hpClamp);
-				}
-				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
-			}
-		}
+			// Tails: Must target an adjacent unit
+			// Enter targeting mode!
+			bool isLocal = (!isMultiplayer) || (caster.playerID == myLocalPlayerID || (caster.isMinion && caster.ownerID == myLocalPlayerID));
 
-		// Decrement counters stored in currentCardOutcome
-		currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] - 1);
-		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
+			// Store state for the menu choice return
+			blockingBoonPendingCasterIndex = casterIdx;
+			// Reusing the vector to store coins left for the menu choice return!
+			blockingBoonPendingCoinRawResults.clear();
+			blockingBoonPendingCoinRawResults.push_back(coinsLeft);
 
-		// If we finished coins and have queued non-phys D20s, schedule them now
-		int nonphys = currentCardOutcome.namedDiceResults["blocking_boon_nonphys"];
-		if (currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] == 0) {
-			// Mark coins stage finished
-			if (nonphys > 0) {
-				// Use the pre-rolled D20s from decision-time
-				int val = currentCardOutcome.namedDiceResults["blocking_boon_d20_total"];
-				std::vector<int> rawBoon = blockingBoonPendingD20RawResults;
-				// Store authoritative total into blackboard slot 0 for the D20 resolver
-				currentEffectSequence.blackboard[0] = val;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), nonphys, 20, rawBoon, val, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.2f);
-
-				EffectOp applyD20 = {};
-				applyD20.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
-				queueEffect(applyD20);
-
-				// Mark nonphys as rolled
-				currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0;
-				// Clear stored raw results (consumed)
-				blockingBoonPendingD20RawResults.clear();
+			if (isLocal) {
+				updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_BLOCKING_BOON);
+				calculateTargetHighlights(-1);
+				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Tails! Select Target.", ofColor::red);
 			} else {
-				// No more rolls; end active state
-				blockingBoonActive = false;
+				opponentInteraction.open = true;
+				opponentInteraction.type = 99; // Waiting
 			}
+
+			opComplete = true;
 		}
-
-		opComplete = true;
-		break;
-	}
-
-	case EffectOpType::APPLY_BLOCKING_BOON_D20: {
-		int val = currentEffectSequence.blackboard[0];
-		int classReward = 0;
-		if (val >= 20)
-			classReward = 3;
-		else if (val >= 16)
-			classReward = 2;
-		else if (val >= 10)
-			classReward = 1;
-
-		if (classReward > 0) {
-			networkPending.draftQueue.push_back(classReward);
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
-		} else {
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
-		}
-
-		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
-		if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) blockingBoonActive = false;
-
-		opComplete = true;
 		break;
 	}
 
@@ -25376,7 +25438,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.params[0] = (int)interactingCardType;
 						cmd.params[1] = amnesiaTargetPlayerIndex;
 						cmd.params[2] = 3;
-						cmd.params[3] = interactingCardIndex; // FIX: Ensure the lockstep command knows which card we played!
+						cmd.params[3] = interactingCardIndex; // FIX: Pass the card index properly!
 
 						int n = std::min((int)amnesiaSelectedIndices.size(), 8);
 						cmd.params[4] = n;
@@ -25462,6 +25524,10 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					cmd.params[1] = ghostRelocateTargetIndex;
 					cmd.params[2] = (int)i;
 					cmd.params[3] = -1;
+					// FIX: Pass the exact X and Y coordinates over the network
+					// so the Host doesn't have to guess which tile we picked!
+					cmd.params[4] = ghostRelocateChoices[i].x;
+					cmd.params[5] = ghostRelocateChoices[i].y;
 					sendInputCommand(cmd, true);
 				}
 			}
@@ -26351,43 +26417,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_BLOCKING_BOON: {
-		if (blockingBoonActive) {
-			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
-			return true;
-		}
 		beginEffectSequence();
-
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex == currentPlayerIndex) targetIndex = -1;
-		if (targetIndex != -1) {
-			int dx = abs(players[targetIndex].x - currentPlayer.x);
-			int dy = abs(players[targetIndex].y - currentPlayer.y);
-			if (std::max(dx, dy) != 1) targetIndex = -1;
-		}
-		blockingBoonTargetIndex = targetIndex;
-		blockingBoonPendingCasterIndex = currentPlayerIndex;
-		blockingBoonPendingCoinRawResults.clear();
-		blockingBoonPendingPhysicalAfterDraft = false;
 
 		int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
 		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
 		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
 
+		if (physBlock <= 0 && nonPhys <= 0) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Defence!", ofColor::gray);
+			playedSuccessfully = true;
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
 		if (nonPhys > 0) {
-			ofLogNotice("Blocking Boon") << "Rolling " << nonPhys << " D20s for non-physical block (resolve first). Luck=" << luckBonus;
 			std::vector<int> rawRolls;
 			resolveDiceRollDetailed(nonPhys, 20, rawRolls);
-
 			int displayTotal = 0;
-			int queuedC1 = 0;
-			int queuedC2 = 0;
-			int queuedC3 = 0;
+			int queuedC1 = 0, queuedC2 = 0, queuedC3 = 0;
 			for (int raw : rawRolls) {
 				int finalRoll = raw + luckBonus;
 				displayTotal += finalRoll;
@@ -26402,7 +26449,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					queuedC1++;
 				}
 			}
-
 			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), nonPhys, 20, rawRolls, displayTotal, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.0f);
 			if (queuedC1 > 0 || queuedC2 > 0 || queuedC3 > 0) {
 				std::string summary = "Queued";
@@ -26411,25 +26457,23 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				if (queuedC3 > 0) summary += " C3x" + ofToString(queuedC3);
 				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), summary, ofColor::cyan);
 			} else {
-				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Fizzle", ofColor::gray);
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Drafts", ofColor::gray);
 			}
+
+			EffectOp waitVisual = {};
+			waitVisual.type = EffectOpType::WAIT_VISUAL;
+			waitVisual.data.damage.fixedDamage = 1;
+			queueEffect(waitVisual);
 		}
 
 		if (physBlock > 0) {
-			ofLogNotice("Blocking Boon") << "Queued " << physBlock << " physical coin flips for after drafts.";
-			resolveDiceRollDetailed(physBlock, 2, blockingBoonPendingCoinRawResults);
 			blockingBoonPendingPhysicalAfterDraft = true;
+			blockingBoonPendingCasterIndex = currentPlayerIndex;
+			// Reuse this vector to store the number of coins left!
+			blockingBoonPendingCoinRawResults.clear();
+			blockingBoonPendingCoinRawResults.push_back(physBlock);
 		}
 
-		if (physBlock <= 0 && nonPhys <= 0) {
-			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
-			blockingBoonActive = false;
-			playedSuccessfully = true;
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-			return true;
-		}
-
-		blockingBoonActive = blockingBoonPendingPhysicalAfterDraft;
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -28088,6 +28132,29 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			board[x][y].isAoeCenter = false;
 			board[x][y].aoeRadiusFeet = 0;
 		}
+	}
+
+	// --- BLOCKING BOON TAILS TARGETING HIGHLIGHTING ---
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON && blockingBoonPendingCasterIndex >= 0) {
+		Player & caster = players[blockingBoonPendingCasterIndex];
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dy = -1; dy <= 1; dy++) {
+				if (abs(dx) + abs(dy) != 1) continue; // Orthogonal only
+				int nx = caster.x + dx;
+				int ny = caster.y + dy;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					for (const auto & p : players) {
+						// Can target any unit that isn't the caster
+						if (p.x == nx && p.y == ny && p.health > 0 && &p != &caster) {
+							board[nx][ny].isTargetable = true;
+							board[nx][ny].isTargetPreview = true;
+							break;
+						}
+					}
+				}
+			}
+		}
+		return;
 	}
 
 	// --- WOLF PLACEMENT HIGHLIGHTING ---
@@ -33356,11 +33423,6 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.isAoe = cardJson.value("isAoe", false);
 		newCard.isHandRelated = cardJson.value("isHandRelated", false);
 
-		// FIX: Since Blocking Boon has no specific targeting field in cards.md, it must be forced
-		// so that the player can choose an adjacent unit to subtract HP from.
-		if (newCard.type == CARD_BLOCKING_BOON) {
-			newCard.targeting = TARGET_ADJACENT_OR_SELF_UNIT;
-		}
 		// Defensive amounts
 		// Defensive amounts: support both legacy names and the new *Gain names
 		newCard.blockAmount = cardJson.value("blockAmount", 0);
