@@ -19708,13 +19708,24 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				}
 			}
 
-			std::vector<int> rawDmg;
-			int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			dmgRoll += 2 * luckBonus;
-			currentEffectSequence.blackboard[0] = dmgRoll;
+			// Only roll damage dice if there is actually a unit to crush!
+			if (magicHandPushedUnitIndex != -1) {
+				std::vector<int> rawDmg;
+				int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				dmgRoll += 2 * luckBonus;
+				currentEffectSequence.blackboard[0] = dmgRoll;
 
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+				queueVisualDiceRoll(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+				// Queue a visual delay so the dice can spin before the wall crunches the unit
+				EffectOp wait = {};
+				wait.type = EffectOpType::WAIT_VISUAL;
+				wait.data.damage.fixedDamage = 1;
+				queueEffect(wait);
+			} else {
+				currentEffectSequence.blackboard[0] = 0; // No damage to apply
+			}
 
 			EffectOp pushOp = {};
 			pushOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
