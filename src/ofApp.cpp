@@ -2971,7 +2971,7 @@ int ofApp::getOwnerIdForActorIndex(int actorIndex) const {
 
 int ofApp::getNormalTurnDurationFramesForActorIndex(int actorIndex) const {
 	if (actorIndex < 0 || actorIndex >= (int)players.size()) return 90 * turnTimerFramesPerSecond;
-	return players[actorIndex].isMinion ? (60 * turnTimerFramesPerSecond) : (90 * turnTimerFramesPerSecond);
+	return players[actorIndex].isMinion ? (45 * turnTimerFramesPerSecond) : (90 * turnTimerFramesPerSecond);
 }
 
 void ofApp::markMeaningfulActionOnCurrentTurn() {
@@ -7352,10 +7352,51 @@ void ofApp::updateGameLogic() {
 						ofLogNotice("Timer") << "Auto-placed " << toPlace << " Kobold(s) on timeout.";
 					};
 
+					auto forceResolvePendingInteractionsOnTimeout = [&]() {
+						if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+							int choice = 1;
+							if (interactingCardType == CARD_DISPEL)
+								choice = 2; // Purge
+							else if (interactingCardType == CARD_BURST_OF_LIGHT)
+								choice = 1; // Dmg
+
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_MENU_CHOICE;
+							cmd.params[0] = interactingCardType;
+							cmd.params[1] = interactionTargetIndex;
+							cmd.params[2] = choice;
+							cmd.params[3] = interactingCardIndex;
+
+							if (interactingCardType == CARD_AMNESIA) {
+								cmd.params[2] = 3;
+								cmd.params[4] = 0; // Select nothing
+							} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+								cmd.commandType = CMD_RENEWED_INSPIRATION;
+								cmd.params[0] = currentPlayerIndex;
+								cmd.params[1] = 0;
+								cmd.params[2] = interactingCardIndex;
+							}
+							sendInputCommand(cmd, true);
+						} else if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+							// Assume target has no statuses, or just cancel the spell
+							cancelAllTargeting();
+						} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+							// Just cancel the targeting to end the turn
+							cancelAllTargeting();
+						} else if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+							cancelAllTargeting();
+						}
+					};
+
 					// INSTANTLY lock inputs when timer hits zero
 					if ((!isMultiplayer || isMyTurn()) && !endTurnLocked) {
 						ofLogNotice("Timer") << "Turn timer hit zero. Locking inputs instantly.";
 						autoPlaceRemainingKoboldsOnTimeout();
+						forceResolvePendingInteractionsOnTimeout();
 						endTurnLocked = true;
 					}
 
@@ -7962,27 +8003,26 @@ void ofApp::updateGameLogic() {
 		// --- FLAIL RESOLUTION ---
 
 		// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
-		for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
-			DiceRoll & roll = *it;
+		bool anyFinishedThisFrame = false;
+		for (auto & roll : activeDiceRolls) {
 			float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-
-			// FIX: Perfectly sync the logic popup with the visual easing curve stopping (0.8s)
 			float spinDuration = 0.8f;
-			float hangTime = 2.5f;
-
 			roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-
 			if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 				roll.isFinishedVisual = true;
+				anyFinishedThisFrame = true;
+			}
+		}
 
-				// Build dice result text when dice finish
+		if (anyFinishedThisFrame) {
+			for (auto & roll : activeDiceRolls) {
+				if (!roll.isFinishedVisual) continue;
+
+				// 1. Build dice result text when ALL dice in the group finish
 				bool allGroupFinished = true;
 				std::vector<DiceRoll *> groupRolls;
 				DicePurpose checkPurpose = roll.purpose;
-
-				// Group dice rolls by purpose (combine AP and BONUS_AP together)
 				for (auto & r : activeDiceRolls) {
-					// Ensure we only group dice belonging to the SAME unit to prevent cross-turn/initiative hangups
 					if (r.associatedUnit == roll.associatedUnit) {
 						if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
 							groupRolls.push_back(&r);
@@ -7993,46 +8033,36 @@ void ofApp::updateGameLogic() {
 
 				if (allGroupFinished && !groupRolls.empty()) {
 					std::string resultText = "";
-					int total = 0;
-					(void)total; // unused
 					int headsCount = 0;
 					int tailsCount = 0;
-
-					// Check if coins
 					bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
 
 					if (isCoins) {
-						// Count heads and tails
 						for (auto * r : groupRolls) {
 							if (r->result == 2)
 								headsCount++;
 							else if (r->result == 1)
 								tailsCount++;
 						}
-
 						if (groupRolls.size() == 1) {
 							resultText = (roll.result == 2) ? "Heads" : "Tails";
 						} else {
 							resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
 						}
 					} else {
-						// Regular dice - show results for ALL dice types (damage, HP, healing, range, etc.)
 						if (groupRolls.size() == 1) {
 							int rawRoll = roll.rawResult;
 							int finalRoll = roll.result;
 							int luckApplied = finalRoll - rawRoll;
-
 							if (luckApplied > 0) {
 								resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
 							} else {
 								resultText = "Rolled " + ofToString(finalRoll);
 							}
 						} else {
-							// Multiple dice - show individual rolls in order, then total
 							if (currentState == STATE_INITIATIVE_ROLL) {
 								resultText = "";
 							} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-								// FIX: Do not sum or show global UI text for individual earthquake rolls
 								resultText = "";
 							} else {
 								int rawTotal = 0;
@@ -8056,18 +8086,16 @@ void ofApp::updateGameLogic() {
 						}
 					}
 
-					// Set the text for display (works for ALL dice purposes)
-					if (!resultText.empty()) {
+					static float lastAssignedTextTime = 0.0f;
+					if (!resultText.empty() && ofGetElapsedTimef() - lastAssignedTextTime > 0.05f) {
 						diceRollResultText = resultText;
 						diceRollResultStartTime = ofGetElapsedTimef();
+						lastAssignedTextTime = ofGetElapsedTimef();
 					}
 				}
 
-				// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
-				// THEN execute all the game-related logic inside this block.
 				if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
 					if (roll.purpose == PURPOSE_AP) {
-						// Inlined resolveAPRoll() -> migrate AP resolution into effect/op flow
 						if (!apResolvedThisTurn) {
 							int apSum = 0;
 							for (const auto & r : activeDiceRolls) {
@@ -8100,7 +8128,6 @@ void ofApp::updateGameLogic() {
 								if (!isProcessingEffect) beginEffectSequence();
 							}
 
-							// Sync AP to player struct
 							updatePlayerAP(players[currentPlayerIndex], currentAP);
 							ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
 
@@ -8125,8 +8152,6 @@ void ofApp::updateGameLogic() {
 											for (auto & oldR : activeDiceRolls) {
 												if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 											}
-											// Assistant reroll: host resolves RNG and writes to
-											// blackboard[5], then queues APPLY_BONUS_AP and visuals.
 											std::vector<int> rawReroll;
 											int rawBonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
 											int luckBonus = 0;
@@ -8153,13 +8178,8 @@ void ofApp::updateGameLogic() {
 							ofLogNotice("APDebug") << "AP already resolved earlier: currentAP=" << currentAP;
 						}
 
-						// HOST: Send TurnStart packet after AP has been resolved authoritatively.
 						bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
 						if (isHost() && isMultiplayer && apResolvedThisTurn && !alreadySent && !isHandlingTurnStartEffects) {
-							// Migration note: Host no longer sends a separate turn-start packet.
-							// Clients deterministically resolve AP from the effect blackboard
-							// and no longer require a dedicated host turn-start packet. Preserve checksum
-							// timing for desync detection by sending a ChecksumPacket here.
 							ChecksumPacket chk = {};
 							chk.type = PKT_CHECKSUM_CHECK;
 							chk.playerID = myLocalPlayerID;
@@ -8175,11 +8195,8 @@ void ofApp::updateGameLogic() {
 						}
 
 					} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-						// Find associated unit and apply damage now (during animation)
 						int uidx = roll.associatedUnit;
 						if (uidx >= 0 && uidx < (int)players.size()) {
-							// If we already applied immediate crash damage for this earthquake unit,
-							// don't apply again here (pre-spawn logic may have applied it).
 							bool alreadyApplied = false;
 							for (const auto & eu : earthquakeUnits) {
 								if (eu.playerIndex == uidx && eu.crashDamageApplied) {
@@ -8188,10 +8205,8 @@ void ofApp::updateGameLogic() {
 								}
 							}
 							if (!alreadyApplied) {
-								// Use centralized damage application so shields/statuses and effects
-								// are handled consistently (and deterministic via effect ops when
-								// used elsewhere).
 								applyDamageTo(players[uidx], roll.result, DAMAGE_PHYSICAL, -1);
+								roll.purpose = PURPOSE_DEBUG;
 								ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
 							} else {
 								ofLogNotice("Earthquake") << "Skipping duplicate quake damage for Player " << uidx << ".";
@@ -8200,15 +8215,12 @@ void ofApp::updateGameLogic() {
 					} else if (roll.purpose == PURPOSE_BONUS_AP) {
 						// Bonus AP authoritative application handled by APPLY_BONUS_AP effect op
 					} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
-						// Centralized summon handling (inlined from legacy resolver)
 						int count = currentEffectSequence.blackboard[0];
 						if (count <= 0) {
 							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-							// End kobold placement mode
 							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 							resetCardState();
 						} else {
-							// Count available adjacent empty tiles
 							int avail = 0;
 							glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 							for (auto & d : adj) {
@@ -8224,7 +8236,6 @@ void ofApp::updateGameLogic() {
 								updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 								resetCardState();
 							} else {
-								// MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn
 								if (isCurrentPlayerLocal()) {
 									koboldsRemainingToPlace = allowed;
 									koboldSummonCount = 0;
@@ -8239,13 +8250,18 @@ void ofApp::updateGameLogic() {
 								}
 							}
 						}
-						// allow dice cleanup below (do not early return)
+						roll.purpose = PURPOSE_DEBUG;
 					}
 				}
 			}
+		}
 
-			// This part correctly removes the dice after their hang time.
-			if (elapsedTime > spinDuration + hangTime) {
+		for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
+			DiceRoll & roll = *it;
+			float elapsedTime = ofGetElapsedTimef() - roll.startTime;
+			float hangTime = 2.5f;
+
+			if (elapsedTime > 0.8f + hangTime) {
 				it = activeDiceRolls.erase(it);
 			} else {
 				++it;
@@ -12356,6 +12372,8 @@ void ofApp::drawGame() {
 			// Ghostly tint for copied cards in Renewed Inspiration mode
 			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
 				ofSetColor(200, 200, 255); // Subtle Blue-White tint
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
+				ofSetColor(80, 80, 80, 180); // Gray out RI!
 			} else {
 				ofSetColor(255); // Normal
 			}
@@ -16755,6 +16773,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			};
 
 			bool hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
+			if (draggedCard.type == CARD_BURST_OF_LIGHT) hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard)); // Guarantee draggable!
 			bool hasPossibleTargets = hasAnyValidTargetForCard(draggedCardIndex);
 			bool canDragOutOfHand = hasEnoughAP && hasPossibleTargets;
 			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
@@ -18138,6 +18157,7 @@ void ofApp::startNewTurn() {
 			}
 
 			continueNewTurn();
+			return; // <--- FIX: Do not fall through to the next player!
 		}
 	}
 
@@ -19064,13 +19084,45 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool amnesiaAutoTargetSelf = (card.type == CARD_AMNESIA && !amnesiaHasAdjacentUnit);
 	bool psionicAutoPlay = (card.type == CARD_PSIONIC_WAVE);
 	bool teleportAutoPlay = (card.type == CARD_TELEPORT);
-	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus && !dispelHasAdjacentUnit);
+	bool dispelAutoBarrier = (card.type == CARD_DISPEL && !dispelHasAnyStatus);
 	bool blockingBoonAutoPlay = (card.type == CARD_BLOCKING_BOON); // <--- ADD THIS
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_TRAIN || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_RENEWED_INSPIRATION || dhAutoPlayNoAdjacent || (card.type == CARD_DISPEL && !dispelAutoBarrier) || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit));
 	// Auto-Play Bypasses (Skips Menus and Targeting Completely)
 	if (wisdomAutoBlockNoAdjacent || dispelAutoBarrier) {
+		if (dispelAutoBarrier) {
+			// Skip the menu and go directly to Barrier targeting mode
+			interactingCardIndex = cardIndex;
+			interactingCardType = CARD_DISPEL;
+			interactionMenuChoice = "Barrier";
+
+			if (dispelHasAdjacentUnit) {
+				updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, cardIndex, CARD_DISPEL);
+				calculateTargetHighlights(cardIndex);
+			} else {
+				// No adjacent unit, auto-target self
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = CARD_DISPEL;
+				cmd.params[1] = currentPlayerIndex; // self
+				cmd.params[2] = 1; // Barrier
+				cmd.params[3] = cardIndex;
+				if (isMultiplayer)
+					sendInputCommand(cmd, true);
+				else
+					queueInputCommand(cmd);
+			}
+			draggedCardIndex = -1;
+			selectedCardIndex = -1;
+			return;
+		}
+
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -25262,6 +25314,22 @@ void ofApp::applyCardOutcomeEffects() {
 		currentAP -= costToPay;
 		currentCardOutcome.apPaid = true;
 
+		// Add 5 seconds to the turn timer whenever a card is successfully played
+		if (turnTimerEnabled) {
+			int extraFrames = 5 * turnTimerFramesPerSecond;
+			int maxFrames = 240 * turnTimerFramesPerSecond; // 4 minutes max
+			if (turnTimerPaused) {
+				turnTimerPausedRemainingFrames = std::min(maxFrames, turnTimerPausedRemainingFrames + extraFrames);
+			} else {
+				turnDurationFrames += extraFrames;
+				int elapsed = (int)(simulationFrame - turnStartFrame);
+				int remaining = turnDurationFrames - elapsed;
+				if (remaining > maxFrames) {
+					turnDurationFrames = elapsed + maxFrames;
+				}
+			}
+		}
+
 		// Show played card animation
 		completeCardPlayAnimation(playedCard, currentCardOutcome.casterIndex);
 	} else {
@@ -25412,8 +25480,9 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 
 			// Toggle cards
 			Player & p = players[currentPlayerIndex];
-			float handBaseCardWidth = kCardPixelWidth;
-			float baseCardHeight = kCardPixelHeight;
+			HandLayout handLayout = computeHandLayout((int)p.hand.size(), (float)ofGetWidth(), (float)ofGetHeight());
+			float handBaseCardWidth = handLayout.cardW;
+			float baseCardHeight = handLayout.cardH;
 			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
 				if (i == interactingCardIndex) continue;
 				Card & card = p.hand[i];
@@ -28425,6 +28494,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 						preview = true;
 
+						// For magic bolt targeting mode, dynamically set the AOE center to the projected impact point
+						// so the expanding rings feature can display the radius around where it will actually land.
+						board[impactTile.x][impactTile.y].isAoeCenter = true;
+						board[impactTile.x][impactTile.y].aoeRadiusFeet = maxAoeFeet;
+
 						// --- FIX: USE RANGE DICE FOR RANGE CALCULATION IN UI ---
 						auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
 
@@ -29371,8 +29445,23 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
 			glm::ivec2 hoverTile = { (int)mouseTile.x, (int)mouseTile.y };
 			if (hoverTile.x >= 0 && hoverTile.x < BOARD_WIDTH && hoverTile.y >= 0 && hoverTile.y < BOARD_HEIGHT && board[hoverTile.x][hoverTile.y].isTargetPreview) {
-				bool centerChanged = (activeAOERing.centerTile != hoverTile) || (activeAOERing.cardType != CARD_MAGIC_BOLT);
-				activeAOERing.centerTile = hoverTile;
+
+				// Calculate the actual impact tile for the preview ring (in case it fell short and hit a wall)
+				glm::vec2 cPos((float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f);
+				glm::vec2 tPos((float)hoverTile.x + 0.5f, (float)hoverTile.y + 0.5f);
+				glm::ivec2 impactTile = hoverTile;
+				auto [rNum, rSides] = getCardRangeDice(card, card.numDice, card.diceSides);
+				long long maxRangeHalfTiles = ((long long)(rNum * rSides) * 2LL) / 5LL;
+				long long neededDistSq = getFaceToFaceDistanceSquaredScaled(cPos, tPos);
+				if (neededDistSq > maxRangeHalfTiles * maxRangeHalfTiles) {
+					glm::vec2 dir = tPos - cPos;
+					if (glm::length(dir) > 0) dir = glm::normalize(dir);
+					glm::vec2 impactPos = cPos + (dir * ((float)maxRangeHalfTiles / 2.0f));
+					impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+				}
+
+				bool centerChanged = (activeAOERing.centerTile != impactTile) || (activeAOERing.cardType != CARD_MAGIC_BOLT);
+				activeAOERing.centerTile = impactTile;
 				if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
 					activeAOERing.maxRadiusFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
 				} else {
