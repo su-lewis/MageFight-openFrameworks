@@ -11925,10 +11925,22 @@ void ofApp::drawGame() {
 
 	// Check if it's my turn
 	bool myTurn = isMyTurn();
-	// Only show the End Turn button during normal gameplay (hide during initiative roll and drafting)
-	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY);
 
-	if (showEndTurn) {
+	// Determine if we are in an optional placement/targeting mode
+	bool isOptionalInteraction = false;
+	string optionalBtnText = "Done";
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
+		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+		isOptionalInteraction = true;
+		optionalBtnText = "Skip Spike";
+	}
+
+	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY) && !isOptionalInteraction;
+	bool showDoneBtn = isCurrentPlayerLocal() && isOptionalInteraction;
+
+	if (showEndTurn || showDoneBtn) {
 		// 1. Draw End Turn Button Background
 		ofSetColor(isHoveringEndTurn ? ofColor::darkSlateGray : ofColor::slateGray);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
@@ -12083,9 +12095,9 @@ void ofApp::drawGame() {
 	}
 
 	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
-	if (showEndTurn) {
+	if (showEndTurn || showDoneBtn) {
 		ofSetColor(ofColor::white);
-		string endTurnButtonText = "End Turn";
+		string endTurnButtonText = showDoneBtn ? optionalBtnText : "End Turn";
 		// Use drawStatText to render the outlined, centered button text
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, fontScale);
 	}
@@ -16191,10 +16203,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3g. End Turn Button (only active during gameplay)
 		if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Must use Shell Spike!", ofColor::yellow);
+			bool isOptionalInteraction = false;
+			if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+				if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
+				if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+				isOptionalInteraction = true;
+			}
+
+			if (isOptionalInteraction) {
+				cancelAllTargeting();
+				playHandFeedbackSfx(0.9f, 0.1f);
 				return;
 			}
+
 			if (isPlayerAnimating) {
 				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
 				ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
@@ -18086,7 +18108,17 @@ void ofApp::startNewTurn() {
 			}
 
 			if (skipTurn) {
-				requestStartNewTurn();
+				EffectOp wait = {};
+				wait.type = EffectOpType::WAIT_VISUAL;
+				wait.data.damage.fixedDamage = 1;
+				queueEffect(wait);
+
+				EffectOp endOp = {};
+				endOp.type = EffectOpType::MODIFY_STAT;
+				endOp.data.modifyStat.statType = 99; // 99 = End Turn Immediate
+				queueEffect(endOp);
+
+				if (!isProcessingEffect) beginEffectSequence();
 				return;
 			}
 
@@ -18304,7 +18336,17 @@ void ofApp::startNewTurn() {
 	}
 
 	if (skipTurn) {
-		requestStartNewTurn();
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 1;
+		queueEffect(wait);
+
+		EffectOp endOp = {};
+		endOp.type = EffectOpType::MODIFY_STAT;
+		endOp.data.modifyStat.statType = 99; // 99 = End Turn Immediate
+		queueEffect(endOp);
+
+		if (!isProcessingEffect) beginEffectSequence();
 		return;
 	}
 
@@ -20759,10 +20801,15 @@ void ofApp::simulationTick() {
 									int roll = raw + luckBonus; // may exceed 4; that's intentional
 									if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 									// Show dice visual for the faerie roll
-									queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
+									queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
 									int hp = (dying.maxHealth * roll) / 4;
 									if (hp < 1) hp = 1;
 									{
+										EffectOp wait = {};
+										wait.type = EffectOpType::WAIT_VISUAL;
+										wait.data.damage.fixedDamage = 1;
+										queueEffect(wait);
+
 										EffectOp setHp = {};
 										setHp.type = EffectOpType::MODIFY_STAT;
 										setHp.data.modifyStat.targetIndex = (int)i;
@@ -20770,9 +20817,75 @@ void ofApp::simulationTick() {
 										setHp.data.modifyStat.delta = hp - dying.health;
 										setHp.data.modifyStat.deltaFromSlot = -1;
 										queueEffect(setHp);
+
+										auto qRm = [&](int sType) {
+											EffectOp rm = {};
+											rm.type = EffectOpType::REMOVE_STATUS;
+											rm.data.status.targetIndex = (int)i; // Remove from DYING unit
+											rm.data.status.statusType = sType;
+											rm.data.status.duration = 0;
+											queueEffect(rm);
+										};
+										qRm(STATUS_ON_FIRE);
+										qRm(STATUS_POISONED);
+										qRm(STATUS_PARALYZED);
+										qRm(STATUS_REPLICATE_QUEUED);
+										qRm(STATUS_ADD_POISON);
+										qRm(STATUS_NEXT_TURN_D10AP);
+										qRm(STATUS_NEXT_TURN_EXTRA_DRAW);
+										qRm(STATUS_NEXT_TURN_BONUS_DICE);
+										qRm(STATUS_STRENGTHEN_ELEMENTS);
+										qRm(STATUS_TORTOISE_FORM);
+										qRm(STATUS_GHOST_FORM);
+
+										auto qClear = [&](int statType, int delta) {
+											EffectOp c = {};
+											c.type = EffectOpType::MODIFY_STAT;
+											c.data.modifyStat.targetIndex = (int)i;
+											c.data.modifyStat.statType = statType;
+											c.data.modifyStat.delta = delta;
+											c.data.modifyStat.deltaFromSlot = -1;
+											queueEffect(c);
+										};
+										qClear(8, -dying.ward);
+										qClear(5, -dying.block);
+										qClear(13, -dying.fortification);
+										qClear(6, -dying.barrier);
+										qClear(7, -dying.holyBlock);
+										qClear(11, -dying.nextTurnAPBonus);
+										qClear(12, -dying.shocksPlayedThisTurn);
+										qClear(14, -dying.flurryOfFistsStacks);
+
+										// Synchronous logic (no visual deps)
+										dying.tortoiseDamageTaken = 0;
+										dying.tortoiseAccumulatedDamage = 0;
+										dying.ghostDamageTaken = 0;
+										dying.cardsPlayedThisTurn.clear();
+										dying.playedCardsPile.clear();
+										dying.summonedOnTurnCycle = globalTurnCounter;
+
+										int resurrectedIndex = findPlayerIndexByID(dying.playerID);
+										if (resurrectedIndex >= 0) {
+											if (!dying.discardPile.empty()) {
+												dying.deck.insert(dying.deck.end(), dying.discardPile.begin(), dying.discardPile.end());
+												dying.discardPile.clear();
+												shuffleGameVector(dying.deck, resurrectedIndex);
+											}
+										}
+
+										EffectOp spawn = {};
+										spawn.type = EffectOpType::SPAWN_PLAYER;
+										spawn.data.spawnPlayer.x = dying.x;
+										spawn.data.spawnPlayer.y = dying.y;
+										spawn.data.spawnPlayer.playerID = dying.playerID;
+										spawn.data.spawnPlayer.deckChoice = 0;
+										queueEffect(spawn);
+
 										if (!isProcessingEffect) beginEffectSequence();
 									}
 									resurrected = true;
+									queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+									ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie for " << hp << " HP.";
 								}
 							}
 						}
@@ -24442,6 +24555,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::MODIFY_STAT: {
+		if (op.data.modifyStat.statType == 99) { // 99 = END TURN IMMEDIATE
+			requestStartNewTurn();
+			opComplete = true;
+			break;
+		}
 		int targetIndex = op.data.modifyStat.targetIndex;
 		int delta = op.data.modifyStat.delta;
 		if (op.data.modifyStat.deltaFromSlot >= 0) {
@@ -24602,7 +24720,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (dur > 0)
 						target.paralysisHeadsCount = dur;
 					else if (target.paralysisHeadsCount == 0)
-						target.paralysisHeadsCount = 1;
+						target.paralysisHeadsCount = 0; // Fixed: requires 2 heads to cure!
 					break;
 				case STATUS_POISONED:
 					target.isPoisoned = true;
@@ -32197,200 +32315,6 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								setHp.data.modifyStat.deltaFromSlot = -1;
 								processEffectOp(setHp);
 							}
-							// Remove transient statuses deterministically via effect ops
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx; // index in players
-								rm.data.status.statusType = STATUS_ON_FIRE;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							// onFire will be cleared when the REMOVE_STATUS op is processed
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_POISONED;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							// isPoisoned and poisonReduction will be cleared when the REMOVE_STATUS op is processed
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_PARALYZED;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							// isParalyzed and paralysisHeadsCount will be cleared when the REMOVE_STATUS op is processed
-							// Clear some transient numeric stats via MODIFY_STAT ops so changes are deterministic
-							{
-								int tgtIdx = findPlayerIndexByID(target.playerID);
-								EffectOp clearWard = {};
-								clearWard.type = EffectOpType::MODIFY_STAT;
-								clearWard.data.modifyStat.targetIndex = tgtIdx;
-								clearWard.data.modifyStat.statType = 8; // Ward
-								clearWard.data.modifyStat.delta = -target.ward;
-								clearWard.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearWard);
-								EffectOp clearBlock = {};
-								clearBlock.type = EffectOpType::MODIFY_STAT;
-								clearBlock.data.modifyStat.targetIndex = tgtIdx;
-								clearBlock.data.modifyStat.statType = 5; // Block
-								clearBlock.data.modifyStat.delta = -target.block;
-								clearBlock.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearBlock);
-								EffectOp clearFort = {};
-								clearFort.type = EffectOpType::MODIFY_STAT;
-								clearFort.data.modifyStat.targetIndex = tgtIdx;
-								clearFort.data.modifyStat.statType = 13; // Fortification
-								clearFort.data.modifyStat.delta = -target.fortification;
-								clearFort.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearFort);
-								EffectOp clearBarrier = {};
-								clearBarrier.type = EffectOpType::MODIFY_STAT;
-								clearBarrier.data.modifyStat.targetIndex = tgtIdx;
-								clearBarrier.data.modifyStat.statType = 6; // Barrier
-								clearBarrier.data.modifyStat.delta = -target.barrier;
-								clearBarrier.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearBarrier);
-								EffectOp clearHoly = {};
-								clearHoly.type = EffectOpType::MODIFY_STAT;
-								clearHoly.data.modifyStat.targetIndex = tgtIdx;
-								clearHoly.data.modifyStat.statType = 7; // HolyBlock
-								clearHoly.data.modifyStat.delta = -target.holyBlock;
-								clearHoly.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearHoly);
-							}
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_REPLICATE_QUEUED;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							// replicateQueued will be cleared when the REMOVE_STATUS op is processed
-							// Clear transient numeric flags deterministically via effect ops
-							{
-								int tgtIdx = findPlayerIndexByID(target.playerID);
-								EffectOp clearNextAP = {};
-								clearNextAP.type = EffectOpType::MODIFY_STAT;
-								clearNextAP.data.modifyStat.targetIndex = tgtIdx;
-								clearNextAP.data.modifyStat.statType = 11; // Next-turn AP bonus
-								clearNextAP.data.modifyStat.delta = -target.nextTurnAPBonus;
-								clearNextAP.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearNextAP);
-
-								EffectOp clearShocks = {};
-								clearShocks.type = EffectOpType::MODIFY_STAT;
-								clearShocks.data.modifyStat.targetIndex = tgtIdx;
-								clearShocks.data.modifyStat.statType = 12; // Shocks played this turn
-								clearShocks.data.modifyStat.delta = -target.shocksPlayedThisTurn;
-								clearShocks.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearShocks);
-
-								EffectOp clearFlurry = {};
-								clearFlurry.type = EffectOpType::MODIFY_STAT;
-								clearFlurry.data.modifyStat.targetIndex = tgtIdx;
-								clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
-								clearFlurry.data.modifyStat.delta = -target.flurryOfFistsStacks;
-								clearFlurry.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(clearFlurry);
-							}
-
-							// Remove next-turn and duration statuses deterministically
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_ADD_POISON;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_NEXT_TURN_D10AP;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_STRENGTHEN_ELEMENTS;
-								rm.data.status.duration = 0;
-								processEffectOp(rm);
-							}
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_TORTOISE_FORM;
-								rm.data.status.duration = 0;
-								queueEffect(rm);
-							}
-							// inTortoiseForm and related fields will be cleared when the REMOVE_STATUS op is processed
-							target.tortoiseDamageTaken = 0;
-							target.tortoiseAccumulatedDamage = 0;
-							{
-								EffectOp rm = {};
-								rm.type = EffectOpType::REMOVE_STATUS;
-								rm.data.status.targetIndex = (int)pidx;
-								rm.data.status.statusType = STATUS_GHOST_FORM;
-								rm.data.status.duration = 0;
-								queueEffect(rm);
-							}
-							// inGhostForm and related fields will be cleared when the REMOVE_STATUS op is processed
-							target.ghostDamageTaken = 0;
-							target.cardsPlayedThisTurn.clear();
-							target.playedCardsPile.clear();
-							target.summonedOnTurnCycle = globalTurnCounter;
-
-							// Move discard into deck and reshuffle so resurrected unit has access to its cards
-							int resurrectedIndex = findPlayerIndexByID(target.playerID);
-							if (resurrectedIndex >= 0) {
-								if (!target.discardPile.empty()) {
-									target.deck.insert(target.deck.end(), target.discardPile.begin(), target.discardPile.end());
-									target.discardPile.clear();
-									shuffleGameVector(target.deck, resurrectedIndex);
-								}
-							}
-
-							// Ensure tile/player presence is set deterministically via a SPAWN_PLAYER op
-							{
-								EffectOp spawn = {};
-								spawn.type = EffectOpType::SPAWN_PLAYER;
-								spawn.data.spawnPlayer.x = target.x;
-								spawn.data.spawnPlayer.y = target.y;
-								spawn.data.spawnPlayer.playerID = target.playerID;
-								spawn.data.spawnPlayer.deckChoice = 0;
-								queueEffect(spawn);
-							}
-
-							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
-							ofLogNotice("Faerie") << "Unit " << target.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
-							resurrected = true;
 						}
 					}
 				}
