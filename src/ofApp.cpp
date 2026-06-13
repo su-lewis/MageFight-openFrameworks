@@ -5014,7 +5014,10 @@ void ofApp::draw() {
 		// like a top-layer dialog instead of a full navigation break.
 		switch (stateBeforeSettings) {
 		case STATE_MAIN_MENU:
-			drawMainMenu();
+		case STATE_SINGLEPLAYER_MENU:
+		case STATE_SAVE_BROWSER:
+		case STATE_MULTIPLAYER_MENU:
+			// Do not draw underlying menus; let it be the solid grey background.
 			break;
 		case STATE_PAUSED:
 			drawGame();
@@ -5033,20 +5036,18 @@ void ofApp::draw() {
 			drawGame();
 			drawDraftScreen();
 			break;
-		case STATE_SINGLEPLAYER_MENU:
-			drawSingleplayerMenu();
-			break;
-		case STATE_SAVE_BROWSER:
-			drawSaveBrowser();
-			break;
 		default:
-			drawMainMenu();
 			break;
 		}
-		ofPushStyle();
-		ofSetColor(0, 0, 0, 170);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-		ofPopStyle();
+
+		// Only draw the dark overlay if we are drawing over the game or pause menu
+		if (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_PAUSED || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DRAFTING) {
+			ofPushStyle();
+			ofSetColor(0, 0, 0, 170);
+			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+			ofPopStyle();
+		}
+
 		drawSettingsMenu();
 		break;
 	case STATE_GAMEPLAY:
