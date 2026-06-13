@@ -36,6 +36,9 @@ static float g_menuAlphaMult = 1.0f;
 // Used to defer Shell Spike targeting until after a card has fully resolved
 static bool g_pendingShellSpike = false;
 
+static float g_mpLobbyScroll = 0.0f;
+static float g_mpLeaderboardScroll = 0.0f;
+
 // Path constants
 
 // Pending macros migrated; use `networkPending.*` fields.
@@ -4808,11 +4811,7 @@ void ofApp::update() {
 
 	switch (currentState) {
 	case STATE_MAIN_MENU:
-		drawMainMenu();
-		break;
-	case STATE_MULTIPLAYER_MENU: // <--- ADD THIS
-		drawMultiplayerMenu(); // <--- ADD THIS
-		break; // <--- ADD THIS
+	case STATE_MULTIPLAYER_MENU:
 	case STATE_SETTINGS:
 	case STATE_DESYNC:
 		break;
@@ -5007,6 +5006,9 @@ void ofApp::draw() {
 	case STATE_MAIN_MENU:
 		drawMainMenu();
 		break;
+	case STATE_MULTIPLAYER_MENU:
+		drawMultiplayerMenu();
+		break;
 	case STATE_SETTINGS:
 		// Draw the underlying state behind the settings overlay so the menu feels
 		// like a top-layer dialog instead of a full navigation break.
@@ -5166,20 +5168,22 @@ void ofApp::drawSettingsMenu() {
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
 
-	// --- Draw Background Panel ---
-	float panelW = 900.0f * uiScale;
-	float panelH = ofGetHeight() * 0.85f;
-	float panelY = ofGetHeight() * 0.075f;
-	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+	// --- Draw Background Panel (Only when paused/in-game) ---
+	if (stateBeforeSettings != STATE_MAIN_MENU && stateBeforeSettings != STATE_SINGLEPLAYER_MENU) {
+		float panelW = 900.0f * uiScale;
+		float panelH = ofGetHeight() * 0.85f;
+		float panelY = ofGetHeight() * 0.075f;
+		ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
 
-	ofPushStyle();
-	ofSetColor(25, 25, 30, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
-	ofNoFill();
-	ofSetLineWidth(2.0f);
-	ofSetColor(80, 80, 90, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
-	ofPopStyle();
+		ofPushStyle();
+		ofSetColor(25, 25, 30, 255);
+		ofDrawRectRounded(panelRect, 16.0f);
+		ofNoFill();
+		ofSetLineWidth(2.0f);
+		ofSetColor(80, 80, 90, 255);
+		ofDrawRectRounded(panelRect, 16.0f);
+		ofPopStyle();
+	}
 
 	// Draw Title
 	ofSetColor(ofColor::white);
@@ -5463,28 +5467,15 @@ void ofApp::drawSingleplayerMenu() {
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
 
-	// --- Draw Background Panel ---
-	float panelW = 500.0f * uiScale;
-	float panelH = ofGetHeight() * 0.75f;
-	float panelY = ofGetHeight() * 0.125f;
-	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
-
-	ofPushStyle();
-	ofSetColor(25, 25, 30, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
-	ofNoFill();
-	ofSetLineWidth(2.0f);
-	ofSetColor(80, 80, 90, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
-	ofPopStyle();
-
 	ofSetColor(ofColor::white);
 	string title = "Singleplayer";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, panelY + 60.0f * uiScale);
+
+	// Position title above the first button
+	float titleY = singleplayerNewGameButton.y - 40.0f * uiScale;
+	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, titleY);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
-		// White by default; hover -> light gray
 		if (r.inside(ofGetMouseX(), ofGetMouseY()))
 			ofSetColor(ofColor::lightGray);
 		else
@@ -5500,11 +5491,6 @@ void ofApp::drawSingleplayerMenu() {
 		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
 
-	// Increase panel height to fit the new replay button
-	panelH = ofGetHeight() * 0.85f;
-	panelRect.set(centerX - panelW / 2.0f, panelY, panelW, panelH);
-
-	// Continue button shows autosave timestamp (YYYY-MM-DD HH:MM)
 	std::string contText = "Continue";
 	try {
 		namespace fs = std::filesystem;
@@ -5514,15 +5500,12 @@ void ofApp::drawSingleplayerMenu() {
 			if (savedAt < 0) savedAt = (int64_t)std::time(nullptr);
 			std::time_t tt = (std::time_t)savedAt;
 			char buf[64];
-			// Format: YYYY-MM-DD HH:MM (no seconds)
 			std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
 			contText += " (";
 			contText += buf;
 			contText += ")";
 		}
-	} catch (...) {
-		// ignore filesystem errors
-	}
+	} catch (...) { }
 
 	drawBtn(singleplayerNewGameButton, "New Game");
 	drawBtn(singleplayerContinueButton, contText);
@@ -5530,11 +5513,10 @@ void ofApp::drawSingleplayerMenu() {
 	drawBtn(singleplayerReplayButton, "Watch Last Replay");
 	drawBtn(singleplayerBackButton, "Back");
 
-	// Short customization hint
 	string hint = "Customisation coming soon";
 	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
 	ofSetColor(200);
-	uiFont.drawString(hint, ofGetWidth() / 2.0f - hb.getWidth() / 2.0f, singleplayerBackButton.getBottom() + 36);
+	uiFont.drawString(hint, centerX - hb.getWidth() / 2.0f, singleplayerBackButton.getBottom() + 36);
 }
 
 void ofApp::drawSaveBrowser() {
@@ -5689,6 +5671,7 @@ void ofApp::drawSaveBrowser() {
 		uiFont.drawString("Cancel", saveBrowserConfirmCancelButton.getCenter().x - cb.getWidth() / 2, saveBrowserConfirmCancelButton.getCenter().y + cb.getHeight() / 2);
 	}
 }
+
 void ofApp::drawMultiplayerMenu() {
 	ofDisableLighting();
 	ofEnableAlphaBlending();
@@ -5696,32 +5679,19 @@ void ofApp::drawMultiplayerMenu() {
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
 
-	// Background Panel
-	float panelW = 1200.0f * uiScale;
-	float panelH = ofGetHeight() * 0.85f;
-	float panelY = ofGetHeight() * 0.075f;
-	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
-
-	ofPushStyle();
-	ofSetColor(25, 25, 30, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
-	ofNoFill();
-	ofSetLineWidth(2.0f);
-	ofSetColor(80, 80, 90, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
-	ofPopStyle();
-
 	// Title
 	ofSetColor(ofColor::white);
 	string title = "Online Versus";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, panelY + 50.0f * uiScale);
+	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.1f);
 
-	// Split panel into two columns
-	float colW = (panelW - 60.0f * uiScale) / 2.0f;
-	float leftColX = panelRect.x + 20.0f * uiScale;
-	float rightColX = centerX + 10.0f * uiScale;
-	float listY = panelY + 120.0f * uiScale;
+	// Layout Dimensions (Full screen split in two)
+	float colW = ofGetWidth() * 0.4f;
+	float leftColX = ofGetWidth() * 0.05f;
+	float rightColX = ofGetWidth() * 0.55f;
+	float listY = ofGetHeight() * 0.2f;
+	float bottomBtnY = ofGetHeight() * 0.85f;
+	float listHeight = bottomBtnY - listY - 20.0f * uiScale;
 
 	// --- LEFT COLUMN: LOBBY LIST ---
 	ofSetColor(ofColor::gold);
@@ -5729,30 +5699,46 @@ void ofApp::drawMultiplayerMenu() {
 
 	auto lobbies = steamManager.getLobbyList();
 	mpLobbyButtons.clear();
-	float currentY = listY;
-	float btnH = 50.0f * uiScale;
+	float btnH = 60.0f * uiScale;
+
+	// Calculate max scroll for lobbies
+	float totalLobbyHeight = lobbies.size() * (btnH + 10.0f * uiScale);
+	float maxLobbyScroll = std::max(0.0f, totalLobbyHeight - listHeight);
+	g_mpLobbyScroll = std::clamp(g_mpLobbyScroll, 0.0f, maxLobbyScroll);
+
+	// Setup Scissor to clip scrolling lobbies
+	glEnable(GL_SCISSOR_TEST);
+	glScissor((int)leftColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (lobbies.empty()) {
 		ofSetColor(150);
-		uiFont.drawString("No open matches found.", leftColX, currentY + 30);
+		uiFont.drawString("No open matches found.", leftColX + 10, listY + 30);
 	} else {
+		float currentY = listY - g_mpLobbyScroll;
 		for (size_t i = 0; i < lobbies.size(); ++i) {
 			ofRectangle lRect(leftColX, currentY, colW, btnH);
-			mpLobbyButtons.push_back(lRect);
 
-			ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
-			ofDrawRectRounded(lRect, 8.0f);
+			// Only render and map clickable rects that are within the visible list box
+			if (lRect.getBottom() > listY && lRect.getTop() < listY + listHeight) {
+				mpLobbyButtons.push_back(lRect);
 
-			ofSetColor(ofColor::white);
-			std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/" + std::to_string(lobbies[i].maxPlayers) + ")";
-			uiFont.drawString(lobbyText, lRect.x + 15, lRect.y + 35 * uiScale);
+				ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
+				ofDrawRectRounded(lRect, 8.0f);
+
+				ofSetColor(ofColor::white);
+				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/" + std::to_string(lobbies[i].maxPlayers) + ")";
+				uiFont.drawString(lobbyText, lRect.x + 15, lRect.y + 40 * uiScale);
+			} else {
+				// Push empty rect so the loop index matches the lobby click selection array!
+				mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
+			}
 
 			currentY += btnH + 10.0f * uiScale;
 		}
 	}
+	glDisable(GL_SCISSOR_TEST);
 
 	// Action Buttons under Lobbies
-	float bottomBtnY = panelRect.getBottom() - 80.0f * uiScale;
 	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
 	mpHostButton.set(leftColX + colW / 2.0f + 10, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
 
@@ -5772,35 +5758,47 @@ void ofApp::drawMultiplayerMenu() {
 	uiFont.drawString("Global Rankings (Elo)", rightColX, listY - 20.0f * uiScale);
 
 	auto leaderboard = steamManager.getLeaderboardEntries();
-	float lbY = listY;
+
+	// Calculate max scroll for leaderboard
+	float totalLbHeight = leaderboard.size() * (btnH + 5.0f * uiScale);
+	float maxLbScroll = std::max(0.0f, totalLbHeight - listHeight);
+	g_mpLeaderboardScroll = std::clamp(g_mpLeaderboardScroll, 0.0f, maxLbScroll);
+
+	glEnable(GL_SCISSOR_TEST);
+	glScissor((int)rightColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (leaderboard.empty()) {
 		ofSetColor(150);
-		uiFont.drawString("Loading rankings...", rightColX, lbY + 30);
+		uiFont.drawString("Loading rankings...", rightColX + 10, listY + 30);
 	} else {
+		float lbY = listY - g_mpLeaderboardScroll;
 		for (const auto & entry : leaderboard) {
-			ofSetColor(40, 40, 50);
-			ofDrawRectRounded(rightColX, lbY, colW, btnH, 8.0f);
+			ofRectangle lbRect(rightColX, lbY, colW, btnH);
+			if (lbRect.getBottom() > listY && lbRect.getTop() < listY + listHeight) {
+				ofSetColor(40, 40, 50);
+				ofDrawRectRounded(lbRect, 8.0f);
 
-			ofSetColor(ofColor::gold);
-			uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 10, lbY + 35 * uiScale);
+				ofSetColor(ofColor::gold);
+				uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
 
-			ofSetColor(ofColor::white);
-			uiFont.drawString(entry.name, rightColX + 70 * uiScale, lbY + 35 * uiScale);
+				ofSetColor(ofColor::white);
+				uiFont.drawString(entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
 
-			ofSetColor(ofColor::green);
-			std::string scoreStr = std::to_string(entry.score);
-			ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
-			uiFont.drawString(scoreStr, rightColX + colW - sb.width - 15, lbY + 35 * uiScale);
-
+				ofSetColor(ofColor::green);
+				std::string scoreStr = std::to_string(entry.score);
+				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
+				uiFont.drawString(scoreStr, rightColX + colW - sb.width - 20, lbY + 40 * uiScale);
+			}
 			lbY += btnH + 5.0f * uiScale;
 		}
 	}
+	glDisable(GL_SCISSOR_TEST);
 
 	// Back Button
 	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
 	drawBtn(mpBackButton, "Back to Menu");
 }
+
 //--------------------------------------------------------------
 void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
@@ -9542,6 +9540,13 @@ void ofApp::drawGame() {
 				}
 			}
 
+			ofColor unitTint = ofColor::white;
+			int effectiveOwner = player.isMinion ? player.ownerID : player.playerID;
+			if (effectiveOwner == 0)
+				unitTint = ofColor(255, 120, 120); // Player 1: Red
+			else if (effectiveOwner == 1)
+				unitTint = ofColor(120, 255, 120); // Player 2: Green
+
 			ofPushMatrix();
 
 			// --- 2. GHOST FORM (Overrides everything) ---
@@ -9568,7 +9573,7 @@ void ofApp::drawGame() {
 				// Enable transparency
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
-				ofSetColor(255, 255, 255, 150);
+				ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
 
 				// Bind Texture
 				if (ghostBaseTex.isAllocated()) ghostBaseTex.bind();
@@ -9582,6 +9587,8 @@ void ofApp::drawGame() {
 			// --- 3. STANDARD MODELS ---
 			else {
 				float unitFacingAngle = player.facingAngle;
+				ofSetColor(unitTint);
+
 				if (player.isSkeleton) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
@@ -9591,7 +9598,7 @@ void ofApp::drawGame() {
 						ofLogError("Render") << "Skeleton model missing: drawing placeholder at (" << pos.x << "," << pos.z << ")";
 						ofPushMatrix();
 						ofTranslate(0, 0.0f, 0);
-						ofSetColor(220, 220, 220);
+						ofSetColor(unitTint);
 						ofDrawSphere(0.0f, 1.0f, 0.0f, 0.6f);
 						ofSetColor(255);
 						ofPopMatrix();
@@ -9624,13 +9631,6 @@ void ofApp::drawGame() {
 								ofMatrix4x4 viewProj = projMat * viewMat;
 								ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 								pbrShader.begin();
-								// Dump GL state for diagnostics
-								GLint prevProgram = 0;
-								glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
-								ofLogNotice("Render") << "GLState before skeleton draw: CUR_PROG=" << prevProgram;
-								GLboolean cullEn = glIsEnabled(GL_CULL_FACE);
-								GLboolean depthEn = glIsEnabled(GL_DEPTH_TEST);
-								ofLogNotice("Render") << "GLState: CULL_FACE=" << (cullEn ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthEn ? "ENABLED" : "DISABLED");
 								pbrShader.setUniformMatrix4f("uModel", modelMat);
 								pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 								pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -9642,91 +9642,14 @@ void ofApp::drawGame() {
 								if (skeletonTexture.isAllocated()) {
 									pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
 									pbrShader.setUniform1i("useAlbedoTex", 1);
-								} else
+								} else {
 									pbrShader.setUniform1i("useAlbedoTex", 0);
+								}
 								pbrShader.setUniform1i("useNormalTex", 0);
 								if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-								// Query bound texture IDs at active units 0 and 7
-								GLint prevActiveTex = 0;
-								glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTex);
-								glActiveTexture(GL_TEXTURE0);
-								GLint bound0 = 0;
-								glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound0);
-								glActiveTexture(GL_TEXTURE7);
-								GLint bound7 = 0;
-								glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound7);
-								glActiveTexture(prevActiveTex);
-								ofLogNotice("Render") << "GLState: boundTex(unit0)=" << bound0 << " boundTex(unit7)=" << bound7;
-
-								// Dump some PBR uniforms for debugging (readback from currently bound program)
-								GLint curProg = 0;
-								glGetIntegerv(GL_CURRENT_PROGRAM, &curProg);
-								ofLogNotice("Render") << "PBR debug: CUR_PROG=" << curProg;
-								if (curProg != 0) {
-									// Helper lambda to read and log float/uniform arrays
-									auto dumpFloatUniform = [&](const char * name, int count) {
-										GLint loc = glGetUniformLocation(curProg, name);
-										if (loc == -1) {
-											ofLogNotice("Render") << "PBR debug: uniform '" << name << "' not found";
-											return;
-										}
-										std::vector<float> buf(count);
-										glGetUniformfv(curProg, loc, buf.data());
-										std::ostringstream ss;
-										ss << "PBR uniform '" << name << "'[" << count << "] = ";
-										for (int ii = 0; ii < count; ++ii)
-											ss << buf[ii] << (ii + 1 < count ? "," : "");
-										ofLogNotice("Render") << ss.str();
-									};
-
-									auto dumpIntUniform = [&](const char * name) {
-										GLint loc = glGetUniformLocation(curProg, name);
-										if (loc == -1) {
-											ofLogNotice("Render") << "PBR debug: int uniform '" << name << "' not found";
-											return;
-										}
-										GLint val = 0;
-										glGetUniformiv(curProg, loc, &val);
-										ofLogNotice("Render") << "PBR int uniform '" << name << "' = " << val;
-									};
-
-									// Read common uniforms (matrices and flags)
-									dumpFloatUniform("uModel", 16);
-									dumpFloatUniform("uViewProj", 16);
-									dumpFloatUniform("uNormalMatrix", 16);
-									dumpFloatUniform("uLightVP", 16);
-									dumpIntUniform("useAlbedoTex");
-									dumpIntUniform("useNormalTex");
-									dumpIntUniform("shadowMap");
-								}
-								// Compute world-space AABB and screen centroid for diagnostics
-								ofVec3f bbMin(1e9, 1e9, 1e9), bbMax(-1e9, -1e9, -1e9);
-								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
-									auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
-									for (const auto & v : mesh.getVertices()) {
-										ofVec3f wp = ofVec3f(modelMat * ofVec4f(v.x, v.y, v.z, 1.0));
-										bbMin.x = std::min(bbMin.x, wp.x);
-										bbMin.y = std::min(bbMin.y, wp.y);
-										bbMin.z = std::min(bbMin.z, wp.z);
-										bbMax.x = std::max(bbMax.x, wp.x);
-										bbMax.y = std::max(bbMax.y, wp.y);
-										bbMax.z = std::max(bbMax.z, wp.z);
-									}
-								}
-								ofVec3f center((bbMin.x + bbMax.x) * 0.5f, (bbMin.y + bbMax.y) * 0.5f, (bbMin.z + bbMax.z) * 0.5f);
-								ofVec3f screenC = activeCam.worldToScreen(glm::vec3(center.x, center.y, center.z));
-								ofLogNotice("Render") << "Skeleton AABB worldMin=" << bbMin << " worldMax=" << bbMax << " centerScreen=" << screenC;
 
 								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
-									auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
-									ofLogNotice("Render") << "Skeleton mesh[" << mi << "] verts=" << mesh.getNumVertices() << " indices=" << mesh.getNumIndices();
-									mesh.drawFaces();
-									// GL state after draw
-									GLboolean cullAfter = glIsEnabled(GL_CULL_FACE);
-									GLboolean depthAfter = glIsEnabled(GL_DEPTH_TEST);
-									ofLogNotice("Render") << "GLState after mesh draw: CULL_FACE=" << (cullAfter ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthAfter ? "ENABLED" : "DISABLED");
-									GLenum _err = glGetError();
-									if (_err != GL_NO_ERROR) ofLogError("Render") << "GL error after skeleton mesh draw: " << _err;
+									skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
 								}
 							}
 							pbrShader.end();
@@ -9750,6 +9673,7 @@ void ofApp::drawGame() {
 						ofMatrix4x4 viewProj = projMat * viewMat;
 						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
 						pbrShader.setUniformMatrix4f("uModel", modelMat);
 						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -9798,6 +9722,7 @@ void ofApp::drawGame() {
 						ofMatrix4x4 viewProj = projMat * viewMat;
 						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
 						pbrShader.setUniformMatrix4f("uModel", modelMat);
 						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -9851,6 +9776,7 @@ void ofApp::drawGame() {
 						ofMatrix4x4 viewProj = projMat * viewMat;
 						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
 						pbrShader.setUniformMatrix4f("uModel", modelMat);
 						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -9881,6 +9807,7 @@ void ofApp::drawGame() {
 						ofMatrix4x4 viewProj = projMat * viewMat;
 						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
 						pbrShader.setUniformMatrix4f("uModel", modelMat);
 						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -9911,6 +9838,7 @@ void ofApp::drawGame() {
 						ofMatrix4x4 viewProj = projMat * viewMat;
 						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
 						pbrShader.setUniformMatrix4f("uModel", modelMat);
 						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -9946,6 +9874,7 @@ void ofApp::drawGame() {
 						ofMatrix4x4 viewProj = projMat * viewMat;
 						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
 						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
 						pbrShader.setUniformMatrix4f("uModel", modelMat);
 						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
@@ -10072,7 +10001,7 @@ void ofApp::drawGame() {
 						wallUnitModel.drawFaces();
 						ofPopMatrix();
 						glDisable(GL_POLYGON_OFFSET_FILL);
-						ofSetColor(255);
+						ofSetColor(unitTint);
 						ofDisableBlendMode();
 					}
 				}
@@ -10083,10 +10012,10 @@ void ofApp::drawGame() {
 					ofTranslate(0, 1.7f, 0);
 					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
 
-					// Optional: Tint blue/purple to look magical
-					ofSetColor(200, 200, 255);
+					// Optional: Tint blue/purple to look magical, blended with the team tint
+					ofSetColor((200 * unitTint.r) / 255, (200 * unitTint.g) / 255, (255 * unitTint.b) / 255);
 					assistantModel.drawFaces();
-					ofSetColor(255);
+					ofSetColor(unitTint);
 				} else {
 					// Default Player
 					ofTranslate(pos.x, 0.1f, pos.z);
@@ -17094,6 +17023,22 @@ void ofApp::mouseReleased(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
+	// Handle Multiplayer Menu scrolling
+	if (currentState == STATE_MULTIPLAYER_MENU) {
+		float colW = ofGetWidth() * 0.4f;
+		float leftColX = ofGetWidth() * 0.05f;
+		float rightColX = ofGetWidth() * 0.55f;
+
+		if (x >= leftColX && x <= leftColX + colW) {
+			g_mpLobbyScroll -= scrollY * 40.0f;
+			g_mpLobbyScroll = std::max(0.0f, g_mpLobbyScroll);
+		} else if (x >= rightColX && x <= rightColX + colW) {
+			g_mpLeaderboardScroll -= scrollY * 40.0f;
+			g_mpLeaderboardScroll = std::max(0.0f, g_mpLeaderboardScroll);
+		}
+		return;
+	}
+
 	// Handle minion UI scrolling
 	float scale = getUIScaleFromHeight(ofGetHeight());
 	ofRectangle p0Area(p0_minionLeft - 20 * scale, p0_minionTop, minionPanelW + 20 * scale, p0_minionViewH);
@@ -33949,7 +33894,14 @@ void ofApp::drawMinionManagerUI() {
 		ofEnableDepthTest();
 		ofDisableLighting();
 		uiLight.disable();
-		ofSetColor(255);
+
+		ofColor unitTint = ofColor::white;
+		int effectiveOwner = minion.isMinion ? minion.ownerID : minion.playerID;
+		if (effectiveOwner == 0)
+			unitTint = ofColor(255, 120, 120);
+		else if (effectiveOwner == 1)
+			unitTint = ofColor(120, 255, 120);
+		ofSetColor(unitTint);
 
 		ofPushMatrix();
 
@@ -34015,7 +33967,7 @@ void ofApp::drawMinionManagerUI() {
 			// CORRECTION HERE TOO if needed in UI
 			ofRotateYDeg(-90);
 
-			ofSetColor(255);
+			ofSetColor(unitTint);
 			if (koboldKingTexture.isAllocated()) koboldKingTexture.bind();
 			koboldKingModel.drawFaces();
 			if (koboldKingTexture.isAllocated()) koboldKingTexture.unbind();
@@ -34071,7 +34023,7 @@ void ofApp::drawMinionManagerUI() {
 				wallUnitModel.drawFaces();
 				ofPopMatrix();
 				glDisable(GL_POLYGON_OFFSET_FILL);
-				ofSetColor(255);
+				ofSetColor(unitTint);
 				ofDisableBlendMode();
 			}
 		}
@@ -34097,7 +34049,7 @@ void ofApp::drawMinionManagerUI() {
 		}
 		// --- SKELETON PREVIEW --- Default
 		else {
-			ofSetColor(255);
+			ofSetColor(unitTint);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
 			// SKELETON: Slightly larger for readability
 			ofScale(26 * kMinionPreviewScaleBoost, -26 * kMinionPreviewScaleBoost, 26 * kMinionPreviewScaleBoost);
