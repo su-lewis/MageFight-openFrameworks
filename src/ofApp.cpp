@@ -13841,9 +13841,9 @@ cursor_check_done:;
 
 			// --- TARGET SQUARE TOOLTIP ---
 			// Show tooltip for target preview squares with range roll info
-			if (unitIndexAtMouse == -1 && board[tooltipGX][tooltipGY].hasTooltipInfo && board[tooltipGX][tooltipGY].isTargetPreview) {
+			if (unitIndexAtMouse == -1 && board[tooltipGX][tooltipGY].hasTooltipInfo) {
 				isShowingTooltip = true;
-				tooltipPos = glm::vec2(x, y - 20); // Slightly above cursor
+				tooltipPos = glm::vec2(x, y - 20);
 
 				// Format: "Min Roll: 15 (65%)" or "Min Roll: 5 (95%)"
 				int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
@@ -13856,32 +13856,21 @@ cursor_check_done:;
 					int tiles = (int)round((double)feet / 5.0);
 					tooltipText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
 
-					// Per-target breakdown: compute min roll & hit chance for each candidate (same calc as ranged)
+					// Per-target breakdown: compute min roll & hit chance for each candidate
 					std::string breakdown = "\nHits:";
 					for (size_t i = 0; i < players.size(); ++i) {
 						if ((int)i == currentPlayerIndex) continue;
 						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
 						if (distToPlayerFeet <= feet + 0.01f) {
-							// verify LOS from center to player
-							auto losPath = getLineOfSightPath(glm::vec2((float)tooltipGX, (float)tooltipGY) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
-							bool blocked = false;
-							for (const auto & step : losPath) {
-								if ((int)step.x == tooltipGX && (int)step.y == tooltipGY) continue;
-								if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
-								if (isTileWall((int)step.x, (int)step.y)) {
-									blocked = true;
-									break;
-								}
-							}
-							if (!blocked) {
+							// verify LOS from center to player using the precise clear ray
+							auto clearRay = getClearLosRay(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y), CARD_FIREBALL);
+
+							if (clearRay.hasLos) { // <--- CHANGED THIS LINE! Much cleaner!
 								int minRoll = (int)ceil(distToPlayerFeet);
 
-								// compute probability p for this minRoll using aoe dice config
 								int diceNum = 1;
 								int sides = 20;
-								// prefer stored aoe config if available
-								// (board stores only feet; derive dice from current card if possible)
 								if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
 									const Card & c = currentPlayer.hand[activeCardForHighlight];
 									if (c.aoeRadiusDiceNum > 0) diceNum = c.aoeRadiusDiceNum;
@@ -13921,7 +13910,6 @@ cursor_check_done:;
 									p = 0.5;
 								}
 
-								// Combine with range-hit chance for Magic Bolt previews
 								double combinedP = p;
 								if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
 									const Card & hc = currentPlayer.hand[activeCardForHighlight];
@@ -14103,7 +14091,7 @@ cursor_check_done:;
 				}
 
 				// Add range tooltip info if unit is a valid target for current card preview
-				if (board[tooltipGX][tooltipGY].hasTooltipInfo && board[tooltipGX][tooltipGY].isTargetPreview) {
+				if (board[tooltipGX][tooltipGY].hasTooltipInfo) {
 					int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
 					float hitChance = board[tooltipGX][tooltipGY].hitChance;
 					int percentage = (int)(hitChance * 100.0f);
@@ -22451,24 +22439,29 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			glm::ivec2 impactTile = casterTile;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+			glm::ivec2 impactTile = targetTile;
 
-			if (path.size() > 1) {
-				for (size_t i = 1; i < path.size(); ++i) {
-					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (i > 1 && stepDistSq > maxDistSq) break; // Allow 1st step regardless of range!
+			// Use the new clear ray to perfectly draw the physical path!
+			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
-					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileWall(impactTile.x, impactTile.y)) break; // Stop at wall
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
+				impactTile = casterTile;
+				if (path.size() > 1) {
+					for (size_t i = 1; i < path.size(); ++i) {
+						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
+						if (i > 1 && stepDistSq > maxDistSq) break;
+
+						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+						if (isTileBlocked(impactTile.x, impactTile.y)) break;
+					}
 				}
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f); // Persistent tracer
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -22570,7 +22563,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::ivec2 impactTile = targetTile;
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
-				std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+				auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+				std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
@@ -22732,7 +22726,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
 			glm::ivec2 impactTile = casterTile;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
 			if (path.size() > 1) {
 				for (size_t i = 1; i < path.size(); ++i) {
@@ -22740,7 +22735,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (i > 1 && stepDistSq > maxDistSq) break;
 
 					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileWall(impactTile.x, impactTile.y)) break;
+					if (isTileBlocked(impactTile.x, impactTile.y)) break;
 				}
 			}
 			currentCardOutcome.primaryTarget = impactTile;
@@ -22874,28 +22869,27 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
 			glm::ivec2 impactTile = targetTile;
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
-				glm::vec2 dir = targetTile - casterTile;
-				if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
 
+			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
-				std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
 						if (i > 1 && stepDistSq > maxDistSq) break;
 
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						if (isTileWall(impactTile.x, impactTile.y)) break;
+						if (isTileBlocked(impactTile.x, impactTile.y)) break;
 					}
 				}
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(200, 180, 100), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -23021,33 +23015,35 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			opComplete = true;
 			break;
 		} else if (step == 1) {
-			glm::vec2 targetTile = interactionTargetTile;
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
 			glm::ivec2 impactTile = targetTile;
+
+			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
+
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
-				std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
-
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
 						if (i > 1 && stepDistSq > maxDistSq) break;
+
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						// Can target through walls, so don't break early!
+						if (isTileBlocked(impactTile.x, impactTile.y)) break;
 					}
 				}
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(200, 120, 255), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(200, 180, 100), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -23154,7 +23150,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
 			glm::ivec2 impactTile = casterTile;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
 			if (path.size() > 1) {
 				for (size_t i = 1; i < path.size(); ++i) {
@@ -23162,7 +23159,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (i > 1 && stepDistSq > maxDistSq) break;
 
 					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileWall(impactTile.x, impactTile.y)) break;
+					if (isTileBlocked(impactTile.x, impactTile.y)) break;
 				}
 			}
 
@@ -25667,7 +25664,53 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	// =========================================================
 	//  TRUE DATA-DRIVEN EXECUTION (Decision-Time)
 	// =========================================================
-	beginEffectSequence();
+
+	// Add tracer visuals for generic ranged abilities
+	bool wantsTracer = (playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE || playedCard.targeting == TARGET_ANY_TILE || playedCard.rangeDiceNum > 0) && playedCard.damageType != DAMAGE_PHYSICAL && playedCard.type != CARD_HEAL && playedCard.type != CARD_LESSER_HEAL && playedCard.type != CARD_BURST_OF_LIGHT && playedCard.type != CARD_TELEPORT;
+
+	if (wantsTracer) {
+		glm::ivec2 impactTile = { targetX, targetY };
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+		auto clearRay = getClearLosRay(casterTile, targetTile, playedCard.type);
+		auto path = getLineOfSightPath(clearRay.start, clearRay.end);
+
+		if (path.size() > 1) {
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				impactTile = stepTile;
+				if (isTileBlocked(stepTile.x, stepTile.y)) break; // Stop tracer at unit or wall
+			}
+		}
+
+		glm::vec3 worldStart, worldEnd;
+		computeTracerEndpoints(casterTile, glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f), worldStart, worldEnd);
+
+		ofColor tColor = ofColor::white;
+		if (playedCard.damageType == DAMAGE_FIRE)
+			tColor = ofColor(255, 120, 40);
+		else if (playedCard.damageType == DAMAGE_MAGIC)
+			tColor = ofColor(180, 100, 255);
+		else if (playedCard.damageType == DAMAGE_ELECTRIC)
+			tColor = ofColor(255, 255, 0);
+		else if (playedCard.damageType == DAMAGE_PIERCING)
+			tColor = ofColor(200, 180, 100);
+		else if (playedCard.damageType == DAMAGE_POISON)
+			tColor = ofColor(100, 255, 100);
+
+		queueVisualTracer(worldStart, worldEnd, tColor, 0.4f);
+
+		// Add a brief delay so tracer displays before damage popups!
+		beginEffectSequence();
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 1;
+		queueEffect(wait);
+	} else {
+		beginEffectSequence();
+	}
+
 	int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
 	glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
 
@@ -28376,150 +28419,137 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	if (shouldShowRangedPreview) {
-		float maxRangeFeet = 0.0f;
-		// Infinite-range healing / death-like spells
-		if (card.healAmount > 0) {
-			maxRangeFeet = 9999.0f;
-		} else if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) {
-			maxRangeFeet = (float)(card.rangeDiceNum * card.rangeDiceSides);
-		} else {
-			// Default: use dice-based range from main dice
-			maxRangeFeet = (float)(card.numDice * card.diceSides);
+		// 1. Extract Range Dice parameters globally
+		int rangeNum = 0, rangeSides = 0;
+		auto [rn, rs] = getCardRangeDice(card, card.numDice, card.diceSides);
+		rangeNum = rn;
+		rangeSides = rs;
+
+		// Inject hardcoded fallbacks if JSON properties were missing
+		if (rangeNum <= 0 || rangeSides <= 0) {
+			if (card.type == CARD_MAGIC_BOLT || card.type == CARD_SHOOT_ARROW) {
+				rangeNum = 2;
+				rangeSides = 20;
+			} else if (card.type == CARD_CHAIN_LIGHTNING) {
+				rangeNum = 2;
+				rangeSides = 10;
+			} else if (card.type == CARD_ETHEREAL_JOLT) {
+				rangeNum = 1;
+				rangeSides = 20;
+			} else if (card.type == CARD_FIREBALL) {
+				rangeNum = 2;
+				rangeSides = 6;
+			} else if (card.type == CARD_MAGIC_BLAST) {
+				rangeNum = 1;
+				rangeSides = 20;
+			}
 		}
+
+		float maxRangeFeet = 9999.0f;
+		if (card.healAmount > 0 || card.type == CARD_HEAL || card.type == CARD_DEATH || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
+			maxRangeFeet = 9999.0f; // Infinite range
+		} else if (rangeNum > 0 && rangeSides > 0) {
+			maxRangeFeet = (float)(rangeNum * rangeSides);
+		}
+
+		float maxAoeFeet = (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) ? (float)(card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20.0f;
+
 		for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
 			for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-				// Determine previewability
 				bool preview = false;
 				bool valid = false;
-				if (card.type == CARD_MAGIC_BOLT) {
-					// Allow targeting a wall only if a unit actually occupies that
-					// wall tile (e.g. a Ghost). Otherwise skip wall tiles - the
-					// AOE cannot leave the wall, so targeting an empty wall is
-					// invalid.
-					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue;
 
-					float maxAoeFeet = (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) ? (float)(card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20.0f;
-					float distFeet = getFaceToFaceDistance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
+				glm::vec2 targetPos((float)tx, (float)ty);
+				float distFeet = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
+
+				// --- UNCONDITIONAL TOOLTIP DATA CALCULATION ---
+				// Calculate and assign min roll/chance for EVERY tile on the board
+				if (maxRangeFeet < 9000.0f && rangeNum > 0 && rangeSides > 0) {
+					int minRoll = (int)ceil(distFeet);
+					int maxPossibleRoll = rangeNum * rangeSides;
+					if (minRoll < rangeNum) minRoll = rangeNum;
+
+					float hitChance = 0.0f;
+					if (minRoll <= maxPossibleRoll) {
+						if (rangeNum == 1) {
+							int successOutcomes = rangeSides - minRoll + 1;
+							hitChance = (float)successOutcomes / (float)rangeSides;
+						} else if (rangeNum <= 3) {
+							int sides = rangeSides;
+							std::vector<std::vector<int>> dp(rangeNum + 1, std::vector<int>(maxPossibleRoll + 1, 0));
+							dp[0][0] = 1;
+							for (int d = 1; d <= rangeNum; d++) {
+								for (int s = d; s <= d * sides; s++) {
+									for (int face = 1; face <= sides && face <= s; face++) {
+										dp[d][s] += dp[d - 1][s - face];
+									}
+								}
+							}
+							int successCount = 0;
+							for (int s = minRoll; s <= maxPossibleRoll; s++)
+								successCount += dp[rangeNum][s];
+							int totalOutcomes = 1;
+							for (int i = 0; i < rangeNum; i++)
+								totalOutcomes *= sides;
+							hitChance = (float)successCount / (float)totalOutcomes;
+						} else {
+							float mean = rangeNum * (rangeSides + 1) / 2.0f;
+							float variance = rangeNum * (rangeSides * rangeSides - 1) / 12.0f;
+							float stdDev = sqrt(variance);
+							float z = (minRoll - 0.5f - mean) / stdDev;
+							if (z <= -3.0f)
+								hitChance = 1.0f;
+							else if (z >= 3.0f)
+								hitChance = 0.0f;
+							else {
+								hitChance = 0.5f - (z * 0.15f);
+								hitChance = std::clamp(hitChance, 0.0f, 1.0f);
+							}
+						}
+					}
+
+					board[tx][ty].hasTooltipInfo = true;
+					board[tx][ty].minRollRequired = minRoll;
+					board[tx][ty].hitChance = hitChance;
+
+					if (card.isAoe || card.type == CARD_MAGIC_BOLT) {
+						board[tx][ty].isAoeCenter = true;
+						board[tx][ty].aoeRadiusFeet = maxAoeFeet;
+					}
+				}
+
+				// --- PREVIEW AND VALID TARGET LOGIC ---
+				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
+
+				// Handle Magic Bolt's special AOE extension
+				if (card.type == CARD_MAGIC_BOLT) {
+					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue; // Skip empty walls for bolt target
 
 					if (distFeet <= maxRangeFeet + maxAoeFeet + 0.1f) {
-						// Find impact tile
-						glm::vec2 targetTileFloat((float)tx, (float)ty);
 						glm::ivec2 impactTile = { tx, ty };
-
 						long long maxRangeHalfTiles = ((long long)maxRangeFeet * 2LL) / 5LL;
 						long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-						long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetTileFloat);
+						long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
 
 						bool fallsShort = false;
 						if (neededDistSq > maxDistSq) {
 							fallsShort = true;
-							glm::vec2 dir = targetTileFloat - casterPos;
+							glm::vec2 dir = targetPos - casterPos;
 							if (glm::length(dir) > 0) dir = glm::normalize(dir);
-							float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
-							glm::vec2 impactPos = casterPos + (dir * maxDistUnits);
+							glm::vec2 impactPos = casterPos + (dir * ((float)maxRangeHalfTiles / 2.0f));
 							impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
 						}
 
-						if (fallsShort && isTileWall(impactTile.x, impactTile.y)) {
-							continue; // Main spell hits wall, cancels AOE
-						}
+						if (fallsShort && isTileBlocked(impactTile.x, impactTile.y)) continue;
 
 						if (fallsShort) {
-							auto losPath = getLineOfSightPath(glm::vec2(impactTile.x, impactTile.y) + 0.5f, targetTileFloat + 0.5f);
-							bool blocked = false;
-							for (const auto & step : losPath) {
-								if ((int)step.x == impactTile.x && (int)step.y == impactTile.y) continue;
-								if ((int)step.x == tx && (int)step.y == ty) break;
-								if (isTileWall((int)step.x, (int)step.y)) {
-									blocked = true;
-									break;
-								}
-							}
-							if (blocked) continue;
+							auto los = getClearLosRay(glm::vec2(impactTile.x, impactTile.y), targetPos, card.type);
+							if (!los.hasLos) continue;
 						}
 
 						preview = true;
 
-						// For magic bolt targeting mode, dynamically set the AOE center to the projected impact point
-						// so the expanding rings feature can display the radius around where it will actually land.
-						board[impactTile.x][impactTile.y].isAoeCenter = true;
-						board[impactTile.x][impactTile.y].aoeRadiusFeet = maxAoeFeet;
-
-						// --- FIX: USE RANGE DICE FOR RANGE CALCULATION IN UI ---
-						auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
-
-						// HARDCODE FALLBACK: If the JSON failed to map range dice, enforce them here
-						if (rangeNum <= 0 || rangeSides <= 0) {
-							if (card.type == CARD_MAGIC_BOLT || card.type == CARD_SHOOT_ARROW) {
-								rangeNum = 2;
-								rangeSides = 20;
-							} else if (card.type == CARD_CHAIN_LIGHTNING) {
-								rangeNum = 2;
-								rangeSides = 10;
-							} else if (card.type == CARD_ETHEREAL_JOLT) {
-								rangeNum = 1;
-								rangeSides = 20;
-							} else if (card.type == CARD_FIREBALL) {
-								rangeNum = 2;
-								rangeSides = 6;
-							} else if (card.type == CARD_MAGIC_BLAST) {
-								rangeNum = 1;
-								rangeSides = 20;
-							}
-						}
-
-						int minRoll = (int)ceil(distFeet);
-						int maxPossibleRoll = rangeNum * rangeSides;
-						if (minRoll < rangeNum) minRoll = rangeNum;
-						if (minRoll > maxPossibleRoll) minRoll = maxPossibleRoll;
-
-						float hitChance = 0.0f;
-						if (minRoll <= maxPossibleRoll) {
-							if (rangeNum == 1) {
-								int successOutcomes = rangeSides - minRoll + 1;
-								hitChance = (float)successOutcomes / (float)rangeSides;
-							} else if (rangeNum == 2 || rangeNum == 3) {
-								int sides = rangeSides;
-								int numDice = rangeNum;
-								std::vector<std::vector<int>> dp(numDice + 1, std::vector<int>(maxPossibleRoll + 1, 0));
-								dp[0][0] = 1;
-								for (int d = 1; d <= numDice; d++) {
-									for (int s = d; s <= d * sides; s++) {
-										for (int face = 1; face <= sides && face <= s; face++) {
-											dp[d][s] += dp[d - 1][s - face];
-										}
-									}
-								}
-								int successCount = 0;
-								for (int s = minRoll; s <= maxPossibleRoll; s++)
-									successCount += dp[numDice][s];
-								int totalOutcomes = 1;
-								for (int i = 0; i < numDice; i++)
-									totalOutcomes *= sides;
-								hitChance = (float)successCount / (float)totalOutcomes;
-							} else {
-								float mean = rangeNum * (rangeSides + 1) / 2.0f;
-								float variance = rangeNum * (rangeSides * rangeSides - 1) / 12.0f;
-								float stdDev = sqrt(variance);
-								float z = (minRoll - 0.5f - mean) / stdDev;
-								if (z <= -3.0f)
-									hitChance = 1.0f;
-								else if (z >= 3.0f)
-									hitChance = 0.0f;
-								else {
-									hitChance = 0.5f - (z * 0.15f);
-									if (hitChance < 0.0f) hitChance = 0.0f;
-									if (hitChance > 1.0f) hitChance = 1.0f;
-								}
-							}
-						}
-
-						board[tx][ty].minRollRequired = minRoll;
-						board[tx][ty].hitChance = hitChance;
-						board[tx][ty].hasTooltipInfo = true;
-
 						bool hitsSomeone = false;
-
 						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex)) {
 							hitsSomeone = true;
 						} else {
@@ -28528,42 +28558,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								float centerDistFeetToPlayer = glm::distance(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 								float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
 								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
-									auto losPath = getLineOfSightPath(glm::vec2((float)impactTile.x, (float)impactTile.y) + 0.5f, glm::vec2((float)players[i].x, (float)players[i].y) + 0.5f);
-									bool blocked = false;
-									for (const auto & step : losPath) {
-										if ((int)step.x == impactTile.x && (int)step.y == impactTile.y) continue;
-										if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
-										if (isTileWall((int)step.x, (int)step.y)) {
-											blocked = true;
-											break;
-										}
-									}
-									if (!blocked) {
+									auto los = getClearLosRay(glm::vec2(impactTile.x, impactTile.y), glm::vec2(players[i].x, players[i].y), card.type);
+									if (los.hasLos) {
 										hitsSomeone = true;
 										break;
 									}
 								}
 							}
 						}
-
-						if (hitsSomeone && (tx != px || ty != py)) {
-							valid = true;
-						}
+						if (hitsSomeone && (tx != px || ty != py)) valid = true;
 					}
-				} else {
-					float maxRangeFeet = 9999.0f;
-					if (card.type == CARD_MAGIC_BLAST) {
-						maxRangeFeet = 20.0f;
-					} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT && interactionDiceRoll > 0) {
-						maxRangeFeet = (float)interactionDiceRoll;
-					} else if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) {
-						maxRangeFeet = (float)(card.rangeDiceNum * card.rangeDiceSides);
-					} else if (card.numDice > 0 && card.diceSides > 0) {
-						maxRangeFeet = (float)(card.numDice * card.diceSides);
-					}
-
-					TargetInfo info = isLosTargetValid(casterPos, glm::vec2((float)tx, (float)ty), maxRangeFeet, card.type);
-					if (info.reason == VALID || info.reason == INVALID_SELF) {
+				}
+				// Handle normal spells
+				else {
+					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
+						preview = true;
+					} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) && info.reason == INVALID_SELF) {
 						preview = true;
 					}
 
@@ -28575,7 +28585,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						}
 					} else if (info.reason == INVALID_SELF) {
 						if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
-							// Chain lightning / Magic Blast bounce target checking
 							for (int dx = -1; dx <= 1 && !valid; ++dx) {
 								for (int dy = -1; dy <= 1; ++dy) {
 									if (dx == 0 && dy == 0) continue;
@@ -28583,14 +28592,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 									int nx = tx + dx;
 									int ny = ty + dy;
 									if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-
 									if (!tileHasOtherThan(nx, ny, currentPlayerIndex)) continue;
 
 									bool blocked = false;
 									if (std::abs(dx) == 1 && std::abs(dy) == 1) {
-										if (isTileWall(tx + dx, ty) && isTileWall(tx, ty + dy)) {
-											blocked = true;
-										}
+										if (isTileBlocked(tx + dx, ty) && isTileBlocked(tx, ty + dy)) blocked = true;
 									}
 									if (!blocked) {
 										valid = true;
@@ -28602,102 +28608,32 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				}
 
-				// If this card is an AOE, compute whether this tile as AOE center
-				// would hit any valid unit using `card.aoeRadiusDice*` (decision-time data).
+				// Check AOE valid centers
 				if (card.isAoe) {
-					int aoeFeet = 0;
-					if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0)
-						aoeFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
-					else
-						aoeFeet = 20; // fallback
-
-					// Collect candidate enemies and compute tooltip stats (min roll, overall hit chance)
-					std::vector<int> requiredRolls;
+					bool hitsSomeone = false;
 					for (size_t i = 0; i < players.size(); ++i) {
 						if ((int)i == currentPlayerIndex) continue;
 						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
-						if (distToPlayerFeet <= aoeFeet + 0.01f) {
-							// verify LOS from center to player
-							auto losPath = getLineOfSightPath(glm::vec2((float)tx, (float)ty) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
-							bool blocked = false;
-							for (const auto & step : losPath) {
-								if ((int)step.x == tx && (int)step.y == ty) continue;
-								if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
-								if (isTileWall((int)step.x, (int)step.y)) {
-									blocked = true;
-									break;
-								}
-							}
-							if (!blocked) {
-								int minRoll = (int)ceil(distToPlayerFeet);
-								requiredRolls.push_back(minRoll);
+						if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
+							auto los = getClearLosRay(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y), card.type);
+							if (los.hasLos) {
+								hitsSomeone = true;
+								break;
 							}
 						}
 					}
-
-					if (!requiredRolls.empty()) {
-						// Tile is a valid AOE center
+					if (hitsSomeone) {
 						valid = true;
 						preview = true;
-
-						// Compute minRollRequired (smallest demand)
-						int minRollReq = *std::min_element(requiredRolls.begin(), requiredRolls.end());
-
-						// Compute hit chance based on the minimal required roll (same approach as ranged previews)
-						int diceNum = card.aoeRadiusDiceNum > 0 ? card.aoeRadiusDiceNum : 1;
-						int sides = card.aoeRadiusDiceSides > 0 ? card.aoeRadiusDiceSides : 20;
-						int maxPossible = diceNum * sides;
-
-						double p = 0.0;
-						if (minRollReq <= diceNum) {
-							p = 1.0;
-						} else if (minRollReq > maxPossible) {
-							p = 0.0;
-						} else if (diceNum == 1) {
-							int success = sides - minRollReq + 1;
-							if (success < 0) success = 0;
-							p = (double)success / (double)sides;
-						} else if (diceNum <= 6) {
-							int maxRoll = maxPossible;
-							std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxRoll + 1, 0));
-							dp[0][0] = 1;
-							for (int d = 1; d <= diceNum; ++d) {
-								for (int s = d; s <= d * sides; ++s) {
-									int sum = 0;
-									int faceMax = std::min(s - (d - 1), sides);
-									for (int face = 1; face <= faceMax; ++face) {
-										sum += dp[d - 1][s - face];
-									}
-									dp[d][s] = sum;
-								}
-							}
-							long long successCount = 0;
-							for (int s = minRollReq; s <= maxRoll; ++s)
-								successCount += dp[diceNum][s];
-							long long total = 1;
-							for (int i = 0; i < diceNum; ++i)
-								total *= sides;
-							if (total > 0) p = (double)successCount / (double)total;
-						} else {
-							// Fallback normal approximation for large dice
-							p = 0.5;
-						}
-
-						board[tx][ty].minRollRequired = minRollReq;
-						board[tx][ty].hitChance = (float)p;
-						board[tx][ty].hasTooltipInfo = true;
-						board[tx][ty].isAoeCenter = true;
-						board[tx][ty].aoeRadiusFeet = aoeFeet;
 					}
 				}
 
-				if (preview) {
-					board[tx][ty].isTargetPreview = true; // blue outline
-					board[tx][ty].hasTooltipInfo = true;
-				}
-				if (valid) {
-					board[tx][ty].isTargetable = true; // green outline
+				if (preview) board[tx][ty].isTargetPreview = true;
+				if (valid && hasEnoughAP) board[tx][ty].isTargetable = true;
+
+				if (card.type == CARD_SHOOT_ARROW) {
+					if (!(preview && board[tx][ty].hasPlayer)) board[tx][ty].isTargetable = false;
 				}
 			}
 		}
@@ -32769,58 +32705,158 @@ glm::vec2 ofApp::worldToGrid(glm::vec3 worldPos) {
 //--------------------------------------------------------------
 // Returns true if the ray is clear, false if blocked
 bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
-	// 1. Get the list of tiles the ray passes through
 	auto path = getLineOfSightPath(rayStart, rayEnd);
 	if (path.empty()) return true;
 
-	// Use floor() to perfectly match the tile extraction logic used in getLineOfSightPath,
-	// avoiding float-truncation bugs when peeking from negative coordinate faces.
 	int startX = (int)floor(rayStart.x);
 	int startY = (int)floor(rayStart.y);
 	int endX = (int)floor(rayEnd.x);
 	int endY = (int)floor(rayEnd.y);
 
-	// 2. Iterate through the path
+	bool isDiagonalShot = (startX != endX) && (startY != endY);
+
 	for (size_t i = 0; i < path.size(); ++i) {
 		glm::vec2 current = path[i];
 		int cx = (int)current.x;
 		int cy = (int)current.y;
 
-		// SKIP start and end tiles (we don't block visibility based on where we stand or who we target)
 		bool isStart = (cx == startX && cy == startY);
 		bool isEnd = (cx == endX && cy == endY);
+
+		// --- GAP / CHOKE RULE ---
+		if (isDiagonalShot) {
+			int gapType = isGapTile(current);
+			if (gapType == 1 || gapType == 2) return false;
+		}
 
 		// --- DIRECT BLOCKING ---
 		if (!isStart && !isEnd) {
 			if (isTileBlocked(cx, cy)) return false;
 		}
+	}
+	return true;
+}
 
-		// --- DIAGONAL BARRIER (PINCH) CHECK ---
-		if (i < path.size() - 1) {
-			glm::vec2 next = path[i + 1];
-			int nx = (int)next.x;
-			int ny = (int)next.y;
+ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTile, CardType cardType) {
+	glm::vec2 casterCenter = casterTile + 0.5f;
+	glm::vec2 targetCenter = targetTile + 0.5f;
 
-			// Check if movement is diagonal
-			if (cx != nx && cy != ny) {
-				// Determine the two shared neighbors
-				int n1x = nx;
-				int n1y = cy;
+	// Spells that ignore physics completely
+	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT || cardType == CARD_TELEPORT) {
+		return { true, casterCenter, targetCenter };
+	}
 
-				int n2x = cx;
-				int n2y = ny;
+	int dx = std::abs((int)targetTile.x - (int)casterTile.x);
+	int dy = std::abs((int)targetTile.y - (int)casterTile.y);
 
-				// RULE: If BOTH orthogonal neighbors are blocked, the diagonal gap is closed.
-				bool block1 = isTileBlocked(n1x, n1y);
-				bool block2 = isTileBlocked(n2x, n2y);
+	// Point blank range: always center-to-center
+	if (dx <= 1 && dy <= 1) return { true, casterCenter, targetCenter };
 
-				if (block1 && block2) {
-					return false; // Ray is pinched
+	int casterIndexForSelfChecks = -1;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		if (players[currentPlayerIndex].x == (int)casterTile.x && players[currentPlayerIndex].y == (int)casterTile.y) {
+			casterIndexForSelfChecks = currentPlayerIndex;
+		}
+	}
+
+	auto isCoverAt = [&](int cx, int cy) {
+		if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) return true;
+		if (board[cx][cy].hasWall) return true;
+		if (board[cx][cy].hasPlayer) {
+			if (casterIndexForSelfChecks >= 0) {
+				if (tileHasOtherThan(cx, cy, casterIndexForSelfChecks)) return true;
+			} else
+				return true;
+		}
+		return false;
+	};
+
+	if (dx <= 1 || dy <= 1) {
+		// --- 1 ROW/COL AWAY: STEPPING OUT ---
+
+		auto getOrigins = [&](glm::vec2 tile) -> std::vector<glm::vec2> {
+			std::vector<glm::vec2> origins;
+			glm::vec2 center = tile + 0.5f;
+			origins.push_back(center);
+
+			glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
+
+			for (int i = 0; i < 4; i++) {
+				int nx = (int)tile.x + (int)neighbors[i].x;
+				int ny = (int)tile.y + (int)neighbors[i].y;
+
+				// If the adjacent tile is NOT cover, that face is exposed and can be shot from/to!
+				if (!isCoverAt(nx, ny)) {
+					origins.push_back(center + faceOffsets[i]);
+				}
+			}
+			return origins;
+		};
+
+		std::vector<glm::vec2> firingOrigins = getOrigins(casterTile);
+		std::vector<glm::vec2> targetOrigins = getOrigins(targetTile);
+
+		if (checkRayPhysics(casterCenter, targetCenter)) return { true, casterCenter, targetCenter };
+
+		for (const auto & f_origin : firingOrigins) {
+			for (const auto & t_origin : targetOrigins) {
+				if (checkRayPhysics(f_origin, t_origin)) {
+					return { true, f_origin, t_origin }; // We found the "Clear Ray"
 				}
 			}
 		}
+	} else {
+		// --- DEEP DIAGONAL: 2 CLOSEST FACES ---
+
+		glm::vec2 cFaceX = casterCenter + glm::vec2((targetTile.x > casterTile.x) ? 0.5f : -0.5f, 0.0f);
+		glm::vec2 cFaceY = casterCenter + glm::vec2(0.0f, (targetTile.y > casterTile.y) ? 0.5f : -0.5f);
+
+		int cfx = (int)floor(cFaceX.x);
+		int cfy = (int)floor(cFaceX.y);
+		int cfx2 = (int)floor(cFaceY.x);
+		int cfy2 = (int)floor(cFaceY.y);
+
+		// "If one of your closest faces hits a wall then you can't target them"
+		if (isCoverAt(cfx, cfy) || isCoverAt(cfx2, cfy2)) {
+			return { false, casterCenter, targetCenter };
+		}
+
+		glm::vec2 tFaces[4] = {
+			targetCenter + glm::vec2(0.5f, 0.0f), targetCenter + glm::vec2(-0.5f, 0.0f),
+			targetCenter + glm::vec2(0.0f, 0.5f), targetCenter + glm::vec2(0.0f, -0.5f)
+		};
+
+		bool faceX_clear = false;
+		glm::vec2 bestTFaceX = targetCenter;
+		for (int i = 0; i < 4; ++i) {
+			int tfx = (int)floor(tFaces[i].x);
+			int tfy = (int)floor(tFaces[i].y);
+			if (isCoverAt(tfx, tfy)) continue; // Can't hit a blocked target face
+			if (checkRayPhysics(cFaceX, tFaces[i])) {
+				faceX_clear = true;
+				bestTFaceX = tFaces[i];
+				break;
+			}
+		}
+
+		bool faceY_clear = false;
+		for (int i = 0; i < 4; ++i) {
+			int tfx = (int)floor(tFaces[i].x);
+			int tfy = (int)floor(tFaces[i].y);
+			if (isCoverAt(tfx, tfy)) continue;
+			if (checkRayPhysics(cFaceY, tFaces[i])) {
+				faceY_clear = true;
+				break;
+			}
+		}
+
+		// Return the successful X face ray to the tracer
+		if (faceX_clear && faceY_clear) return { true, cFaceX, bestTFaceX };
 	}
-	return true;
+
+	// Fallback (Will fail the final check, but provides a line for the failure state)
+	return { false, casterCenter, targetCenter };
 }
 
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
@@ -32829,15 +32865,12 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 	int casterIndexForSelfChecks = -1;
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		const Player & cp = players[currentPlayerIndex];
-		if (cp.x == (int)casterTile.x && cp.y == (int)casterTile.y) {
+		if (players[currentPlayerIndex].x == (int)casterTile.x && players[currentPlayerIndex].y == (int)casterTile.y) {
 			casterIndexForSelfChecks = currentPlayerIndex;
 		}
 	}
 
-	// --- 0. BASIC SANITY CHECKS ---
 	if (casterTile == targetTile) {
-		// Special-case: Heal / Lesser heal on self
 		if (cardType == CARD_HEAL || cardType == CARD_LESSER_HEAL || cardType == CARD_BURST_OF_LIGHT) {
 			if (casterIndexForSelfChecks >= 0 && players[casterIndexForSelfChecks].health >= players[casterIndexForSelfChecks].maxHealth) {
 				result.reason = INVALID_SELF;
@@ -32848,14 +32881,12 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			result.isTargetable = true;
 			return result;
 		}
-
 		if (cardType == CARD_DOUBLE_HANDED || cardType == CARD_AMNESIA || cardType == CARD_WISDOM_BOON || cardType == CARD_DISPEL) {
 			result.reason = VALID;
 			result.isTargetable = true;
 			return result;
 		}
-		int occupants = 0;
-		int ghostOccupants = 0;
+		int occupants = 0, ghostOccupants = 0;
 		for (size_t i = 0; i < players.size(); ++i) {
 			if (players[i].x == (int)casterTile.x && players[i].y == (int)casterTile.y) {
 				occupants++;
@@ -32867,96 +32898,28 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			result.isTargetable = true;
 			return result;
 		}
-
 		result.reason = INVALID_SELF;
 		return result;
 	}
 
-	// --- CHECK IF TARGET IS A WALL ---
 	if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
 		bool allowWallTarget = false;
 		if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_PSIONIC_WAVE || cardType == CARD_DEATH || cardType == CARD_MAGIC_BOLT) {
-			if (board[(int)targetTile.x][(int)targetTile.y].hasPlayer) {
-				allowWallTarget = true;
-			}
+			if (board[(int)targetTile.x][(int)targetTile.y].hasPlayer) allowWallTarget = true;
 		}
-
 		if (!allowWallTarget) {
 			result.reason = INVALID_OCCUPIED_BY_WALL;
 			return result;
 		}
 	}
 
-	// --- 1. DETERMINE FIRING ORIGINS (VISIBILITY) ---
-	std::vector<glm::vec2> firingOrigins;
-	glm::vec2 casterCenter = casterTile + 0.5f;
-	glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	auto los = getClearLosRay(casterTile, targetTile, cardType);
 
-	if (isTileWall((int)casterTile.x, (int)casterTile.y)) {
-		firingOrigins.push_back(casterCenter);
-	} else {
-		bool adjacentToWall = false;
-		for (auto n : neighbors) {
-			int nx = (int)casterTile.x + (int)n.x;
-			int ny = (int)casterTile.y + (int)n.y;
-			if (isTileWall(nx, ny)) {
-				adjacentToWall = true;
-				break;
-			}
-		}
-
-		if (!adjacentToWall) {
-			firingOrigins.push_back(casterCenter);
-		} else {
-			glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
-			for (int i = 0; i < 4; i++) {
-				int nx = (int)casterTile.x + (int)neighbors[i].x;
-				int ny = (int)casterTile.y + (int)neighbors[i].y;
-				if (!isTileWall(nx, ny)) {
-					firingOrigins.push_back(casterCenter + faceOffsets[i]);
-				}
-			}
-		}
-	}
-
-	// --- 2. CHECK VISIBILITY (Raycast to Target Center) ---
-	bool hasLineOfSight = false;
-	glm::vec2 targetCenter = targetTile + 0.5f;
-
-	// FIX: Magic Bolt, Ethereal Jolt, and Teleport ignore walls for visibility
-	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT || cardType == CARD_TELEPORT) {
-		hasLineOfSight = true;
-	} else {
-		// --- 1-TILE ADJACENCY SHORT-CIRCUIT ---
-		int dx = std::abs((int)targetTile.x - (int)casterTile.x);
-		int dy = std::abs((int)targetTile.y - (int)casterTile.y);
-
-		if (dx <= 1 && dy <= 1) {
-			if (dx == 1 && dy == 1) {
-				// Diagonal: only blocked if pinched by two obstacles
-				bool block1 = isTileBlocked((int)casterTile.x + ((int)targetTile.x - (int)casterTile.x), (int)casterTile.y);
-				bool block2 = isTileBlocked((int)casterTile.x, (int)casterTile.y + ((int)targetTile.y - (int)casterTile.y));
-				hasLineOfSight = !(block1 && block2);
-			} else {
-				// Orthogonal adjacent is always visible
-				hasLineOfSight = true;
-			}
-		} else {
-			for (const auto & origin : firingOrigins) {
-				if (checkRayPhysics(origin, targetCenter)) {
-					hasLineOfSight = true;
-					break;
-				}
-			}
-		}
-	}
-
-	if (!hasLineOfSight) {
+	if (!los.hasLos) {
 		result.reason = INVALID_NO_LOS;
 		return result;
 	}
 
-	// --- 3. CHECK RANGE ---
 	long long distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 	long long maxRangeScaled = ((long long)maxRangeFeet * 2LL) / 5LL;
 
@@ -32965,7 +32928,6 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		return result;
 	}
 
-	// --- 4. TARGET VALIDATION ---
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
 
 	if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST || cardType == CARD_CHAIN_LIGHTNING) {
@@ -32982,7 +32944,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		} else {
 			if (cardType == CARD_MAGIC_BOLT) {
 				bool hasTargetInAoe = false;
-				float maxAoeFeet = 20.0f; // Max roll of 1d20
+				float maxAoeFeet = 20.0f;
 				long long maxAoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
 				long long maxAoeDistSq = maxAoeHalfTiles * maxAoeHalfTiles;
 				for (size_t i = 0; i < players.size(); ++i) {
@@ -32990,17 +32952,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 					if (players[i].health <= 0) continue;
 					long long distSq = getFaceToFaceDistanceSquaredScaled(targetTile, glm::vec2((float)players[i].x, (float)players[i].y));
 					if (distSq <= maxAoeDistSq) {
-						auto losPath = getLineOfSightPath(targetTile + 0.5f, glm::vec2((float)players[i].x, (float)players[i].y) + 0.5f);
-						bool blocked = false;
-						for (const auto & step : losPath) {
-							if ((int)step.x == (int)targetTile.x && (int)step.y == (int)targetTile.y) continue;
-							if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
-							if (isTileWall((int)step.x, (int)step.y)) {
-								blocked = true;
-								break;
-							}
-						}
-						if (!blocked) {
+						auto innerLos = getClearLosRay(targetTile, glm::vec2((float)players[i].x, (float)players[i].y), cardType);
+						if (innerLos.hasLos) {
 							hasTargetInAoe = true;
 							break;
 						}
@@ -33021,7 +32974,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 								if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
 									bool blocked = false;
 									if (std::abs(dx) == 1 && std::abs(dy) == 1) {
-										if (isTileWall((int)targetTile.x + dx, (int)targetTile.y) && isTileWall((int)targetTile.x, (int)targetTile.y + dy)) {
+										if (isTileBlocked((int)targetTile.x + dx, (int)targetTile.y) && isTileBlocked((int)targetTile.x, (int)targetTile.y + dy)) {
 											blocked = true;
 										}
 									}
@@ -33148,7 +33101,7 @@ bool ofApp::isTileWall(int x, int y) {
 int ofApp::isGapTile(glm::vec2 tile) {
 	int x = (int)tile.x;
 	int y = (int)tile.y;
-	if (board[x][y].hasWall) return 0;
+	if (isTileBlocked(x, y)) return 0;
 
 	bool blockLeft = isTileBlocked(x - 1, y);
 	bool blockRight = isTileBlocked(x + 1, y);

@@ -1355,10 +1355,16 @@ private:
 	// its `sides`, the `rawResult` (face index), and a visual `wobbleAmount`.
 	glm::quat getDiceFaceRotation(int sides, int rawResult, float wobbleAmount);
 
+	struct LosResult {
+		bool hasLos;
+		glm::vec2 start;
+		glm::vec2 end;
+	};
+
 	// Targeting Algorithms
 	std::vector<Player *> findCleaveTargets(glm::vec2 direction);
 	TargetInfo isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType);
-
+	LosResult getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTile, CardType cardType);
 	// Integer-scaled squared face-to-face distance to avoid floating-point edge cases.
 	// Coordinates are scaled by 2 (half-tile units) so face midpoints become integers.
 	long long getFaceToFaceDistanceSquaredScaled(glm::vec2 casterTile, glm::vec2 targetTile);
