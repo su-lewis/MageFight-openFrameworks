@@ -368,7 +368,9 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 	m_bIsHost = true;
 
-	std::string lobbyName = std::string(SteamAPI_ISteamFriends_GetFriendPersonaName((intptr_t)SteamFriends(), m_LocalID.ConvertToUint64())) + "'s Game";
+	// FIX: Use your safe helper method instead of GetFriendPersonaName
+	std::string lobbyName = getLocalPlayerName() + "'s Game";
+
 	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "name", lobbyName.c_str());
 	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "MageFightLobby", "Active");
 
@@ -544,10 +546,18 @@ void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailur
 		CSteamID lobbyID((uint64)SteamAPI_ISteamMatchmaking_GetLobbyByIndex((intptr_t)SteamMatchmaking(), i));
 		LobbyInfo info;
 		info.lobbyID = lobbyID;
+
 		const char * name = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64(), "name");
 		info.name = (name && name[0]) ? name : "Mage Fight Match";
+
 		info.numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
 		info.maxPlayers = SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
+
+		// ADD THIS FAILSAFE:
+		if (info.maxPlayers <= 0) {
+			info.maxPlayers = 2; // Default to your hardcoded limit
+		}
+
 		currentLobbies.push_back(info);
 	}
 }
