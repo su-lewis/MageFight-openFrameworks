@@ -378,8 +378,9 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
 }
 
-void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback) {
-	if (pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) return;
+void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
+	// Added bIOFailure check here!
+	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) return;
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 	CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
@@ -466,8 +467,9 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 }
 
 void SteamManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback) {
-	// Re-added your original logic that got cut off
-	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), pCallback->m_steamIDLobby.ConvertToUint64());
+	// FIX: Capture the handle and bind it to OnLobbyEnter
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), pCallback->m_steamIDLobby.ConvertToUint64());
+	m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
 }
 
 void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallback) {
@@ -475,7 +477,10 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 	size_t split = cmd.find(" ");
 	if (split != std::string::npos) {
 		CSteamID id(std::stoull(cmd.substr(split + 1)));
-		SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), id.ConvertToUint64());
+
+		// FIX: Capture the handle and bind it to OnLobbyEnter
+		SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), id.ConvertToUint64());
+		m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
 	}
 }
 
@@ -553,7 +558,10 @@ std::vector<SteamManager::LobbyInfo> SteamManager::getLobbyList() {
 
 void SteamManager::joinLobbyByID(CSteamID lobbyID) {
 	if (!SteamMatchmaking()) return;
-	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
+
+	// FIX: Capture the handle and bind it to OnLobbyEnter
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
+	m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
 }
 
 void SteamManager::fetchLeaderboard() {

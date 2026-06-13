@@ -107,13 +107,16 @@ private:
 	void OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t * pCallback, bool bIOFailure);
 
 	// Callbacks
-	STEAM_CALLBACK(SteamManager, OnLobbyEnter, LobbyEnter_t);
 	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
 	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
 	STEAM_CALLBACK(SteamManager, OnNetConnectionStatusChanged, SteamNetConnectionStatusChangedCallback_t);
+
 	// CallResults
 	void OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure);
+	void OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure); // <-- Added here!
+
 	CCallResult<SteamManager, LobbyCreated_t> m_cbLobbyCreated;
+	CCallResult<SteamManager, LobbyEnter_t> m_cbLobbyEntered;
 
 	void closeConnection();
 };
