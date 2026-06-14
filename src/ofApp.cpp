@@ -7687,16 +7687,6 @@ void ofApp::updateGameLogic() {
 
 			// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
 
-			// PHASE 1.5: WAIT BEFORE ANIMATION
-			if (earthquakeWaitTimer > 0.0f && !pausedForDraft) {
-				earthquakeWaitTimer -= ofGetLastFrameTime();
-				if (earthquakeWaitTimer <= 0.0f) {
-					earthquakeWaitTimer = 0.0f;
-					isEarthquakeAnimatingStep = true;
-					earthquakeT = 0.0f;
-				}
-			}
-
 			// PHASE 2: ANIMATION STEP (Simultaneous Movement)
 			if (isEarthquakeAnimatingStep && !pausedForDraft) {
 				// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
@@ -7815,15 +7805,15 @@ void ofApp::updateGameLogic() {
 
 						if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
 							earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-							// Use pre-rolled crash damage from decision-time (blackboard)
+
+							// Deterministically roll crash damage AT THE EXACT MOMENT OF CRASH
+							// This is fully safe and synced because this code only runs within `simulationTick()`!
+							std::vector<int> rawCrash;
+							int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
+
 							int quakeDamageBase = 8;
-							int outSlot;
-							if (i >= 16 - quakeDamageBase)
-								outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
-							else
-								outSlot = quakeDamageBase + i;
-							int crashRoll = currentEffectSequence.blackboard[outSlot];
-							std::vector<int> rawCrash; // pre-rolled raw was queued at decision-time
+							int outSlot = quakeDamageBase + (i % 8); // Guaranteed safe slot allocation
+							currentEffectSequence.blackboard[outSlot] = crashRoll; // Save for APPLY_EARTHQUAKE_DAMAGE
 							queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
 							// Attach visual metadata to last added activeDiceRoll
 							if (!activeDiceRolls.empty()) {
@@ -7856,10 +7846,7 @@ void ofApp::updateGameLogic() {
 								t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
 								t.gridX = currentPos[i].x;
 								t.gridY = currentPos[i].y;
-								if (i >= 16 - quakeDamageBase)
-									t.blackboardSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
-								else
-									t.blackboardSlot = quakeDamageBase + i;
+								t.blackboardSlot = quakeDamageBase + (i % 8);
 								t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
 								earthquakeDamageTargets.push_back(t);
 								anyDamage = true;
@@ -23282,17 +23269,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_EARTHQUAKE: {
-		// Read authoritative distance results from blackboard and apply to earthquakeUnits
+		// We already assigned distances and directions perfectly in executeCardByType.
+		// Simply clean up the visual dice before they start moving!
+
 		int n = (int)earthquakeUnits.size();
 		std::vector<int> toErase;
 
 		for (int i = 0; i < n; ++i) {
-			int result = currentEffectSequence.blackboard[i];
-			earthquakeUnits[i].tilesToMove = result;
-			earthquakeUnits[i].originalDistance = result;
-			earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid + earthquakeUnits[i].direction;
-			earthquakeUnits[i].isMoving = (result > 0);
-
 			// Find and remove the visual dice rolls that correspond to these distance rolls
 			for (int j = 0; j < (int)activeDiceRolls.size(); ++j) {
 				if (activeDiceRolls[j].purpose == PURPOSE_EARTHQUAKE_DISTANCE && activeDiceRolls[j].associatedUnit == earthquakeUnits[i].playerIndex) {
@@ -23309,9 +23292,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 
-		// Transition earthquake state to waiting/animation phase
+		// Transition earthquake state directly to animation phase!
 		isEarthquakeDiceRolling = false;
-		earthquakeWaitTimer = 0.0f; // Start immediately
 		isEarthquakeAnimatingStep = true;
 		earthquakeT = 0.0f;
 
@@ -23829,8 +23811,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		// We use targetIndex (which is normally unused for WAIT_VISUAL) to track remaining ticks.
 		if (op.data.damage.targetIndex <= 0) {
 			int waitMode = op.data.damage.fixedDamage;
-			// Match the visual spin duration exactly so control returns fluidly!
-			float waitSeconds = (waitMode == 0) ? 0.8f : 0.4f;
+
+			// Mode 0 = 0.8s, Mode 1 = 0.4s, Mode 2 = 2.5s (Earthquake Delay)
+			float waitSeconds = 0.8f;
+			if (waitMode == 1)
+				waitSeconds = 0.4f;
+			else if (waitMode == 2)
+				waitSeconds = 2.5f;
+
 			// Convert seconds to ticks (e.g. 0.8s / 0.016 = ~48 ticks)
 			op.data.damage.targetIndex = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
 		}
@@ -26891,14 +26879,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		beginEffectSequence();
 
-		triggerCameraShake(1.2f, 0.9f);
+		triggerCameraShake(2.5f, 0.9f);
 
 		currentCardOutcome.cardIndex = -1;
 		isEarthquakeActive = true;
 		isEarthquakeDiceRolling = true;
 		isEarthquakeAnimatingStep = false;
 		earthquakeUnits.clear();
-		for (int i = 0; i < (int)players.size(); ++i) {
+
+		int n = (int)players.size();
+		for (int i = 0; i < n; ++i) {
 			EarthquakeState state;
 			state.playerIndex = i;
 			state.startGrid = { players[i].x, players[i].y };
@@ -26907,9 +26897,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			state.crashed = false;
 			state.tilesToMove = 0;
 			state.originalDistance = 0;
+
 			std::vector<int> rawDir;
 			int pickDir = resolveDiceRollDetailed(1, 4, rawDir);
-			if (2 + i >= 0 && 2 + i < 16) currentEffectSequence.blackboard[2 + i] = pickDir;
 			if (pickDir == 1)
 				state.direction = { 0, 1 };
 			else if (pickDir == 2)
@@ -26919,27 +26909,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			else
 				state.direction = { -1, 0 };
 			state.diceIndex = -1;
-			earthquakeUnits.push_back(state);
-		}
 
-		int n = (int)earthquakeUnits.size();
-		std::vector<int> distances(n, 0);
-		for (int i = 0; i < n; ++i) {
 			std::vector<int> rawDist;
-			distances[i] = resolveDiceRollDetailed(1, 4, rawDist);
+			int dist = resolveDiceRollDetailed(1, 4, rawDist);
+			state.tilesToMove = dist;
+			state.originalDistance = dist;
+			state.nextGrid = state.startGrid + state.direction;
 
-			// Setup immediate distances so arrows draw during dice roll
-			earthquakeUnits[i].tilesToMove = distances[i];
-			earthquakeUnits[i].originalDistance = distances[i];
-			earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid + earthquakeUnits[i].direction;
+			earthquakeUnits.push_back(state);
 
-			glm::ivec2 sg = earthquakeUnits[i].startGrid;
-			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawDist, distances[i], PURPOSE_EARTHQUAKE_DISTANCE, earthquakeUnits[i].playerIndex, 1.0f);
+			glm::ivec2 sg = state.startGrid;
+			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawDist, dist, PURPOSE_EARTHQUAKE_DISTANCE, i, 2.0f);
 		}
 
-		for (int i = 0; i < n && i < 16; ++i) {
-			currentEffectSequence.blackboard[i] = distances[i];
-		}
+		// Wait exactly 2.5 seconds before moving so players can see the dice and arrows
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 2; // Mode 2 = 2.5 seconds
+		queueEffect(wait);
 
 		EffectOp apply = {};
 		apply.type = EffectOpType::APPLY_EARTHQUAKE;
