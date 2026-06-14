@@ -106,7 +106,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose an adjacent unit or yourself. **Choose One:** Remove a negative status effect; or roll 1d20 and gain that much Barrier until their next turn.
+- **Effect Text:** Choose an adjacent unit or yourself. **Choose One:** Remove a negative status effect; or roll 1d20 and gain that much **Barrier** until their next turn.
 ---
 
 ## 15. Teleport
@@ -168,7 +168,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a Skeleton in an adjacent empty tile. It has **Regeneration**. If a unit died there last turn, shuffle a random card from their deck into the Skeleton's.
+- **Effect Text:** **Summon** a **Skeleton** in an adjacent empty tile. It has **Regeneration**. If a unit died there last turn, shuffle a random card from their deck into the **Skeleton's**.
 - **Deck:** 2x Punch, 2x Hand Block
 - **AP:** 1d6
 - **HP:** 1d6
@@ -178,7 +178,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a Golem in an adjacent empty tile. Improve its stats if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn. 
+- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. **Improve** if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn. 
 - **Deck:** 3x Bash, 2x Hand Block
 - **AP:** 1d6
 - **HP:** 1d10
@@ -202,7 +202,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = friendly Skeletons and friendly Hellhounds).
+- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = friendly **Skeletons** and friendly **Hellhounds**).
 ---
 
 ## 27. Drain Punch
@@ -210,7 +210,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each hand-related card played this turn. **Restore** Health equal to damage dealt.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card played this turn. **Restore** Health equal to damage dealt.
 ---
 
 ## 28. Double Handed
@@ -224,14 +224,14 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 Max Health. Tails: -1 Max Health to adjacent unit.
+- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to adjacent unit.
 ---
 
 ## 30. Call for Wolves
 - **AP Cost:** 7
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a Wolf in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck or discard.
+- **Effect Text:** **Summon** a **Wolf** in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck or discard.
 - **Deck:** 3x Slash, 1x Call for Wolves
 - **AP:** 1d10
 - **HP:** 4
@@ -241,7 +241,7 @@
 - **AP Cost:** 3
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Gain +1 Luck for each friendly Skeleton.
+- **Effect Text:** Gain +1 **Luck** for each friendly **Skeleton**.
 ---
 
 ## 32. Time Vortex
@@ -256,7 +256,7 @@
 - **AP Cost:** 2
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Deal 2 Physical damage to an adjacent unit for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.
+- **Effect Text:** Deal [X] Physical damage to an adjacent unit. This deals 2 damage for each **Hand-related** card in your discard pile. Gain +1 **Luck** and +1 **Max Health**. **Destroy** their top card.
 ---
 
 ## 34. Magic Bolt
@@ -265,7 +265,7 @@
 - **Targeting:** 2d20 ft, 1d20 ft AOE
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an **AOE** from the tile hit. Can target through walls (AOE is blocked).
+- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an **AOE** from the tile hit. Can target through walls (**AOE** is blocked).
 ---
 
 ## 35. Flail
@@ -280,7 +280,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a Hellhound in an adjacent empty tile. It takes double Holy damage.
+- **Effect Text:** **Summon** a **Hellhound** in an adjacent empty tile. It takes double Holy damage.
 - **Deck:** 2x Slash, 2x Flame Hit, 2x Fireball, 3x Dark Shield
 - **AP:** 2d6
 - **HP:** 2d6
@@ -298,7 +298,7 @@
 - **AP Cost:** 10
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a Demon in an adjacent empty tile. Takes double Holy damage. The unit that kills it **Drafts** a Class 3. 
+- **Effect Text:** **Summon** a **Demon** in an adjacent empty tile. Takes double Holy damage. The unit that kills it **Drafts** a Class 3. 
 - **Deck:** 2x Death, 2x Flail, 2x Fireball, 1x Summon Hellhound, 3x Dark Shield
 - **AP:** 4d4
 - **HP:** 3d10
@@ -339,7 +339,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain +1 Max Health.
+- **Effect Text:** Gain +1 **Max Health**.
 ---
 
 ## 44. Add Poison
@@ -355,7 +355,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if hand-related, it costs 0 AP this turn. This turn, hand-related card effects happen X additional times (X = Flurries played this turn).
+- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = Flurries played this turn).
 ---
 
 ## 46. Form of Tortoise
@@ -363,7 +363,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 Health damage. Gain +5 Max Health. **Restore** 5 Health. Shuffle 2x Dispel into your deck. Your **Defence** does not expire. Deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**. 
+- **Effect Text:** Transform into a Tortoise until you take 5 Health damage. Gain +5 **Max Health**. **Restore** 5 Health. Shuffle 2x Dispel into your deck. Your **Defence** does not expire. Deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**. 
 ---
 
 ## 47. Fortify
@@ -386,7 +386,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4. **Summon** that many Kobolds in adjacent empty tiles. 
+- **Effect Text:** Roll 1d4. **Summon** that many **Kobolds** in adjacent empty tiles. 
 - **Deck:** 1x Punch, 2x Hand Block, 1x Call for Kobolds
 - **AP:** 1d4
 - **HP:** 1
@@ -455,7 +455,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +3 Max Health. **Restore** 1 Health.
+- **Effect Text:** Gain +3 **Max Health**. **Restore** 1 Health.
 ---
 
 ## 59. Lesser Heal
@@ -480,17 +480,17 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a Kobold King in an adjacent empty tile. Its Max Health is 1 + the number of Kobolds.
+- **Effect Text:** **Summon** a **Kobold King** in an adjacent empty tile. Its **Max Health** is 1 + the number of **Kobolds**.
 - **Deck:** 2x Slash, 2x Stab, 2x Full Restore, 1x Call for Kobolds
 - **AP:** 1d6
-- **HP:** 1 + number of Kobolds
+- **HP:** 1 + number of **Kobolds**
 ---
 
 ## 62. Summon Assistant
 - **AP Cost:** 4
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Summon** an Assistant in an adjacent empty tile. While adjacent, you gain +1 Luck and can reroll AP once if at 0. 
+- **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent, you gain +1 **Luck** and can reroll AP once if at 0. 
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
 - **AP:** Heads: 1 Tails: 0
 - **HP:** 1
@@ -500,14 +500,14 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Check Max Health. 16-20: **Draft** Class 1. 21-25: **Draft** Class 2. 26-30: **Draft** Class 3. 31+: Win the game.
+- **Effect Text:** Check **Max Health**. 16-20: **Draft** Class 1. 21-25: **Draft** Class 2. 26-30: **Draft** Class 3. 31+: Win the game.
 ---
 
 ## 64. Four-leaf clover
 - **AP Cost:** 10
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +1 Luck. **Passive:** Gain +1 Luck while this is in your deck. 
+- **Effect Text:** Gain +1 **Luck**. **Passive:** Gain +1 **Luck** while this is in your deck. 
 ---
 
 ## 65. Sprint
@@ -521,7 +521,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Restore** to Max Health. Remove all negative status effects.
+- **Effect Text:** **Restore** to **Max Health**. Remove all negative status effects.
 ---
 
 ## 67. Smite
@@ -554,7 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a Faerie in an adjacent empty tile. It has **Regeneration**. While adjacent, if you die, resurrect with 25% of your Max Health multiplied by 1d4 and clear all status effects.
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. While adjacent, if you die, resurrect with 25% of your **Max Health** multiplied by 1d4 and clear all status effects.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5
