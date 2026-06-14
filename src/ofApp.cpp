@@ -3372,7 +3372,7 @@ void ofApp::setup() {
 	if (playerModel.load("Units/Player/model.glb")) {
 		playerModel.disableMaterials();
 		// Moderate player model scale (reduced from previous change)
-		playerModel.setScale(0.00425f, 0.00425f, 0.00425f);
+		playerModel.setScale(0.0051f, 0.0051f, 0.0051f);
 		playerModel.setRotation(0, 180, 0, 0, 1);
 	}
 
@@ -3381,7 +3381,7 @@ void ofApp::setup() {
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
-	skeletonModel.setScale(0.0026f, 0.0026f, 0.0026f);
+	skeletonModel.setScale(0.00312f, 0.00312f, 0.00312f);
 	skeletonModel.disableMaterials();
 
 	// Diagnostic: verify skeleton assets loaded
@@ -3390,7 +3390,7 @@ void ofApp::setup() {
 
 	// Load Golem
 	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
-	golemModel.setScale(0.0036f, 0.0036f, 0.0036f);
+	golemModel.setScale(0.00432f, 0.00432f, 0.00432f);
 	golemModel.disableMaterials();
 	golemModel.disableTextures();
 	// Load Golem Variants
@@ -3426,7 +3426,7 @@ void ofApp::setup() {
 		koboldModel.disableMaterials();
 		koboldModel.setRotation(0, 180, 0, 0, 1);
 		// Scale down by ~30% to make kobold visually smaller
-		koboldModel.setScale(0.00245f, 0.00245f, 0.00245f);
+		koboldModel.setScale(0.00294f, 0.00294f, 0.00294f);
 		ofLogNotice("Setup") << "Kobold model loaded.";
 	} else {
 		ofLogNotice("Setup") << "Kobold model failed to load (optional). Tried: " << koboldPath1 << " and " << koboldPath2;
@@ -3441,7 +3441,7 @@ void ofApp::setup() {
 
 		// 2. Scale: Reduced from 0.06 to 0.0042 (Approx 1.5x size of Player)
 		// Reduce further by 15% to avoid clipping and better fit tile
-		koboldKingModel.setScale(0.003f, 0.003f, 0.003f);
+		koboldKingModel.setScale(0.0036f, 0.0036f, 0.0036f);
 
 		if (ofLoadImage(koboldKingTexture, "Units/KoboldKing/01391eaa.dds")) {
 			koboldKingTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -3461,7 +3461,7 @@ void ofApp::setup() {
 		hellhoundModel.setRotation(0, 90, 1, 0, 0);
 
 		// Scale: slightly reduced to better fit and sit on ground
-		hellhoundModel.setScale(0.0042f, 0.0042f, 0.0042f);
+		hellhoundModel.setScale(0.00504f, 0.00504f, 0.00504f);
 
 		ofLogNotice("Setup") << "Hellhound model loaded.";
 	}
@@ -3472,7 +3472,7 @@ void ofApp::setup() {
 		// Standard GLB fix
 		demonModel.setRotation(0, 180, 0, 0, 1);
 		// Demon should be large
-		demonModel.setScale(0.00575f, 0.00575f, 0.00575f);
+		demonModel.setScale(0.0069f, 0.0069f, 0.0069f);
 		ofLogNotice("Setup") << "Demon model loaded.";
 	} else {
 		ofLogError("Setup") << "Failed to load demon model.";
@@ -3483,7 +3483,7 @@ void ofApp::setup() {
 		tortoiseModel.disableMaterials();
 		tortoiseModel.disableTextures();
 		// Keep tortoise scale but we'll lower its placement in-view
-		tortoiseModel.setScale(0.00255f, 0.00255f, 0.00255f);
+		tortoiseModel.setScale(0.00306f, 0.00306f, 0.00306f);
 		// Load texture
 		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
 		tortoiseTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -3496,7 +3496,7 @@ void ofApp::setup() {
 	if (ghostModel.load("Units/Ghost/Halloween Ghost.fbx")) {
 		ghostModel.disableMaterials();
 		ghostModel.disableTextures(); // We will bind manually
-		ghostModel.setScale(0.0025f, 0.0025f, 0.0025f);
+		ghostModel.setScale(0.003f, 0.003f, 0.003f);
 		ghostModel.setRotation(0, 180, 0, 0, 1);
 
 		// Load the texture provided in the zip
@@ -3514,7 +3514,7 @@ void ofApp::setup() {
 		wallUnitModel.disableMaterials();
 		wallUnitModel.disableTextures();
 		wallUnitModel.setScaleNormalization(false);
-		wallUnitModel.setScale(0.035f, 0.035f, 0.035f);
+		wallUnitModel.setScale(0.042f, 0.042f, 0.042f);
 		wallUnitModel.setRotation(0, 180, 0, 0, 1);
 		wallUnitModel.setRotation(1, 180, 1, 0, 0);
 
@@ -3539,7 +3539,7 @@ void ofApp::setup() {
 		assistantModel.disableMaterials();
 		assistantModel.setRotation(0, 180, 0, 0, 1);
 		// Adjust scale as needed, usually GLBs need around 0.0025 to 0.0045
-		assistantModel.setScale(0.0035f, 0.0035f, 0.0035f);
+		assistantModel.setScale(0.0042f, 0.0042f, 0.0042f);
 		ofLogNotice("Setup") << "Assistant model loaded.";
 	} else {
 		ofLogError("Setup") << "Failed to load Assistant model.";
@@ -3549,7 +3549,7 @@ void ofApp::setup() {
 	if (faerieModel.load("Units/Faerie/Highly_detailed_3D_mo_1031064951_texture.glb")) {
 		faerieModel.disableMaterials();
 		// Faerie: moderate scale (reduced from previous change)
-		faerieModel.setScale(0.0048f, 0.0048f, 0.0048f);
+		faerieModel.setScale(0.00576f, 0.00576f, 0.00576f);
 		faerieModel.setRotation(0, 180, 0, 0, 1);
 		if (ofLoadImage(faerieTexture, "Units/Faerie/gltf_embedded_0.jpeg")) {
 			faerieTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -6788,8 +6788,8 @@ void ofApp::prepareGameVisualState() {
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
 	// Defaults for minion UI (reduced size to avoid clipping)
-	float standardEntryHeight = 110.0f;
-	float panelWidth = 420.0f;
+	float standardEntryHeight = 135.0f; // Increased by ~20%
+	float panelWidth = 510.0f; // Increased by ~20%
 	float scale = getUIScaleFromHeight(ofGetHeight());
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 	float gap = layoutSpacing.minionEntryGapUnscaled; // unscaled baseline (centralized)
@@ -8931,71 +8931,71 @@ void ofApp::drawGame() {
 
 				if (player.inGhostForm) {
 					// Ghost: elevated
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f + 1.0f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f + 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(player.facingAngle + 90.0f), glm::vec3(0, 1, 0));
 				} else if (player.isSkeleton) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Raise player model slightly so it sits better above the ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.4f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.88f, 0));
 				} else if (player.isGolem) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Lower golem slightly so it sits better on the ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.4f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.88f, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
 				} else if (player.isWolf) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.4f, 0));
-					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(0.018f, 0.018f, 0.018f));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.48f, 0));
+					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(0.0216f, 0.0216f, 0.0216f));
 				} else if (player.isHellhound) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle + 180.0f), glm::vec3(0, 1, 0));
 					// Lower hellhound a bit
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.4f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.48f, 0));
 				} else if (player.isDemon) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 3.5f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 4.2f, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
 				} else if (player.inTortoiseForm) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Lower tortoise on-board so it sits into the ground less
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.3f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.36f, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
 				} else if (player.isKobold) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.6f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.72f, 0));
 				} else if (player.isKoboldKing) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 1, 0));
 					// Lower Kobold King slightly on-board
-					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.4f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.48f, 0));
 				} else if (player.isFaerie) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Raise faerie on-board so it appears above ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 1.4f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 1.68f, 0));
 				} else if (player.isWallUnit) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.14f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.168f, 0));
 				} else if (player.isAssistant) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Raise assistant a bit so it doesn't clip into the floor
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.2f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.64f, 0));
 				} else {
 					// Default player model
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Raise player model slightly so it sits better above the ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.4f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.88f, 0));
 				}
 
 				// Apply model's internal transform (scale / rotation) so shadow depth
@@ -9448,15 +9448,15 @@ void ofApp::drawGame() {
 
 			// --- 2. GHOST FORM (Overrides everything) ---
 			if (player.inGhostForm) {
-				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(pos.x, 0.12f, pos.z);
 
 				// Base floating height
-				float floatY = 1.0f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f;
+				float floatY = 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
 
 				// CHECK IF IN WALL:
 				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
 					if (board[player.x][player.y].hasWall) {
-						floatY += 1.5f;
+						floatY += 1.8f;
 					}
 				}
 
@@ -9487,9 +9487,9 @@ void ofApp::drawGame() {
 				ofSetColor(unitTint);
 
 				if (player.isSkeleton) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 2.0f, 0);
+					ofTranslate(0, 2.4f, 0);
 					// Defensive fallback: if the skeleton model failed to load, render a placeholder
 					if (skeletonModel.getMeshCount() == 0) {
 						ofLogError("Render") << "Skeleton model missing: drawing placeholder at (" << pos.x << "," << pos.z << ")";
@@ -9557,9 +9557,9 @@ void ofApp::drawGame() {
 						}
 					}
 				} else if (player.isGolem) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 3.0f, 0);
+					ofTranslate(0, 3.6f, 0);
 					ofRotateXDeg(180);
 					ofRotateYDeg(90);
 					if (pbrShaderLoaded && enableShaders) {
@@ -9607,10 +9607,10 @@ void ofApp::drawGame() {
 						if (player.minionTexture) player.minionTexture->unbind();
 					}
 				} else if (player.isWolf) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.4f, 0);
-					ofScale(0.018f, 0.018f, 0.018f);
+					ofTranslate(0, 0.48f, 0);
+					ofScale(0.0216f, 0.0216f, 0.0216f);
 					if (pbrShaderLoaded && enableShaders) {
 						ofMultMatrix(wolfModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
@@ -9659,12 +9659,12 @@ void ofApp::drawGame() {
 					ofDisableAlphaBlending();
 					glDepthMask(GL_TRUE);
 				} else if (player.isHellhound) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					// Face movement direction like other minions
 					// Hellhound's model forward is reversed; add 180 degrees
 					ofRotateYDeg(unitFacingAngle + 180.0f);
 					// Slight vertical offset so paws/mesh clear the floor
-					ofTranslate(0, 0.6f, 0);
+					ofTranslate(0, 0.72f, 0);
 					if (pbrShaderLoaded && enableShaders) {
 						ofMultMatrix(hellhoundModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
@@ -9691,10 +9691,11 @@ void ofApp::drawGame() {
 					} else {
 						hellhoundModel.drawFaces();
 					}
+
 				} else if (player.isDemon) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 3.5f, 0);
+					ofTranslate(0, 4.2f, 0);
 					ofRotateYDeg(90);
 					if (pbrShaderLoaded && enableShaders) {
 						ofMultMatrix(demonModel.getModelMatrix());
@@ -9723,9 +9724,9 @@ void ofApp::drawGame() {
 						demonModel.drawFaces();
 					}
 				} else if (player.inTortoiseForm) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.5f, 0);
+					ofTranslate(0, 0.6f, 0);
 					ofRotateXDeg(180);
 					if (pbrShaderLoaded && enableShaders) {
 						ofMultMatrix(tortoiseModel.getModelMatrix());
@@ -9760,9 +9761,9 @@ void ofApp::drawGame() {
 						if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
 					}
 				} else if (player.isKobold) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.6f, 0);
+					ofTranslate(0, 0.72f, 0);
 					if (pbrShaderLoaded && enableShaders) {
 						ofMultMatrix(koboldModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
@@ -9792,10 +9793,10 @@ void ofApp::drawGame() {
 				}
 				// --- KOBOLD KING ---
 				else if (player.isKoboldKing) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofRotateYDeg(-90);
-					ofTranslate(0, TILE_SIZE * 0.6f, 0);
+					ofTranslate(0, TILE_SIZE * 0.72f, 0);
 
 					if (pbrShaderLoaded && enableShaders) {
 						ofMultMatrix(koboldKingModel.getModelMatrix());
@@ -9848,17 +9849,17 @@ void ofApp::drawGame() {
 				}
 				// --- FAERIE ---
 				else if (player.isFaerie) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					// Model is already rotated in setup
-					ofTranslate(0, 1.0f, 0); // Adjust vertical offset as needed
+					ofTranslate(0, 1.2f, 0); // Adjust vertical offset as needed
 					if (faerieTexture.isAllocated()) faerieTexture.bind();
 					faerieModel.drawFaces();
 					if (faerieTexture.isAllocated()) faerieTexture.unbind();
 				}
 				// --- WALL UNIT ---
 				else if (player.isWallUnit) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.0f, 0); // Adjust based on model pivot
 					// Standard FBX upright correction (if needed)
@@ -9868,7 +9869,7 @@ void ofApp::drawGame() {
 					if (wallUnitTexture.isAllocated()) {
 						wallUnitTexture.bind();
 						// Raise model so it sits on the ground and not intersect the floor
-						ofTranslate(0, TILE_SIZE * 0.14f, 0);
+						ofTranslate(0, TILE_SIZE * 0.168f, 0);
 						// Use flat shading while drawing the wall unit to avoid smooth shading
 						glShadeModel(GL_FLAT);
 						wallUnitModel.drawFaces();
@@ -9876,7 +9877,7 @@ void ofApp::drawGame() {
 						wallUnitTexture.unbind();
 					} else {
 						// No external texture: draw model with its embedded textures (GLB) or material colors
-						ofTranslate(0, TILE_SIZE * 0.14f, 0);
+						ofTranslate(0, TILE_SIZE * 0.168f, 0);
 						// Draw GLB with flat shading to turn off smooth shading
 						glShadeModel(GL_FLAT);
 						wallUnitModel.drawFaces();
@@ -9904,9 +9905,9 @@ void ofApp::drawGame() {
 				}
 				// --- ASSISTANT ---
 				else if (player.isAssistant) {
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 1.7f, 0);
+					ofTranslate(0, 2.04f, 0);
 					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
 
 					// Optional: Tint blue/purple to look magical, blended with the team tint
@@ -9915,9 +9916,9 @@ void ofApp::drawGame() {
 					ofSetColor(unitTint);
 				} else {
 					// Default Player
-					ofTranslate(pos.x, 0.1f, pos.z);
+					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 2.0f, 0);
+					ofTranslate(0, 2.4f, 0);
 					if (playerTexture.isAllocated()) playerTexture.bind();
 					playerModel.drawFaces();
 					if (playerTexture.isAllocated()) playerTexture.unbind();
@@ -33194,11 +33195,12 @@ void ofApp::cleanupGame() {
 	animatingPlayerIndex = -1;
 	isLoadingGame = false;
 	hasReceivedHandshake = false;
+	clientSentReady = false; // Ensure consecutive multiplayer matches don't hang!
 	// waitingForTurnStartTimer removed; no-op
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
-//--------------------------------------------------------------
+//-----------------------------------------------------------
 void ofApp::loadCardData(const std::string & filePath) {
 	ofJson json;
 	if (!ofFile(filePath).exists()) {
@@ -33554,10 +33556,10 @@ int ofApp::stringToStatusType(const std::string & str) {
 //--------------------------------------------------------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth, bool alignRight) {
 	float scale = getUIScaleFromHeight(ofGetHeight());
-	float fontScale = 1.0f;
+	float fontScale = 1.15f; // Increased font scale for readability
 
 	// 1. Main Stats Bar
-	float barHeight = 20 * scale;
+	float barHeight = 24 * scale; // Increased bar height
 	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 	float barY = y + (nameBounds.height * fontScale) + (4 * scale);
 
@@ -33618,7 +33620,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	// --- FORM BARS ---
 	if (minion.inTortoiseForm || minion.inGhostForm) {
 		float formY = barY + barHeight + (2 * scale);
-		float formHeight = 15 * scale;
+		float formHeight = 18 * scale; // Increased form bar height
 		float formStartX = alignRight ? (x + std::max(0.0f, totalWidth - totalBarW)) : x;
 
 		if (minion.inTortoiseForm) {
@@ -33851,6 +33853,18 @@ void ofApp::drawMinionManagerUI() {
 
 		ofPopMatrix();
 		ofDisableDepthTest();
+
+		// CRITICAL FIX: Nuke any lingering OpenGL materials/colors from Assimp models (like Kobold King)
+		// inside the FBO rendering. If we don't do this, the models leave GL_COLOR_MATERIAL
+		// enabled and permanently tint the main 3D world (walls/floor) grey on the next frame!
+		ofSetColor(255, 255, 255, 255);
+		glDisable(GL_COLOR_MATERIAL);
+		glDisable(GL_LIGHTING);
+		float defaultAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+		float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+		glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
+		glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
+
 		modelFbo.end();
 
 		// Setup Scissor clipping to hide overflowing elements
@@ -33936,7 +33950,7 @@ void ofApp::drawMinionManagerUI() {
 		name += ofToString(ui.displayNumber);
 
 		// --- Draw Name Text ---
-		constexpr float kMinionUINameScale = 1.12f;
+		constexpr float kMinionUINameScale = 1.35f;
 		float fontScale = kMinionUINameScale;
 		float textBlockY = ui.bounds.y + 5 * scale;
 
