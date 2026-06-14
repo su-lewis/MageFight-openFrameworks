@@ -27,6 +27,13 @@ std::vector<glm::ivec2> activeYellowPreviewTiles;
 // Combined 2x1 target areas for stab (visual-only)
 std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
 
+struct ActionHistoryEntry {
+	std::string cardName;
+	Card card;
+	int playerID;
+};
+static std::vector<ActionHistoryEntry> g_actionHistory;
+
 // Menu type for ghost relocation (when ghost materializes inside a wall)
 static const int MENU_GHOST_RELOCATE = 5;
 
@@ -93,6 +100,160 @@ void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
 }
 
 namespace {
+
+static float g_uniformEffectScale = 1.0f;
+static float g_effectLineSpacing = 0.82f;
+static ofRectangle g_effectTextRect(96, 928, 864, 384);
+static float g_templateWidth = 1056.0f;
+static float g_templateHeight = 1448.0f;
+
+static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
+	if (text.empty()) return;
+	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+	float fitW = std::max(1.0f, rect.width - 2.0f);
+
+	float customSpaceW = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f) * drawScale;
+
+	struct Token {
+		std::string text;
+		bool bold;
+		float w;
+	};
+	std::vector<Token> tokens;
+	bool currentBold = false;
+	std::string currentWord = "";
+
+	auto flushWord = [&]() {
+		if (!currentWord.empty()) {
+			float fw = font.getStringBoundingBox(currentWord, 0, 0).width * drawScale;
+			if (currentBold) fw += 1.0f * drawScale;
+			tokens.push_back({ currentWord, currentBold, fw });
+			currentWord.clear();
+		}
+	};
+
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (i + 1 < text.size() && text[i] == '*' && text[i + 1] == '*') {
+			flushWord();
+			currentBold = !currentBold;
+			i++;
+		} else if (text[i] == ' ') {
+			flushWord();
+			tokens.push_back({ " ", currentBold, customSpaceW });
+		} else if (text[i] == '\n') {
+			flushWord();
+			tokens.push_back({ "\n", currentBold, 0.0f });
+		} else {
+			currentWord += text[i];
+		}
+	}
+	flushWord();
+
+	struct Line {
+		std::vector<Token> toks;
+		float width = 0;
+	};
+	std::vector<Line> lines;
+	Line currentLine;
+	for (auto & t : tokens) {
+		if (t.text == "\n") {
+			lines.push_back(currentLine);
+			currentLine = Line();
+			continue;
+		}
+		if (currentLine.width + t.w > fitW && !currentLine.toks.empty()) {
+			if (t.text == " ") continue;
+			lines.push_back(currentLine);
+			currentLine = Line();
+		}
+		currentLine.toks.push_back(t);
+		currentLine.width += t.w;
+	}
+	if (!currentLine.toks.empty()) lines.push_back(currentLine);
+
+	float lineH = std::max(1.0f, font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing));
+	float totalH = lineH * lines.size();
+	float startY = rect.y + 1.0f + std::max(0.0f, (rect.height - totalH) * 0.5f);
+
+	for (size_t li = 0; li < lines.size(); ++li) {
+		auto & l = lines[li];
+		float lineWidth = l.width;
+		while (!l.toks.empty() && l.toks.back().text == " ") {
+			lineWidth -= l.toks.back().w;
+			l.toks.pop_back();
+		}
+
+		float cursorX = rect.x + 1.0f + (fitW - lineWidth) * 0.5f;
+		float ty = startY + li * lineH + lineH * 0.8f;
+
+		for (auto & t : l.toks) {
+			float txSnap = std::round(cursorX);
+			float tySnap = std::round(ty);
+
+			ofSetColor(fillColor);
+			ofPushMatrix();
+			ofTranslate(txSnap, tySnap);
+			ofScale(drawScale, drawScale);
+
+			if (t.text != " " && t.text != "\n") {
+				font.drawString(t.text, 0, 0);
+				if (t.bold) font.drawString(t.text, 1.0f / drawScale, 0);
+			}
+
+			ofPopMatrix();
+			cursorX += t.w;
+		}
+	}
+}
+
+// Forward declaration of the safe subsection renderer
+static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, float dstY, float dstW, float dstH, float srcX, float srcY, float srcW, float srcH);
+static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
+
+static float g_uniformAPCostScale = 1.0f;
+static ofRectangle g_costRect(32, 32, 128, 128);
+
+static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner) {
+	float safeW = std::max(1.0f, w);
+	float safeH = std::max(1.0f, h);
+
+	drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
+		card.textureRect.x, card.textureRect.y,
+		card.textureRect.width, card.textureRect.height);
+
+	ofPushMatrix();
+	ofTranslate(drawX, drawY);
+	ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
+
+	int effCost = card.cost;
+	if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
+
+	// Draw native AP Cost (white normally, green if discounted by Flurry/Sprint)
+	ofColor costColor = ofColor::white;
+	if (effCost == 0 && card.type != CARD_PUNCH && card.type != CARD_HAND_BLOCK && card.type != CARD_BLOCKING_BOON) {
+		costColor = ofColor::green;
+	}
+	drawCenteredTextScaledOutlined(titleFont, ofToString(effCost), g_costRect, g_uniformAPCostScale, costColor, ofColor::black, 4);
+
+	if (card.type == CARD_MASTER_FIST) {
+		int dmg = 0;
+		if (owner) {
+			auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+			for (const auto & c : owner->discardPile) {
+				if (isHandRelated(c.type)) dmg += 2;
+			}
+			if (owner->flurryOfFistsStacks > 0) {
+				dmg *= (1 + owner->flurryOfFistsStacks);
+			}
+		}
+		std::string effectText = "Deal **" + ofToString(dmg) + "** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.";
+
+		drawRichEffectText(font, effectText, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+	}
+
+	ofPopMatrix();
+}
+
 static void seedVisualRng(std::mt19937 & rng, uint32_t mapSeed) {
 	rng.seed(mapSeed ^ 0xDEADBEEFu);
 }
@@ -265,8 +426,6 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 static int getEffectiveCardCostForPlayer(const Player & player, const Card & card) {
 	int costToPay = card.cost;
 	if (card.type == CARD_KICK && player.freeKickTurns > 0) costToPay = 0;
-	auto isHandRelatedCard = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
-	if (player.freeHandCardTurns > 0 && isHandRelatedCard(card.type)) costToPay = 0;
 	return costToPay;
 }
 
@@ -1026,6 +1185,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const int cardW = (int)templateImage.getWidth();
 	const int cardH = (int)templateImage.getHeight();
 	if (cardW <= 0 || cardH <= 0) return false;
+	g_templateWidth = (float)cardW;
+	g_templateHeight = (float)cardH;
+
 	CardTemplateLayout outlineLayout;
 	ofRectangle damageTypeNorm(
 		outlineLayout.damageTypeRect.x / (float)cardW,
@@ -1263,6 +1425,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.effectScale,
 		layout.effectLineSpacing);
 
+	g_uniformEffectScale = uniformEffectScale;
+	g_effectLineSpacing = layout.effectLineSpacing;
+	g_effectTextRect = effectTextRect;
+
 	auto bestCenteredTextScaleForSingle = [&](const ofTrueTypeFont & font,
 											  const std::string & text,
 											  const ofRectangle & rect,
@@ -1440,110 +1606,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofScale(drawScale, drawScale);
 			font.drawString(line, 0, 0);
 			ofPopMatrix();
-		}
-	};
-
-	// --- ADD THE RICH TEXT RENDERER LAMBDA HERE ---
-	auto drawRichEffectText = [&](const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
-		if (text.empty()) return;
-		float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
-		float fitW = std::max(1.0f, rect.width - 2.0f);
-
-		// Calculate a tight, proportional space width based on the letter 'A'
-		float customSpaceW = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f) * drawScale;
-
-		struct Token {
-			std::string text;
-			bool bold;
-			float w;
-		};
-		std::vector<Token> tokens;
-		bool currentBold = false;
-		std::string currentWord = "";
-
-		auto flushWord = [&]() {
-			if (!currentWord.empty()) {
-				float fw = font.getStringBoundingBox(currentWord, 0, 0).width * drawScale;
-				if (currentBold) fw += 1.0f * drawScale; // Fake bold adds a pixel of width
-				tokens.push_back({ currentWord, currentBold, fw });
-				currentWord.clear();
-			}
-		};
-
-		for (size_t i = 0; i < text.size(); ++i) {
-			if (i + 1 < text.size() && text[i] == '*' && text[i + 1] == '*') {
-				flushWord();
-				currentBold = !currentBold;
-				i++;
-			} else if (text[i] == ' ') {
-				flushWord();
-				tokens.push_back({ " ", currentBold, customSpaceW }); // Use the tight space!
-			} else if (text[i] == '\n') {
-				flushWord();
-				tokens.push_back({ "\n", currentBold, 0.0f });
-			} else {
-				currentWord += text[i];
-			}
-		}
-		flushWord();
-
-		struct Line {
-			std::vector<Token> toks;
-			float width = 0;
-		};
-		std::vector<Line> lines;
-		Line currentLine;
-		for (auto & t : tokens) {
-			if (t.text == "\n") {
-				lines.push_back(currentLine);
-				currentLine = Line();
-				continue;
-			}
-			if (currentLine.width + t.w > fitW && !currentLine.toks.empty()) {
-				if (t.text == " ") continue; // drop leading spaces on new line
-				lines.push_back(currentLine);
-				currentLine = Line();
-			}
-			currentLine.toks.push_back(t);
-			currentLine.width += t.w;
-		}
-		if (!currentLine.toks.empty()) lines.push_back(currentLine);
-
-		float lineH = std::max(1.0f, font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing));
-		float totalH = lineH * lines.size();
-		float startY = rect.y + 1.0f + std::max(0.0f, (rect.height - totalH) * 0.5f);
-
-		for (size_t li = 0; li < lines.size(); ++li) {
-			auto & l = lines[li];
-			float lineWidth = l.width;
-			while (!l.toks.empty() && l.toks.back().text == " ") {
-				lineWidth -= l.toks.back().w;
-				l.toks.pop_back();
-			}
-
-			float cursorX = rect.x + 1.0f + (fitW - lineWidth) * 0.5f;
-			float ty = startY + li * lineH + lineH * 0.8f;
-
-			for (auto & t : l.toks) {
-				float txSnap = std::round(cursorX);
-				float tySnap = std::round(ty);
-
-				ofSetColor(fillColor);
-				ofPushMatrix();
-				ofTranslate(txSnap, tySnap);
-				ofScale(drawScale, drawScale);
-
-				// Only draw if it's an actual word (don't draw empty space strings to save performance)
-				if (t.text != " " && t.text != "\n") {
-					font.drawString(t.text, 0, 0);
-					// Fake bold: overdraw slightly to the right
-					if (t.bold) font.drawString(t.text, 1.0f / drawScale, 0);
-				}
-
-				ofPopMatrix();
-
-				cursorX += t.w;
-			}
 		}
 	};
 
@@ -1918,8 +1980,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 			}
 		}
-		const std::string apCostText = trimCopy(rec.apCost);
-		float apCostScale = bestCenteredTextScaleForSingle(renderTitleFont, apCostText, layout.costRect, 0.75f, costTargetChipMaxScale, 4);
+		g_uniformAPCostScale = bestCenteredTextScaleForSingle(renderTitleFont, trimCopy(rec.apCost), layout.costRect, 0.75f, costTargetChipMaxScale, 4);
+		g_costRect = layout.costRect;
+
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
 		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
 		auto summonHPLayout = chooseSummonChipTextAndScale(rec.summonHP, layout.summonHPRect);
@@ -1934,7 +1997,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofColor::white,
 			ofColor::black,
 			4);
-		drawCenteredTextScaledOutlined(renderTitleFont, apCostText, layout.costRect, apCostScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
 		if (!summonAPLayout.first.empty()) {
 			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
@@ -1944,7 +2006,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		}
 
 		// --- CALL THE NEW RENDERER HERE ---
-		drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
+		if (normalizeCardKey(rec.name) != "master fist") {
+			drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
+		}
 
 		ofPopStyle();
 		ofPopMatrix();
@@ -2188,6 +2252,14 @@ void ofApp::updatePlayerAP(Player & player, int newAP) {
 
 void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) {
 	createCardDisplay(playedCard, playerIndex);
+
+	ActionHistoryEntry he;
+	he.cardName = playedCard.name;
+	he.card = playedCard;
+	he.playerID = (playerIndex >= 0 && playerIndex < (int)players.size()) ? (players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID) : -1;
+	g_actionHistory.push_back(he);
+	if (g_actionHistory.size() > 8) g_actionHistory.erase(g_actionHistory.begin());
+
 	invalidateTargetCache();
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) { // Ensure player index is valid
 		// Avoid duplicate entries if already flagged at play-time
@@ -3438,6 +3510,7 @@ void ofApp::setup() {
 	// --- Load Kobold King ---
 	if (koboldKingModel.load("Units/KoboldKing/goblin_king.fbx")) {
 		koboldKingModel.disableMaterials();
+		koboldKingModel.disableTextures();
 
 		// 1. Rotation: Keep the Z flip if it was needed to make it upright
 		koboldKingModel.setRotation(0, 180, 0, 0, 1);
@@ -6012,6 +6085,7 @@ void ofApp::setupGame() {
 	floatingKeyInstances.clear();
 
 	g_pendingShellSpike = false;
+	g_actionHistory.clear();
 
 	// Repopulate default floating key positions so keys are present
 	// when a new game is started (previously keys were only added in setup()).
@@ -6438,7 +6512,7 @@ void ofApp::prepareGameVisualState() {
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
 	float btnWidth = 250 * uiScale;
-	float visibleY = 20 * uiScale;
+	float visibleY = 75 * uiScale; // Lowered to make room for Action History
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
@@ -6520,19 +6594,19 @@ void ofApp::prepareGameVisualState() {
 
 	for (auto & disp : activeCardDisplays) {
 		float elapsed = time - disp.startTime;
-		if (elapsed < 0.25f) {
-			disp.currentScale = ofLerp(disp.startScale, 1.0f, elapsed / 0.25f);
+		if (elapsed < 0.15f) {
+			disp.currentScale = ofLerp(0.1f, disp.startScale, elapsed / 0.15f);
 			disp.currentAlpha = 255.0f;
-		} else if (elapsed < 0.90f) {
-			disp.currentScale = 1.0f;
+		} else if (elapsed < 3.80f) {
+			disp.currentScale = disp.startScale;
 			disp.currentAlpha = 255.0f;
-		} else if (elapsed < 1.25f) {
-			float t = ofMap(elapsed, 0.90f, 1.25f, 0.0f, 1.0f, true);
+		} else if (elapsed < 4.0f) {
+			float t = ofMap(elapsed, 3.80f, 4.0f, 0.0f, 1.0f, true);
 			disp.currentAlpha = ofLerp(255.0f, 0.0f, t);
-			disp.currentScale = 1.0f;
+			disp.currentScale = disp.startScale;
 		}
 	}
-	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [time](const PlayedCardDisplay & disp) { return (time - disp.startTime) >= 1.25f; }), activeCardDisplays.end());
+	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [time](const PlayedCardDisplay & disp) { return (time - disp.startTime) >= 4.0f; }), activeCardDisplays.end());
 
 	for (auto & anim : activeDrawCardAnimations) {
 		float elapsed = time - anim.startTime;
@@ -6795,11 +6869,6 @@ void ofApp::prepareGameVisualState() {
 				}
 			}
 		}
-	}
-
-	const float cardDisplayDuration = 1.25f;
-	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
-		activeCardDisplays.erase(activeCardDisplays.begin());
 	}
 
 	// =========================================================================
@@ -7138,14 +7207,9 @@ void ofApp::prepareGameVisualState() {
 void ofApp::updateGameLogic() {
 
 	// If a turn start was deferred while visuals played, commit it now once visuals finished.
-	// Also include a safety fallback so a stuck visual state doesn't prevent the
-	// visible timer from ever starting (which caused the timer to "carry on").
 	if (turnStartDeferred) {
-		const int kTurnStartDeferredMaxFrames = 3 * turnTimerFramesPerSecond; // grace before forcing timer
 		bool commitNow = false;
 		if (diceVisualsFinishedAndLinger())
-			commitNow = true;
-		else if (((int64_t)simulationFrame - (int64_t)turnStartDeferredAtFrame) > (int64_t)kTurnStartDeferredMaxFrames)
 			commitNow = true;
 
 		if (commitNow) {
@@ -8600,11 +8664,6 @@ void ofApp::updateGameLogic() {
 		}
 	}
 
-	const float cardDisplayDuration = 1.25f;
-	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
-		activeCardDisplays.erase(activeCardDisplays.begin());
-	}
-
 	// Secondary timer handling: gameplay-only movement pause/resume.
 	// Draft timer logic is handled earlier in this frame and must not be duplicated,
 	// otherwise draft clicks can lock and timer state can desync/freeze.
@@ -8895,6 +8954,11 @@ void ofApp::drawGame() {
 	auto renderWorld3D = [&]() {
 		// --- SETUP ---
 		ofEnableDepthTest();
+
+		// CRITICAL FIX: Ensure no leftover materials from UI FBOs corrupt the main world
+		ofSetColor(255, 255, 255, 255);
+		glDisable(GL_COLOR_MATERIAL);
+		glDisable(GL_LIGHTING);
 
 		// --- SHADOW DEPTH PASS (simple footprint quads) ---
 		if (shadowDepthShaderLoaded && shadowFbo.isAllocated()) {
@@ -10283,7 +10347,10 @@ void ofApp::drawGame() {
 				// Faster animation frame swapping
 				int fireFrame = (int)(time * 12) % 4;
 
+				ofEnableBlendMode(OF_BLENDMODE_ADD); // Make the fire transparent and glowing!
 				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
+				ofDisableBlendMode();
+
 				ofPopMatrix();
 			}
 
@@ -11434,9 +11501,7 @@ void ofApp::drawGame() {
 		// P0 Discard (LOCAL player's discard)
 		if (!localPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
-			const auto & discardRect = localPlayer->discardPile.back().textureRect;
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
-				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, localPlayer->discardPile.back(), p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height, localPlayer);
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_discardRect, 10 * scale);
@@ -11466,9 +11531,7 @@ void ofApp::drawGame() {
 		// P1 Discard -- show opponent's top card face
 		if (!opponentPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
-			const auto & discardRect = opponentPlayer->discardPile.back().textureRect;
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
-				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, opponentPlayer->discardPile.back(), p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, opponentPlayer);
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
@@ -11825,7 +11888,7 @@ void ofApp::drawGame() {
 	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
 		float btnWidth_tmp = 250 * uiScaleBtn;
-		float visibleY = 20 * uiScaleBtn;
+		float visibleY = 75 * uiScaleBtn;
 		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
 		// Ensure extra room for stroke/glow so top outlines aren't clipped
 		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
@@ -12239,19 +12302,7 @@ void ofApp::drawGame() {
 				ofSetColor(255); // Normal
 			}
 
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-
-			// Cost Overlay for 0-cost Hand cards (or reduced cards)
-			int effCost = getEffectiveCardCostForPlayer(currentPlayer, card);
-			if (effCost != card.cost) {
-				float cx = drawX + w * 0.125f;
-				float cy = drawY + h * 0.088f;
-				float r = w * 0.075f;
-				ofSetColor(20, 20, 20, 240);
-				ofDrawCircle(cx, cy, r);
-				drawPixelTextCentered(titleFont, ofToString(effCost), cx, cy, drawScale * 0.65f, ofColor::green, 1, ofColor::black);
-				ofSetColor(255);
-			}
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
 
 			// Draw hover glow (white for local, red for opponent)
 			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
@@ -12357,8 +12408,7 @@ void ofApp::drawGame() {
 
 				// Draw the card face
 				ofSetColor(255);
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
-					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, opponentHandPlayer);
 
 				// Draw hover glow if opponent is hovering this card
 				if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == static_cast<int>(i)) {
@@ -12513,7 +12563,7 @@ void ofApp::drawGame() {
 				float drawX = startX + panelPadding + col * (viewCardWidth + padding);
 				float drawY = startY + row * (viewCardHeight + padding);
 				const Card & card = cardsToShowInView[i];
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, &players[currentPileViewPlayerIndex]);
 			}
 		} else {
 			// If the pile is empty, ensure the view is hidden
@@ -12538,9 +12588,14 @@ void ofApp::drawGame() {
 		float h = baseCardHeight * anim.currentScale;
 		float drawX = anim.currentPos.x - w / 2;
 		float drawY = anim.currentPos.y - h / 2;
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
-			anim.card.textureRect.x, anim.card.textureRect.y,
-			anim.card.textureRect.width, anim.card.textureRect.height);
+
+		Player * pPtr = nullptr;
+		if (anim.ownerPlayerID >= 0) {
+			int pidx = findPlayerIndexByID(anim.ownerPlayerID);
+			if (pidx >= 0 && pidx < (int)players.size()) pPtr = &players[pidx];
+		}
+
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
 		ofPopStyle();
 	}
 
@@ -12554,9 +12609,14 @@ void ofApp::drawGame() {
 		float h = animCardBaseHeight * anim.currentScale;
 		float drawX = anim.currentPos.x - w / 2;
 		float drawY = anim.currentPos.y - h / 2;
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
-			anim.card.textureRect.x, anim.card.textureRect.y,
-			anim.card.textureRect.width, anim.card.textureRect.height);
+
+		Player * pPtr = nullptr;
+		if (anim.ownerPlayerID >= 0) {
+			int pidx = findPlayerIndexByID(anim.ownerPlayerID);
+			if (pidx >= 0 && pidx < (int)players.size()) pPtr = &players[pidx];
+		}
+
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
 		ofPopStyle();
 	}
 	// --- Draw Stolen Card Animation (On top of most UI) ---
@@ -12564,9 +12624,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, anim.currentAlpha);
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, anim.currentPos.x - w / 2, anim.currentPos.y - h / 2, w, h,
-			anim.card.textureRect.x, anim.card.textureRect.y,
-			anim.card.textureRect.width, anim.card.textureRect.height);
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.currentPos.x - w / 2, anim.currentPos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Played Card Animation (Center of screen) ---
@@ -12574,9 +12632,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, anim.currentAlpha);
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h,
-			anim.card.textureRect.x, anim.card.textureRect.y,
-			anim.card.textureRect.width, anim.card.textureRect.height);
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Amnesia Removal Animation ---
@@ -12584,9 +12640,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, anim.currentAlpha);
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h,
-			anim.card.textureRect.x, anim.card.textureRect.y,
-			anim.card.textureRect.width, anim.card.textureRect.height);
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Card Played Display (UI-based popup after card is played) ---
@@ -12594,9 +12648,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, disp.currentAlpha);
 		float w = animCardBaseWidth * disp.currentScale;
 		float h = animCardBaseHeight * disp.currentScale;
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h,
-			disp.card.textureRect.x, disp.card.textureRect.y,
-			disp.card.textureRect.width, disp.card.textureRect.height);
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, disp.card, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
@@ -13268,6 +13320,47 @@ void ofApp::drawGame() {
 		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		uiFont.drawString(selectedCountText, selectedCountX, selectedCountY);
 		ofPopMatrix();
+	}
+
+	// --- DRAW ACTION HISTORY ---
+	if (!g_actionHistory.empty()) {
+		float iconSize = 46.0f * scale;
+		float spacing = 8.0f * scale;
+		float startX = 20.0f * scale;
+		// Position it globally on the left side, below the top timer
+		float startY = 140.0f * scale;
+
+		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
+			ofRectangle iconRect(startX, startY + i * (iconSize + spacing), iconSize, iconSize);
+
+			// Color border based on who played it (Green for local, Red for opponent)
+			ofSetColor(g_actionHistory[i].playerID == myLocalPlayerID ? ofColor(100, 255, 100) : ofColor(255, 100, 100));
+			ofDrawRectRounded(iconRect.x - 3, iconRect.y - 3, iconSize + 6, iconSize + 6, 6);
+
+			ofSetColor(255);
+			// Crop card art (center top)
+			float sx = g_actionHistory[i].card.textureRect.x + g_actionHistory[i].card.textureRect.width * 0.15f;
+			float sy = g_actionHistory[i].card.textureRect.y + g_actionHistory[i].card.textureRect.height * 0.15f;
+			float sw = g_actionHistory[i].card.textureRect.width * 0.7f;
+			float sh = g_actionHistory[i].card.textureRect.width * 0.7f; // square crop
+
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
+
+			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
+				float hoverW = kCardPixelWidth * kHandCardVisualScale * scale;
+				float hoverH = kCardPixelHeight * kHandCardVisualScale * scale;
+				float hoverX = iconRect.getRight() + 15.0f * scale;
+				float hoverY = iconRect.y;
+
+				// Keep it entirely on-screen
+				if (hoverY + hoverH > ofGetHeight() - 10.0f) {
+					hoverY = ofGetHeight() - hoverH - 10.0f;
+				}
+
+				ofSetColor(255);
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, g_actionHistory[i].card, hoverX, hoverY, hoverW, hoverH, nullptr);
+			}
+		}
 	}
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
@@ -14304,15 +14397,28 @@ cursor_check_done:;
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
-	if (g_isGameOver) {
-		ofRectangle returnBtn(ofGetWidth() / 2.0f - 150, ofGetHeight() / 2.0f + 50, 300, 60);
-		if (returnBtn.inside(x, y)) {
-			g_isGameOver = false;
-			cleanupGame();
-			currentState = STATE_MAIN_MENU;
+	// Dismiss card animations early if clicked
+
+	// Dismiss card animations early if clicked
+	if (button == OF_MOUSE_BUTTON_LEFT && !activeCardDisplays.empty()) {
+		float scale = getUIScaleFromHeight(ofGetHeight());
+		float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+		float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+
+		bool dismissed = false;
+		for (auto it = activeCardDisplays.begin(); it != activeCardDisplays.end(); ++it) {
+			float w = animCardBaseWidth * it->currentScale;
+			float h = animCardBaseHeight * it->currentScale;
+			ofRectangle rect(it->currentPos.x - w / 2, it->currentPos.y - h / 2, w, h);
+			if (rect.inside(x, y)) {
+				activeCardDisplays.erase(it);
+				dismissed = true;
+				break;
+			}
 		}
-		return;
+		if (dismissed) return;
 	}
+
 	// If watching a replay, block ALL gameplay inputs!
 	if (isReplayMode && currentState == STATE_GAMEPLAY) {
 		if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
@@ -15496,12 +15602,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Centralized placement handler: delegate placement clicks to `handleCardTargetClick()`
 	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
-			ofVec2f boardPos = mouseToBoard(x, y);
-			int gx = floor(boardPos.x), gy = floor(boardPos.y);
-			handleCardTargetClick(gx, gy);
+			// Do not swallow the click if we are clicking the "Done" button!
+			if (endTurnButtonRect.inside(x, y)) {
+				// Let it fall through to the End Turn / Done handler below
+			} else {
+				ofVec2f boardPos = mouseToBoard(x, y);
+				int gx = floor(boardPos.x), gy = floor(boardPos.y);
+				handleCardTargetClick(gx, gy);
+				return;
+			}
+		} else {
+			return; // Swallow right clicks
 		}
-		// Swallow the click while placing
-		return;
 	}
 
 	// ==============================================================================
@@ -17664,7 +17776,7 @@ void ofApp::windowResized(int w, int h) {
 	// 1. Snap End Turn Button
 	float scale = getUIScaleFromHeight(h);
 	float btnWidth = 250 * scale;
-	float visibleY = 20 * scale;
+	float visibleY = 75 * scale; // Lowered to make room for Action History
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
@@ -20201,9 +20313,7 @@ void ofApp::drawActiveCardInteractionUI() {
 					amnesiaCardRects.push_back(cRect);
 
 					ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
-					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, cardW, cardH,
-						amnesiaDeckCopy[i].textureRect.x, amnesiaDeckCopy[i].textureRect.y,
-						amnesiaDeckCopy[i].textureRect.width, amnesiaDeckCopy[i].textureRect.height);
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, amnesiaDeckCopy[i], drawX, drawY, cardW, cardH, nullptr);
 
 					if (std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), (int)i) != amnesiaSelectedIndices.end()) {
 						ofNoFill();
@@ -20372,10 +20482,51 @@ void ofApp::drawCard(bool sendPacket) {
 
 		ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
 
+		// Erase transient flags from the recycled cards
+		for (auto & c : currentPlayer.discardPile) {
+			c.playedThisTurn = false;
+			c.drawnThisTurn = false;
+		}
+
 		// Reshuffle immediately so additional draws in this same resolution
 		// can consume the refilled deck.
 		currentPlayer.deck = currentPlayer.discardPile;
 		currentPlayer.discardPile.clear();
+
+		// Add visual animation for the mid-draw shuffle
+		ShuffleAnimation s;
+		s.playerIndex = currentPlayer.playerID;
+		s.duration = 0.9f;
+		s.startTime = ofGetElapsedTimef();
+		s.currentAlpha = 255.0f;
+		s.currentScale = 1.0f;
+		s.rotation = 0.0f;
+
+		bool assignedRect = false;
+		if (currentPlayer.isMinion) {
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == currentPlayerIndex) {
+					s.deckRect = mui.deckRect;
+					assignedRect = true;
+					break;
+				}
+			}
+			if (!assignedRect) {
+				int ownerSlot = findPlayerIndexByID(currentPlayer.ownerID);
+				if (ownerSlot >= 0)
+					s.deckRect = (isMultiplayer && players[ownerSlot].playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+				else
+					s.deckRect = (isMultiplayer && currentPlayer.ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+			}
+		} else {
+			if (isMultiplayer) {
+				s.deckRect = (currentPlayer.playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+			} else {
+				s.deckRect = (currentPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+			}
+		}
+		activeShuffleAnimations.push_back(s);
+
 		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 	}
 
@@ -20771,9 +20922,13 @@ void ofApp::simulationTick() {
 									int roll = raw + luckBonus; // may exceed 4; that's intentional
 									if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 									// Show dice visual for the faerie roll
-									queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
 									int hp = (dying.maxHealth * roll) / 4;
 									if (hp < 1) hp = 1;
+
+									int pct = roll * 25;
+									std::string calcStr = "Roll: " + ofToString(roll) + " (" + ofToString(pct) + "%) -> " + ofToString(hp) + " HP";
+									queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
+
 									{
 										EffectOp wait = {};
 										wait.type = EffectOpType::WAIT_VISUAL;
@@ -21235,13 +21390,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 						target.deck.erase(target.deck.begin() + idx);
 
 						// Stagger the animations slightly so they don't perfectly overlap
-						RemovedCardAnimation rem;
-						rem.card = destroyed;
-						rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
-						rem.startTime = baseTime + (removed * 0.2f);
-						rem.currentScale = 1.8f;
-						rem.currentAlpha = 255.0f;
-						activeRemovedCardAnimations.push_back(rem);
+						if (isMultiplayer) {
+							RemovedCardAnimation rem;
+							rem.card = destroyed;
+							rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
+							rem.startTime = baseTime + (removed * 0.2f);
+							rem.currentScale = 1.8f;
+							rem.currentAlpha = 255.0f;
+							activeRemovedCardAnimations.push_back(rem);
+						}
 
 						removed++;
 					}
@@ -24260,15 +24417,41 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					// Move discard -> deck
 					target.deck = target.discardPile;
-					// Client-local shuffle animation
-					if (isClient()) {
-						ShuffleAnimation s;
-						s.playerIndex = target.playerID;
-						s.deckRect = (target.playerID == 0) ? p0_deckRect : p1_deckRect;
-						s.startTime = ofGetElapsedTimef();
-						s.duration = 0.9f;
-						activeShuffleAnimations.push_back(s);
+
+					// Ensure visual animation triggers correctly for all units on all clients
+					ShuffleAnimation s;
+					s.playerIndex = target.playerID;
+					s.duration = 0.9f;
+					s.startTime = ofGetElapsedTimef();
+					s.currentAlpha = 255.0f;
+					s.currentScale = 1.0f;
+					s.rotation = 0.0f;
+
+					bool assignedRect = false;
+					if (target.isMinion) {
+						for (const auto & mui : activeMinionUIs) {
+							if (mui.playerIndex == tidx) {
+								s.deckRect = mui.deckRect;
+								assignedRect = true;
+								break;
+							}
+						}
+						if (!assignedRect) {
+							int ownerSlot = findPlayerIndexByID(target.ownerID);
+							if (ownerSlot >= 0)
+								s.deckRect = (isMultiplayer && players[ownerSlot].playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+							else
+								s.deckRect = (isMultiplayer && target.ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+						}
+					} else {
+						if (isMultiplayer) {
+							s.deckRect = (target.playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+						} else {
+							s.deckRect = (target.playerID == 0) ? p0_deckRect : p1_deckRect;
+						}
 					}
+					activeShuffleAnimations.push_back(s);
+
 					shuffleGameVector(target.deck, tidx);
 					target.discardPile.clear();
 					ofLogNotice("EffectQueue") << "Reshuffled discard into deck for player " << target.playerID;
@@ -24517,9 +24700,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 			int savedCurrent = currentPlayerIndex;
 			currentPlayerIndex = playerIndex;
+			int handSizeBefore = players[playerIndex].hand.size();
 			for (int i = 0; i < numCards; i++) {
 				drawCard(false);
 			}
+			int actualDrawn = (int)players[playerIndex].hand.size() - handSizeBefore;
+			currentEffectSequence.blackboard[15] = actualDrawn;
 			// Normalize hand visuals and flags similar to network command handling
 			Player & lp = players[playerIndex];
 			for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
@@ -24549,15 +24735,22 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::MODIFY_STAT: {
-		if (op.data.modifyStat.statType == 99) { // 99 = END TURN IMMEDIATE
-			// CRITICAL FIX: If we are skipping a dead unit's turn, we must completely wipe
-			// the effect queue so it doesn't get jammed behind lingering visuals,
-			// and then forcefully trigger the next turn instantly!
-			currentEffectSequence.isComplete = true;
-			isProcessingEffect = false;
-			currentEffectSequence.ops.clear();
-
-			requestStartNewTurn();
+		if (op.data.modifyStat.statType == 98) { // 98 = Flurry Discount
+			int pidx = op.data.modifyStat.targetIndex;
+			int actualDrawn = currentEffectSequence.blackboard[15]; // Read EXACT amount drawn!
+			if (pidx >= 0 && pidx < (int)players.size() && actualDrawn > 0) {
+				Player & p = players[pidx];
+				auto isHandRelated = [](CardType type) {
+					return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK;
+				};
+				int start = std::max(0, (int)p.hand.size() - actualDrawn);
+				for (int i = start; i < (int)p.hand.size(); ++i) {
+					if (isHandRelated(p.hand[i].type)) {
+						p.hand[i].cost = 0; // Modify the card instance directly!
+						queueFloatingTextVisual(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), "0 AP Card!", ofColor::cyan);
+					}
+				}
+			}
 			opComplete = true;
 			break;
 		}
@@ -26773,14 +26966,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			int totalDamage = playedCard.baseDamage;
 			int draws = 1;
-			int freeTurns = 1;
 
 			// Previous flurry stacks double this damage too!
 			if (currentPlayer.flurryOfFistsStacks > 0) {
 				int mult = (1 + currentPlayer.flurryOfFistsStacks);
 				totalDamage *= mult;
 				draws *= mult;
-				freeTurns *= mult;
 			}
 
 			// 1. Deal Physical Damage
@@ -26799,8 +26990,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			drawOp.data.drawCards.numCards = draws;
 			queueEffect(drawOp);
 
-			// 3. Make the next hand-related card played cost 0 AP
-			currentPlayer.freeHandCardTurns += freeTurns;
+			// 3. Discount the newly drawn cards if they are hand-related
+			EffectOp discountOp = {};
+			discountOp.type = EffectOpType::MODIFY_STAT;
+			discountOp.data.modifyStat.targetIndex = currentPlayerIndex;
+			discountOp.data.modifyStat.statType = 98; // Custom: Flurry Discount
+			discountOp.data.modifyStat.delta = draws;
+			discountOp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(discountOp);
 
 			// 4. Double future Hand-Related Cards
 			EffectOp flurryOp = {};
@@ -27787,13 +27984,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentPlayer.deck.pop_back();
 			currentCardOutcome.destroyedCardType = destroyed.type;
 
-			RemovedCardAnimation rem;
-			rem.card = destroyed;
-			rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-			rem.startTime = ofGetElapsedTimef();
-			rem.currentScale = 1.8f;
-			rem.currentAlpha = 255.0f;
-			activeRemovedCardAnimations.push_back(rem);
+			if (isMultiplayer) {
+				RemovedCardAnimation rem;
+				rem.card = destroyed;
+				rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+				rem.startTime = ofGetElapsedTimef();
+				rem.currentScale = 1.8f;
+				rem.currentAlpha = 255.0f;
+				activeRemovedCardAnimations.push_back(rem);
+			}
 		}
 
 		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
@@ -28149,13 +28348,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	activeCardIndex = cardIndex;
 
 	// Determine effective cost (Kick may be free due to Sprint)
-	int costToPay = playedCard.cost;
-	if (playedCard.type == CARD_KICK && currentPlayer.freeKickTurns > 0) costToPay = 0;
-	auto isHandRelatedCard = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
-	if (currentPlayer.freeHandCardTurns > 0 && isHandRelatedCard(playedCard.type)) {
-		costToPay = 0;
-		currentPlayer.freeHandCardTurns--;
-	}
+	int costToPay = getEffectiveCardCostForPlayer(currentPlayer, playedCard);
 
 	// DEBUG: Unlimited AP mode
 	if (hasUnlimitedAP) {
@@ -28245,58 +28438,33 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 }
 //--------------------------------------------------------------
 glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
-	// Return the UI position where a card display should appear for the given player
-	// Local player's cards appear at bottom center
-	// Opponent's cards appear at top center
+	float scale = getUIScaleFromHeight(ofGetHeight());
+	float staticUICardWidth = (kCardPixelWidth * 0.45f) * scale;
+	float deckBottomGap = std::max(0.0f, 20.0f * scale - 12.0f * scale);
+	float p1_deckX = ofGetWidth() - staticUICardWidth - deckBottomGap;
 
-	float screenCenterX = ofGetWidth() / 2.0f;
-	float screenCenterY = ofGetHeight() / 2.0f;
-	(void)screenCenterY;
-
-	if (isMultiplayer) {
-		// In multiplayer, determine which player is "us" and which is "them"
-		// Account for minions: get the owner ID if it's a minion
-		if (playerIndex >= 0 && playerIndex < (int)players.size()) {
-			const Player & p = players[playerIndex];
-			int ownerID = p.isMinion ? p.ownerID : p.playerID;
-			if (ownerID == myLocalPlayerID) {
-				// Local player or local player's minion: bottom center
-				return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
-			} else {
-				// Opponent or opponent's minion: top center
-				return glm::vec2(screenCenterX, 120.0f);
-			}
-		}
-		// Fallback: opponent side
-		return glm::vec2(screenCenterX, 120.0f);
-	} else {
-		// In singleplayer, show at bottom center for both
-		return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
-	}
+	// Default to opponent's side, near their AP UI
+	return glm::vec2(p1_deckX - staticUICardWidth * 1.5f, 160.0f * scale);
 }
 //--------------------------------------------------------------
 void ofApp::createCardDisplay(const Card & card, int playerIndex, bool forceVisibleForAllPlayers) {
-	// In singleplayer, don't show card animations at all unless explicitly forced.
-	if (!isMultiplayer && !forceVisibleForAllPlayers) {
-		return;
+	if (!isMultiplayer) return; // ONLY in multiplayer
+
+	bool isOpponent = true;
+	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+		int ownerID = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
+		if (ownerID == myLocalPlayerID) isOpponent = false;
 	}
 
-	// In multiplayer: Don't show card animation for the local player who played it,
-	// unless the caller explicitly wants everyone to see it (e.g. Mind Theft).
-	if (!forceVisibleForAllPlayers && playerIndex >= 0 && playerIndex < (int)players.size()) {
-		int playingPlayerID = players[playerIndex].playerID;
-		if (playingPlayerID == myLocalPlayerID) {
-			return; // Don't show animation for local player in multiplayer
-		}
-	}
+	if (!isOpponent && !forceVisibleForAllPlayers) return; // Only show opponent's plays
 
 	PlayedCardDisplay disp;
 	disp.card = card;
 	disp.startTime = ofGetElapsedTimef();
+
 	disp.startPos = getCardDisplayUIPosition(playerIndex);
 	disp.currentPos = disp.startPos;
-	// Start large for a hearthstone-like popup; use startScale to drive animation
-	disp.startScale = 1.2f;
+	disp.startScale = 1.0f; // Hand hover size equivalent
 	disp.currentScale = disp.startScale;
 	disp.currentAlpha = 255.0f;
 	activeCardDisplays.push_back(disp);
@@ -29351,7 +29519,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				}
 				// --- HEAL / LESSER HEAL / DEATH LOGIC ---
-				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
+				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
 					// Heal/Lesser Heal can target self or allies. Death only targets other units.
 					// Only allow clicking if the tile is also a red preview (LOS & not a wall)
 					bool isSelfTile = (x == (int)casterPos.x && y == (int)casterPos.y);
@@ -31788,9 +31956,13 @@ void ofApp::drawCardEncyclopediaUI() {
 
 				// Draw card art
 				ofSetColor(255);
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, thisCardW, thisCardH,
-					card.textureRect.x, card.textureRect.y,
-					card.textureRect.width, card.textureRect.height);
+
+				Player * pPtr = nullptr;
+				if (encyclopediaMode == ENC_REMOVE_FROM_PILE && encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
+					pPtr = &players[encyclopediaTargetPlayerIndex];
+				}
+
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, thisCardW, thisCardH, pPtr);
 
 				// If selected, draw a yellow outline
 				if (std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i) != encyclopediaSelectedIndices.end()) {
@@ -32650,8 +32822,11 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	int dx = std::abs((int)targetTile.x - (int)casterTile.x);
 	int dy = std::abs((int)targetTile.y - (int)casterTile.y);
 
-	// Point blank range: always center-to-center
-	if (dx <= 1 && dy <= 1) return { true, casterCenter, targetCenter };
+	// Point blank range or Straight Orthogonal: always center-to-center
+	if (dx == 0 || dy == 0 || (dx <= 1 && dy <= 1)) {
+		bool clear = checkRayPhysics(casterCenter, targetCenter);
+		return { clear, casterCenter, targetCenter };
+	}
 
 	int casterIndexForSelfChecks = -1;
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -34109,7 +34284,7 @@ void ofApp::drawMinionManagerUI() {
 
 		// Discard
 		if (!minion.discardPile.empty()) {
-			cardSpriteSheet.getTexture().drawSubsection(ui.discardRect, minion.discardPile.back().textureRect);
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, minion.discardPile.back(), ui.discardRect.x, ui.discardRect.y, ui.discardRect.width, ui.discardRect.height, &minion);
 		} else {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.discardRect, 3);
@@ -34851,9 +35026,11 @@ void ofApp::drawDraftScreen() {
 
 		// Draw Card Sprite scaled
 		ofSetColor(255);
-		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
-			draftOptions[i].textureRect.x, draftOptions[i].textureRect.y,
-			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
+
+		Player * pPtr = nullptr;
+		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) pPtr = &players[draftPlayerIndex];
+
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, draftOptions[i], drawX, drawY, w, h, pPtr);
 	}
 
 	// Throttled draw-time debug: log if we are drawing non-empty options but haven't logged recently
@@ -34955,9 +35132,11 @@ void ofApp::drawActiveDraftPickedMoves() {
 			float dx = mv.startPos.x - drawW / 2.0f;
 			float dy = mv.startPos.y - drawH / 2.0f;
 			ofSetColor(255);
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
-				mv.card.textureRect.x, mv.card.textureRect.y,
-				mv.card.textureRect.width, mv.card.textureRect.height);
+
+			Player * pPtr = nullptr;
+			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) pPtr = &players[mv.ownerIndex];
+
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
 		} else {
 			float activeFrames = elapsedFrames - (float)mv.delayFrames;
 			float t = (mv.durationFrames > 0) ? ((float)activeFrames / (float)mv.durationFrames) : 1.0f;
@@ -34970,9 +35149,11 @@ void ofApp::drawActiveDraftPickedMoves() {
 			float dx = pos.x - drawW / 2.0f;
 			float dy = pos.y - drawH / 2.0f;
 			ofSetColor(255);
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
-				mv.card.textureRect.x, mv.card.textureRect.y,
-				mv.card.textureRect.width, mv.card.textureRect.height);
+
+			Player * pPtr = nullptr;
+			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) pPtr = &players[mv.ownerIndex];
+
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
 			if (t >= 1.0f) {
 				mv.finished = true;
 				// Only flash main player decks; minion targets use their own shuffle visuals
