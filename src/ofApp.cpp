@@ -20034,28 +20034,46 @@ void ofApp::drawActiveCardInteractionUI() {
 
 		case CARD_BURST_OF_LIGHT: {
 			bool healEnabled = false;
+			bool dmgEnabled = false;
 			Player & caster = players[currentPlayerIndex];
 
 			if (caster.inTortoiseForm) {
 				healEnabled = true;
 			}
 
-			if (!healEnabled) {
-				glm::vec2 casterPos(caster.x, caster.y);
-				for (const auto & p : players) {
-					if (p.health > 0 && p.health < p.maxHealth) {
-						TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-						if (info.reason == VALID || info.reason == INVALID_SELF) {
-							healEnabled = true;
-							break;
-						}
-					}
+			glm::vec2 casterPos(caster.x, caster.y);
+
+			// Check if we can heal ourselves
+			if (!healEnabled && caster.health < caster.maxHealth) {
+				TargetInfo selfHealInfo = isLosTargetValid(casterPos, casterPos, 9999.0f, CARD_BURST_OF_LIGHT);
+				if (selfHealInfo.reason == VALID || selfHealInfo.reason == INVALID_SELF) {
+					healEnabled = true;
 				}
 			}
 
+			for (const auto & p : players) {
+				if (&p == &caster || p.health <= 0) continue;
+
+				// Check Damage LOS
+				TargetInfo dmgInfo = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
+				if (dmgInfo.reason == VALID) {
+					dmgEnabled = true;
+				}
+
+				// Check Heal LOS
+				if (!healEnabled && p.health < p.maxHealth) {
+					TargetInfo healInfo = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
+					if (healInfo.reason == VALID || healInfo.reason == INVALID_SELF) {
+						healEnabled = true;
+					}
+				}
+
+				if (dmgEnabled && healEnabled) break; // Optimization: Both buttons are active, stop scanning
+			}
+
 			drawCardChoicePanel(menuRect, "Burst of Light", "Choose an effect:", btn1, btn2,
-				"Deal 3 Holy", healEnabled ? "Heal 3 HP" : "No Wounded Targets",
-				ofColor(255, 213, 79), ofColor(144, 238, 144), true, healEnabled);
+				dmgEnabled ? "Deal 3 Holy" : "No LOS Targets", healEnabled ? "Heal 3 HP" : "No Wounded Targets",
+				ofColor(255, 213, 79), ofColor(144, 238, 144), dmgEnabled, healEnabled);
 			break;
 		}
 
@@ -22510,22 +22528,28 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
+			glm::vec2 endPoint = clearRay.end;
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) break;
+						if (i > 1 && stepDistSq > maxDistSq) {
+							endPoint = path[i - 1] + 0.5f;
+							break;
+						}
 
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						if (isTileBlocked(impactTile.x, impactTile.y)) break;
+						if (isTileBlocked(impactTile.x, impactTile.y)) {
+							endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+							break;
+						}
 					}
 				}
 			}
 
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -22626,6 +22650,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
 			glm::ivec2 impactTile = targetTile;
+			glm::vec2 endPoint = targetTile + 0.5f; // Magic bolt ignores cover, so ray is center-to-center
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
 				auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
@@ -22634,7 +22659,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) break;
+						if (i > 1 && stepDistSq > maxDistSq) {
+							endPoint = path[i - 1] + 0.5f;
+							break;
+						}
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 						// Magic Bolt passes through walls, so don't break early!
 					}
@@ -22642,9 +22670,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
@@ -22794,20 +22821,25 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
+			glm::vec2 endPoint = los.end;
 			if (path.size() > 1) {
 				for (size_t i = 1; i < path.size(); ++i) {
 					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (i > 1 && stepDistSq > maxDistSq) break;
+					if (i > 1 && stepDistSq > maxDistSq) {
+						endPoint = path[i - 1] + 0.5f;
+						break;
+					}
 
 					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileBlocked(impactTile.x, impactTile.y)) break;
+					if (isTileBlocked(impactTile.x, impactTile.y)) {
+						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+						break;
+					}
 				}
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -22938,22 +22970,28 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
+			glm::vec2 endPoint = clearRay.end;
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) break;
+						if (i > 1 && stepDistSq > maxDistSq) {
+							endPoint = path[i - 1] + 0.5f;
+							break;
+						}
 
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						if (isTileBlocked(impactTile.x, impactTile.y)) break;
+						if (isTileBlocked(impactTile.x, impactTile.y)) {
+							endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+							break;
+						}
 					}
 				}
 			}
 
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -23092,22 +23130,25 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
+			glm::vec2 endPoint = clearRay.end; // Ethereal Jolt ignores walls!
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) break;
+						if (i > 1 && stepDistSq > maxDistSq) {
+							endPoint = path[i - 1] + 0.5f;
+							break;
+						}
 
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						if (isTileBlocked(impactTile.x, impactTile.y)) break;
+						// Ethereal Jolt passes through walls!
 					}
 				}
 			}
 
-			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(200, 180, 100), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
@@ -24509,6 +24550,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 	case EffectOpType::MODIFY_STAT: {
 		if (op.data.modifyStat.statType == 99) { // 99 = END TURN IMMEDIATE
+			// CRITICAL FIX: If we are skipping a dead unit's turn, we must completely wipe
+			// the effect queue so it doesn't get jammed behind lingering visuals,
+			// and then forcefully trigger the next turn instantly!
+			currentEffectSequence.isComplete = true;
+			isProcessingEffect = false;
+			currentEffectSequence.ops.clear();
+
 			requestStartNewTurn();
 			opComplete = true;
 			break;
@@ -25747,16 +25795,21 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		auto clearRay = getClearLosRay(casterTile, targetTile, playedCard.type);
 		auto path = getLineOfSightPath(clearRay.start, clearRay.end);
 
+		glm::vec2 endPoint = clearRay.end;
 		if (path.size() > 1) {
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				impactTile = stepTile;
-				if (isTileBlocked(stepTile.x, stepTile.y)) break; // Stop tracer at unit or wall
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					// Fell short, stop at the blocked tile center
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					break;
+				}
 			}
 		}
 
 		glm::vec3 worldStart, worldEnd;
-		computeTracerEndpoints(casterTile, glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f), worldStart, worldEnd);
+		computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 
 		ofColor tColor = ofColor::white;
 		if (playedCard.damageType == DAMAGE_FIRE)
@@ -29350,6 +29403,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					if (!(isPreview && isOccupied)) {
 						// clear clickability if not an occupied preview tile
 						isValidTarget = false;
+					} else if (info.reason != VALID) {
+						// explicitly respect physical LOS validation failure!
+						isValidTarget = false;
 					}
 				}
 				break;
@@ -30746,35 +30802,16 @@ void ofApp::spawnTracerWithAdjacent(glm::vec3 start, glm::vec3 end, glm::ivec2 i
 
 // Compute tracer endpoints: start at caster tile face midpoint toward target,
 // end at the center of the impacted tile (always the tile center in world coords).
-void ofApp::computeTracerEndpoints(glm::vec2 casterTile, glm::vec2 hitGridFrac, glm::vec3 & outStart, glm::vec3 & outEnd) {
-	// casterTile is integer grid coords (tile indices)
-	glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+void ofApp::computeTracerEndpoints(glm::vec2 rayStart, glm::vec2 rayEnd, glm::vec3 & outStart, glm::vec3 & outEnd) {
+	// rayStart and rayEnd are passed as exact fractional grid coordinates (e.g., 2.5, 3.0)
+	// Convert fractional grid coordinates exactly to world coordinates
+	float startX = (rayStart.x - BOARD_WIDTH / 2.0f) * TILE_SIZE;
+	float startZ = (rayStart.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE;
+	outStart = glm::vec3(startX, 0.6f, startZ);
 
-	// USE ABSOLUTE gridToWorld TO PREVENT TRACERS RENDERING FLIPPED FOR PLAYER 2
-	glm::vec3 worldCasterCenter = gridToWorld((int)casterTile.x, (int)casterTile.y);
-
-	// Determine dominant face direction toward hitGridFrac (choose face midpoint on caster tile)
-	glm::vec2 d = hitGridFrac - casterCenter;
-	float ox = 0.0f, oz = 0.0f;
-	if (glm::length(d) > 1e-6f) {
-		glm::vec2 nd = glm::normalize(d);
-		if (fabs(nd.x) >= fabs(nd.y))
-			ox = (nd.x > 0.0f) ? (TILE_SIZE * 0.5f) : (-TILE_SIZE * 0.5f);
-		else
-			oz = (nd.y > 0.0f) ? (TILE_SIZE * 0.5f) : (-TILE_SIZE * 0.5f);
-	}
-
-	outStart = worldCasterCenter + glm::vec3(ox, 0.6f, oz);
-
-	// Ensure tracer ALWAYS ends at the exact center of the impacted tile
-	int tx = (int)floor(hitGridFrac.x);
-	int ty = (int)floor(hitGridFrac.y);
-	tx = std::clamp(tx, 0, BOARD_WIDTH - 1);
-	ty = std::clamp(ty, 0, BOARD_HEIGHT - 1);
-
-	// USE ABSOLUTE gridToWorld
-	glm::vec3 worldTargetCenter = gridToWorld(tx, ty);
-	outEnd = glm::vec3(worldTargetCenter.x, 0.6f, worldTargetCenter.z);
+	float endX = (rayEnd.x - BOARD_WIDTH / 2.0f) * TILE_SIZE;
+	float endZ = (rayEnd.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE;
+	outEnd = glm::vec3(endX, 0.6f, endZ);
 }
 
 //--------------------------------------------------------------
@@ -32676,10 +32713,10 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		glm::vec2 cFaceX = casterCenter + glm::vec2((targetTile.x > casterTile.x) ? 0.5f : -0.5f, 0.0f);
 		glm::vec2 cFaceY = casterCenter + glm::vec2(0.0f, (targetTile.y > casterTile.y) ? 0.5f : -0.5f);
 
-		int cfx = (int)floor(cFaceX.x);
-		int cfy = (int)floor(cFaceX.y);
-		int cfx2 = (int)floor(cFaceY.x);
-		int cfy2 = (int)floor(cFaceY.y);
+		int cfx = (int)casterTile.x + ((targetTile.x > casterTile.x) ? 1 : -1);
+		int cfy = (int)casterTile.y;
+		int cfx2 = (int)casterTile.x;
+		int cfy2 = (int)casterTile.y + ((targetTile.y > casterTile.y) ? 1 : -1);
 
 		// "If one of your closest faces hits a wall then you can't target them"
 		if (isCoverAt(cfx, cfy) || isCoverAt(cfx2, cfy2)) {
@@ -32690,13 +32727,17 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 			targetCenter + glm::vec2(0.5f, 0.0f), targetCenter + glm::vec2(-0.5f, 0.0f),
 			targetCenter + glm::vec2(0.0f, 0.5f), targetCenter + glm::vec2(0.0f, -0.5f)
 		};
+		glm::ivec2 tFacesAdj[4] = {
+			glm::ivec2((int)targetTile.x + 1, (int)targetTile.y),
+			glm::ivec2((int)targetTile.x - 1, (int)targetTile.y),
+			glm::ivec2((int)targetTile.x, (int)targetTile.y + 1),
+			glm::ivec2((int)targetTile.x, (int)targetTile.y - 1)
+		};
 
 		bool faceX_clear = false;
 		glm::vec2 bestTFaceX = targetCenter;
 		for (int i = 0; i < 4; ++i) {
-			int tfx = (int)floor(tFaces[i].x);
-			int tfy = (int)floor(tFaces[i].y);
-			if (isCoverAt(tfx, tfy)) continue; // Can't hit a blocked target face
+			if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue; // Can't hit a blocked target face
 			if (checkRayPhysics(cFaceX, tFaces[i])) {
 				faceX_clear = true;
 				bestTFaceX = tFaces[i];
@@ -32705,18 +32746,19 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 
 		bool faceY_clear = false;
+		glm::vec2 bestTFaceY = targetCenter;
 		for (int i = 0; i < 4; ++i) {
-			int tfx = (int)floor(tFaces[i].x);
-			int tfy = (int)floor(tFaces[i].y);
-			if (isCoverAt(tfx, tfy)) continue;
+			if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue;
 			if (checkRayPhysics(cFaceY, tFaces[i])) {
 				faceY_clear = true;
+				bestTFaceY = tFaces[i];
 				break;
 			}
 		}
 
-		// Return the successful X face ray to the tracer
-		if (faceX_clear && faceY_clear) return { true, cFaceX, bestTFaceX };
+		// Return the successful face ray to the tracer
+		if (faceX_clear) return { true, cFaceX, bestTFaceX };
+		if (faceY_clear) return { true, cFaceY, bestTFaceY };
 	}
 
 	// Fallback (Will fail the final check, but provides a line for the failure state)
