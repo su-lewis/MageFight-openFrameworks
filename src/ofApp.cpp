@@ -42,6 +42,9 @@ static float g_mpLeaderboardScroll = 0.0f;
 static bool g_isHostingLobby = false;
 static bool g_isConnectingToLobby = false;
 
+static float g_lastLobbyRefreshTime = 0.0f;
+static float g_lastLeaderboardRefreshTime = 0.0f;
+
 // Path constants
 
 // Pending macros migrated; use `networkPending.*` fields.
@@ -4816,10 +4819,22 @@ void ofApp::update() {
 
 	switch (currentState) {
 	case STATE_MAIN_MENU:
-	case STATE_MULTIPLAYER_MENU:
 	case STATE_SETTINGS:
 	case STATE_DESYNC:
 		break;
+	case STATE_MULTIPLAYER_MENU:
+		if (!g_isHostingLobby && !g_isConnectingToLobby) {
+			float now = ofGetElapsedTimef();
+			if (now - g_lastLobbyRefreshTime > 2.0f) {
+				steamManager.refreshLobbies();
+				g_lastLobbyRefreshTime = now;
+			}
+			// Fetching leaderboards is a heavy API call; only do it every 15s to avoid Steam rate limits!
+			if (now - g_lastLeaderboardRefreshTime > 15.0f) {
+				steamManager.fetchLeaderboard();
+				g_lastLeaderboardRefreshTime = now;
+			}
+		}
 		break;
 	case STATE_SAVE_BROWSER:
 	case STATE_SINGLEPLAYER_MENU:
@@ -5728,11 +5743,18 @@ void ofApp::drawMultiplayerMenu() {
 			if (lRect.getBottom() > listY && lRect.getTop() < listY + listHeight) {
 				mpLobbyButtons.push_back(lRect);
 
-				ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
+				bool isFull = (lobbies[i].numPlayers >= lobbies[i].maxPlayers);
+
+				if (isFull) {
+					ofSetColor(30, 30, 40); // Darker, inactive background
+				} else {
+					ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
+				}
 				ofDrawRectRounded(lRect, 8.0f);
 
-				ofSetColor(ofColor::white);
+				ofSetColor(isFull ? ofColor(120, 120, 120) : ofColor::white);
 				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/" + std::to_string(lobbies[i].maxPlayers) + ")";
+				if (isFull) lobbyText += " [FULL]";
 				uiFont.drawString(lobbyText, lRect.x + 15, lRect.y + 40 * uiScale);
 			} else {
 				// Push empty rect so the loop index matches the lobby click selection array!
@@ -14337,6 +14359,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = STATE_MULTIPLAYER_MENU;
 			steamManager.refreshLobbies();
 			steamManager.fetchLeaderboard();
+			g_lastLobbyRefreshTime = ofGetElapsedTimef();
+			g_lastLeaderboardRefreshTime = ofGetElapsedTimef();
 			return;
 		}
 		if (mainMenuSettingsButton.inside(x, y)) {
@@ -14588,6 +14612,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (mpRefreshButton.inside(x, y)) {
 			steamManager.refreshLobbies();
 			steamManager.fetchLeaderboard();
+			g_lastLobbyRefreshTime = ofGetElapsedTimef();
+			g_lastLeaderboardRefreshTime = ofGetElapsedTimef();
 			return;
 		}
 		if (mpHostButton.inside(x, y)) {
@@ -14600,6 +14626,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 		auto lobbies = steamManager.getLobbyList();
 		for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
 			if (mpLobbyButtons[i].inside(x, y)) {
+				if (lobbies[i].numPlayers >= lobbies[i].maxPlayers) {
+					return; // Don't allow joining full lobbies!
+				}
 				steamManager.joinLobbyByID(lobbies[i].lobbyID);
 				addGameLog("Joining lobby...");
 				g_isConnectingToLobby = true;
