@@ -12,6 +12,7 @@ const char * SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, uint6
 uint64_t SteamAPI_ISteamMatchmaking_JoinLobby(intptr_t instancePtr, uint64_t steamIDLobby);
 void SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter(intptr_t instancePtr, int cMaxResults);
 void SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(intptr_t instancePtr, const char * pchKeyToMatch, const char * pchValueToMatch, int eComparisonType);
+void SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter(intptr_t instancePtr, int eLobbyDistanceFilter);
 uint64_t SteamAPI_ISteamMatchmaking_RequestLobbyList(intptr_t instancePtr);
 uint64_t SteamAPI_ISteamMatchmaking_GetLobbyByIndex(intptr_t instancePtr, int iLobby);
 int SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, uint64_t steamIDLobby);
@@ -539,9 +540,16 @@ bool SteamManager::checkAndClearReconnectFlag() {
 
 void SteamManager::refreshLobbies() {
 	if (!SteamMatchmaking()) return;
+
 	SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter((intptr_t)SteamMatchmaking(), 50);
+
+	// --- FIX: Force Worldwide search to bypass Region/OS Mismatches ---
+	// 3 corresponds to k_ELobbyDistanceFilterWorldwide
+	SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter((intptr_t)SteamMatchmaking(), 3);
+
 	// 0 corresponds to k_ELobbyComparisonEqual
 	SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter((intptr_t)SteamMatchmaking(), "MageFightLobby", "Active", 0);
+
 	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_RequestLobbyList((intptr_t)SteamMatchmaking());
 	m_LobbyMatchListCallResult.Set(hSteamAPICall, this, &SteamManager::OnLobbyMatchList);
 }
