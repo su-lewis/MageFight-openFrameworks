@@ -6524,8 +6524,9 @@ void ofApp::prepareGameVisualState() {
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
-	float btnWidth = 250 * uiScale;
-	float visibleY = 92.0f * uiScale; // CHANGED: Moved up to 92 to slightly reduce the gap to Action History
+	float btnWidth = 260 * uiScale; // CHANGED: Increased from 250
+	float visibleY = 92.0f * uiScale;
+
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
@@ -8316,24 +8317,6 @@ void ofApp::updateGameLogic() {
 		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
 	}
 
-	// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips ONE BY ONE.
-	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
-		blockingBoonPendingPhysicalAfterDraft = false;
-
-		int coinsLeft = 0;
-		if (!blockingBoonPendingCoinRawResults.empty()) {
-			coinsLeft = blockingBoonPendingCoinRawResults[0]; // Read coins left
-		}
-
-		if (coinsLeft > 0) {
-			beginEffectSequence();
-			EffectOp step = {};
-			step.type = EffectOpType::APPLY_BLOCKING_BOON_COIN; // Using existing Enum for Step
-			step.data.damage.fixedDamage = coinsLeft;
-			step.data.damage.targetIndex = blockingBoonPendingCasterIndex;
-			queueEffect(step);
-		}
-	}
 	// ==============================================================
 
 	// Update Floating Text
@@ -10304,6 +10287,9 @@ void ofApp::drawGame() {
 			else if (player.isDemon)
 				headHeight = 6.0f;
 
+			// --- NEW: Unified altitude for status effects to clear all models uniformly ---
+			float unifiedStatusHeight = 7.0f;
+
 			// 3. DRAW SHADOW
 			ofPushMatrix();
 			ofTranslate(pos.x, 0.02f, pos.z);
@@ -10320,7 +10306,7 @@ void ofApp::drawGame() {
 				ofPushMatrix();
 
 				float bob = sin(ofGetElapsedTimef() * 1.5f) * 0.15f;
-				ofTranslate(pos.x, headHeight + 1.4f + bob, pos.z);
+				ofTranslate(pos.x, unifiedStatusHeight + 0.4f + bob, pos.z);
 
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
@@ -10395,7 +10381,7 @@ void ofApp::drawGame() {
 			// 5. DRAW SLEEP (Zs)
 			if (player.sleepTurnsRemaining > 0) {
 				ofPushMatrix();
-				ofTranslate(pos.x, headHeight, pos.z);
+				ofTranslate(pos.x, unifiedStatusHeight, pos.z);
 
 				float time = ofGetElapsedTimef();
 				float slowTime = time * 0.8f;
@@ -10419,7 +10405,7 @@ void ofApp::drawGame() {
 			// 6. DRAW PARALYSIS (Swirl)
 			if (player.isParalyzed) {
 				ofPushMatrix();
-				ofTranslate(pos.x, headHeight - 0.5f, pos.z);
+				ofTranslate(pos.x, unifiedStatusHeight - 0.5f, pos.z);
 				ofPolyline swirl;
 				float time = ofGetElapsedTimef();
 				float swirlSpeed = time * 2.0f;
@@ -10440,7 +10426,7 @@ void ofApp::drawGame() {
 			// 7. DRAW POISON (Skull Icon)
 			if (player.isPoisoned) {
 				ofPushMatrix();
-				ofTranslate(pos.x, headHeight + 0.3f, pos.z);
+				ofTranslate(pos.x, unifiedStatusHeight + 0.3f, pos.z);
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
@@ -10488,7 +10474,7 @@ void ofApp::drawGame() {
 									glm::vec3 arrowPos = pos + dirWorld * ((i + 1) * stepOffset);
 									ofPushMatrix();
 									// Position slightly above head
-									ofTranslate(arrowPos.x, headHeight + 0.6f, arrowPos.z);
+									ofTranslate(arrowPos.x, unifiedStatusHeight + 0.6f, arrowPos.z);
 									// Lay flat on XZ
 									ofRotateXDeg(90);
 									// Rotate based on dirWorld to point correctly
@@ -10931,99 +10917,17 @@ void ofApp::drawGame() {
 	};
 
 	// --- POST PROCESSING & 2D UI DRAWING ---
-	// Allow the world post-processing path to run either when world post is
-	// enabled OR when the Commodore64 shader is requested (so 'M' works alone).
-	const bool usePost = ((enableWorldPostProcess && worldPostShaderLoaded) || (enableC64Shader && c64ShaderLoaded));
-	if (enablePixelArt) {
-		if (!pixelArtShaderLoaded) {
-			if (!pixelArtWarned) {
-				ofLogWarning("PixelArt") << "Pixel-art was requested but shader did not load; falling back to normal render.";
-				pixelArtWarned = true;
-			}
-		}
+	// Merge Pixel Art into the main post-processing pipeline so it renders at full
+	// resolution. Because textures are already GL_NEAREST, the "pixels" will stick
+	// to the 3D objects (World-Space) instead of swimming across the screen!
+	const bool usePost = ((enableWorldPostProcess && worldPostShaderLoaded) || (enableC64Shader && c64ShaderLoaded) || (enablePixelArt && pixelArtShaderLoaded));
+
+	if (enablePixelArt && !pixelArtShaderLoaded && !pixelArtWarned) {
+		ofLogWarning("PixelArt") << "Pixel-art was requested but shader did not load; falling back to normal render.";
+		pixelArtWarned = true;
 	}
-	if (enablePixelArt && pixelArtShaderLoaded) {
-		// Render world into low-res pixel FBO and apply pixel-art shader when enabled
-		int pw = std::max(2, ofGetWidth() / pixelArtDownscale);
-		int ph = std::max(2, ofGetHeight() / pixelArtDownscale);
-		if (!pixelLowFbo.isAllocated() || pixelLowFbo.getWidth() != pw || pixelLowFbo.getHeight() != ph) {
-			ofFbo::Settings psettings;
-			psettings.width = pw;
-			psettings.height = ph;
-			psettings.internalformat = GL_RGBA8;
-			psettings.textureTarget = GL_TEXTURE_2D;
-			psettings.useDepth = true;
-			psettings.useStencil = false;
-			psettings.depthStencilAsTexture = false;
-			psettings.minFilter = GL_NEAREST;
-			psettings.maxFilter = GL_NEAREST;
-			pixelLowFbo.allocate(psettings);
-			if (pixelLowFbo.isAllocated()) pixelLowFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		}
-		if (pixelLowFbo.isAllocated()) {
-			// Temporarily adjust camera aspect ratio to match low-res FBO
-			float oldAspectCam = cam.getAspectRatio();
-			float oldAspectCam2 = cam2.getAspectRatio();
-			float newAspect = (float)pixelLowFbo.getWidth() / (float)pixelLowFbo.getHeight();
-			cam.setAspectRatio(newAspect);
-			cam2.setAspectRatio(newAspect);
 
-			pixelLowFbo.begin();
-			ofEnableDepthTest();
-			glDepthMask(GL_TRUE);
-			ofClear(22, 22, 22, 255); // Match normal background (ofBackground(22)) so edges don't show pure black
-			renderWorld3D();
-			pixelLowFbo.end();
-
-			// One-time debug: read back a tiny summary of the low-res FBO to help diagnose
-			if (!pixelArtDumpedPixels) {
-				ofPixels px;
-				pixelLowFbo.readToPixels(px);
-				if (px.getWidth() > 0 && px.getHeight() > 0) {
-					uint64_t rsum = 0, gsum = 0, bsum = 0;
-					int count = 0;
-					for (int y = 0; y < (int)px.getHeight(); ++y) {
-						for (int x = 0; x < (int)px.getWidth(); ++x) {
-							ofColor c = px.getColor(x, y);
-							rsum += c.r;
-							gsum += c.g;
-							bsum += c.b;
-							++count;
-						}
-					}
-					ofLogNotice("PixelArt") << "Low-res FBO summary: size=" << px.getWidth() << "x" << px.getHeight() << " avgRGB=(" << (rsum / count) << "," << (gsum / count) << "," << (bsum / count) << ")";
-				} else {
-					ofLogWarning("PixelArt") << "Low-res FBO readback returned zero-sized pixels.";
-				}
-				pixelArtDumpedPixels = true;
-			}
-
-			// Restore camera aspect ratios
-			cam.setAspectRatio(oldAspectCam);
-			cam2.setAspectRatio(oldAspectCam2);
-
-			if (!pixelArtActiveNotified) {
-				ofLogNotice("PixelArt") << "Pixel-art post-process branch executed (shader active).";
-				pixelArtActiveNotified = true;
-			}
-
-			ofDisableDepthTest();
-			// Pixel-art shader path: posterize + dither + edge
-			pixelArtShader.begin();
-			pixelArtShader.setUniformTexture("tex0", pixelLowFbo.getTexture(), 0);
-			pixelArtShader.setUniform1i("levels", pixelArtLevels);
-			pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
-			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
-			// Edge color + strength defaults. Disable edge/glow for crisp visuals.
-			pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
-			pixelArtShader.setUniform1f("edgeStrength", 0.0f);
-			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-			pixelArtShader.end();
-		} else {
-			renderWorld3D();
-		}
-	} else if (usePost) {
+	if (usePost) {
 		allocateWorldFbo(ofGetWidth(), ofGetHeight());
 		if (worldFbo.isAllocated()) {
 			worldFbo.begin();
@@ -11039,76 +10943,24 @@ void ofApp::drawGame() {
 			}
 
 			// --- BLOOM: disabled temporarily to avoid visual artifacts ---
-			// Skipping bloom even if shaders are available.
 			if (false) {
-				int bw = std::max(2, ofGetWidth() / bloomDownscale);
-				int bh = std::max(2, ofGetHeight() / bloomDownscale);
-				if (!bloomFboA.isAllocated() || bloomFboA.getWidth() != bw || bloomFboA.getHeight() != bh) {
-					ofFbo::Settings bset;
-					bset.width = bw;
-					bset.height = bh;
-					bset.internalformat = GL_RGBA8;
-					bset.textureTarget = GL_TEXTURE_2D;
-					bset.useDepth = false;
-					bset.minFilter = GL_LINEAR;
-					bset.maxFilter = GL_LINEAR;
-					bloomFboA.allocate(bset);
-					bloomFboB.allocate(bset);
-				}
-
-				// Extract bright areas
-				bloomFboA.begin();
-				ofClear(0, 0, 0, 0);
-				bloomExtractShader.begin();
-				bloomExtractShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-				bloomExtractShader.setUniform2f("uResolution", (float)bw, (float)bh);
-				bloomExtractShader.setUniform1f("threshold", bloomThreshold);
-				worldFbo.getTexture().draw(0, 0, bw, bh);
-				bloomExtractShader.end();
-				bloomFboA.end();
-
-				// Debug: dump world and bloom textures during the first few seconds
-				// to inspect orientation/contents of the glow. Left in as temporary
-				// diagnostic; will not affect normal rendering.
-				if (ofGetElapsedTimef() < 3.0f) {
-					ofDirectory::createDirectory("debug_bloom", false, true);
-					ofPixels p;
-					bloomFboA.getTexture().readToPixels(p);
-					std::string bf = "debug_bloom/bloomA_" + ofToString((int)(ofGetElapsedTimef() * 1000)) + ".png";
-					ofSaveImage(p, bf);
-					// also save the extracted bright areas (before blur) for comparison
-					ofPixels ex;
-					bloomFboA.getTexture().readToPixels(ex); // reuse A as the post-extract target
-					std::string wf = "debug_bloom/world_" + ofToString((int)(ofGetElapsedTimef() * 1000)) + ".png";
-					worldFbo.getTexture().readToPixels(p);
-					ofSaveImage(p, wf);
-				}
-
-				// Blur passes (ping-pong)
-				for (int i = 0; i < bloomBlurPasses; ++i) {
-					// horizontal
-					bloomFboB.begin();
-					ofClear(0, 0, 0, 0);
-					bloomBlurShader.begin();
-					bloomBlurShader.setUniformTexture("tex0", bloomFboA.getTexture(), 0);
-					bloomBlurShader.setUniform2f("uResolution", (float)bw, (float)bh);
-					bloomBlurShader.setUniform1i("horizontal", 1);
-					bloomFboA.getTexture().draw(0, 0, bw, bh);
-					bloomBlurShader.end();
-					bloomFboB.end();
-					// vertical
-					bloomFboA.begin();
-					ofClear(0, 0, 0, 0);
-					bloomBlurShader.begin();
-					bloomBlurShader.setUniformTexture("tex0", bloomFboB.getTexture(), 0);
-					bloomBlurShader.setUniform2f("uResolution", (float)bw, (float)bh);
-					bloomBlurShader.setUniform1i("horizontal", 0);
-					bloomFboB.getTexture().draw(0, 0, bw, bh);
-					bloomBlurShader.end();
-					bloomFboA.end();
-				}
+				// Bloom logic skipped
 			}
-			if (enableC64Shader && c64ShaderLoaded) {
+
+			if (enablePixelArt && pixelArtShaderLoaded) {
+				pixelArtShader.begin();
+				pixelArtShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+				pixelArtShader.setUniform1i("levels", pixelArtLevels);
+				pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
+				pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+				// Pass full resolution so the shader acts as a retro color/posterize filter
+				// without crunching the screen into chunky swimming blocks.
+				pixelArtShader.setUniform2f("uLowRes", ofGetWidth(), ofGetHeight());
+				pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
+				pixelArtShader.setUniform1f("edgeStrength", 0.0f);
+				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+				pixelArtShader.end();
+			} else if (enableC64Shader && c64ShaderLoaded) {
 				c64Shader.begin();
 				c64Shader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
 				c64Shader.setUniform1f("uTime", ofGetElapsedTimef());
@@ -11925,12 +11777,12 @@ void ofApp::drawGame() {
 	// If UI wasn't snapped on resize (some platforms/window managers),
 	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
-		float btnWidth_tmp = 250 * uiScaleBtn;
-		float visibleY = 66 * uiScaleBtn; // CHANGED
+		float btnWidth_tmp = 260 * uiScaleBtn; // CHANGED: Increased from 250
+		float visibleY = 92 * uiScaleBtn;
 		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
+		// Ensure extra room for stroke/glow so top outlines aren't clipped
 		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
 		float hiddenY = -100 * uiScaleBtn;
-
 		bool myTurn = isMyTurn();
 		if (myTurn)
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
@@ -11939,8 +11791,9 @@ void ofApp::drawGame() {
 		endTurnButtonTargetPos = endTurnButtonCurrentPos;
 	}
 
-	float btnWidth_end = 250 * uiScaleBtn;
-	float btnHeight_end = 60 * uiScaleBtn;
+	float btnWidth_end = 260 * uiScaleBtn; // CHANGED: Increased from 250
+	float btnHeight_end = 66 * uiScaleBtn; // CHANGED: Increased from 60
+
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
 
 	// Check if it's my turn
@@ -11955,6 +11808,9 @@ void ofApp::drawGame() {
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
 		isOptionalInteraction = true;
 		optionalBtnText = "Skip Spike";
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
+		isOptionalInteraction = true;
+		optionalBtnText = "Done"; // Allow forfeiting remaining tails targeting!
 	}
 
 	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY) && !isOptionalInteraction;
@@ -13365,7 +13221,7 @@ void ofApp::drawGame() {
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 20.0f * scale; // CHANGED: Moved further up to balance the gap!
+		float startY = 27.0f * scale; // CHANGED: Perfectly centered between Timer and End Turn button
 
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
@@ -16341,11 +16197,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			if (isOptionalInteraction) {
-				cancelAllTargeting();
+				// --- FIX: Handle Blocking Boon Forfeit ---
+				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_MENU_CHOICE;
+					cmd.params[0] = (int)CARD_BLOCKING_BOON;
+					cmd.params[1] = -1; // -1 means forfeit targeting
+					sendInputCommand(cmd, true);
+					resetCardInteraction();
+				} else {
+					cancelAllTargeting();
+				}
 				playHandFeedbackSfx(0.9f, 0.1f);
 				return;
 			}
-
 			if (isPlayerAnimating) {
 				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
 				ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
@@ -16809,7 +16678,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
-				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL) return true;
+				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth || currentPlayer.inTortoiseForm) return true;
 					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
@@ -17084,7 +16953,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
-				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL) return true;
+				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth || currentPlayer.inTortoiseForm) return true;
 					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
@@ -17857,8 +17726,9 @@ void ofApp::windowResized(int w, int h) {
 
 	// 1. Snap End Turn Button
 	float scale = getUIScaleFromHeight(h);
-	float btnWidth = 250 * scale;
-	float visibleY = 92.0f * scale; // CHANGED: Moved up to 92
+	float btnWidth = 260 * scale; // CHANGED: Increased from 250
+	float visibleY = 92.0f * scale;
+
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
@@ -21655,42 +21525,45 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (menuType == CARD_BLOCKING_BOON) {
 			int tgtIdx = targetIndex;
-			Player * t = getPlayer(tgtIdx);
-			if (t) {
-				beginEffectSequence();
-				EffectOp decMax = {};
-				decMax.type = EffectOpType::MODIFY_STAT;
-				decMax.data.modifyStat.targetIndex = tgtIdx;
-				decMax.data.modifyStat.statType = 1; // MaxHP
-				decMax.data.modifyStat.delta = -1;
-				decMax.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(decMax);
 
-				int newMax = std::max(1, t->maxHealth - 1);
-				int hpDelta = std::min(0, newMax - t->health);
-				if (hpDelta != 0) {
-					EffectOp hpClamp = {};
-					hpClamp.type = EffectOpType::MODIFY_STAT;
-					hpClamp.data.modifyStat.targetIndex = tgtIdx;
-					hpClamp.data.modifyStat.statType = 0; // HP
-					hpClamp.data.modifyStat.delta = hpDelta;
-					hpClamp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(hpClamp);
+			if (tgtIdx == -1) {
+				// Player clicked Done (Forfeit)
+				blockingBoonPendingCoinRawResults[2] = 1;
+				queueFloatingTextVisual(gridToWorld(players[blockingBoonPendingCasterIndex].x, players[blockingBoonPendingCasterIndex].y), "Forfeited remaining Tails", ofColor::gray);
+			} else {
+				// Player clicked a Target
+				Player * t = getPlayer(tgtIdx);
+				if (t) {
+					beginEffectSequence();
+					EffectOp decMax = {};
+					decMax.type = EffectOpType::MODIFY_STAT;
+					decMax.data.modifyStat.targetIndex = tgtIdx;
+					decMax.data.modifyStat.statType = 1; // MaxHP
+					decMax.data.modifyStat.delta = -1;
+					decMax.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(decMax);
+
+					int newMax = std::max(1, t->maxHealth - 1);
+					int hpDelta = std::min(0, newMax - t->health);
+					if (hpDelta != 0) {
+						EffectOp hpClamp = {};
+						hpClamp.type = EffectOpType::MODIFY_STAT;
+						hpClamp.data.modifyStat.targetIndex = tgtIdx;
+						hpClamp.data.modifyStat.statType = 0; // HP
+						hpClamp.data.modifyStat.delta = hpDelta;
+						hpClamp.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(hpClamp);
+					}
+					queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
 				}
-				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
-
-				int coinsLeft = 0;
-				if (!blockingBoonPendingCoinRawResults.empty()) {
-					coinsLeft = blockingBoonPendingCoinRawResults[0];
-				}
-
-				// Queue next step
-				EffectOp step = {};
-				step.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
-				step.data.damage.fixedDamage = coinsLeft;
-				step.data.damage.targetIndex = blockingBoonPendingCasterIndex;
-				queueEffect(step);
 			}
+
+			// Resume sequence!
+			beginEffectSequence();
+			EffectOp nextOp = {};
+			nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+			queueEffect(nextOp);
+
 			opponentInteraction.open = false;
 			break;
 		}
@@ -23000,15 +22873,20 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		} else if (step == 4) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
 			std::vector<int> aoeTargets;
+
+			// --- FIX: AOE expands accurately from the physical center of the impact tile! ---
+			glm::vec2 impactCenter = glm::vec2((float)currentCardOutcome.primaryTarget.x + 0.5f, (float)currentCardOutcome.primaryTarget.y + 0.5f);
+
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == currentPlayerIndex) continue; // Exclude caster from AOE!
 				Player & p = players[i];
 				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-				long long aoeRadiusHalfTiles = ((long long)aoeRadiusFeet * 2LL) / 5LL;
-				long long aoeRadiusSq = aoeRadiusHalfTiles * aoeRadiusHalfTiles;
-				long long aoeDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y), glm::vec2((float)p.x, (float)p.y));
-				if (aoeDistSq <= aoeRadiusSq) {
-					auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + 0.5f, glm::vec2(p.x, p.y) + 0.5f);
+
+				float centerDistFeet = glm::distance(impactCenter, glm::vec2((float)p.x + 0.5f, (float)p.y + 0.5f)) * 5.0f;
+				float distToPlayerFeet = std::max(0.0f, centerDistFeet - 2.5f);
+
+				if (distToPlayerFeet <= (float)aoeRadiusFeet + 0.01f) {
+					auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
 					bool blockedByWall = false;
 					for (const auto & stepP : losPath) {
 						if ((int)stepP.x == currentCardOutcome.primaryTarget.x && (int)stepP.y == currentCardOutcome.primaryTarget.y) continue;
@@ -23028,7 +22906,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				EffectOp aoeDmg = {};
 				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				aoeDmg.data.damage.targetIndex = pidx;
-				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC; // "Magic / Electric AOE" - Primary is Magic, AOE is Electric
+				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
 				aoeDmg.data.damage.fixedDamage = 3;
 				aoeDmg.data.damage.damageFromSlot = -1;
 				queueEffect(aoeDmg);
@@ -23940,128 +23818,156 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_BLOCKING_BOON_COIN: { // Step Logic
-		int coinsLeft = op.data.damage.fixedDamage;
-		int casterIdx = op.data.damage.targetIndex;
-
-		if (coinsLeft <= 0) {
+	case EffectOpType::APPLY_BLOCKING_BOON_COIN: {
+		if (blockingBoonPendingCoinRawResults.size() < 3) {
 			opComplete = true;
 			break;
 		}
 
+		int casterIdx = blockingBoonPendingCasterIndex;
 		Player & caster = players[casterIdx];
 
-		// Check for adjacent units
-		bool hasAdj = false;
-		for (size_t i = 0; i < players.size(); i++) {
-			if ((int)i == casterIdx) continue;
-			if (players[i].health <= 0) continue;
-			int dist = abs(players[i].x - caster.x) + abs(players[i].y - caster.y);
-			if (dist == 1) {
-				hasAdj = true;
-				break;
-			}
-		}
+		// --- RESOLVE COIN FLIP (Heads/Tails Logic) ---
+		if (op.data.damage.fixedDamage == 99) {
+			int flip = currentEffectSequence.blackboard[0];
+			bool forfeited = (blockingBoonPendingCoinRawResults[2] == 1);
 
-		if (!hasAdj) {
-			// No adjacent targets! Roll all remaining coins instantly.
-			std::vector<int> rawCoins;
-			int totalHeads = 0;
-			for (int i = 0; i < coinsLeft; ++i) {
-				std::vector<int> tr;
-				int r = resolveDiceRollDetailed(1, 2, tr);
-				rawCoins.push_back(tr[0]);
-				if (r == 2) totalHeads++;
-			}
-
-			queueVisualDiceRoll(gridToWorld(caster.x, caster.y) + glm::vec3(0, 1.0f, 0), coinsLeft, 2, rawCoins, 0, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
-
-			if (totalHeads > 0) {
+			if (flip == 2) {
+				// Heads: +1 Max HP
 				EffectOp incMax = {};
 				incMax.type = EffectOpType::MODIFY_STAT;
 				incMax.data.modifyStat.targetIndex = casterIdx;
 				incMax.data.modifyStat.statType = 1; // MaxHP
-				incMax.data.modifyStat.delta = totalHeads;
+				incMax.data.modifyStat.delta = 1;
 				incMax.data.modifyStat.deltaFromSlot = -1;
 				queueEffect(incMax);
-				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+" + ofToString(totalHeads) + " Max HP", ofColor::green);
+
+				EffectOp incHp = {};
+				incHp.type = EffectOpType::MODIFY_STAT;
+				incHp.data.modifyStat.targetIndex = casterIdx;
+				incHp.data.modifyStat.statType = 0; // HP
+				incHp.data.modifyStat.delta = 1;
+				incHp.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(incHp);
+
+				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+1 Max HP", ofColor::green);
+
+				EffectOp nextOp = {};
+				nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+				queueEffect(nextOp);
 			} else {
-				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "All Tails (Fizzle)", ofColor::gray);
+				// Tails: -1 Max HP to Adjacent
+				if (forfeited) {
+					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Tails (Forfeited)", ofColor::gray);
+					EffectOp nextOp = {};
+					nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+					queueEffect(nextOp);
+				} else {
+					// Check for adjacent targets
+					bool hasAdj = false;
+					for (size_t i = 0; i < players.size(); i++) {
+						if ((int)i == casterIdx) continue;
+						if (players[i].health <= 0) continue;
+						int dist = abs(players[i].x - caster.x) + abs(players[i].y - caster.y);
+						if (dist == 1) {
+							hasAdj = true;
+							break;
+						}
+					}
+
+					if (!hasAdj) {
+						queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Tails (No Targets)", ofColor::gray);
+						EffectOp nextOp = {};
+						nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+						queueEffect(nextOp);
+					} else {
+						// Enter targeting mode and HALT the sequence!
+						bool isLocal = (!isMultiplayer) || (caster.playerID == myLocalPlayerID || (caster.isMinion && caster.ownerID == myLocalPlayerID));
+						if (isLocal) {
+							updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_BLOCKING_BOON);
+							calculateTargetHighlights(-1);
+							queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Tails! Select Target.", ofColor::red);
+						} else {
+							opponentInteraction.open = true;
+							opponentInteraction.type = 99; // Waiting for opponent
+						}
+					}
+				}
 			}
-
 			opComplete = true;
-		} else {
-			// Roll exactly 1 coin
-			coinsLeft--;
+			break;
+		}
 
-			std::vector<int> rawCoin;
-			int flip = resolveDiceRollDetailed(1, 2, rawCoin);
-			currentEffectSequence.blackboard[0] = flip; // Store flip result
+		// --- SEQUENCE RUNNER (Rolls the next D20 or Coin) ---
+		int d20sLeft = blockingBoonPendingCoinRawResults[0];
+		int coinsLeft = blockingBoonPendingCoinRawResults[1];
 
-			queueVisualDiceRoll(gridToWorld(caster.x, caster.y) + glm::vec3(0, 1.0f, 0), 1, 2, rawCoin, flip, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
+		if (d20sLeft > 0) {
+			blockingBoonPendingCoinRawResults[0]--;
+
+			std::vector<int> rawRoll;
+			int roll = resolveDiceRollDetailed(1, 20, rawRoll);
+			int luckBonus = caster.luck + computePassiveLuck(casterIdx);
+			int total = roll + luckBonus;
+
+			queueVisualDiceRoll(gridToWorld(caster.x, caster.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, total, PURPOSE_BLOCKING_BOON_D20, casterIdx, 1.0f);
+			currentEffectSequence.blackboard[0] = total;
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1; // wait for dice
+			wait.data.damage.fixedDamage = 1;
 			queueEffect(wait);
 
-			EffectOp resolve = {};
-			resolve.type = EffectOpType::APPLY_BLOCKING_BOON_D20; // Reusing this enum for Resolve Step
-			resolve.data.damage.fixedDamage = coinsLeft;
-			resolve.data.damage.targetIndex = casterIdx;
-			queueEffect(resolve);
+			EffectOp res = {};
+			res.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
+			queueEffect(res);
+		} else if (coinsLeft > 0) {
+			blockingBoonPendingCoinRawResults[1]--;
 
-			opComplete = true;
+			std::vector<int> rawRoll;
+			int roll = resolveDiceRollDetailed(1, 2, rawRoll);
+			currentEffectSequence.blackboard[0] = roll; // 1 = Tails, 2 = Heads
+
+			queueVisualDiceRoll(gridToWorld(caster.x, caster.y) + glm::vec3(0, 1.0f, 0), 1, 2, rawRoll, roll, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
+
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 1;
+			queueEffect(wait);
+
+			EffectOp res = {};
+			res.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+			res.data.damage.fixedDamage = 99; // 99 means "Coin Resolve Step"
+			queueEffect(res);
 		}
+		opComplete = true;
 		break;
 	}
 
-	case EffectOpType::APPLY_BLOCKING_BOON_D20: { // Resolve Logic
-		int flip = currentEffectSequence.blackboard[0];
-		int coinsLeft = op.data.damage.fixedDamage;
-		int casterIdx = op.data.damage.targetIndex;
+	case EffectOpType::APPLY_BLOCKING_BOON_D20: {
+		int total = currentEffectSequence.blackboard[0];
+		int casterIdx = blockingBoonPendingCasterIndex;
 		Player & caster = players[casterIdx];
 
-		if (flip == 2) {
-			// Heads: +1 Max HP
-			EffectOp incMax = {};
-			incMax.type = EffectOpType::MODIFY_STAT;
-			incMax.data.modifyStat.targetIndex = casterIdx;
-			incMax.data.modifyStat.statType = 1; // MaxHP
-			incMax.data.modifyStat.delta = 1;
-			incMax.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(incMax);
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+1 Max HP", ofColor::green);
-
-			// Keep sequence going for next coin
-			EffectOp step = {};
-			step.type = EffectOpType::APPLY_BLOCKING_BOON_COIN; // Back to Step
-			step.data.damage.fixedDamage = coinsLeft;
-			step.data.damage.targetIndex = casterIdx;
-			queueEffect(step);
-			opComplete = true;
+		if (total >= 20) {
+			networkPending.draftQueue.push_back(3);
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 3", ofColor::cyan);
+		} else if (total >= 16) {
+			networkPending.draftQueue.push_back(2);
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 2", ofColor::cyan);
+		} else if (total >= 10) {
+			networkPending.draftQueue.push_back(1);
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 1", ofColor::cyan);
 		} else {
-			// Tails: Must target an adjacent unit
-			// Enter targeting mode!
-			bool isLocal = (!isMultiplayer) || (caster.playerID == myLocalPlayerID || (caster.isMinion && caster.ownerID == myLocalPlayerID));
-
-			// Store state for the menu choice return
-			blockingBoonPendingCasterIndex = casterIdx;
-			// Reusing the vector to store coins left for the menu choice return!
-			blockingBoonPendingCoinRawResults.clear();
-			blockingBoonPendingCoinRawResults.push_back(coinsLeft);
-
-			if (isLocal) {
-				updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_BLOCKING_BOON);
-				calculateTargetHighlights(-1);
-				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Tails! Select Target.", ofColor::red);
-			} else {
-				opponentInteraction.open = true;
-				opponentInteraction.type = 99; // Waiting
-			}
-
-			opComplete = true;
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No Draft", ofColor::gray);
 		}
+
+		// Continue sequence!
+		EffectOp nextOp = {};
+		nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+		queueEffect(nextOp);
+
+		opComplete = true;
 		break;
 	}
 
@@ -26946,7 +26852,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
 		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
-		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
 
 		if (physBlock <= 0 && nonPhys <= 0) {
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Defence!", ofColor::gray);
@@ -26955,49 +26860,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			return true;
 		}
 
-		if (nonPhys > 0) {
-			std::vector<int> rawRolls;
-			resolveDiceRollDetailed(nonPhys, 20, rawRolls);
-			int displayTotal = 0;
-			int queuedC1 = 0, queuedC2 = 0, queuedC3 = 0;
-			for (int raw : rawRolls) {
-				int finalRoll = raw + luckBonus;
-				displayTotal += finalRoll;
-				if (finalRoll >= 20) {
-					networkPending.draftQueue.push_back(3);
-					queuedC3++;
-				} else if (finalRoll >= 16) {
-					networkPending.draftQueue.push_back(2);
-					queuedC2++;
-				} else if (finalRoll >= 10) {
-					networkPending.draftQueue.push_back(1);
-					queuedC1++;
-				}
-			}
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), nonPhys, 20, rawRolls, displayTotal, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.0f);
-			if (queuedC1 > 0 || queuedC2 > 0 || queuedC3 > 0) {
-				std::string summary = "Queued";
-				if (queuedC1 > 0) summary += " C1x" + ofToString(queuedC1);
-				if (queuedC2 > 0) summary += " C2x" + ofToString(queuedC2);
-				if (queuedC3 > 0) summary += " C3x" + ofToString(queuedC3);
-				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), summary, ofColor::cyan);
-			} else {
-				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Drafts", ofColor::gray);
-			}
+		// Save state for the sequence runner
+		blockingBoonPendingCasterIndex = currentPlayerIndex;
+		blockingBoonPendingCoinRawResults.clear();
+		blockingBoonPendingCoinRawResults.push_back(nonPhys); // [0] = D20s left
+		blockingBoonPendingCoinRawResults.push_back(physBlock); // [1] = Coins left
+		blockingBoonPendingCoinRawResults.push_back(0); // [2] = Forfeit Tails Flag
 
-			EffectOp waitVisual = {};
-			waitVisual.type = EffectOpType::WAIT_VISUAL;
-			waitVisual.data.damage.fixedDamage = 1;
-			queueEffect(waitVisual);
-		}
-
-		if (physBlock > 0) {
-			blockingBoonPendingPhysicalAfterDraft = true;
-			blockingBoonPendingCasterIndex = currentPlayerIndex;
-			// Reuse this vector to store the number of coins left!
-			blockingBoonPendingCoinRawResults.clear();
-			blockingBoonPendingCoinRawResults.push_back(physBlock);
-		}
+		// Start the sequence runner
+		EffectOp nextOp = {};
+		nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+		queueEffect(nextOp);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -32958,59 +32831,65 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return false;
 	};
 
-	// 1. Determine the "closest faces" of the target towards the caster
-	std::vector<glm::vec2> closestTargetFaceOffsets;
-	if (casterTile.x < targetTile.x) closestTargetFaceOffsets.push_back({ -1, 0 });
-	if (casterTile.x > targetTile.x) closestTargetFaceOffsets.push_back({ 1, 0 });
-	if (casterTile.y < targetTile.y) closestTargetFaceOffsets.push_back({ 0, -1 });
-	if (casterTile.y > targetTile.y) closestTargetFaceOffsets.push_back({ 0, 1 });
+	// Determine face directions from source to dest
+	auto getFaceDirs = [](glm::vec2 source, glm::vec2 dest) {
+		std::vector<glm::vec2> dirs;
+		if (dest.x > source.x)
+			dirs.push_back({ 1, 0 });
+		else if (dest.x < source.x)
+			dirs.push_back({ -1, 0 });
 
-	// 2. HARD COVER RULE: If ANY of the closest faces of the target are blocked, the shot is invalid.
-	for (const auto & offset : closestTargetFaceOffsets) {
-		int checkX = (int)targetTile.x + (int)offset.x;
-		int checkY = (int)targetTile.y + (int)offset.y;
-		if (isCoverAt(checkX, checkY)) {
-			return { false, casterCenter, targetCenter };
-		}
-	}
+		if (dest.y > source.y)
+			dirs.push_back({ 0, 1 });
+		else if (dest.y < source.y)
+			dirs.push_back({ 0, -1 });
 
-	// 3. Get all UNBLOCKED faces for Caster and Target
-	auto getUnblockedFaces = [&](glm::vec2 tile) -> std::vector<glm::vec2> {
-		std::vector<glm::vec2> validPoints;
-		// Always include the center as a valid origin/destination
-		validPoints.push_back(tile + 0.5f);
-
-		glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-		// FIX: Use 0.49f instead of 0.5f!
-		// This prevents the ray from spawning exactly on the mathematical grid boundary,
-		// preventing the raycaster from accidentally skipping the wall collision!
-		glm::vec2 faceOffsets[] = { { 0.49f, 0 }, { -0.49f, 0 }, { 0, 0.49f }, { 0, -0.49f } };
-
-		for (int i = 0; i < 4; i++) {
-			int nx = (int)tile.x + (int)neighbors[i].x;
-			int ny = (int)tile.y + (int)neighbors[i].y;
-
-			// A face is unblocked if the tile adjacent to it is not cover
-			if (!isCoverAt(nx, ny)) {
-				validPoints.push_back(tile + 0.5f + faceOffsets[i]);
+		// If orthogonal (straight shot), add perpendiculars so they can still lean out!
+		if (dirs.size() == 1) {
+			if (dirs[0].x != 0) {
+				dirs.push_back({ 0, 1 });
+				dirs.push_back({ 0, -1 });
+			} else {
+				dirs.push_back({ 1, 0 });
+				dirs.push_back({ -1, 0 });
 			}
 		}
-		return validPoints;
+		return dirs;
 	};
 
-	std::vector<glm::vec2> firingPoints = getUnblockedFaces(casterTile);
-	std::vector<glm::vec2> targetPoints = getUnblockedFaces(targetTile);
+	std::vector<glm::vec2> casterFaceDirs = getFaceDirs(casterTile, targetTile);
+	std::vector<glm::vec2> targetFaceDirs = getFaceDirs(targetTile, casterTile);
 
-	// 4. Try all combinations. If ANY clear ray is found, it's valid.
-	for (const auto & f_point : firingPoints) {
-		for (const auto & t_point : targetPoints) {
-			if (checkRayPhysics(f_point, t_point)) {
-				return { true, f_point, t_point }; // We found a "Clear Ray"
+	// 1. Gather valid Caster Faces
+	std::vector<glm::vec2> validCasterPoints;
+	for (auto dir : casterFaceDirs) {
+		if (!isCoverAt((int)casterTile.x + (int)dir.x, (int)casterTile.y + (int)dir.y)) {
+			validCasterPoints.push_back(casterCenter + dir * 0.49f);
+		}
+	}
+
+	// 2. Gather valid Target Faces
+	std::vector<glm::vec2> validTargetPoints;
+	for (auto dir : targetFaceDirs) {
+		if (!isCoverAt((int)targetTile.x + (int)dir.x, (int)targetTile.y + (int)dir.y)) {
+			validTargetPoints.push_back(targetCenter + dir * 0.49f);
+		}
+	}
+
+	// Center-to-center fallback for direct open shots (so straight down a hallway works normally)
+	if (checkRayPhysics(casterCenter, targetCenter)) {
+		return { true, casterCenter, targetCenter };
+	}
+
+	// 3. Check if ANY valid face-to-face line is clear
+	for (auto cp : validCasterPoints) {
+		for (auto tp : validTargetPoints) {
+			if (checkRayPhysics(cp, tp)) {
+				return { true, cp, tp };
 			}
 		}
 	}
 
-	// If no combinations work, it's blocked.
 	return { false, casterCenter, targetCenter };
 }
 
