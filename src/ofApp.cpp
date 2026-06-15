@@ -4824,21 +4824,30 @@ void ofApp::update() {
 		}
 		// Note: Use steamManager.isHost() directly here since isMultiplayer isn't set yet
 		if (steamManager.isHost()) {
-			if (!isMultiplayer && !waitingForClientHandshake) {
-				ofLogNotice("Network") << "Host: Opponent found. Initiating XOR Handshake.";
-				waitingForClientHandshake = true;
+			if (!isMultiplayer) {
+				// --- FIX: Keep sending the handshake every 1 second until the client replies! ---
+				static float lastHandshakeSendTime = 0.0f;
+				if (ofGetElapsedTimef() - lastHandshakeSendTime > 1.0f) {
+					lastHandshakeSendTime = ofGetElapsedTimef();
 
-				std::random_device rd;
-				localSeedComponent = rd();
-				myElo = steamManager.getLocalElo();
+					if (!waitingForClientHandshake) {
+						ofLogNotice("Network") << "Host: Opponent found. Initiating XOR Handshake.";
+						waitingForClientHandshake = true;
+						std::random_device rd;
+						localSeedComponent = rd();
+						myElo = steamManager.getLocalElo();
+					} else {
+						ofLogNotice("Network") << "Host: Handshake retry sent...";
+					}
 
-				HandshakePacket pkt = {};
-				pkt.type = PKT_HANDSHAKE;
-				pkt.playerID = 0; // I am Host
-				pkt.seq = 0;
-				pkt.seed = localSeedComponent;
-				pkt.elo = myElo;
-				steamManager.sendPacket(&pkt, sizeof(pkt));
+					HandshakePacket pkt = {};
+					pkt.type = PKT_HANDSHAKE;
+					pkt.playerID = 0; // I am Host
+					pkt.seq = 0;
+					pkt.seed = localSeedComponent;
+					pkt.elo = myElo;
+					steamManager.sendPacket(&pkt, sizeof(pkt));
+				}
 			}
 		}
 
@@ -6516,7 +6525,7 @@ void ofApp::prepareGameVisualState() {
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
 	float btnWidth = 250 * uiScale;
-	float visibleY = 66 * uiScale; // CHANGED: Moved up to sit just under the Action History
+	float visibleY = 110 * uiScale; // CHANGED: Moved down to 110 so it clears the Action History
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
@@ -8102,14 +8111,15 @@ void ofApp::updateGameLogic() {
 						}
 					}
 
-					// NEW FIX: Remove Damage, Range, and generic dice after they have been on screen for a while
+					// --- NEW: Remove Damage, Range, and generic dice after 2.5 seconds ---
 					if (roll.isFinishedVisual && roll.purpose != PURPOSE_AP && roll.purpose != PURPOSE_BONUS_AP) {
-						float lingerTime = 2.5f; // Stay on screen for 2.5 seconds after finishing
-						if (elapsedTime > spinDuration + lingerTime) {
+						if (elapsedTime > spinDuration + 2.5f) {
 							it = activeDiceRolls.erase(it);
 							continue;
 						}
 					}
+					// ---------------------------------------------------------------------
+
 					++it;
 				}
 				return;
@@ -8251,6 +8261,17 @@ void ofApp::updateGameLogic() {
 				}
 			}
 		}
+
+		// --- NEW: Remove Damage, Range, and generic dice after 2.5 seconds ---
+		if (roll.isFinishedVisual && roll.purpose != PURPOSE_AP && roll.purpose != PURPOSE_BONUS_AP) {
+			float lingerTime = 2.5f; // Stay on screen for 2.5 seconds after finishing
+			if (elapsedTime > spinDuration + lingerTime) {
+				it = activeDiceRolls.erase(it);
+				continue;
+			}
+		}
+		// ---------------------------------------------------------------------
+
 		++it;
 	}
 
@@ -13327,7 +13348,6 @@ void ofApp::drawGame() {
 	}
 
 	// --- DRAW ACTION HISTORY ---
-	// --- DRAW ACTION HISTORY ---
 	if (!g_actionHistory.empty()) {
 		float iconSize = 46.0f * scale;
 		float spacing = 8.0f * scale;
@@ -17826,7 +17846,7 @@ void ofApp::windowResized(int w, int h) {
 	// 1. Snap End Turn Button
 	float scale = getUIScaleFromHeight(h);
 	float btnWidth = 250 * scale;
-	float visibleY = 66 * scale; // CHANGED: Moved up to sit just under the Action History
+	float visibleY = 110 * scale; // CHANGED: Moved down to 110
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
@@ -22771,6 +22791,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
 
+			// --- FIX: Update the true target to where the fireball actually landed! ---
+			currentCardOutcome.primaryTarget = impactTile;
+
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
@@ -23061,6 +23084,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
 
+			// --- FIX: Update the true target to where the lightning actually landed! ---
+			currentCardOutcome.primaryTarget = impactTile;
+
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
@@ -23212,6 +23238,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
+
+			// --- FIX: Update the true target to where the arrow actually landed! ---
+			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
@@ -23369,6 +23398,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
+
+			// --- FIX: Update the true target to where the jolt actually landed! ---
+			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
@@ -32888,132 +32920,74 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return { true, casterCenter, targetCenter };
 	}
 
-	int dx = std::abs((int)targetTile.x - (int)casterTile.x);
-	int dy = std::abs((int)targetTile.y - (int)casterTile.y);
-
-	// Point blank range or Straight Orthogonal: always center-to-center
-	if (dx == 0 || dy == 0 || (dx <= 1 && dy <= 1)) {
-		bool clear = checkRayPhysics(casterCenter, targetCenter);
-		return { clear, casterCenter, targetCenter };
-	}
-
-	int casterIndexForSelfChecks = -1;
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		if (players[currentPlayerIndex].x == (int)casterTile.x && players[currentPlayerIndex].y == (int)casterTile.y) {
-			casterIndexForSelfChecks = currentPlayerIndex;
-		}
+	// Point-blank / Self-cast
+	if (casterTile == targetTile) {
+		return { true, casterCenter, targetCenter };
 	}
 
 	auto isCoverAt = [&](int cx, int cy) {
 		if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) return true;
 		if (board[cx][cy].hasWall) return true;
 		if (board[cx][cy].hasPlayer) {
-			if (casterIndexForSelfChecks >= 0) {
-				if (tileHasOtherThan(cx, cy, casterIndexForSelfChecks)) return true;
-			} else
-				return true;
+			// Do not count the caster or target tiles themselves as cover blocking their own faces
+			if (cx == (int)casterTile.x && cy == (int)casterTile.y) return false;
+			if (cx == (int)targetTile.x && cy == (int)targetTile.y) return false;
+
+			return true;
 		}
 		return false;
 	};
 
-	if (dx <= 1 || dy <= 1) {
-		// --- 1 ROW/COL AWAY: STEPPING OUT ---
+	// 1. Determine the "closest faces" of the target towards the caster
+	std::vector<glm::vec2> closestTargetFaceOffsets;
+	if (casterTile.x < targetTile.x) closestTargetFaceOffsets.push_back({ -1, 0 });
+	if (casterTile.x > targetTile.x) closestTargetFaceOffsets.push_back({ 1, 0 });
+	if (casterTile.y < targetTile.y) closestTargetFaceOffsets.push_back({ 0, -1 });
+	if (casterTile.y > targetTile.y) closestTargetFaceOffsets.push_back({ 0, 1 });
 
-		auto getOrigins = [&](glm::vec2 tile) -> std::vector<glm::vec2> {
-			std::vector<glm::vec2> origins;
-			glm::vec2 center = tile + 0.5f;
-			origins.push_back(center);
-
-			glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-			glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
-
-			for (int i = 0; i < 4; i++) {
-				int nx = (int)tile.x + (int)neighbors[i].x;
-				int ny = (int)tile.y + (int)neighbors[i].y;
-
-				// If the adjacent tile is NOT cover, that face is exposed and can be shot from/to!
-				if (!isCoverAt(nx, ny)) {
-					origins.push_back(center + faceOffsets[i]);
-				}
-			}
-			return origins;
-		};
-
-		std::vector<glm::vec2> firingOrigins = getOrigins(casterTile);
-		std::vector<glm::vec2> targetOrigins = getOrigins(targetTile);
-
-		if (checkRayPhysics(casterCenter, targetCenter)) return { true, casterCenter, targetCenter };
-
-		for (const auto & f_origin : firingOrigins) {
-			for (const auto & t_origin : targetOrigins) {
-				if (checkRayPhysics(f_origin, t_origin)) {
-					return { true, f_origin, t_origin }; // We found the "Clear Ray"
-				}
-			}
-		}
-	} else {
-		// --- DEEP DIAGONAL: 2 CLOSEST FACES ---
-
-		glm::vec2 cFaceX = casterCenter + glm::vec2((targetTile.x > casterTile.x) ? 0.5f : -0.5f, 0.0f);
-		glm::vec2 cFaceY = casterCenter + glm::vec2(0.0f, (targetTile.y > casterTile.y) ? 0.5f : -0.5f);
-
-		int cfx = (int)casterTile.x + ((targetTile.x > casterTile.x) ? 1 : -1);
-		int cfy = (int)casterTile.y;
-		int cfx2 = (int)casterTile.x;
-		int cfy2 = (int)casterTile.y + ((targetTile.y > casterTile.y) ? 1 : -1);
-
-		bool canUseFaceX = !isCoverAt(cfx, cfy);
-		bool canUseFaceY = !isCoverAt(cfx2, cfy2);
-
-		// EXCEPTION: Only block the shot entirely if BOTH leaning faces are covered.
-		// If one is clear, we can peek around the wall to take the diagonal shot!
-		if (!canUseFaceX && !canUseFaceY) {
+	// 2. HARD COVER RULE: If ANY of the closest faces of the target are blocked, the shot is invalid.
+	for (const auto & offset : closestTargetFaceOffsets) {
+		int checkX = (int)targetTile.x + (int)offset.x;
+		int checkY = (int)targetTile.y + (int)offset.y;
+		if (isCoverAt(checkX, checkY)) {
 			return { false, casterCenter, targetCenter };
 		}
-
-		glm::vec2 tFaces[4] = {
-			targetCenter + glm::vec2(0.5f, 0.0f), targetCenter + glm::vec2(-0.5f, 0.0f),
-			targetCenter + glm::vec2(0.0f, 0.5f), targetCenter + glm::vec2(0.0f, -0.5f)
-		};
-		glm::ivec2 tFacesAdj[4] = {
-			glm::ivec2((int)targetTile.x + 1, (int)targetTile.y),
-			glm::ivec2((int)targetTile.x - 1, (int)targetTile.y),
-			glm::ivec2((int)targetTile.x, (int)targetTile.y + 1),
-			glm::ivec2((int)targetTile.x, (int)targetTile.y - 1)
-		};
-
-		bool faceX_clear = false;
-		glm::vec2 bestTFaceX = targetCenter;
-		if (canUseFaceX) {
-			for (int i = 0; i < 4; ++i) {
-				if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue; // Can't hit a blocked target face
-				if (checkRayPhysics(cFaceX, tFaces[i])) {
-					faceX_clear = true;
-					bestTFaceX = tFaces[i];
-					break;
-				}
-			}
-		}
-
-		bool faceY_clear = false;
-		glm::vec2 bestTFaceY = targetCenter;
-		if (canUseFaceY) {
-			for (int i = 0; i < 4; ++i) {
-				if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue;
-				if (checkRayPhysics(cFaceY, tFaces[i])) {
-					faceY_clear = true;
-					bestTFaceY = tFaces[i];
-					break;
-				}
-			}
-		}
-
-		// Return the successful face ray to the tracer
-		if (faceX_clear) return { true, cFaceX, bestTFaceX };
-		if (faceY_clear) return { true, cFaceY, bestTFaceY };
 	}
 
-	// Fallback (Will fail the final check, but provides a line for the failure state)
+	// 3. Get all UNBLOCKED faces for Caster and Target
+	auto getUnblockedFaces = [&](glm::vec2 tile) -> std::vector<glm::vec2> {
+		std::vector<glm::vec2> validPoints;
+		// Always include the center as a valid origin/destination (Center-to-Center fallback)
+		validPoints.push_back(tile + 0.5f);
+
+		glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
+
+		for (int i = 0; i < 4; i++) {
+			int nx = (int)tile.x + (int)neighbors[i].x;
+			int ny = (int)tile.y + (int)neighbors[i].y;
+
+			// A face is unblocked if the tile adjacent to it is not cover
+			if (!isCoverAt(nx, ny)) {
+				validPoints.push_back(tile + 0.5f + faceOffsets[i]);
+			}
+		}
+		return validPoints;
+	};
+
+	std::vector<glm::vec2> firingPoints = getUnblockedFaces(casterTile);
+	std::vector<glm::vec2> targetPoints = getUnblockedFaces(targetTile);
+
+	// 4. Try all combinations. If ANY clear ray is found, it's valid.
+	for (const auto & f_point : firingPoints) {
+		for (const auto & t_point : targetPoints) {
+			if (checkRayPhysics(f_point, t_point)) {
+				return { true, f_point, t_point }; // We found a "Clear Ray"
+			}
+		}
+	}
+
+	// If no combinations work, it's blocked.
 	return { false, casterCenter, targetCenter };
 }
 
@@ -35753,45 +35727,56 @@ void ofApp::processNetworkPackets() {
 					setupGame();
 				}
 				// 2. CLIENT RECEIVES HOST REQUEST
-				else if (!isHost() && pkt->playerID == 0 && !hasReceivedHandshake) {
+				else if (!isHost() && pkt->playerID == 0) {
 					opponentElo = pkt->elo;
 
-					std::random_device rd;
-					localSeedComponent = rd();
-					myElo = steamManager.getLocalElo();
-
-					currentMapSeed = pkt->seed ^ localSeedComponent; // XOR COMBINATION!
-					ofLogNotice("Network") << "Client received Host XOR Handshake. Final Seed: " << currentMapSeed;
-
-					// Send Client Half back to Host
+					// --- FIX: Always reply to the host so they know we are here! ---
 					HandshakePacket ack = {};
 					ack.type = PKT_HANDSHAKE;
 					ack.playerID = 1; // I am Client
 					ack.seq = 0;
-					ack.seed = localSeedComponent;
+					ack.seed = localSeedComponent; // If we already generated a seed, reuse it
 					ack.elo = myElo;
+
+					// Only run the setup logic ONCE
+					if (!hasReceivedHandshake) {
+						std::random_device rd;
+						localSeedComponent = rd();
+						myElo = steamManager.getLocalElo();
+
+						currentMapSeed = pkt->seed ^ localSeedComponent; // XOR COMBINATION!
+						ofLogNotice("Network") << "Client received Host XOR Handshake. Final Seed: " << currentMapSeed;
+
+						// Update ack with newly generated seed and elo
+						ack.seed = localSeedComponent;
+						ack.elo = myElo;
+
+						isMultiplayer = true;
+						myLocalPlayerID = 1;
+						hasReceivedHandshake = true;
+						gameplaySeededByHost = true;
+
+						std::string p0Name = steamManager.getOpponentName();
+						std::string p1Name = steamManager.getLocalPlayerName();
+						player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
+						player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+
+						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
+							setupGame();
+						}
+					}
+
+					// Send the Handshake ACK back to the Host
 					steamManager.sendPacket(&ack, sizeof(ack));
 
-					isMultiplayer = true;
-					myLocalPlayerID = 1;
-					hasReceivedHandshake = true;
-					gameplaySeededByHost = true;
-
-					std::string p0Name = steamManager.getOpponentName();
-					std::string p1Name = steamManager.getLocalPlayerName();
-					player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-					player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
-
-					if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
-						setupGame();
-						if (!clientSentReady) {
-							ClientReadyPacket r = {};
-							r.type = PKT_CLIENT_READY;
-							r.playerID = myLocalPlayerID;
-							r.ready = 1;
-							steamManager.sendPacket(&r, sizeof(r));
-							clientSentReady = true;
-						}
+					// --- FIX: Always resend the READY packet if the Host is still asking for handshakes! ---
+					if (currentState == STATE_GAMEPLAY || currentState == STATE_INITIATIVE_ROLL || clientSentReady) {
+						ClientReadyPacket r = {};
+						r.type = PKT_CLIENT_READY;
+						r.playerID = myLocalPlayerID;
+						r.ready = 1;
+						steamManager.sendPacket(&r, sizeof(r));
+						clientSentReady = true;
 					}
 				}
 				continue;
