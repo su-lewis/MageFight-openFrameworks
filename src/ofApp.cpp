@@ -6525,7 +6525,7 @@ void ofApp::prepareGameVisualState() {
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
 	float btnWidth = 250 * uiScale;
-	float visibleY = 110 * uiScale; // CHANGED: Moved down to 110 so it clears the Action History
+	float visibleY = 92.0f * uiScale; // CHANGED: Moved up to 92 to slightly reduce the gap to Action History
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
@@ -6538,8 +6538,20 @@ void ofApp::prepareGameVisualState() {
 	}
 	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 1.0f - pow(0.001f, deltaTime));
 
-	for (auto & roll : activeDiceRolls) {
-		roll.currentRotation += diceSpinSpeed * deltaTime;
+	// --- FIX: Guaranteed Visual Dice Cleanup (ALL DICE) ---
+	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
+		it->currentRotation += diceSpinSpeed * deltaTime;
+
+		float elapsedTime = time - it->startTime;
+
+		// Remove ALL dice (including AP) after they finish spinning + 2.5s linger
+		if (it->isFinishedVisual) {
+			if (elapsedTime > 0.8f + 2.5f) { // 0.8s spin + 2.5s linger
+				it = activeDiceRolls.erase(it);
+				continue;
+			}
+		}
+		++it;
 	}
 
 	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
@@ -13353,7 +13365,7 @@ void ofApp::drawGame() {
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 12.0f * scale; // CHANGED: Tucked right beneath the turn timer
+		float startY = 20.0f * scale; // CHANGED: Moved further up to balance the gap!
 
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
@@ -17846,7 +17858,7 @@ void ofApp::windowResized(int w, int h) {
 	// 1. Snap End Turn Button
 	float scale = getUIScaleFromHeight(h);
 	float btnWidth = 250 * scale;
-	float visibleY = 110 * scale; // CHANGED: Moved down to 110
+	float visibleY = 92.0f * scale; // CHANGED: Moved up to 92
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
@@ -25680,14 +25692,23 @@ void ofApp::applyCardOutcomeEffects() {
 		if (turnTimerEnabled) {
 			int extraFrames = 5 * turnTimerFramesPerSecond;
 			int maxFrames = 240 * turnTimerFramesPerSecond; // 4 minutes max
+
+			// Safely extend total duration
+			turnDurationFrames += extraFrames;
 			if (turnTimerPaused) {
-				turnTimerPausedRemainingFrames = std::min(maxFrames, turnTimerPausedRemainingFrames + extraFrames);
-			} else {
-				turnDurationFrames += extraFrames;
-				int elapsed = (int)(simulationFrame - turnStartFrame);
-				int remaining = turnDurationFrames - elapsed;
-				if (remaining > maxFrames) {
-					turnDurationFrames = elapsed + maxFrames;
+				turnTimerPausedRemainingFrames += extraFrames;
+			}
+
+			// Calculate exactly how much time is left right now
+			int elapsed = turnTimerPaused ? (turnDurationFrames - turnTimerPausedRemainingFrames) : (int)(simulationFrame - turnStartFrame);
+			int remaining = turnDurationFrames - elapsed;
+
+			// Cap the remaining time without shifting the starting baseline
+			if (remaining > maxFrames) {
+				int excess = remaining - maxFrames;
+				turnDurationFrames -= excess;
+				if (turnTimerPaused) {
+					turnTimerPausedRemainingFrames -= excess;
 				}
 			}
 		}
@@ -32932,7 +32953,6 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 			// Do not count the caster or target tiles themselves as cover blocking their own faces
 			if (cx == (int)casterTile.x && cy == (int)casterTile.y) return false;
 			if (cx == (int)targetTile.x && cy == (int)targetTile.y) return false;
-
 			return true;
 		}
 		return false;
@@ -32957,11 +32977,14 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	// 3. Get all UNBLOCKED faces for Caster and Target
 	auto getUnblockedFaces = [&](glm::vec2 tile) -> std::vector<glm::vec2> {
 		std::vector<glm::vec2> validPoints;
-		// Always include the center as a valid origin/destination (Center-to-Center fallback)
+		// Always include the center as a valid origin/destination
 		validPoints.push_back(tile + 0.5f);
 
 		glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-		glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
+		// FIX: Use 0.49f instead of 0.5f!
+		// This prevents the ray from spawning exactly on the mathematical grid boundary,
+		// preventing the raycaster from accidentally skipping the wall collision!
+		glm::vec2 faceOffsets[] = { { 0.49f, 0 }, { -0.49f, 0 }, { 0, 0.49f }, { 0, -0.49f } };
 
 		for (int i = 0; i < 4; i++) {
 			int nx = (int)tile.x + (int)neighbors[i].x;
@@ -33993,35 +34016,44 @@ void ofApp::drawMinionManagerUI() {
 
 		ofPushMatrix();
 
+		// --- UNIFIED MINION MODEL SCALING ---
+		// Translate down so models sit on the floor of the FBO
+		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 100);
+
+		// Map board coordinates to FBO pixels.
+		// This single multiplier perfectly preserves their relative sizes from the board, but 50% smaller overall!
+		float uScale = 4000.0f;
+		ofScale(uScale, -uScale, uScale);
+
+		// Add the spinning UI display angle
+		ofRotateXDeg(-15);
+		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+
 		// --- TORTOISE FORM PREVIEW (overrides normal model) ---
 		if (minion.inTortoiseForm) {
-			// Lower the tortoise preview slightly
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
-			ofScale(21 * kMinionPreviewScaleBoost, -21 * kMinionPreviewScaleBoost, 21 * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, 0.6f, 0);
+			ofRotateXDeg(180);
+			ofMultMatrix(tortoiseModel.getModelMatrix());
 			if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
 			tortoiseModel.drawFaces();
 			if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
-		} else if (minion.isGolem) {
-			// GOLEM: Lower slightly in preview
-			ofTranslate(modelFbo.getWidth() / 2, 100);
-			ofScale(27 * kMinionPreviewScaleBoost, 27 * kMinionPreviewScaleBoost, 27 * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(ofGetElapsedTimef() * 30);
+		}
+		// --- GOLEM ---
+		else if (minion.isGolem) {
+			ofTranslate(0, 3.6f, 0);
+			ofRotateXDeg(180);
+			ofRotateYDeg(90);
+			ofMultMatrix(golemModel.getModelMatrix());
 			if (minion.minionTexture) minion.minionTexture->bind();
 			golemModel.drawFaces();
 			if (minion.minionTexture) minion.minionTexture->unbind();
+		}
+		// --- WOLF ---
+		else if (minion.isWolf) {
+			ofTranslate(0, 0.48f, 0);
+			ofScale(0.0216f, 0.0216f, 0.0216f);
+			ofMultMatrix(wolfModel.getModelMatrix());
 
-		} else if (minion.isWolf) {
-			// WOLF: Decreased scale by 50% (2.2 -> 1.1), Lowered position (+10 -> +30)
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
-			ofScale(1.1f * kMinionPreviewScaleBoost, -1.1f * kMinionPreviewScaleBoost, 1.1f * kMinionPreviewScaleBoost);
-
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
-
-			// Draw skin meshes
 			for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
 				ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
 				if (tex->isAllocated()) tex->bind();
@@ -34029,85 +34061,59 @@ void ofApp::drawMinionManagerUI() {
 				if (tex->isAllocated()) tex->unbind();
 			}
 
-			// Draw fur
 			glDepthMask(GL_FALSE);
 			ofEnableAlphaBlending();
-			wolfFurTex.bind();
+			if (wolfFurTex.isAllocated()) wolfFurTex.bind();
 			for (unsigned int i = 0; i <= 5; i++) {
 				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
 			}
-			wolfFurTex.unbind();
+			if (wolfFurTex.isAllocated()) wolfFurTex.unbind();
 			ofDisableAlphaBlending();
 			glDepthMask(GL_TRUE);
-
 		}
-		// --- KOBOLD KING PREVIEW ---
+		// --- KOBOLD KING ---
 		else if (minion.isKoboldKing) {
-			// Lower Kobold King preview further so feet sit on ground
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 50);
-
-			// Reduced from 30.0f to 2.5f (since model is now 0.0042f)
-			ofScale(2.5f * kMinionPreviewScaleBoost, -2.5f * kMinionPreviewScaleBoost, 2.5f * kMinionPreviewScaleBoost);
-
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
-
-			// CORRECTION HERE TOO if needed in UI
+			ofTranslate(0, TILE_SIZE * 0.72f, 0);
 			ofRotateYDeg(-90);
-
-			ofSetColor(unitTint);
+			ofMultMatrix(koboldKingModel.getModelMatrix());
 			if (koboldKingTexture.isAllocated()) koboldKingTexture.bind();
 			koboldKingModel.drawFaces();
 			if (koboldKingTexture.isAllocated()) koboldKingTexture.unbind();
 		}
-		// --- KOBOLD PREVIEW ---
+		// --- KOBOLD ---
 		else if (minion.isKobold) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
-			// Preview scale reduced by ~30%
-			ofScale(4.55f * kMinionPreviewScaleBoost, -4.55f * kMinionPreviewScaleBoost, 4.55f * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, 0.72f, 0);
+			ofMultMatrix(koboldModel.getModelMatrix());
 			koboldModel.drawFaces();
 		}
-		// --- HELLHOUND PREVIEW ---
+		// --- HELLHOUND ---
 		else if (minion.isHellhound) {
-			// Slightly lower and scale down the hellhound preview
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
-			ofScale(18 * kMinionPreviewScaleBoost, -18 * kMinionPreviewScaleBoost, 18 * kMinionPreviewScaleBoost);
-
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, 0.72f, 0);
+			ofRotateYDeg(180.0f);
+			ofMultMatrix(hellhoundModel.getModelMatrix());
 			hellhoundModel.drawFaces();
 		}
-		// --- DEMON PREVIEW ---
+		// --- DEMON ---
 		else if (minion.isDemon) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-			// DEMON: Increased scale (12 -> 16)
-			ofScale(16 * kMinionPreviewScaleBoost, -16 * kMinionPreviewScaleBoost, 16 * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, 4.2f, 0);
+			ofRotateYDeg(90);
+			ofMultMatrix(demonModel.getModelMatrix());
 			demonModel.drawFaces();
 		}
-		// --- WALL PREVIEW ---
+		// --- WALL UNIT ---
 		else if (minion.isWallUnit) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-			// Reasonable preview scale for wall unit (tweakable)
-			ofScale(6.0f * kMinionPreviewScaleBoost, -6.0f * kMinionPreviewScaleBoost, 6.0f * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, TILE_SIZE * 0.168f, 0);
+			ofMultMatrix(wallUnitModel.getModelMatrix());
 			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->bind();
 			wallUnitModel.drawFaces();
 			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->unbind();
 
-			// If this wall unit was created from a Magic Wall, draw a mesh-based purple glow
 			if (minion.isMagicWallUnit) {
 				ofEnableBlendMode(OF_BLENDMODE_ADD);
 				ofSetColor(148, 0, 211, 120);
 				glEnable(GL_POLYGON_OFFSET_FILL);
 				glPolygonOffset(-1.0f, -1.0f);
 				ofPushMatrix();
-				// Draw at the preview model's scale so the glow matches the mesh
-				// Draw the whole preview model again in purple so the glow follows model curves exactly
 				wallUnitModel.drawFaces();
 				ofPopMatrix();
 				glDisable(GL_POLYGON_OFFSET_FILL);
@@ -34115,37 +34121,27 @@ void ofApp::drawMinionManagerUI() {
 				ofDisableBlendMode();
 			}
 		}
-		// --- ASSISTANT PREVIEW ---
+		// --- ASSISTANT ---
 		else if (minion.isAssistant) {
-			// Raise assistant slightly so it's not clipped into the floor
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-			ofScale(35.0f * kMinionPreviewScaleBoost, -35.0f * kMinionPreviewScaleBoost, 35.0f * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, 2.04f, 0);
+			ofMultMatrix(assistantModel.getModelMatrix());
 			assistantModel.drawFaces();
 		}
-		// --- FAERIE PREVIEW ---
+		// --- FAERIE ---
 		else if (minion.isFaerie) {
-			// Raise the faerie preview and reduce scale for proper fit
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 40);
-			ofScale(36.0f * kMinionPreviewScaleBoost, -36.0f * kMinionPreviewScaleBoost, 36.0f * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			ofTranslate(0, 1.2f, 0);
+			ofMultMatrix(faerieModel.getModelMatrix());
 			if (faerieTexture.isAllocated()) faerieTexture.bind();
 			faerieModel.drawFaces();
 			if (faerieTexture.isAllocated()) faerieTexture.unbind();
 		}
-		// --- SKELETON PREVIEW --- Default
+		// --- SKELETON (Default) ---
 		else {
-			ofSetColor(unitTint);
-			ofTranslate(modelFbo.getWidth() / 2, 90);
-			// SKELETON: Slightly larger for readability
-			ofScale(26 * kMinionPreviewScaleBoost, -26 * kMinionPreviewScaleBoost, 26 * kMinionPreviewScaleBoost);
-			ofRotateXDeg(-15);
-			ofRotateYDeg(ofGetElapsedTimef() * 30);
-			skeletonTexture.bind();
+			ofTranslate(0, 2.4f, 0);
+			ofMultMatrix(skeletonModel.getModelMatrix());
+			if (skeletonTexture.isAllocated()) skeletonTexture.bind();
 			skeletonModel.drawFaces();
-			skeletonTexture.unbind();
+			if (skeletonTexture.isAllocated()) skeletonTexture.unbind();
 		}
 
 		ofPopMatrix();
