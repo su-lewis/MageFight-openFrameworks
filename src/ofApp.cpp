@@ -4926,7 +4926,9 @@ void ofApp::update() {
 		}
 		break;
 
-	// Initiative handling moved to updateStateMachine()
+	case STATE_INITIATIVE_ROLL:
+		// Initiative handling moved to updateStateMachine()
+		break;
 
 	// --- DRAFTING STATE ---
 	case STATE_DRAFTING:
@@ -12069,19 +12071,6 @@ void ofApp::drawGame() {
 		ofPopStyle();
 	}
 
-	// Determine if we are in an optional placement/targeting mode
-	bool isOptionalInteraction = false;
-	string optionalBtnText = "Done";
-	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
-		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
-	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-		isOptionalInteraction = true;
-		optionalBtnText = "Skip Spike";
-	}
-
-	bool showDoneBtn = isCurrentPlayerLocal() && isOptionalInteraction;
-
 	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
 	if (showEndTurn || showDoneBtn) {
 		ofSetColor(ofColor::white);
@@ -12232,10 +12221,9 @@ void ofApp::drawGame() {
 		ofDrawRectRounded(handAreaRect, 24.0f);
 		ofPopStyle();
 
-		// How much a hovered card is lifted upward (pixels) and scaled
-		float hoverDirection = kHandHoverLiftPx * getUIScaleFromHeight(ofGetHeight());
+		// float hoverDirection = kHandHoverLiftPx * getUIScaleFromHeight(ofGetHeight());
 		// Note: hoverScale is already defined at function scope
-		bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
+		// bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;
@@ -13507,6 +13495,7 @@ void ofApp::mouseMoved(int x, int y) {
 	bool overMainMenuButton = false;
 	bool overSettingsButton = false;
 	bool overSingleplayerButton = false;
+	(void)overSingleplayerButton;
 	if (currentState == STATE_PAUSED) {
 		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSaveButton.inside(x, y) || pauseMenuLoadButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
 	}
@@ -14443,6 +14432,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Dismiss card animations early if clicked
 	if (button == OF_MOUSE_BUTTON_LEFT && !activeCardDisplays.empty()) {
 		float scale = getUIScaleFromHeight(ofGetHeight());
+		(void)scale;
 		float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 		float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
 
@@ -15185,6 +15175,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// Card Dimensions (Must match drawDraftScreen). Use reduced draft size.
 		float cardW, cardH, spacing, startX, startY;
 		getDraftCardMetrics(true, cardW, cardH, spacing, startX, startY);
+		(void)startY;
 
 		// --- HITBOX Y-ALIGNMENT FIX ---
 		// Replicate the exact vertical layout from drawDraftScreen (startY comes from helper)
@@ -19137,6 +19128,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	bool wisdomHasAdjacentUnit = false;
 	bool boonHasAdjacentUnit = false;
+	(void)boonHasAdjacentUnit;
 	bool doubleHandedHasAdjacentUnit = false;
 	bool amnesiaHasAdjacentUnit = false;
 	bool dispelHasAnyStatus = false;
@@ -21173,7 +21165,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	}
 
 	// Reject stale player-initiated commands that arrive after the turn advanced.n advanced.
-	if (cmd.turnNumber != globalTurnCounter) {
+	if (cmd.turnNumber != (uint32_t)globalTurnCounter) {
 		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_PSEUDO_ACTION) {
 			ofLogWarning("Lockstep") << "Dropped stale command " << cmd.commandType << " from turn " << cmd.turnNumber << " (Current: " << globalTurnCounter << ")";
 			return;
@@ -21349,6 +21341,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			const int originalY = players[unitIndex].y;
 			int ownerID = players[unitIndex].isMinion ? players[unitIndex].ownerID : players[unitIndex].playerID;
 			bool consumedKey = false;
+			(void)consumedKey;
 
 			if (path.size() > 1) {
 				for (size_t pi = 1; pi < path.size(); ++pi) {
@@ -21475,7 +21468,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
 
-		// Special-case: ghost relocation menu (deterministic teleport choice)
 		if (menuType == MENU_GHOST_RELOCATE) {
 			int tgt = targetIndex;
 			if (tgt < 0 || tgt >= (int)players.size()) break;
@@ -21516,7 +21508,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				sendInputCommand(endCmd, true);
 			}
 
-			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
 			break;
@@ -29145,6 +29137,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						// Compute Hit Chance Tooltip
 						int diceNum = 2;
 						int sides = 20;
+						(void)diceNum;
+						(void)sides;
 						int minRoll = neededFeet;
 						if (minRoll < diceNum) minRoll = diceNum;
 						std::vector<glm::ivec2> affectedTiles;
@@ -29476,6 +29470,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								hitChance = (float)successOutcomes / (float)rangeSides;
 							} else if (rangeNum == 2 || rangeNum == 3) {
 								int sides = rangeSides;
+								(void)sides;
 								int numDice = rangeNum;
 
 								// DP: dp[d][s] = number of ways to get sum s using d dice
@@ -35792,7 +35787,7 @@ void ofApp::processNetworkPackets() {
 				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
 
 				if (isHost()) {
-					if (cmd->playerID != myLocalPlayerID) {
+					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
 						// Host receives client intent. Assign official ID, execute, and echo.
 						cmd->commandId = nextCommandId++;
 						queueInputCommand(*cmd);
