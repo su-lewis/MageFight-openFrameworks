@@ -6516,10 +6516,11 @@ void ofApp::prepareGameVisualState() {
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
 	float btnWidth = 250 * uiScale;
-	float visibleY = 75 * uiScale; // Lowered to make room for Action History
+	float visibleY = 66 * uiScale; // CHANGED: Moved up to sit just under the Action History
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
+
 	bool myTurn = isMyTurn();
 	if (isMultiplayer || myTurn) {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
@@ -8096,6 +8097,15 @@ void ofApp::updateGameLogic() {
 						roll.isFinishedVisual = true;
 						if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 							// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
+							it = activeDiceRolls.erase(it);
+							continue;
+						}
+					}
+
+					// NEW FIX: Remove Damage, Range, and generic dice after they have been on screen for a while
+					if (roll.isFinishedVisual && roll.purpose != PURPOSE_AP && roll.purpose != PURPOSE_BONUS_AP) {
+						float lingerTime = 2.5f; // Stay on screen for 2.5 seconds after finishing
+						if (elapsedTime > spinDuration + lingerTime) {
 							it = activeDiceRolls.erase(it);
 							continue;
 						}
@@ -11883,11 +11893,11 @@ void ofApp::drawGame() {
 	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
 		float btnWidth_tmp = 250 * uiScaleBtn;
-		float visibleY = 75 * uiScaleBtn;
+		float visibleY = 66 * uiScaleBtn; // CHANGED
 		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
-		// Ensure extra room for stroke/glow so top outlines aren't clipped
 		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
 		float hiddenY = -100 * uiScaleBtn;
+
 		bool myTurn = isMyTurn();
 		if (myTurn)
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
@@ -13317,12 +13327,13 @@ void ofApp::drawGame() {
 	}
 
 	// --- DRAW ACTION HISTORY ---
+	// --- DRAW ACTION HISTORY ---
 	if (!g_actionHistory.empty()) {
 		float iconSize = 46.0f * scale;
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 24.0f * scale;
+		float startY = 12.0f * scale; // CHANGED: Tucked right beneath the turn timer
 
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
@@ -17815,7 +17826,7 @@ void ofApp::windowResized(int w, int h) {
 	// 1. Snap End Turn Button
 	float scale = getUIScaleFromHeight(h);
 	float btnWidth = 250 * scale;
-	float visibleY = 75 * scale; // Lowered to make room for Action History
+	float visibleY = 66 * scale; // CHANGED: Moved up to sit just under the Action History
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
@@ -19337,10 +19348,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Allow both targeting and placing interactions to be handled here
 	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) return;
 	if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) return;
-	// If this invocation came from an actual mouse click, require the click
-	// to be inside the visible targeting highlight (not just anywhere on the tile).
-	// Keyboard/gamepad targeting calls (which pass grid coords but mouse may be elsewhere)
-	// should bypass this stricter hit test.
+
 	{
 		ofVec2f clickBoard = mouseToBoard(ofGetMouseX(), ofGetMouseY());
 		int clickGX = (int)floor(clickBoard.x);
@@ -19349,14 +19357,15 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		if (clickGX == gridX && clickGY == gridY) {
 			// Only accept clicks on tiles that are targetable
 			if (!board[gridX][gridY].isTargetable) return;
-			// Compute local tile-space offset (tile = 1.0 unit square, center at +0.5)
+
 			float localX = clickBoard.x - (gridX + 0.5f);
 			float localY = clickBoard.y - (gridY + 0.5f);
 			float dist = sqrt(localX * localX + localY * localY);
-			// Accept only clicks reasonably close to the visible center highlight.
-			// This prevents clicks on tile corners/edges from counting when only the
-			// central targeting highlight is visible.
-			const float kAcceptRadius = 0.45f; // in grid units (0.5 is half-tile)
+
+			// CHANGED: Massively increased the hit acceptance radius.
+			// This prevents clicks from being ignored if the user clicks slightly off-center,
+			// which made it seem like the spell was stuck/canceling.
+			const float kAcceptRadius = 0.85f;
 			if (dist > kAcceptRadius) return;
 		} else {
 			// Mouse is not over this tile; if it's not targetable we still bail out.
