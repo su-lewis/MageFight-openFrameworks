@@ -2251,7 +2251,9 @@ void ofApp::updatePlayerAP(Player & player, int newAP) {
 }
 
 void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) {
-	createCardDisplay(playedCard, playerIndex);
+	if (isMultiplayer) {
+		createCardDisplay(playedCard, playerIndex);
+	}
 
 	ActionHistoryEntry he;
 	he.cardName = playedCard.name;
@@ -8105,150 +8107,140 @@ void ofApp::updateGameLogic() {
 		// --- FLAIL RESOLUTION ---
 
 		// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
-		bool anyFinishedThisFrame = false;
 		for (auto & roll : activeDiceRolls) {
-			float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-			float spinDuration = 0.8f;
 			roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-			if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
-				roll.isFinishedVisual = true;
-				anyFinishedThisFrame = true;
-			}
-		}
-
-		if (anyFinishedThisFrame) {
-			for (auto & roll : activeDiceRolls) {
-				if (!roll.isFinishedVisual) continue;
-
-				// 1. Build dice result text when ALL dice in the group finish
-				bool allGroupFinished = true;
-				std::vector<DiceRoll *> groupRolls;
-				DicePurpose checkPurpose = roll.purpose;
-				for (auto & r : activeDiceRolls) {
-					if (r.associatedUnit == roll.associatedUnit) {
-						if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
-							groupRolls.push_back(&r);
-							if (!r.isFinishedVisual) allGroupFinished = false;
-						}
-					}
-				}
-
-				if (allGroupFinished && !groupRolls.empty()) {
-					std::string resultText = "";
-					int headsCount = 0;
-					int tailsCount = 0;
-					bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
-
-					if (isCoins) {
-						for (auto * r : groupRolls) {
-							if (r->result == 2)
-								headsCount++;
-							else if (r->result == 1)
-								tailsCount++;
-						}
-						if (groupRolls.size() == 1) {
-							resultText = (roll.result == 2) ? "Heads" : "Tails";
-						} else {
-							resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
-						}
-					} else {
-						if (groupRolls.size() == 1) {
-							int rawRoll = roll.rawResult;
-							int finalRoll = roll.result;
-							int luckApplied = finalRoll - rawRoll;
-							if (luckApplied > 0) {
-								resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
-							} else {
-								resultText = "Rolled " + ofToString(finalRoll);
-							}
-						} else {
-							if (currentState == STATE_INITIATIVE_ROLL) {
-								resultText = "";
-							} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-								resultText = "";
-							} else {
-								int rawTotal = 0;
-								int finalTotal = 0;
-								resultText = "Rolled ";
-								for (size_t i = 0; i < groupRolls.size(); i++) {
-									resultText += ofToString(groupRolls[i]->result);
-									finalTotal += groupRolls[i]->result;
-									rawTotal += groupRolls[i]->rawResult;
-									if (i < groupRolls.size() - 1) {
-										resultText += " + ";
-									}
-								}
-								int luckApplied = finalTotal - rawTotal;
-								if (luckApplied > 0) {
-									resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
-								} else {
-									resultText += " = " + ofToString(finalTotal);
-								}
-							}
-						}
-					}
-
-					static float lastAssignedTextTime = 0.0f;
-					if (!resultText.empty() && ofGetElapsedTimef() - lastAssignedTextTime > 0.05f) {
-						diceRollResultText = resultText;
-						diceRollResultStartTime = ofGetElapsedTimef();
-						lastAssignedTextTime = ofGetElapsedTimef();
-					}
-				}
-
-				if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
-					int count = currentEffectSequence.blackboard[0];
-					if (count <= 0) {
-						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-						resetCardState();
-					} else {
-						int avail = 0;
-						glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-						for (auto & d : adj) {
-							int nx = koboldPlacementSourceX + (int)d.x;
-							int ny = koboldPlacementSourceY + (int)d.y;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-							}
-						}
-						int allowed = std::min<int>(count, std::min(avail, 4));
-						if (allowed <= 0) {
-							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-							resetCardState();
-						} else {
-							if (isCurrentPlayerLocal()) {
-								koboldsRemainingToPlace = allowed;
-								koboldSummonCount = 0;
-								updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-								ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
-								tooltipText = "Place Kobold: click an adjacent empty tile";
-								isShowingTooltip = true;
-								queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-								invalidateTargetCache();
-							} else {
-								ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
-							}
-						}
-					}
-					roll.purpose = PURPOSE_DEBUG;
-				}
-			}
 		}
 	}
 
 	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 		DiceRoll & roll = *it;
 		float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-		float hangTime = 2.5f;
+		float spinDuration = 0.8f;
 
-		if (elapsedTime > 0.8f + hangTime) {
-			it = activeDiceRolls.erase(it);
-		} else {
-			++it;
+		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
+			roll.isFinishedVisual = true;
+			if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+				// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
+				it = activeDiceRolls.erase(it);
+				continue;
+			}
+
+			// --- BUILD DICE TEXT IMMEDIATELY ---
+			bool allGroupFinished = true;
+			std::vector<DiceRoll *> groupRolls;
+			DicePurpose checkPurpose = roll.purpose;
+			for (auto & r : activeDiceRolls) {
+				if (r.associatedUnit == roll.associatedUnit) {
+					if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
+						groupRolls.push_back(&r);
+						if (!r.isFinishedVisual && &r != &roll) allGroupFinished = false;
+					}
+				}
+			}
+
+			if (allGroupFinished && !groupRolls.empty()) {
+				std::string resultText = "";
+				int headsCount = 0;
+				int tailsCount = 0;
+				bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
+
+				if (isCoins) {
+					for (auto * r : groupRolls) {
+						if (r->result == 2)
+							headsCount++;
+						else if (r->result == 1)
+							tailsCount++;
+					}
+					if (groupRolls.size() == 1) {
+						resultText = (roll.result == 2) ? "Heads" : "Tails";
+					} else {
+						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
+					}
+				} else {
+					if (groupRolls.size() == 1) {
+						int rawRoll = roll.rawResult;
+						int finalRoll = roll.result;
+						int luckApplied = finalRoll - rawRoll;
+						if (luckApplied > 0) {
+							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
+						} else {
+							resultText = "Rolled " + ofToString(finalRoll);
+						}
+					} else {
+						if (currentState == STATE_INITIATIVE_ROLL) {
+							resultText = "";
+						} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+							resultText = "";
+						} else {
+							int rawTotal = 0;
+							int finalTotal = 0;
+							resultText = "Rolled ";
+							for (size_t i = 0; i < groupRolls.size(); i++) {
+								resultText += ofToString(groupRolls[i]->result);
+								finalTotal += groupRolls[i]->result;
+								rawTotal += groupRolls[i]->rawResult;
+								if (i < groupRolls.size() - 1) {
+									resultText += " + ";
+								}
+							}
+							int luckApplied = finalTotal - rawTotal;
+							if (luckApplied > 0) {
+								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
+							} else {
+								resultText += " = " + ofToString(finalTotal);
+							}
+						}
+					}
+				}
+
+				if (!resultText.empty()) {
+					diceRollResultText = resultText;
+					diceRollResultStartTime = ofGetElapsedTimef();
+				}
+			}
+
+			// --- RESTORED KOBOLD PLACEMENT TRIGGER ---
+			// Bound explicitly to Kobolds so it doesn't accidentally fire on other spells!
+			if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
+				int count = currentEffectSequence.blackboard[0];
+				if (count <= 0) {
+					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+					resetCardState();
+				} else {
+					int avail = 0;
+					glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+					for (auto & d : adj) {
+						int nx = koboldPlacementSourceX + (int)d.x;
+						int ny = koboldPlacementSourceY + (int)d.y;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+						}
+					}
+					int allowed = std::min<int>(count, std::min(avail, 4));
+					if (allowed <= 0) {
+						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+						resetCardState();
+					} else {
+						if (isCurrentPlayerLocal()) {
+							koboldsRemainingToPlace = allowed;
+							koboldSummonCount = 0;
+							updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+							ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
+							tooltipText = "Place Kobold: click an adjacent empty tile";
+							isShowingTooltip = true;
+							queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+							invalidateTargetCache();
+						} else {
+							ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
+						}
+					}
+				}
+			}
 		}
-	} // This is the closing brace of the "for (auto it = activeDiceRolls.begin()..." loop
+		++it;
+	}
 
 	// Blocking Boon sequencing is now handled by APPLY_BLOCKING_BOON_* ops
 
@@ -8957,7 +8949,8 @@ void ofApp::drawGame() {
 
 		// CRITICAL FIX: Ensure no leftover materials from UI FBOs corrupt the main world
 		ofSetColor(255, 255, 255, 255);
-		glDisable(GL_COLOR_MATERIAL);
+		glEnable(GL_COLOR_MATERIAL);
+		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 		glDisable(GL_LIGHTING);
 
 		// --- SHADOW DEPTH PASS (simple footprint quads) ---
@@ -10349,7 +10342,7 @@ void ofApp::drawGame() {
 
 				ofEnableBlendMode(OF_BLENDMODE_ADD); // Make the fire transparent and glowing!
 				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
-				ofDisableBlendMode();
+				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 				ofPopMatrix();
 			}
@@ -12076,6 +12069,19 @@ void ofApp::drawGame() {
 		ofPopStyle();
 	}
 
+	// Determine if we are in an optional placement/targeting mode
+	bool isOptionalInteraction = false;
+	string optionalBtnText = "Done";
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
+		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+		isOptionalInteraction = true;
+		optionalBtnText = "Skip Spike";
+	}
+
+	bool showDoneBtn = isCurrentPlayerLocal() && isOptionalInteraction;
+
 	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
 	if (showEndTurn || showDoneBtn) {
 		ofSetColor(ofColor::white);
@@ -13326,12 +13332,12 @@ void ofApp::drawGame() {
 	if (!g_actionHistory.empty()) {
 		float iconSize = 46.0f * scale;
 		float spacing = 8.0f * scale;
-		float startX = 20.0f * scale;
-		// Position it globally on the left side, below the top timer
-		float startY = 140.0f * scale;
+		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
+		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
+		float startY = 24.0f * scale;
 
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
-			ofRectangle iconRect(startX, startY + i * (iconSize + spacing), iconSize, iconSize);
+			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
 
 			// Color border based on who played it (Green for local, Red for opponent)
 			ofSetColor(g_actionHistory[i].playerID == myLocalPlayerID ? ofColor(100, 255, 100) : ofColor(255, 100, 100));
@@ -13342,20 +13348,22 @@ void ofApp::drawGame() {
 			float sx = g_actionHistory[i].card.textureRect.x + g_actionHistory[i].card.textureRect.width * 0.15f;
 			float sy = g_actionHistory[i].card.textureRect.y + g_actionHistory[i].card.textureRect.height * 0.15f;
 			float sw = g_actionHistory[i].card.textureRect.width * 0.7f;
-			float sh = g_actionHistory[i].card.textureRect.width * 0.7f; // square crop
+			float sh = g_actionHistory[i].card.textureRect.width * 0.7f;
 
 			drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
 
 			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
-				float hoverW = kCardPixelWidth * kHandCardVisualScale * scale;
-				float hoverH = kCardPixelHeight * kHandCardVisualScale * scale;
-				float hoverX = iconRect.getRight() + 15.0f * scale;
-				float hoverY = iconRect.y;
+				float hoverW = kCardPixelWidth * kHandCardVisualScale * scale * kHandHoverScale;
+				float hoverH = kCardPixelHeight * kHandCardVisualScale * scale * kHandHoverScale;
+				float hoverX = iconRect.getCenter().x - hoverW / 2.0f;
+				float hoverY = iconRect.getBottom() + 10.0f * scale;
 
 				// Keep it entirely on-screen
 				if (hoverY + hoverH > ofGetHeight() - 10.0f) {
 					hoverY = ofGetHeight() - hoverH - 10.0f;
 				}
+				if (hoverX < 10.0f) hoverX = 10.0f;
+				if (hoverX + hoverW > ofGetWidth() - 10.0f) hoverX = ofGetWidth() - hoverW - 10.0f;
 
 				ofSetColor(255);
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, g_actionHistory[i].card, hoverX, hoverY, hoverW, hoverH, nullptr);
@@ -13460,12 +13468,13 @@ void ofApp::drawGame() {
 		drawPixelTextCentered(uiFont, "Healed: " + std::to_string(matchStats[1].totalHealing), p1_statsX, statsY + 40, 0.7f, ofColor::white);
 
 		// Return to Menu & Save Replay Buttons
-		gameOverReturnBtn.set(cx - 160, cy + 220, 150, 60);
+		float uiScaleBtn = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+		gameOverReturnBtn.set(cx - 160 * uiScaleBtn, cy + 220 * uiScaleBtn, 150 * uiScaleBtn, 60 * uiScaleBtn);
 		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
 		ofDrawRectRounded(gameOverReturnBtn, 10);
 		drawPixelTextCentered(uiFont, "Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f, ofColor::white);
 
-		gameOverReplayBtn.set(cx + 10, cy + 220, 150, 60);
+		gameOverReplayBtn.set(cx + 10 * uiScaleBtn, cy + 220 * uiScaleBtn, 150 * uiScaleBtn, 60 * uiScaleBtn);
 		if (replaySavedThisMatch) {
 			ofSetColor(ofColor::darkGreen);
 			ofDrawRectRounded(gameOverReplayBtn, 10);
@@ -14397,7 +14406,39 @@ cursor_check_done:;
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
-	// Dismiss card animations early if clicked
+	if (g_isGameOver) {
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
+				saveReplay("last_match_replay.json");
+				replaySavedThisMatch = true;
+				return;
+			}
+
+			if (gameOverReturnBtn.inside(x, y)) {
+				g_isGameOver = false;
+				if (isMultiplayer) {
+					steamManager.leaveLobby();
+					isMultiplayer = false;
+					hasReceivedHandshake = false;
+					initialDraftComplete = false;
+					draftAcceptLocked = false;
+					draftAcceptApplied = false;
+					gameplaySeededByHost = false;
+					handshakeRequestInterval = 1.0f;
+					waitingForClientHandshake = false;
+					waitingForReconnect = false;
+					reconnectTurnTimerPausedByDisconnect = false;
+					reconnectTurnTimerPausedRemainingFrames = 0;
+					turnTimerPaused = false;
+					turnTimerPausedRemainingFrames = 0;
+					reconnectForfeitStartTime = -1.0f;
+				}
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
+		}
+		return; // Block all other input
+	}
 
 	// Dismiss card animations early if clicked
 	if (button == OF_MOUSE_BUTTON_LEFT && !activeCardDisplays.empty()) {
@@ -14632,10 +14673,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Centralized interaction state is authoritative for click routing.
 	if (currentState == STATE_GAMEPLAY) {
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-			processCardStateInput(x, y, button);
-			// FIX: ALWAYS return after processing a modal input! Do not let it fall through
-			// and trigger self-click cancellations or other board logic!
-			return;
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && endTurnButtonRect.inside(x, y)) {
+				// Allow clicking the Done button to fall through and cancel optional targeting!
+			} else {
+				processCardStateInput(x, y, button);
+				// FIX: ALWAYS return after processing a modal input! Do not let it fall through
+				// and trigger self-click cancellations or other board logic!
+				return;
+			}
 		}
 
 		// Keep dice lockout from the legacy play-state while visuals are still active.
@@ -15604,7 +15649,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			// Do not swallow the click if we are clicking the "Done" button!
 			if (endTurnButtonRect.inside(x, y)) {
-				// Let it fall through to the End Turn / Done handler below
+				// Let it fall through to the End Turn / Done handler below!
 			} else {
 				ofVec2f boardPos = mouseToBoard(x, y);
 				int gx = floor(boardPos.x), gy = floor(boardPos.y);
@@ -15631,6 +15676,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			if (gameOverReturnBtn.inside(x, y)) {
 				g_isGameOver = false;
+				isReplayMode = false;
 
 				if (isMultiplayer) {
 					steamManager.leaveLobby();
@@ -17067,13 +17113,15 @@ void ofApp::mouseReleased(int x, int y, int button) {
 					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_MENU);
 					if (startedCardInteraction) {
 						// Always play a hand-release fade animation when entering interaction states.
-						RemovedCardAnimation rem;
-						rem.card = playedCardSnapshot;
-						rem.startPos = playedCardReleasePos;
-						rem.startTime = ofGetElapsedTimef();
-						rem.currentScale = playedCardReleaseScale > 0.0f ? playedCardReleaseScale : 1.0f;
-						rem.currentAlpha = 255.0f;
-						activeRemovedCardAnimations.push_back(rem);
+						if (isMultiplayer) {
+							RemovedCardAnimation rem;
+							rem.card = playedCardSnapshot;
+							rem.startPos = playedCardReleasePos;
+							rem.startTime = ofGetElapsedTimef();
+							rem.currentScale = playedCardReleaseScale > 0.0f ? playedCardReleaseScale : 1.0f;
+							rem.currentAlpha = 255.0f;
+							activeRemovedCardAnimations.push_back(rem);
+						}
 
 						// Prevent the in-hand card from appearing frozen at release position.
 						if (draggedCardIndex >= 0 && draggedCardIndex < (int)currentPlayer.hand.size()) {
@@ -22626,13 +22674,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					Card c = target->deck.back();
 					target->deck.pop_back();
 
-					RemovedCardAnimation anim;
-					anim.card = c;
-					anim.startPos = glm::vec2(ofGetWidth() / 2.0f + (removedCount * 40.0f - 80.0f), ofGetHeight() / 2.0f - 50.0f);
-					anim.startTime = ofGetElapsedTimef() + (removedCount * 0.15f);
-					anim.currentScale = 1.8f;
-					anim.currentAlpha = 255.0f;
-					activeRemovedCardAnimations.push_back(anim);
+					if (isMultiplayer) {
+						RemovedCardAnimation anim;
+						anim.card = c;
+						anim.startPos = glm::vec2(ofGetWidth() / 2.0f + (removedCount * 40.0f - 80.0f), ofGetHeight() / 2.0f - 50.0f);
+						anim.startTime = ofGetElapsedTimef() + (removedCount * 0.15f);
+						anim.currentScale = 1.8f;
+						anim.currentAlpha = 255.0f;
+						activeRemovedCardAnimations.push_back(anim);
+					}
 
 					removedCount++;
 				}
@@ -24388,13 +24438,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 				// If it's not being stolen, show the destruction animation
 				if (!op.data.removeTopCard.isSteal) {
-					RemovedCardAnimation rem;
-					rem.card = destroyed;
-					rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-					rem.startTime = ofGetElapsedTimef();
-					rem.currentScale = 1.8f;
-					rem.currentAlpha = 255.0f;
-					activeRemovedCardAnimations.push_back(rem);
+					if (isMultiplayer) {
+						RemovedCardAnimation rem;
+						rem.card = destroyed;
+						rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+						rem.startTime = ofGetElapsedTimef();
+						rem.currentScale = 1.8f;
+						rem.currentAlpha = 255.0f;
+						activeRemovedCardAnimations.push_back(rem);
+					}
 					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Card Destroyed!", ofColor::magenta);
 				}
 				ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
@@ -27739,21 +27791,23 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 			createCardDisplay(stolenCard, resolvedTargetIndex, true);
 
-			auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
-				if (playerIndex < 0 || playerIndex >= (int)players.size()) return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-				const Player & owner = players[playerIndex];
-				int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
-				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
-				return deckRect.getCenter();
-			};
+			if (isMultiplayer) {
+				auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
+					if (playerIndex < 0 || playerIndex >= (int)players.size()) return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+					const Player & owner = players[playerIndex];
+					int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
+					ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
+					return deckRect.getCenter();
+				};
 
-			StolenCardAnimation newAnim;
-			newAnim.card = stolenCard;
-			newAnim.startTime = ofGetElapsedTimef() + 1.25f;
-			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
-			newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
-			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
-			activeStolenCardAnimations.push_back(newAnim);
+				StolenCardAnimation newAnim;
+				newAnim.card = stolenCard;
+				newAnim.startTime = ofGetElapsedTimef() + 1.25f;
+				newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
+				newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
+				newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
+				activeStolenCardAnimations.push_back(newAnim);
+			}
 
 			currentCardOutcome.targetPlayerIndex = resolvedTargetIndex;
 			playedSuccessfully = true;
@@ -29529,25 +29583,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							canBeClicked = true;
 						}
 					} else {
-						// Heal and Lesser Heal can target self or any unit, but only if missing HP or (Tortoise + Adjacent)
-						bool canReceiveHeal = false;
-						bool canTargetFullHp = false;
-
-						if (currentPlayer.inTortoiseForm) {
-							canTargetFullHp = true;
-						}
-
-						if (isSelfTile) {
-							canReceiveHeal = (currentPlayer.health < currentPlayer.maxHealth) || canTargetFullHp;
-						} else if (isOccupied) {
-							for (const auto & p : players) {
-								if (p.x == x && p.y == y) {
-									canReceiveHeal = (p.health < p.maxHealth) || canTargetFullHp;
-									break;
-								}
-							}
-						}
-
+						bool canReceiveHeal = true; // Always allow click, heal logic will show "Full HP" visually if needed
 						if (isPreview && (isOccupied || isSelfTile) && canReceiveHeal) {
 							canBeClicked = true;
 						}
@@ -29585,7 +29621,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// If the tile is occupied, ensure the occupant is NOT the caster itself,
 			// except for cards that intentionally allow self-target.
-			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DISPEL);
+			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DISPEL || card.type == CARD_BURST_OF_LIGHT);
 			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0 && !allowSelfOccupiedTarget) {
 				if (!tileHasOtherThan(x, y, currentPlayerIndex)) {
 					// Only occupant is caster; not a valid non-self target
@@ -31061,7 +31097,7 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 
 	// Self-target check (allow only if card targeting permits)
 	if (casterTile == targetTile) {
-		if (card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_WISDOM_BOON || card.type == CARD_DISPEL) {
+		if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_WISDOM_BOON || card.type == CARD_DISPEL) {
 			result.reason = VALID;
 			result.isTargetable = true;
 			return result;
@@ -32449,16 +32485,23 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							int luckBonus = p.luck + computePassiveLuck((int)pidx);
 							int roll = raw + luckBonus;
 							if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
-							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
+							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
 							int hp = (target.maxHealth * roll) / 4;
 							if (hp < 1) hp = 1;
 
-							// Queue deterministic HP set and status removals (apply synchronously)
+							int pct = roll * 25;
+							std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
+							queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
+
 							{
-								int tgtIdx = findPlayerIndexByID(target.playerID);
+								EffectOp wait = {};
+								wait.type = EffectOpType::WAIT_VISUAL;
+								wait.data.damage.fixedDamage = 1;
+								queueEffect(wait);
+
 								EffectOp setHp = {};
 								setHp.type = EffectOpType::MODIFY_STAT;
-								setHp.data.modifyStat.targetIndex = tgtIdx;
+								setHp.data.modifyStat.targetIndex = (int)pidx;
 								setHp.data.modifyStat.statType = 0; // HP
 								setHp.data.modifyStat.delta = hp - target.health;
 								setHp.data.modifyStat.deltaFromSlot = -1;
@@ -32893,8 +32936,12 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		int cfx2 = (int)casterTile.x;
 		int cfy2 = (int)casterTile.y + ((targetTile.y > casterTile.y) ? 1 : -1);
 
-		// "If one of your closest faces hits a wall then you can't target them"
-		if (isCoverAt(cfx, cfy) || isCoverAt(cfx2, cfy2)) {
+		bool canUseFaceX = !isCoverAt(cfx, cfy);
+		bool canUseFaceY = !isCoverAt(cfx2, cfy2);
+
+		// EXCEPTION: Only block the shot entirely if BOTH leaning faces are covered.
+		// If one is clear, we can peek around the wall to take the diagonal shot!
+		if (!canUseFaceX && !canUseFaceY) {
 			return { false, casterCenter, targetCenter };
 		}
 
@@ -32911,23 +32958,27 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 
 		bool faceX_clear = false;
 		glm::vec2 bestTFaceX = targetCenter;
-		for (int i = 0; i < 4; ++i) {
-			if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue; // Can't hit a blocked target face
-			if (checkRayPhysics(cFaceX, tFaces[i])) {
-				faceX_clear = true;
-				bestTFaceX = tFaces[i];
-				break;
+		if (canUseFaceX) {
+			for (int i = 0; i < 4; ++i) {
+				if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue; // Can't hit a blocked target face
+				if (checkRayPhysics(cFaceX, tFaces[i])) {
+					faceX_clear = true;
+					bestTFaceX = tFaces[i];
+					break;
+				}
 			}
 		}
 
 		bool faceY_clear = false;
 		glm::vec2 bestTFaceY = targetCenter;
-		for (int i = 0; i < 4; ++i) {
-			if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue;
-			if (checkRayPhysics(cFaceY, tFaces[i])) {
-				faceY_clear = true;
-				bestTFaceY = tFaces[i];
-				break;
+		if (canUseFaceY) {
+			for (int i = 0; i < 4; ++i) {
+				if (isCoverAt(tFacesAdj[i].x, tFacesAdj[i].y)) continue;
+				if (checkRayPhysics(cFaceY, tFaces[i])) {
+					faceY_clear = true;
+					bestTFaceY = tFaces[i];
+					break;
+				}
 			}
 		}
 
