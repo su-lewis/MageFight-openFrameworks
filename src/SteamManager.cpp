@@ -381,7 +381,6 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
-	// Added bIOFailure check here!
 	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) return;
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
@@ -391,12 +390,21 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 		m_bIsHost = true;
 	} else {
 		m_bIsHost = false;
-		ofLogNotice("Steam") << "Joined Lobby. Connecting to Host: " << owner.ConvertToUint64();
 
-		// -- CLIENT LOGIC: CONNECT TO HOST --
-		SteamNetworkingIdentity identity;
-		identity.SetSteamID(owner);
-		m_hConnection = SteamNetworkingSockets()->ConnectP2P(identity, 0, 0, nullptr);
+		// SAFETY CHECK: Did Steam actually give us the owner ID yet?
+		if (owner.IsValid() && owner.ConvertToUint64() != 0) {
+			ofLogNotice("Steam") << "Joined Lobby. Connecting to Host: " << owner.ConvertToUint64();
+
+			SteamNetworkingIdentity identity;
+			identity.SetSteamID(owner);
+			m_hConnection = SteamNetworkingSockets()->ConnectP2P(identity, 0, 0, nullptr);
+		} else {
+			// TIMING BUG CAUGHT!
+			// Defers the connection. Your sendPacket() function will automatically
+			// retry connecting a fraction of a second later when the data is ready!
+			ofLogWarning("Steam") << "Lobby Owner ID was 0. Deferring connection until sendPacket()";
+			m_hConnection = k_HSteamNetConnection_Invalid;
+		}
 	}
 }
 
