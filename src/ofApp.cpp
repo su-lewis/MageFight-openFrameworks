@@ -40,8 +40,8 @@ static const int MENU_GHOST_RELOCATE = 5;
 // Global menu alpha multiplier for fade animations
 static float g_menuAlphaMult = 1.0f;
 
-// Used to defer Shell Spike targeting until after a card has fully resolved
 static bool g_pendingShellSpike = false;
+static bool g_activePlayerDiedThisTurn = false;
 
 static float g_mpLobbyScroll = 0.0f;
 static float g_mpLeaderboardScroll = 0.0f;
@@ -17926,10 +17926,14 @@ void ofApp::startNewTurn() {
 	}
 	ofLogNotice("Turn") << "Continuing with turn advancement...";
 
+	bool activePlayerDied = g_activePlayerDiedThisTurn;
+	g_activePlayerDiedThisTurn = false; // Reset the flag
+
 	if (players.empty()) return;
 
 	// --- 1. Handle the ENDING player's state ---
-	if (currentPlayerIndex != -1) {
+	// NEW: Skip cleanup if the active player died, preventing out-of-bounds crashes
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && !activePlayerDied) {
 		Player & endingPlayer = players[currentPlayerIndex];
 		ofLogNotice("Turn") << "Processing ending player: index=" << currentPlayerIndex << " playerID=" << endingPlayer.playerID;
 
@@ -21123,6 +21127,7 @@ void ofApp::simulationTick() {
 			}
 
 			if (activePlayerDied && !players.empty()) {
+				g_activePlayerDiedThisTurn = true; // <-- NEW: Flag that the active player died
 				// Step back so startNewTurn() increments into the correct next unit
 				currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
 				requestStartNewTurn();
@@ -24779,6 +24784,23 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::MODIFY_STAT: {
+		// NEW: Handle the immediate turn-end effect used by Sleep/Paralysis skips
+		if (op.data.modifyStat.statType == 99) {
+			if (isMultiplayer && isHost()) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_END_TURN;
+				sendInputCommand(cmd, true);
+			} else if (!isMultiplayer) {
+				requestStartNewTurn();
+			}
+			opComplete = true;
+			break;
+		}
 		if (op.data.modifyStat.statType == 98) { // 98 = Flurry Discount
 			int pidx = op.data.modifyStat.targetIndex;
 			int actualDrawn = currentEffectSequence.blackboard[15]; // Read EXACT amount drawn!
