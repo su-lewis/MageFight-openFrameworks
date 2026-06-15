@@ -8958,21 +8958,123 @@ void ofApp::buildFloorMesh() {
 }
 //-----------------------------
 void ofApp::drawGame() {
-	// If we detected a desync, display a message and abort gameplay rendering
 	if (currentState == STATE_DESYNC) {
 		ofPushStyle();
 		ofSetColor(255, 30, 30);
-
 		titleFont.drawString("DESYNC DETECTED", ofGetWidth() / 2.0f - 240, ofGetHeight() / 2.0f - 40);
 		uiFont.drawString(desyncMessage, ofGetWidth() / 2.0f - 360, ofGetHeight() / 2.0f + 8);
 		ofPopStyle();
 		return;
 	}
 
-	// Render the 3D world (and 3D highlights) into an offscreen buffer so we can post-process it
-	// without affecting the 2D UI.
-	auto renderWorld3D = [&]() {
-		// --- SETUP ---
+	// --- DICE RENDERING HELPERS (Must be outside the world render so shaders can see them!) ---
+	float d4Scale = 2.0f;
+	float coinScale = 1.25f;
+	float d6Scale = 1.35f;
+	float d10Scale = 2.0f;
+	float d20Scale = 2.0f;
+	float diceDisplayY = 7.0f;
+
+	auto setDiceTransform = [&](int i, DiceRoll & roll) {
+		ofPushMatrix();
+		bool placed = false;
+		if (roll.associatedUnit >= 0) {
+			for (const auto & u : earthquakeUnits) {
+				if (u.playerIndex == roll.associatedUnit) {
+					glm::vec3 unitPos = u.visualPos;
+					float raise = 3.0f;
+					if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE || roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+						Player & p = players[u.playerIndex];
+						float headOffset = 4.0f;
+						if (p.isGolem || p.isDemon)
+							headOffset = 6.5f;
+						else if (p.isWolf || p.isHellhound)
+							headOffset = 3.5f;
+						raise = headOffset + 2.5f;
+					}
+					ofTranslate(unitPos.x, unitPos.y + raise, unitPos.z);
+					placed = true;
+					break;
+				}
+			}
+		}
+
+		if (!placed) {
+			int rowLength = 10;
+			float spacing = TILE_SIZE * 1.2f;
+			int row = i / rowLength;
+			int col = i % rowLength;
+
+			if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 1) {
+				glm::vec3 leftPos(-6.0f, diceDisplayY, 0.0f);
+				glm::vec3 rightPos(6.0f, diceDisplayY, 0.0f);
+				bool player0OnLeft = true;
+				if ((int)activeDiceRolls.size() == 1) {
+					ofTranslate(0.0f, leftPos.y, leftPos.z);
+				} else {
+					if (i == 0) {
+						glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
+						ofTranslate(pos.x, pos.y, pos.z);
+					} else if (i == 1) {
+						glm::vec3 pos = player0OnLeft ? rightPos : leftPos;
+						ofTranslate(pos.x, pos.y, pos.z);
+					} else {
+						int totalDice = (int)activeDiceRolls.size();
+						int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
+						float totalW = itemsInThisRow * spacing;
+						float startX = -(totalW / 2.0f) + (spacing / 2.0f);
+						ofTranslate(startX + (col * spacing), diceDisplayY, (row * spacing));
+					}
+				}
+			} else {
+				int totalDice = (int)activeDiceRolls.size();
+				int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
+				float totalW = itemsInThisRow * spacing;
+				float startX = -(totalW / 2.0f) + (spacing / 2.0f);
+				ofTranslate(startX + (col * spacing), diceDisplayY, (row * spacing));
+			}
+		}
+
+		glm::quat finalDrawQuat;
+		float t = (ofGetElapsedTimef() - roll.startTime) / 0.8f;
+		if (t < 1.0f) {
+			float t_ease = 1.0f - pow(1.0f - t, 3.0f);
+			float remainingSpin = (1.0f - t_ease) * 1080.0f;
+			if (roll.sides == 4) remainingSpin *= 0.5f;
+			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+			finalDrawQuat = roll.finalQuat * spin;
+		} else {
+			finalDrawQuat = roll.finalQuat;
+		}
+		ofMultMatrix(glm::toMat4(finalDrawQuat));
+	};
+
+	auto renderCoins3D = [&]() {
+		ofCamera & activeCam = getActiveCamera();
+		activeCam.begin();
+		ofEnableDepthTest();
+		glDepthMask(GL_TRUE);
+		glClear(GL_DEPTH_BUFFER_BIT); // Clear depth so coins draw cleanly over the flattened FBO
+
+		ofDisableLighting();
+		coinFacesTexture.bind();
+		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+			if (activeDiceRolls[i].sides == 2) {
+				setDiceTransform(i, activeDiceRolls[i]);
+				ofScale(coinScale, coinScale, coinScale);
+				ofSetColor(255);
+				coinMesh.draw();
+				ofPopMatrix();
+			}
+		}
+		coinFacesTexture.unbind();
+		ofEnableLighting();
+		ofDisableDepthTest();
+		activeCam.end();
+	};
+
+	// --- RENDER WORLD 3D ---
+	auto renderWorld3D = [&](bool drawCoins) {
 		ofEnableDepthTest();
 
 		// CRITICAL FIX: Ensure no leftover materials from UI FBOs corrupt the main world
@@ -10058,126 +10160,6 @@ void ofApp::drawGame() {
 		// --- DICE RENDERING ---
 		diceMaterial.begin();
 
-		// Unified dice display parameters with per-die overrides
-		float d4Scale = 2.0f;
-		float coinScale = 1.25f;
-		float d6Scale = 1.35f;
-		float d10Scale = 2.0f;
-		float d20Scale = 2.0f;
-		float diceDisplayY = 7.0f; // World-space Y used for non-unit dice placement
-
-		// Helper to position dice
-		auto setDiceTransform = [&](int i, DiceRoll & roll) {
-			ofPushMatrix();
-
-			bool placed = false;
-			// EARTHQUAKE OVERRIDE: If this roll belongs to a unit (associatedUnit), place above that unit's visual position
-			if (roll.associatedUnit >= 0) {
-				for (const auto & u : earthquakeUnits) {
-					if (u.playerIndex == roll.associatedUnit) {
-						// Use visualPos so dice follow moving/bouncing units
-						glm::vec3 unitPos = u.visualPos;
-
-						// Default raise
-						float raise = 3.0f;
-
-						// Raise significantly higher for earthquake rolls to clear the head/text
-						if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE || roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-							// Determine head height dynamically based on unit type to ensure clearance
-							Player & p = players[u.playerIndex];
-							float headOffset = 4.0f;
-							if (p.isGolem || p.isDemon)
-								headOffset = 6.5f;
-							else if (p.isWolf || p.isHellhound)
-								headOffset = 3.5f;
-
-							// Dice sits above head
-							raise = headOffset + 2.5f;
-						}
-
-						ofTranslate(unitPos.x, unitPos.y + raise, unitPos.z);
-						placed = true;
-						break;
-					}
-				}
-			}
-
-			// Default placement: Grid layout for massive amounts of dice
-			if (!placed) {
-				int rowLength = 10; // max dice per row
-				// Use TILE_SIZE-based spacing so dice scale with board scale
-				float spacing = TILE_SIZE * 1.2f;
-
-				int row = i / rowLength;
-				int col = i % rowLength;
-
-				// Special-case: Initiative roll shows dice; if in initiative
-				// roll mode, position dice for the initiative display. Treat
-				// a single die similarly to ensure consistent height/scale.
-				if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 1) {
-					// If exactly one die, center it; if two or more, place
-					// player0 on left and player1 on right as before.
-					glm::vec3 leftPos(-6.0f, diceDisplayY, 0.0f);
-					glm::vec3 rightPos(6.0f, diceDisplayY, 0.0f);
-
-					bool player0OnLeft = true;
-					if ((int)activeDiceRolls.size() == 1) {
-						// Center single die
-						ofTranslate(0.0f, leftPos.y, leftPos.z);
-					} else {
-						if (i == 0) {
-							glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
-							ofTranslate(pos.x, pos.y, pos.z);
-						} else if (i == 1) {
-							glm::vec3 pos = player0OnLeft ? rightPos : leftPos;
-							ofTranslate(pos.x, pos.y, pos.z);
-						} else {
-							// Fallback for extra dice: continue with normal grid
-							int totalDice = (int)activeDiceRolls.size();
-							int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
-							float totalW = itemsInThisRow * spacing;
-							float startX = -(totalW / 2.0f) + (spacing / 2.0f);
-							float offsetX = startX + (col * spacing);
-							float offsetZ = (row * spacing);
-							float offsetY = diceDisplayY;
-							ofTranslate(offsetX, offsetY, offsetZ);
-						}
-					}
-
-				} else {
-					// Calculate how many items are in this particular row so
-					// we can center the row based on the actual dice count
-					int totalDice = (int)activeDiceRolls.size();
-					int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
-
-					float totalW = itemsInThisRow * spacing;
-					// Start so that the row is centered around X=0. Add half-spacing
-					// so a single die sits exactly at X=0.
-					float startX = -(totalW / 2.0f) + (spacing / 2.0f);
-
-					float offsetX = startX + (col * spacing);
-					float offsetZ = (row * spacing); // Stack rows in depth
-					float offsetY = diceDisplayY;
-
-					ofTranslate(offsetX, offsetY, offsetZ);
-				}
-			}
-
-			// Apply Rotation
-			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime) / 0.8f;
-			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 3.0f);
-				float remainingSpin = (1.0f - t_ease) * 1080.0f; // Spin amount
-				if (roll.sides == 4) remainingSpin *= 0.5f; // D4 spins less violently
-				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = roll.finalQuat * spin;
-			} else {
-				finalDrawQuat = roll.finalQuat;
-			}
-			ofMultMatrix(glm::toMat4(finalDrawQuat));
-		};
-
 		// 1. D4
 		d4Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
@@ -10191,20 +10173,21 @@ void ofApp::drawGame() {
 		d4Texture.unbind();
 
 		// 2. Coin
-		// Draw coin faces without lighting so the texture appears neutral
-		ofDisableLighting();
-		coinFacesTexture.bind();
-		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
-			if (activeDiceRolls[i].sides == 2) {
-				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(coinScale, coinScale, coinScale);
-				ofSetColor(255);
-				coinMesh.draw();
-				ofPopMatrix();
+		if (drawCoins) {
+			ofDisableLighting();
+			coinFacesTexture.bind();
+			for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+				if (activeDiceRolls[i].sides == 2) {
+					setDiceTransform(i, activeDiceRolls[i]);
+					ofScale(coinScale, coinScale, coinScale);
+					ofSetColor(255);
+					coinMesh.draw();
+					ofPopMatrix();
+				}
 			}
+			coinFacesTexture.unbind();
+			ofEnableLighting();
 		}
-		coinFacesTexture.unbind();
-		ofEnableLighting();
 
 		// 3. D6
 		d6Texture.bind();
@@ -10917,9 +10900,6 @@ void ofApp::drawGame() {
 	};
 
 	// --- POST PROCESSING & 2D UI DRAWING ---
-	// Merge Pixel Art into the main post-processing pipeline so it renders at full
-	// resolution. Because textures are already GL_NEAREST, the "pixels" will stick
-	// to the 3D objects (World-Space) instead of swimming across the screen!
 	const bool usePost = ((enableWorldPostProcess && worldPostShaderLoaded) || (enableC64Shader && c64ShaderLoaded) || (enablePixelArt && pixelArtShaderLoaded));
 
 	if (enablePixelArt && !pixelArtShaderLoaded && !pixelArtWarned) {
@@ -10928,75 +10908,102 @@ void ofApp::drawGame() {
 	}
 
 	if (usePost) {
-		allocateWorldFbo(ofGetWidth(), ofGetHeight());
-		if (worldFbo.isAllocated()) {
-			worldFbo.begin();
-			// Clear world FBO to match the non-shader background color (ofBackground(22))
+		if (enablePixelArt && pixelArtShaderLoaded) {
+			int pw = std::max(2, ofGetWidth() / pixelArtDownscale);
+			int ph = std::max(2, ofGetHeight() / pixelArtDownscale);
+			if (!pixelLowFbo.isAllocated() || pixelLowFbo.getWidth() != pw || pixelLowFbo.getHeight() != ph) {
+				ofFbo::Settings psettings;
+				psettings.width = pw;
+				psettings.height = ph;
+				psettings.internalformat = GL_RGBA8;
+				psettings.textureTarget = GL_TEXTURE_2D;
+				psettings.useDepth = true;
+				psettings.useStencil = false;
+				psettings.depthStencilAsTexture = false;
+				psettings.minFilter = GL_NEAREST;
+				psettings.maxFilter = GL_NEAREST;
+				pixelLowFbo.allocate(psettings);
+				if (pixelLowFbo.isAllocated()) pixelLowFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			}
+
+			float oldAspectCam = cam.getAspectRatio();
+			float oldAspectCam2 = cam2.getAspectRatio();
+			float newAspect = (float)pixelLowFbo.getWidth() / (float)pixelLowFbo.getHeight();
+			cam.setAspectRatio(newAspect);
+			cam2.setAspectRatio(newAspect);
+
+			pixelLowFbo.begin();
+			ofEnableDepthTest();
+			glDepthMask(GL_TRUE);
 			ofClear(22, 22, 22, 255);
-			renderWorld3D();
-			worldFbo.end();
+
+			// --- Render world, but DO NOT render coins yet! ---
+			renderWorld3D(false);
+			pixelLowFbo.end();
+
+			cam.setAspectRatio(oldAspectCam);
+			cam2.setAspectRatio(oldAspectCam2);
 
 			ofDisableDepthTest();
-			if (!worldPostActiveNotified) {
-				ofLogNotice("Post") << "World post-process branch executed (shader active).";
-				worldPostActiveNotified = true;
-			}
 
-			// --- BLOOM: disabled temporarily to avoid visual artifacts ---
-			if (false) {
-				// Bloom logic skipped
-			}
+			pixelArtShader.begin();
+			pixelArtShader.setUniformTexture("tex0", pixelLowFbo.getTexture(), 0);
+			pixelArtShader.setUniform1i("levels", pixelArtLevels);
+			pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
+			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
+			pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
+			pixelArtShader.setUniform1f("edgeStrength", 0.0f);
 
-			if (enablePixelArt && pixelArtShaderLoaded) {
-				pixelArtShader.begin();
-				pixelArtShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-				pixelArtShader.setUniform1i("levels", pixelArtLevels);
-				pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
-				pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-				// Pass full resolution so the shader acts as a retro color/posterize filter
-				// without crunching the screen into chunky swimming blocks.
-				pixelArtShader.setUniform2f("uLowRes", ofGetWidth(), ofGetHeight());
-				pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
-				pixelArtShader.setUniform1f("edgeStrength", 0.0f);
-				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-				pixelArtShader.end();
-			} else if (enableC64Shader && c64ShaderLoaded) {
-				c64Shader.begin();
-				c64Shader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-				c64Shader.setUniform1f("uTime", ofGetElapsedTimef());
-				c64Shader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-				c64Shader.setUniform1f("uScanlineIntensity", c64ScanlineIntensity);
-				c64Shader.setUniform1f("uPixelSize", 2.0f);
-				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-				c64Shader.end();
-			} else {
-				worldPostShader.begin();
-				worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-				worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-				// Dynamic DOF focus: use active player's screen Y if available
-				float focusY = 0.5f;
-				if (currentPlayerIndex >= 0) {
-					ofVec3f sp = getActiveCamera().worldToScreen(playerVisualPos);
-					focusY = sp.y / (float)ofGetHeight();
-				}
-				worldPostShader.setUniform1f("uFocusY", focusY);
-				worldPostShader.setUniform1f("uFocusRadius", 0.12f);
-				worldPostShader.setUniform1f("uMaxBlur", 6.0f);
-				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-				worldPostShader.end();
-			}
+			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			pixelArtShader.end();
 
-			// Composite bloom additively over the final image
-			if (bloomLoaded && bloomFboA.isAllocated()) {
-				ofEnableBlendMode(OF_BLENDMODE_ADD);
-				bloomFboA.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-				ofDisableBlendMode();
-			}
+			// --- DRAW HIGH-RES COINS OVER THE PIXEL FILTER ---
+			renderCoins3D();
+
 		} else {
-			renderWorld3D();
+			allocateWorldFbo(ofGetWidth(), ofGetHeight());
+			if (worldFbo.isAllocated()) {
+				worldFbo.begin();
+				ofClear(22, 22, 22, 255);
+				renderWorld3D(false);
+				worldFbo.end();
+
+				ofDisableDepthTest();
+
+				if (enableC64Shader && c64ShaderLoaded) {
+					c64Shader.begin();
+					c64Shader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+					c64Shader.setUniform1f("uTime", ofGetElapsedTimef());
+					c64Shader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+					c64Shader.setUniform1f("uScanlineIntensity", c64ScanlineIntensity);
+					c64Shader.setUniform1f("uPixelSize", 2.0f);
+					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+					c64Shader.end();
+				} else {
+					worldPostShader.begin();
+					worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+					worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+					float focusY = 0.5f;
+					if (currentPlayerIndex >= 0) {
+						ofVec3f sp = getActiveCamera().worldToScreen(playerVisualPos);
+						focusY = sp.y / (float)ofGetHeight();
+					}
+					worldPostShader.setUniform1f("uFocusY", focusY);
+					worldPostShader.setUniform1f("uFocusRadius", 0.12f);
+					worldPostShader.setUniform1f("uMaxBlur", 6.0f);
+					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+					worldPostShader.end();
+				}
+
+				renderCoins3D();
+
+			} else {
+				renderWorld3D(true);
+			}
 		}
 	} else {
-		renderWorld3D();
+		renderWorld3D(true);
 	}
 
 	ofEnableAlphaBlending();
@@ -13185,13 +13192,12 @@ void ofApp::drawGame() {
 		riCancelBtn.set(0, 0, 0, 0);
 
 		int validSelectedCount = 0;
-		bool canAccept = false;
+		bool canAccept = true; // FIX: Always allow accepting, even if they choose to discard 0 cards!
 		for (int sel : renewedSelectedHandIndices) {
 			if (sel < 0 || sel >= (int)players[currentPlayerIndex].hand.size()) continue;
 			const Card & selectedCard = players[currentPlayerIndex].hand[sel];
 			if (sel != interactingCardIndex && !selectedCard.playedThisTurn) {
 				validSelectedCount++;
-				canAccept = true;
 			}
 		}
 
@@ -13221,7 +13227,7 @@ void ofApp::drawGame() {
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 27.0f * scale; // CHANGED: Perfectly centered between Timer and End Turn button
+		float startY = 12.0f * scale; // CHANGED: Tucked right under the timer bar with a 4px gap!
 
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
@@ -16678,6 +16684,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
+
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth || currentPlayer.inTortoiseForm) return true;
@@ -16953,6 +16960,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
+
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth || currentPlayer.inTortoiseForm) return true;
@@ -32831,8 +32839,8 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return false;
 	};
 
-	// Determine face directions from source to dest
-	auto getFaceDirs = [](glm::vec2 source, glm::vec2 dest) {
+	// Determine face directions for CASTER (leaning out)
+	auto getCasterFaceDirs = [](glm::vec2 source, glm::vec2 dest) {
 		std::vector<glm::vec2> dirs;
 		if (dest.x > source.x)
 			dirs.push_back({ 1, 0 });
@@ -32844,7 +32852,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		else if (dest.y < source.y)
 			dirs.push_back({ 0, -1 });
 
-		// If orthogonal (straight shot), add perpendiculars so they can still lean out!
+		// If orthogonal (straight shot), add perpendiculars so caster can still lean out!
 		if (dirs.size() == 1) {
 			if (dirs[0].x != 0) {
 				dirs.push_back({ 0, 1 });
@@ -32857,8 +32865,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return dirs;
 	};
 
-	std::vector<glm::vec2> casterFaceDirs = getFaceDirs(casterTile, targetTile);
-	std::vector<glm::vec2> targetFaceDirs = getFaceDirs(targetTile, casterTile);
+	std::vector<glm::vec2> casterFaceDirs = getCasterFaceDirs(casterTile, targetTile);
 
 	// 1. Gather valid Caster Faces
 	std::vector<glm::vec2> validCasterPoints;
@@ -32868,17 +32875,39 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 	}
 
-	// 2. Gather valid Target Faces
-	std::vector<glm::vec2> validTargetPoints;
-	for (auto dir : targetFaceDirs) {
-		if (!isCoverAt((int)targetTile.x + (int)dir.x, (int)targetTile.y + (int)dir.y)) {
-			validTargetPoints.push_back(targetCenter + dir * 0.49f);
-		}
+	if (validCasterPoints.empty()) {
+		return { false, casterCenter, targetCenter };
 	}
 
-	// Center-to-center fallback for direct open shots (so straight down a hallway works normally)
-	if (checkRayPhysics(casterCenter, targetCenter)) {
-		return { true, casterCenter, targetCenter };
+	// 2. Identify the 2 closest faces of the Target to the Caster using distance
+	glm::vec2 allFaces[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	std::vector<std::pair<float, glm::vec2>> targetFacesByDist;
+
+	for (int i = 0; i < 4; ++i) {
+		glm::vec2 facePos = targetCenter + allFaces[i] * 0.5f;
+		float dx = casterCenter.x - facePos.x;
+		float dy = casterCenter.y - facePos.y;
+		float distSq = dx * dx + dy * dy;
+		targetFacesByDist.push_back({ distSq, allFaces[i] });
+	}
+
+	// Sort faces by distance to the caster's center
+	std::sort(targetFacesByDist.begin(), targetFacesByDist.end(),
+		[](const std::pair<float, glm::vec2> & a, const std::pair<float, glm::vec2> & b) {
+			return a.first < b.first;
+		});
+
+	// Take exactly the 2 closest faces
+	std::vector<glm::vec2> targetFaceDirs = { targetFacesByDist[0].second, targetFacesByDist[1].second };
+
+	// "If one is blocked then it's invalid. Only the two closest faces"
+	std::vector<glm::vec2> validTargetPoints;
+	for (auto dir : targetFaceDirs) {
+		if (isCoverAt((int)targetTile.x + (int)dir.x, (int)targetTile.y + (int)dir.y)) {
+			// One of the 2 closest faces is blocked by cover/unit! Invalid shot.
+			return { false, casterCenter, targetCenter };
+		}
+		validTargetPoints.push_back(targetCenter + dir * 0.49f);
 	}
 
 	// 3. Check if ANY valid face-to-face line is clear
@@ -32890,6 +32919,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 	}
 
+	// If no combinations work, it's blocked.
 	return { false, casterCenter, targetCenter };
 }
 
@@ -33162,6 +33192,8 @@ glm::vec2 ofApp::getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm:
 }
 //--------------------------------------------------------------
 float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
+	if (casterTile == targetTile) return 0.0f; // Self is 0
+
 	// 1. Get Centers
 	glm::vec2 cCenter = casterTile + 0.5f;
 	glm::vec2 tCenter = targetTile + 0.5f;
@@ -33187,8 +33219,9 @@ float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
 		}
 	}
 
-	// Adjacent tiles share a face -> distance 0
-	return shortestDist;
+	// Adjacent tiles share a face -> distance 0.
+	// Enforce a 1-foot minimum (0.2 grid units) for non-self tiles so it displays correctly.
+	return std::max(0.2f, shortestDist);
 }
 
 // Integer-scaled squared face-to-face distance. Coordinates scaled by 2 (half-tile units)
