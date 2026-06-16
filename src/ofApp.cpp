@@ -32827,6 +32827,27 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return { true, casterCenter, targetCenter };
 	}
 
+	// Immediate Adjacency Bypass
+	// "you should be able to play a los card if you're directly adjacent...
+	// also always allow directly diagnoal as line of sight, as long as there's a path to it."
+	int dxDist = std::abs((int)targetTile.x - (int)casterTile.x);
+	int dyDist = std::abs((int)targetTile.y - (int)casterTile.y);
+	if (dxDist <= 1 && dyDist <= 1) {
+		if (dxDist + dyDist == 1) {
+			// Orthogonally adjacent is always a clear point-blank shot
+			return { true, casterCenter, targetCenter };
+		}
+		if (dxDist == 1 && dyDist == 1) {
+			// Diagonally adjacent is clear UNLESS hard-pinched by two corner walls
+			int stepX = (int)targetTile.x - (int)casterTile.x;
+			int stepY = (int)targetTile.y - (int)casterTile.y;
+			if (isTileWall(casterTile.x + stepX, casterTile.y) && isTileWall(casterTile.x, casterTile.y + stepY)) {
+				return { false, casterCenter, targetCenter }; // Hard pinched / blocked
+			}
+			return { true, casterCenter, targetCenter };
+		}
+	}
+
 	auto isCoverAt = [&](int cx, int cy) {
 		if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) return true;
 		if (board[cx][cy].hasWall) return true;
