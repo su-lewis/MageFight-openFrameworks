@@ -26055,7 +26055,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING) return false;
+	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY) return false;
 
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
@@ -29456,6 +29456,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							}
 						}
 					}
+					// 3. Default behaviors based on Targeting type
+					else {
+						if (card.targeting == TARGET_ADJACENT_UNIT) {
+							if (board[x][y].hasPlayer && !board[x][y].hasWall) isValidTarget = true;
+						} else if (card.targeting == TARGET_ADJACENT_UNIT_OR_WALL) {
+							if (board[x][y].hasPlayer || board[x][y].hasWall) isValidTarget = true;
+						} else if (card.targeting == TARGET_EMPTY_ADJACENT) {
+							if (!board[x][y].hasPlayer && !board[x][y].hasWall) isValidTarget = true;
+						}
+					}
 				}
 				break;
 			}
@@ -31760,7 +31770,7 @@ void ofApp::addTimeBonusToTurn(int actorIndex, int seconds) {
 
 	// The maximum capacity of the timer is its current baseline duration (90s, 45s, etc.)
 	// We lock this so the UI bar never changes its total scale on the screen.
-	int maxFrames = turnDurationFrames;
+	int maxFrames = getNormalTurnDurationFramesForActorIndex(actorIndex);
 	int extraFrames = seconds * turnTimerFramesPerSecond;
 
 	if (turnTimerPaused) {
@@ -33011,6 +33021,31 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 		return false;
 	};
+
+	// --- NEW: Orthogonal (Same Row / Column) Bypass ---
+	// If the target is in the exact same row or column, and there is nothing strictly
+	// between them, it's a valid straight shot. Bypasses the strict 2-face cover rule.
+	if (dxDist == 0 || dyDist == 0) {
+		bool pathClear = true;
+		int stepX = (targetTile.x > casterTile.x) ? 1 : ((targetTile.x < casterTile.x) ? -1 : 0);
+		int stepY = (targetTile.y > casterTile.y) ? 1 : ((targetTile.y < casterTile.y) ? -1 : 0);
+
+		int cx = (int)casterTile.x + stepX;
+		int cy = (int)casterTile.y + stepY;
+
+		while (cx != (int)targetTile.x || cy != (int)targetTile.y) {
+			if (isCoverAt(cx, cy)) {
+				pathClear = false;
+				break;
+			}
+			cx += stepX;
+			cy += stepY;
+		}
+
+		if (pathClear) {
+			return { true, casterCenter, targetCenter };
+		}
+	}
 
 	// Determine face directions for CASTER (leaning out)
 	auto getCasterFaceDirs = [](glm::vec2 source, glm::vec2 dest) {
