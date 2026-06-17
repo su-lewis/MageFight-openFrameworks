@@ -13116,6 +13116,8 @@ void ofApp::drawGame() {
 			msg = "Burst of Light: Choose a target unit";
 		} else if (interactingCardType == CARD_AMNESIA) {
 			msg = "Amnesia: Choose self or adjacent unit";
+		} else if (interactingCardType == CARD_BLOCKING_BOON) {
+			msg = "Blocking Boon (Tails): Choose an adjacent unit to lose 1 Max HP";
 		}
 		drawInstructionText(msg);
 	}
@@ -21626,9 +21628,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			if (tgtIdx == -1) {
 				// Player clicked Done (Forfeit)
-				blockingBoonPendingCoinRawResults.clear(); // Empty it to stop sequence early
 				if (blockingBoonPendingCasterIndex >= 0 && blockingBoonPendingCasterIndex < (int)players.size()) {
-					queueFloatingTextVisual(gridToWorld(players[blockingBoonPendingCasterIndex].x, players[blockingBoonPendingCasterIndex].y), "Forfeited remaining Tails", ofColor::gray);
+					queueFloatingTextVisual(gridToWorld(players[blockingBoonPendingCasterIndex].x, players[blockingBoonPendingCasterIndex].y), "Skipped Target", ofColor::gray);
 				}
 			} else {
 				// Player clicked a Target
@@ -23953,7 +23954,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int flip = currentEffectSequence.blackboard[0];
 
 			if (flip == 2) {
-				// Heads: +1 Max HP, +1 HP
+				// Heads: +1 Max HP
 				EffectOp incMax = {};
 				incMax.type = EffectOpType::MODIFY_STAT;
 				incMax.data.modifyStat.targetIndex = casterIdx;
@@ -23961,14 +23962,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				incMax.data.modifyStat.delta = 1;
 				incMax.data.modifyStat.deltaFromSlot = -1;
 				queueEffect(incMax);
-
-				EffectOp incHp = {};
-				incHp.type = EffectOpType::MODIFY_STAT;
-				incHp.data.modifyStat.targetIndex = casterIdx;
-				incHp.data.modifyStat.statType = 0; // HP
-				incHp.data.modifyStat.delta = 1;
-				incHp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(incHp);
 
 				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+1 Max HP", ofColor::green);
 
@@ -30192,6 +30185,7 @@ bool ofApp::isMyTurn() const {
 		// In Vs AI mode, my turn is strictly when Player 0 (Human) is active
 		return (pid == 0 || oid == 0);
 	}
+	if (!isMultiplayer) return true; // Local PvP: both players are local
 	return (pid == myLocalPlayerID || oid == myLocalPlayerID);
 }
 
