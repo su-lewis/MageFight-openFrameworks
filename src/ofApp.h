@@ -786,6 +786,8 @@ struct Player {
 	float facingAngle = 0.0f; // 0 = North, 90 = East, 180 = South, 270 = West
 	bool onFire = false;
 	bool hasRegeneration = false;
+	int fireApplierPlayerID = -1;
+	int poisonApplierPlayerID = -1;
 
 	// Status & Buffs
 	int nextTurnAPBonus = 0;
@@ -992,6 +994,7 @@ public:
 	void logDeckStates(const std::string & reason);
 	std::string getDeckStateString(const Player & p);
 
+	void addTimeBonusToTurn(int actorIndex, int seconds);
 	float lastHandshakeRequestTime = 0.0f;
 	float handshakeRequestInterval = 1.0f;
 	uint32_t lastObservedLobbySeed = 0;

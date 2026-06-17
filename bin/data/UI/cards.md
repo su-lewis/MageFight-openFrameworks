@@ -202,7 +202,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = friendly **Skeletons** and friendly **Hellhounds**).
+- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = **Skeletons** and **Hellhounds**).
 ---
 
 ## 27. Drain Punch
