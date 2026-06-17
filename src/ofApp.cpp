@@ -3155,21 +3155,17 @@ void ofApp::registerAfkTimeoutForCurrentOwner() {
 	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) return;
 	if (currentTurnHadMeaningfulAction) return;
 
-	afkStrikeCounts[currentTurnOwnerID]++;
+	afkStrikeCounts[currentTurnOwnerID] = afkStrikeCounts[currentTurnOwnerID] + 1;
 	ofLogNotice("AFK") << "Owner " << currentTurnOwnerID << " timeout with no action. Strikes=" << afkStrikeCounts[currentTurnOwnerID];
 
-	if (afkStrikeCounts[currentTurnOwnerID] >= 3) {
-		handleOwnerForfeit(currentTurnOwnerID, "AFK strikes reached 3");
+	if (afkStrikeCounts[currentTurnOwnerID] >= 2) {
+		handleOwnerForfeit(currentTurnOwnerID, "AFK for 2 consecutive turns");
 	}
 }
 
 int ofApp::getActiveTurnDurationFrames() const {
 	if (currentState == STATE_DRAFTING) {
 		return 90 * turnTimerFramesPerSecond;
-	}
-	int ownerId = getOwnerIdForActorIndex(currentPlayerIndex);
-	if (ownerId >= 0 && ownerId <= 1 && afkStrikeCounts[ownerId] > 0) {
-		return 30 * turnTimerFramesPerSecond;
 	}
 	return getNormalTurnDurationFramesForActorIndex(currentPlayerIndex);
 }
@@ -6181,6 +6177,9 @@ void ofApp::setupGame() {
 	// Reset network pending and draft state
 	networkPending = NetworkPending();
 	recentPlaceSentIndices.clear();
+
+	// Hard limit: 180 seconds (2 turns) to reconnect before auto-forfeit
+	reconnectForfeitDuration = 180.0f;
 
 	// Reset per-turn/game counters and flags
 	currentAP = 0;
@@ -15525,6 +15524,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (pauseMenuQuitButton.inside(x, y)) {
+			if (isMultiplayer && !g_isGameOver) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.commandId = nextCommandId;
+				nextCommandId = nextCommandId + 1;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_PSEUDO_ACTION;
+				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
+				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+				sendInputCommand(cmd, true);
+			}
+
 			// 1. Disconnect from Steam (Stops the auto-join loop)
 			steamManager.leaveLobby();
 			isMultiplayer = false;
@@ -16237,7 +16249,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			return;
 		}
-
 		// 3g. End Turn Button (only active during gameplay)
 		if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			bool isOptionalInteraction = false;
@@ -16245,6 +16256,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
 				if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
 			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+				isOptionalInteraction = true;
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
 				isOptionalInteraction = true;
 			}
 
@@ -16541,6 +16554,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = STATE_SETTINGS;
 		}
 		if (pauseMenuQuitButton.inside(x, y)) {
+			if (isMultiplayer && !g_isGameOver) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.commandId = nextCommandId;
+				nextCommandId = nextCommandId + 1;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_PSEUDO_ACTION;
+				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
+				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+				sendInputCommand(cmd, true);
+			}
+
+			steamManager.leaveLobby();
+			isMultiplayer = false;
 			cleanupGame();
 			currentState = STATE_MAIN_MENU;
 		}
@@ -22036,6 +22064,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetX = cmd.params[0];
 		int targetY = cmd.params[1];
 		std::string actionName = cmd.stringData;
+
+		if (actionName == "Forfeit") {
+			ofLogNotice("Lockstep") << "Player " << cmd.playerID << " conceded.";
+			handleOwnerForfeit(cmd.playerID, "conceded");
+			break;
+		}
 
 		if (actionName == "PlaceKobold") {
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;

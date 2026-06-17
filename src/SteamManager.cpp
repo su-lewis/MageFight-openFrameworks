@@ -93,6 +93,27 @@ void SteamManager::update() {
 
 	SteamAPI_RunCallbacks();
 
+	// -- AUTO RECONNECT FOR CLIENT --
+	if (!m_bIsHost && m_LobbyID.IsValid() && m_hConnection == k_HSteamNetConnection_Invalid) {
+		static float lastReconnectTime = 0.0f;
+		// Poll every 2 seconds
+		if (ofGetElapsedTimef() - lastReconnectTime > 2.0f) {
+			lastReconnectTime = ofGetElapsedTimef();
+			if (SteamMatchmaking()) {
+				CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
+				if (owner.IsValid()) {
+					SteamNetworkingIdentity identity;
+					identity.SetSteamID(owner);
+					HSteamNetConnection conn = SteamNetworkingSockets()->ConnectP2P(identity, 0, 0, nullptr);
+					if (conn != k_HSteamNetConnection_Invalid) {
+						m_hConnection = conn;
+						ofLogNotice("Steam") << "Auto-reconnecting to host: " << owner.ConvertToUint64();
+					}
+				}
+			}
+		}
+	}
+
 	// -- READ MESSAGES --
 	if (m_hConnection != k_HSteamNetConnection_Invalid) {
 		ISteamNetworkingSockets * net = SteamNetworkingSockets();
@@ -195,6 +216,7 @@ void SteamManager::closeConnection() {
 	if (!m_bInitialized) {
 		m_hConnection = k_HSteamNetConnection_Invalid;
 		m_hListenSocket = k_HSteamListenSocket_Invalid;
+		m_OpponentID = CSteamID(); // Clear opponent memory
 		while (!packetQueue.empty())
 			packetQueue.pop();
 		return;
@@ -203,13 +225,16 @@ void SteamManager::closeConnection() {
 	ISteamNetworkingSockets * net = SteamNetworkingSockets();
 
 	if (m_hConnection != k_HSteamNetConnection_Invalid) {
-		net->CloseConnection(m_hConnection, 0, "Closing", true); // Better		m_hConnection = k_HSteamNetConnection_Invalid;
+		net->CloseConnection(m_hConnection, 0, "Closing", true);
+		m_hConnection = k_HSteamNetConnection_Invalid;
 	}
 
 	if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
 		net->CloseListenSocket(m_hListenSocket);
 		m_hListenSocket = k_HSteamListenSocket_Invalid;
 	}
+
+	m_OpponentID = CSteamID(); // Clear opponent memory
 
 	while (!packetQueue.empty())
 		packetQueue.pop();
@@ -442,7 +467,8 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 			}
 			// Otherwise, accept normally
 			else if (SteamNetworkingSockets()->AcceptConnection(pInfo->m_hConn) == k_EResultOK) {
-				m_hConnection = pInfo->m_hConn;
+				// DO NOT set m_hConnection here. Wait for the 'Connected' callback so
+				// we can properly detect if it was a reconnection!
 				ofLogNotice("Steam") << "Accepted Connection!";
 			} else {
 				SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
@@ -453,8 +479,10 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 
 	case k_ESteamNetworkingConnectionState_Connected: { // <-- Added opening brace
 		ofLogNotice("Steam") << "Connection Fully Active!";
-		// Check if this is a reconnection
-		bool wasDisconnected = (m_hConnection == k_HSteamNetConnection_Invalid && m_OpponentID.IsValid());
+
+		// It's a reconnect if we already knew who the opponent was from earlier in the match!
+		bool isReconnect = m_OpponentID.IsValid();
+
 		m_hConnection = pInfo->m_hConn;
 
 		// Store opponent Steam ID for name lookup
@@ -464,7 +492,7 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 		}
 
 		// Set reconnection flag if opponent was previously disconnected
-		if (wasDisconnected) {
+		if (isReconnect) {
 			opponentReconnected = true;
 			ofLogNotice("Steam") << "Opponent reconnected!";
 		}
