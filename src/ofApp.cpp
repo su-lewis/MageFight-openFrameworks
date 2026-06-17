@@ -19800,7 +19800,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		break;
 	}
-
 	case CARD_GIANT_MAGIC_HAND: {
 		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
@@ -19813,6 +19812,15 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 		glm::ivec2 casterPos(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 		glm::ivec2 dir = wallPos - casterPos;
+
+		int wallUnitIdx = -1;
+		for (size_t i = 0; i < players.size(); i = i + 1) {
+			if (players[i].x == wallPos.x && players[i].y == wallPos.y && players[i].isWallUnit && players[i].health > 0) {
+				wallUnitIdx = (int)i;
+				break;
+			}
+		}
+		currentEffectSequence.blackboard[1] = wallUnitIdx;
 
 		if (safeChoice == "push" || safeChoice == "PUSH") {
 			magicHandPushDir = dir;
@@ -19855,28 +19863,33 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			glm::ivec2 newCasterPos = casterPos - dir;
 
 			if (newCasterPos.x >= 0 && newCasterPos.x < BOARD_WIDTH && newCasterPos.y >= 0 && newCasterPos.y < BOARD_HEIGHT && !board[newCasterPos.x][newCasterPos.y].hasWall && !board[newCasterPos.x][newCasterPos.y].hasPlayer) {
-				bool wasMagic = board[wallPos.x][wallPos.y].isMagicWall;
 
-				EffectOp removeWall = {};
-				removeWall.type = EffectOpType::MODIFY_TILE;
-				removeWall.data.modifyTile.toX = wallPos.x;
-				removeWall.data.modifyTile.toY = wallPos.y;
-				removeWall.data.modifyTile.setHasWall = -1;
-				queueEffect(removeWall);
+				if (wallUnitIdx != -1) {
+					EffectOp mvWall = {};
+					mvWall.type = EffectOpType::MOVE_UNIT;
+					mvWall.data.moveUnit.unitIndex = wallUnitIdx;
+					mvWall.data.moveUnit.toX = newWallPos.x;
+					mvWall.data.moveUnit.toY = newWallPos.y;
+					queueEffect(mvWall);
+				} else {
+					bool wasMagic = board[wallPos.x][wallPos.y].isMagicWall;
 
-				EffectOp createWall = {};
-				createWall.type = EffectOpType::CREATE_WALL;
-				createWall.data.createWall.x = newWallPos.x;
-				createWall.data.createWall.y = newWallPos.y;
-				createWall.data.createWall.isMagic = wasMagic;
-				queueEffect(createWall);
+					EffectOp removeWall = {};
+					removeWall.type = EffectOpType::MODIFY_TILE;
+					removeWall.data.modifyTile.toX = wallPos.x;
+					removeWall.data.modifyTile.toY = wallPos.y;
+					removeWall.data.modifyTile.setHasWall = -1;
+					queueEffect(removeWall);
+
+					EffectOp createWall = {};
+					createWall.type = EffectOpType::CREATE_WALL;
+					createWall.data.createWall.x = newWallPos.x;
+					createWall.data.createWall.y = newWallPos.y;
+					createWall.data.createWall.isMagic = wasMagic;
+					queueEffect(createWall);
+				}
 
 				EffectOp mvCaster = {};
-				mvCaster.type = EffectOpType::MOVE_UNIT;
-				mvCaster.data.moveUnit.unitIndex = currentPlayerIndex;
-				mvCaster.data.moveUnit.toX = newCasterPos.x;
-				mvCaster.data.moveUnit.toY = newCasterPos.y;
-				queueEffect(mvCaster);
 			} else {
 				queueFloatingTextVisual(gridToWorld(casterPos.x, casterPos.y), "Blocked!", ofColor::red);
 			}
@@ -20245,13 +20258,6 @@ void ofApp::drawActiveCardInteractionUI() {
 			drawCardChoicePanel(menuRect, "Train", "Choose improvement:",
 				btn1, btn2, "AP Boost", "Draft Card",
 				ofColor(255, 200, 100), ofColor(150, 100, 200), true, true);
-			break;
-		}
-
-		case CARD_ROCK_CRUSH: {
-			drawCardChoicePanel(menuRect, "Rock Crush", "Choose effect:",
-				btn1, btn2, "Deal 2d10", "Destroy Wall",
-				ofColor(210, 120, 120), ofColor(140, 120, 90), true, true);
 			break;
 		}
 
@@ -21637,7 +21643,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					decMax.data.modifyStat.deltaFromSlot = -1;
 					queueEffect(decMax);
 
-					int newMax = std::max(1, t->maxHealth - 1);
+					int newMax = std::max(0, t->maxHealth - 1);
 					int hpDelta = std::min(0, newMax - t->health);
 					if (hpDelta != 0) {
 						EffectOp hpClamp = {};
@@ -21653,13 +21659,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 
 			// Resume sequence!
-			if (cardPlayState != CARD_PLAY_STATE_IDLE) {
-				beginEffectSequence();
-				EffectOp nextOp = {};
-				nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
-				queueEffect(nextOp);
-				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-			}
+			beginEffectSequence();
+			EffectOp nextOp = {};
+			nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+			queueEffect(nextOp);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+
 			opponentInteraction.open = false;
 			resetCardInteraction(); // Clear UI states
 			break;
@@ -22549,14 +22554,27 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 	case EffectOpType::APPLY_MAGIC_HAND_DAMAGE: {
 		// Magic Hand: uses blackboard[0] for the 2d4 damage result
+		// blackboard[1] for wallUnitIdx
 		glm::ivec2 wallOldPos = magicHandTargetTile;
 		glm::ivec2 wallNewPos = magicHandTargetTile + magicHandPushDir;
 
-		// Move Wall
-		bool wasMagic = board[wallOldPos.x][wallOldPos.y].isMagicWall;
-		board[wallOldPos.x][wallOldPos.y].hasWall = false;
-		board[wallNewPos.x][wallNewPos.y].hasWall = true;
-		board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
+		int wallUnitIdx = currentEffectSequence.blackboard[1];
+
+		if (wallUnitIdx != -1) {
+			EffectOp mvWall = {};
+			mvWall.type = EffectOpType::MOVE_UNIT;
+			mvWall.data.moveUnit.unitIndex = wallUnitIdx;
+			mvWall.data.moveUnit.toX = wallNewPos.x;
+			mvWall.data.moveUnit.toY = wallNewPos.y;
+			queueEffect(mvWall);
+		} else {
+			// Move Wall
+			bool wasMagic = board[wallOldPos.x][wallOldPos.y].isMagicWall;
+			board[wallOldPos.x][wallOldPos.y].hasWall = false;
+			board[wallNewPos.x][wallNewPos.y].hasWall = true;
+			board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
+			buildLevelMesh();
+		}
 
 		// Move Caster (deterministic via MOVE_UNIT processed immediately)
 		{
@@ -22568,8 +22586,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			// Queue caster move so it is handled by the effect sequence rather than recursively
 			queueEffect(mvCaster);
 		}
-
-		buildLevelMesh();
 
 		{ // Scope block for victim variable to avoid crossing into next case label
 			// Handle Pushed Unit
@@ -24874,6 +24890,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				break;
 			case 1: // MaxHP
 				target.maxHealth += delta;
+				if (target.maxHealth <= 0) target.maxHealth = 0;
+				if (target.health > target.maxHealth) {
+					target.health = target.maxHealth;
+				}
 				break;
 			case 3: // AP (current)
 				if (targetIndex == currentPlayerIndex) {
@@ -25923,13 +25943,6 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				handleCardMenuClick("draft");
 			break;
 
-		case CARD_ROCK_CRUSH:
-			if (btn1.inside(mouseX, mouseY))
-				handleCardMenuClick("damage");
-			else if (btn2.inside(mouseX, mouseY))
-				handleCardMenuClick("wall");
-			break;
-
 		case CARD_GIANT_MAGIC_HAND: {
 			Player & caster = players[currentPlayerIndex];
 			glm::ivec2 casterPos(caster.x, caster.y);
@@ -26473,6 +26486,68 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
+	case CARD_ROCK_CRUSH: {
+		beginEffectSequence();
+
+		bool hitWall = board[targetX][targetY].hasWall;
+		bool hitUnit = false;
+		int unitIdx = -1;
+		int wallUnitToKill = -1;
+
+		for (size_t i = 0; i < players.size(); i = i + 1) {
+			if (players[i].x == targetX && players[i].y == targetY && (int)i != currentPlayerIndex) {
+				hitUnit = true;
+				unitIdx = i;
+				if (players[i].isWallUnit && players[i].health > 0) {
+					wallUnitToKill = i;
+				}
+				break;
+			}
+		}
+
+		if (hitWall || wallUnitToKill != -1) {
+			if (hitWall) {
+				EffectOp modTile = {};
+				modTile.type = EffectOpType::MODIFY_TILE;
+				modTile.data.modifyTile.toX = targetX;
+				modTile.data.modifyTile.toY = targetY;
+				modTile.data.modifyTile.setHasWall = -1; // Remove wall
+				queueEffect(modTile);
+			}
+			if (wallUnitToKill != -1) {
+				EffectOp killOp = {};
+				killOp.type = EffectOpType::MODIFY_STAT;
+				killOp.data.modifyStat.targetIndex = wallUnitToKill;
+				killOp.data.modifyStat.statType = 0; // HP
+				killOp.data.modifyStat.delta = -players[wallUnitToKill].health;
+				killOp.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(killOp);
+				if (unitIdx == wallUnitToKill) hitUnit = false;
+			}
+			queueFloatingTextVisual(gridToWorld(targetX, targetY), "Destroyed!", ofColor::red);
+		} else if (hitUnit) {
+			std::vector<int> rawDmg;
+			int dmgRoll = resolveDiceRollDetailed(2, 10, rawDmg);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			int totalDmg = dmgRoll + 2 * luckBonus;
+
+			currentEffectSequence.blackboard[0] = totalDmg;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 10, rawDmg, totalDmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+			EffectOp dmgOp = {};
+			dmgOp.type = EffectOpType::DAMAGE;
+			dmgOp.data.damage.targetIndex = unitIdx;
+			dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
+			dmgOp.data.damage.fixedDamage = 0;
+			dmgOp.data.damage.damageFromSlot = 0;
+			queueEffect(dmgOp);
+		}
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_SHOCK: {
 		if (resolvedTargetIndex != -1) {
 			beginEffectSequence();
@@ -26528,66 +26603,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			playedSuccessfully = true;
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
-		return true;
-	}
-
-	case CARD_ROCK_CRUSH: {
-		beginEffectSequence();
-		bool hitWall = board[targetX][targetY].hasWall;
-		bool hitUnit = false;
-		int unitIdx = -1;
-
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].x == targetX && players[i].y == targetY && (int)i != currentPlayerIndex) {
-				hitUnit = true;
-				unitIdx = i;
-				break;
-			}
-		}
-
-		bool isWallChoice = (interactionMenuChoice == "wall");
-
-		if (isWallChoice) {
-			if (hitWall) {
-				EffectOp modTile = {};
-				modTile.type = EffectOpType::MODIFY_TILE;
-				modTile.data.modifyTile.toX = targetX;
-				modTile.data.modifyTile.toY = targetY;
-				modTile.data.modifyTile.setHasWall = -1; // Remove wall
-				queueEffect(modTile);
-			} else if (hitUnit && players[unitIdx].isWallUnit) {
-				EffectOp killOp = {};
-				killOp.type = EffectOpType::MODIFY_STAT;
-				killOp.data.modifyStat.targetIndex = unitIdx;
-				killOp.data.modifyStat.statType = 0; // HP
-				killOp.data.modifyStat.delta = -players[unitIdx].health;
-				killOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(killOp);
-				queueFloatingTextVisual(gridToWorld(targetX, targetY), "Destroyed!", ofColor::red);
-				hitUnit = false; // Prevent dealing 2d10 to the unit we just destroyed
-			}
-		}
-
-		if (hitUnit && !isWallChoice) {
-			std::vector<int> rawDmg;
-			int dmgRoll = resolveDiceRollDetailed(2, 10, rawDmg);
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int totalDmg = dmgRoll + 2 * luckBonus;
-
-			currentEffectSequence.blackboard[0] = totalDmg;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 10, rawDmg, totalDmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-
-			EffectOp dmgOp = {};
-			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = unitIdx;
-			dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			dmgOp.data.damage.fixedDamage = 0;
-			dmgOp.data.damage.damageFromSlot = 0;
-			queueEffect(dmgOp);
-		}
-
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		playedSuccessfully = true;
 		return true;
 	}
 
@@ -26744,7 +26759,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_DEMOLITION: {
 		int wallUnitIdx = -1;
-		for (size_t i = 0; i < players.size(); ++i) {
+		for (size_t i = 0; i < players.size(); i = i + 1) {
 			if (players[i].x == targetX && players[i].y == targetY && players[i].isWallUnit && players[i].health > 0) {
 				wallUnitIdx = (int)i;
 				break;
@@ -26766,7 +26781,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			modTile.data.modifyTile.toY = targetY;
 			modTile.data.modifyTile.setHasWall = -1; // -1 means false
 			queueEffect(modTile);
-		} else if (wallUnitIdx != -1) {
+		}
+
+		if (wallUnitIdx != -1) {
 			EffectOp killOp = {};
 			killOp.type = EffectOpType::MODIFY_STAT;
 			killOp.data.modifyStat.targetIndex = wallUnitIdx;
@@ -26964,9 +26981,28 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			std::vector<int> rawD20s;
 			int totalD20s = resolveDiceRollDetailed(nonPhys, 20, rawD20s);
 			int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
-			totalD20s += nonPhys * luckBonus;
 
-			currentEffectSequence.blackboard[0] = totalD20s;
+			int draftCount = 0;
+			for (int roll : rawD20s) {
+				int finalRoll = roll + luckBonus;
+				if (finalRoll >= 20) {
+					networkPending.draftQueue.push_back(3);
+					draftCount = draftCount + 1;
+				} else if (finalRoll >= 16) {
+					networkPending.draftQueue.push_back(2);
+					draftCount = draftCount + 1;
+				} else if (finalRoll >= 10) {
+					networkPending.draftQueue.push_back(1);
+					draftCount = draftCount + 1;
+				}
+			}
+
+			if (draftCount > 0) {
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(draftCount) + " Drafts", ofColor::cyan);
+			} else {
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Drafts", ofColor::gray);
+			}
+
 			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), nonPhys, 20, rawD20s, totalD20s, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.0f);
 
 			EffectOp wait = {};
@@ -26974,9 +27010,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			wait.data.damage.fixedDamage = 1; // 0.4s
 			queueEffect(wait);
 
-			EffectOp applyD20 = {};
-			applyD20.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
-			queueEffect(applyD20);
+			EffectOp nextOp = {};
+			nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+			queueEffect(nextOp);
 		} else {
 			EffectOp nextOp = {};
 			nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
@@ -29495,6 +29531,15 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// Red Highlight (Preview) for any adjacent tile to show range
 				if (dist == 1) {
 					bool isWall = board[x][y].hasWall || meshHasWallAt(x, y);
+					if (!isWall && board[x][y].hasPlayer) {
+						for (const auto & p : players) {
+							if (p.x == x && p.y == y && p.isWallUnit && p.health > 0) {
+								isWall = true;
+								break;
+							}
+						}
+					}
+
 					if (isWall) {
 						isPreview = true;
 
