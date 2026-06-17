@@ -112,7 +112,7 @@ jobs:
         ldd MageFight.exe | grep -o '/mingw64/bin/[^ ]*\.dll' | xargs -I{} cp "{}" .
         
         echo "Forcing steam_appid.txt generation..."
-        echo "480" > steam_appid.txt
+        echo "4329880" > steam_appid.txt
         
         echo "Cleaning up Linux files and compiler stubs..."
         find . -name "*.so*" -type f -delete

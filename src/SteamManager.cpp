@@ -54,15 +54,15 @@ void SteamManager::setup() {
 	// --- BULLETPROOF STEAM APP ID FIX ---
 	std::ofstream appidFile("steam_appid.txt");
 	if (appidFile.is_open()) {
-		appidFile << "480";
+		appidFile << "4329880";
 		appidFile.close();
 	}
 
 #ifdef _WIN32
 	// _putenv doesn't always sync to the Win32 environment block which steam_api64.dll reads.
 	// Force it using the native Windows API just to be absolutely certain.
-	SetEnvironmentVariableA("SteamAppId", "480");
-	SetEnvironmentVariableA("SteamGameId", "480");
+	SetEnvironmentVariableA("SteamAppId", "4329880");
+	SetEnvironmentVariableA("SteamGameId", "4329880");
 #endif
 
 	if (SteamAPI_Init()) {

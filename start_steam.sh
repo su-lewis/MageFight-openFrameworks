@@ -51,6 +51,6 @@ fi
 # --- 4. LAUNCH THE DISTROBOX CONTAINER ---
 echo "Entering distrobox to execute run.sh..."
 
-/usr/bin/distrobox-enter -n of_arch -- bash -c "export SteamAppId=480; export SteamGameId=480; export STEAM_COMPAT_CLIENT_INSTALL_PATH='$STEAM_COMPAT_CLIENT_INSTALL_PATH'; export LD_PRELOAD='$LD_PRELOAD'; /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/run.sh"
+/usr/bin/distrobox-enter -n of_arch -- bash -c "export SteamAppId=4329880; export SteamGameId=4329880; export STEAM_COMPAT_CLIENT_INSTALL_PATH='$STEAM_COMPAT_CLIENT_INSTALL_PATH'; export LD_PRELOAD='$LD_PRELOAD'; /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/run.sh"
 
 echo "Launch sequence finished."

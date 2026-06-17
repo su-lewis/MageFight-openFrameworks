@@ -3337,11 +3337,11 @@ void ofApp::setup() {
 	// Forcing the environment variable here guarantees it always connects as Spacewar (480)
 	// no matter how the user launches it or if they forgot to extract the zip file.
 #ifdef _WIN32
-	_putenv("SteamAppId=480");
-	_putenv("SteamGameId=480");
+	_putenv("SteamAppId=4329880");
+	_putenv("SteamGameId=4329880");
 #else
-	setenv("SteamAppId", "480", 1);
-	setenv("SteamGameId", "480", 1);
+	setenv("SteamAppId", "4329880", 1);
+	setenv("SteamGameId", "4329880", 1);
 #endif
 
 	steamManager.setup();
