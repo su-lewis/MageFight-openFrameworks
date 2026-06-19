@@ -411,6 +411,15 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) return;
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
+	
+	// FIX: If we just created the lobby, we already know we are the Host.
+	// Do not ask Steam who the owner is, because the backend is too slow
+	// and will return 0, falsely stripping our Host status!
+	if (m_bIsHost) {
+		ofLogNotice("Steam") << "Entered our own lobby. Bypassing owner check.";
+		return;
+	}
+
 	CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 
 	if (owner == m_LocalID) {
