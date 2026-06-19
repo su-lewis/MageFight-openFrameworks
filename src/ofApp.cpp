@@ -15534,14 +15534,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 				cmd.commandType = CMD_PSEUDO_ACTION;
 				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
 				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-				sendInputCommand(cmd, true);
-			}
 
-			// 1. Disconnect from Steam (Stops the auto-join loop)
-			steamManager.leaveLobby();
-			isMultiplayer = false;
-			cleanupGame();
-			currentState = STATE_MAIN_MENU;
+				// Send forfeit and let the game naturally transition to Game Over
+				// so Elo is deducted properly!
+				sendInputCommand(cmd, true);
+
+				// Close the pause menu so we can see the Game Over screen!
+				currentState = STATE_GAMEPLAY;
+			} else {
+				// Only instantly exit if in singleplayer, or already at Game Over
+				steamManager.leaveLobby();
+				isMultiplayer = false;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
 			return;
 		}
 		// For other buttons or mouse buttons, swallow the click so gameplay handlers don't run
@@ -16565,12 +16571,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
 				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 				sendInputCommand(cmd, true);
-			}
 
-			steamManager.leaveLobby();
-			isMultiplayer = false;
-			cleanupGame();
-			currentState = STATE_MAIN_MENU;
+				// Close the pause menu so we can see the Game Over screen!
+				currentState = STATE_GAMEPLAY;
+			} else {
+				// Only instantly exit if in singleplayer, or already at Game Over
+				steamManager.leaveLobby();
+				isMultiplayer = false;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
 		}
 		break;
 	}
@@ -35907,7 +35917,23 @@ void ofApp::processNetworkPackets() {
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
 				// 1. HOST RECEIVES CLIENT REPLY
-				if (isHost() && pkt->playerID == 1) {
+				// Use steamManager.isHost() here because isMultiplayer is not true yet!
+				if (steamManager.isHost() && pkt->playerID == 1) {
+					opponentElo = pkt->elo;
+					currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
+
+					ofLogNotice("Network") << "Host received Client XOR Handshake. Final Seed: " << currentMapSeed;
+
+					isMultiplayer = true;
+					myLocalPlayerID = 0;
+					waitingForClientHandshake = false;
+
+					lastReceivedSeqByPlayer[0] = 0;
+					lastReceivedSeqByPlayer[1] = 0;
+					setupGame();
+				}
+				// 2. CLIENT RECEIVES HOST REQUEST
+				else if (!steamManager.isHost() && pkt->playerID == 0) {
 					opponentElo = pkt->elo;
 					currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
 

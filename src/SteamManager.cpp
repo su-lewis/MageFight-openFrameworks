@@ -31,6 +31,7 @@ bool SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(intptr_t instancePtr
 bool SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pchName, int32_t * pData);
 bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
 bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
+uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardUploadScoreMethod, int32_t nScore, const int32_t * pScoreDetails, int cScoreDetailsCount);
 }
 
 #ifdef _WIN32
@@ -444,6 +445,16 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 
 	case k_ESteamNetworkingConnectionState_ClosedByPeer:
 	case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+		// THIS WILL PRINT THE EXACT REASON STEAM KILLED THE CONNECTION
+		ofLogNotice("Steam") << "Connection Failed! Error Code: " << pInfo->m_info.m_eEndReason
+							 << " | Debug Msg: " << pInfo->m_info.m_szEndDebug;
+
+		if (pInfo->m_hConn == m_hConnection) {
+			opponentDisconnected = true;
+			m_hConnection = k_HSteamNetConnection_Invalid;
+		}
+		SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+		break;
 		ofLogNotice("Steam") << "Connection Closed/Failed.";
 
 		if (pInfo->m_hConn == m_hConnection) {
@@ -663,6 +674,14 @@ int SteamManager::getLocalElo() {
 
 void SteamManager::setLocalElo(int elo) {
 	if (!SteamUserStats()) return;
+
+	// 1. Update the hidden background Stat
 	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "elo_rating", elo);
-	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats()); // Uploads immediately to Steam
+	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
+
+	// 2. Explicitly push the new Elo to the Leaderboard!
+	// The '2' stands for k_ELeaderboardUploadScoreMethodForceUpdate (allows Elo to go down)
+	if (currentLeaderboardHandle != 0) {
+		SteamAPI_ISteamUserStats_UploadLeaderboardScore((intptr_t)SteamUserStats(), currentLeaderboardHandle, 2, elo, nullptr, 0);
+	}
 }
