@@ -35935,21 +35935,6 @@ void ofApp::processNetworkPackets() {
 				// 2. CLIENT RECEIVES HOST REQUEST
 				else if (!steamManager.isHost() && pkt->playerID == 0) {
 					opponentElo = pkt->elo;
-					currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
-
-					ofLogNotice("Network") << "Host received Client XOR Handshake. Final Seed: " << currentMapSeed;
-
-					isMultiplayer = true;
-					myLocalPlayerID = 0;
-					waitingForClientHandshake = false;
-
-					lastReceivedSeqByPlayer[0] = 0;
-					lastReceivedSeqByPlayer[1] = 0;
-					setupGame();
-				}
-				// 2. CLIENT RECEIVES HOST REQUEST
-				else if (!isHost() && pkt->playerID == 0) {
-					opponentElo = pkt->elo;
 
 					// --- FIX: Always reply to the host so they know we are here! ---
 					HandshakePacket ack = {};
