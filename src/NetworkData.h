@@ -108,6 +108,24 @@ struct MenuStatePacket {
 	int32_t cardIndex;
 };
 
+// --- ADD THIS ENUM BLOCK BACK IN ---
+enum InputCommandType : uint8_t {
+	CMD_NONE = 0,
+	CMD_PLAY_CARD = 1,
+	CMD_MOVE_UNIT = 2,
+	CMD_DRAW_CARDS = 3,
+	CMD_MENU_CHOICE = 4,
+	CMD_END_TURN = 5,
+	CMD_DRAFT_ACTION = 6,
+	CMD_ASSISTANT_REROLL = 7,
+	CMD_RENEWED_INSPIRATION = 8,
+	CMD_PSEUDO_ACTION = 9,
+	CMD_STATUS_ACTION = 10,
+	CMD_RESOLVE_DICE = 11,
+	CMD_ACCEPT_DRAFT = 12
+};
+// ------------------------------------
+
 struct InputCommandPacket {
 	PACKET_HEADER
 	uint32_t commandId;
@@ -233,7 +251,7 @@ struct RenewedInspireDiscardsPacket {
 struct KeyPickupPacket {
 	PACKET_HEADER
 	int32_t playerIndex;
-	int32_t playerID;
+	int32_t pickingPlayerID; // <--- Renamed to avoid collision with the Header!
 	uint8_t classTier;
 	int32_t keyX;
 	int32_t keyY;
