@@ -987,8 +987,7 @@ public:
 	void harnessAutoAdvanceTurns(int turns);
 
 	// Reliable send tracking for legacy packets removed: lockstep commands used instead
-	void sendSnapshotToClient();
-	std::string buildSnapshotString();
+	void sendSnapshotToClient(bool useTurnStartBackup = false);	std::string buildSnapshotString();
 	void applySnapshotString(const std::string & data, bool fromNetworkSnapshot = true);
 
 	// Anti-cheat: Log deck states for verification

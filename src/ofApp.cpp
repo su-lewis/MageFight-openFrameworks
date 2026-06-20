@@ -30389,8 +30389,16 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << lastAPDiceNum
 	   << "\t" << lastAPDiceSides
 	   << "\t" << (hasUnlimitedAP ? 1 : 0)
-	   << "\t" << currentMapSeed // <--- ADDED THIS
+	   << "\t" << currentMapSeed 
+	   << "\t" << nextSummonOrder            // <--- FIX: Ensure minion turn order stays synced
+	   << "\t" << draftGenerationCounter     // <--- FIX: Ensure draft RNG stays synced
 	   << "\n";
+
+	ss << "DAMAGERMAP\t" << g_lastDamagerMap.size();
+	for (const auto& pair : g_lastDamagerMap) {
+		ss << "\t" << pair.first << "\t" << pair.second;
+	}
+	ss << "\n";
 
 	ss << "QUEUE\t" << networkPending.draftQueue.size();
 	for (int v : networkPending.draftQueue)
@@ -30488,7 +30496,8 @@ std::string ofApp::buildSnapshotString() {
 			std::string out;
 			for (size_t i = 0; i < cards.size(); ++i) {
 				if (i > 0) out += ',';
-				out += escapeField(cards[i].name);
+				// Append the dynamic cost to preserve discounts (e.g. "Punch|0")
+				out += escapeField(cards[i].name) + "|" + std::to_string(cards[i].cost);
 			}
 			return out;
 		};
@@ -30512,7 +30521,8 @@ std::string ofApp::buildSnapshotString() {
 			std::string out;
 			for (size_t i = 0; i < cards.size(); ++i) {
 				if (i > 0) out += ',';
-				out += escapeField(cards[i].name);
+				// Append the dynamic cost to preserve discounts in the graveyard
+				out += escapeField(cards[i].name) + "|" + std::to_string(cards[i].cost);
 			}
 			return out;
 		};
@@ -30645,6 +30655,18 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				if (parts.size() > 15) {
 					tmpMapSeed = (uint32_t)std::stoul(parts[15]);
 					tmpHasMapSeed = true;
+				}
+				if (parts.size() > 17) {
+					nextSummonOrder = std::stoi(parts[16]);
+					draftGenerationCounter = std::stoi(parts[17]);
+				}
+			} else if (parts[0] == "DAMAGERMAP") {
+				g_lastDamagerMap.clear();
+				int count = std::stoi(parts[1]);
+				int pIdx = 2;
+				for(int i = 0; i < count && pIdx + 1 < (int)parts.size(); ++i) {
+					g_lastDamagerMap[std::stoi(parts[pIdx])] = std::stoi(parts[pIdx+1]);
+					pIdx += 2;
 				}
 			} else if (parts[0] == "TURN" && parts.size() >= 8) {
 				tmpTurnDurationFrames = std::stoi(parts[1]);
@@ -30779,12 +30801,24 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
 					outVec.clear();
 					if (list.empty()) return;
-					auto names = splitEscapedList(list);
-					for (const auto & n : names) {
-						if (n.empty()) continue;
+					auto tokens = splitEscapedList(list);
+					for (const auto & tok : tokens) {
+						if (tok.empty()) continue;
+						
+						std::string n = tok;
+						int overrideCost = -1;
+						size_t pipePos = tok.find('|');
+						if (pipePos != std::string::npos) {
+							n = tok.substr(0, pipePos);
+							overrideCost = std::stoi(tok.substr(pipePos + 1));
+						}
+
 						const Card * c = findCardByName(n);
-						if (c)
-							outVec.push_back(*c);
+						if (c) {
+							Card newCard = *c;
+							if (overrideCost >= 0) newCard.cost = overrideCost;
+							outVec.push_back(newCard);
+						}
 						else {
 							Card fallback;
 							fallback.name = n;
@@ -30836,11 +30870,24 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				grave.turnDied = std::stoi(parts[3]);
 				if (parts.size() > 4) {
 					grave.deck.clear();
-					auto names = splitEscapedList(parts[4]);
-					for (const auto & n : names) {
-						if (n.empty()) continue;
+					auto tokens = splitEscapedList(parts[4]);
+					for (const auto & tok : tokens) {
+						if (tok.empty()) continue;
+						
+						std::string n = tok;
+						int overrideCost = -1;
+						size_t pipePos = tok.find('|');
+						if (pipePos != std::string::npos) {
+							n = tok.substr(0, pipePos);
+							overrideCost = std::stoi(tok.substr(pipePos + 1));
+						}
+
 						const Card * c = findCardByName(n);
-						if (c) grave.deck.push_back(*c);
+						if (c) {
+							Card newCard = *c;
+							if (overrideCost >= 0) newCard.cost = overrideCost;
+							grave.deck.push_back(newCard);
+						}
 					}
 				}
 				tmpGraveyard.push_back(grave);
@@ -31086,9 +31133,11 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 }
 
 //--------------------------------------------------------------
-void ofApp::sendSnapshotToClient() {
+void ofApp::sendSnapshotToClient(bool useTurnStartBackup) {
 	if (!isMultiplayer || !isHost()) return;
-	std::string data = buildSnapshotString();
+	
+	// If requested (e.g. for reconnects), use the pristine Turn-Start state to avoid mid-spell desyncs
+	std::string data = (useTurnStartBackup && !turnStartBackupSnapshot.empty()) ? turnStartBackupSnapshot : buildSnapshotString();
 	uint32_t snapshotId = ++lastSnapshotId;
 
 	SnapshotBeginPacket begin = {};
@@ -36018,9 +36067,9 @@ void ofApp::processNetworkPackets() {
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
 				if (isHost()) {
-					// Send the authoritative snapshot to the requesting client
-					sendSnapshotToClient();
-					ofLogNotice("Network") << "Host: Sent authoritative snapshot to client.";
+					// Send the pristine Turn-Start snapshot so the client doesn't wake up mid-spell!
+					sendSnapshotToClient(true);
+					ofLogNotice("Network") << "Host: Sent authoritative Turn-Start snapshot to client.";
 				}
 				continue;
 			}
