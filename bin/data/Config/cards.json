@@ -527,11 +527,11 @@
     "id": 47,
     "name": "Fortify",
     "type": "CARD_FORTIFY",
-    "cost": 3,
     "damageType": "DAMAGE_PHYSICAL",
+    "cost": 3,
+    "class": 2,
     "targeting": "TARGET_ADJACENT_WALL",
-    "baseDamage": 3,
-    "class": 2
+    "baseDamage": 3
   },
   {
     "id": 48,

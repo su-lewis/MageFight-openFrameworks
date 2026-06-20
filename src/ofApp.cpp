@@ -8001,6 +8001,10 @@ void ofApp::updateGameLogic() {
 					{
 						int quakeDamageBase = 8;
 						bool anyDamage = false;
+
+						// MUST CALL THIS FIRST SO BLACKBOARD IS NOT WIPED BY QUEUE_EFFECT!
+						if (!isProcessingEffect) beginEffectSequence();
+
 						for (int i = 0; i < n; ++i) {
 							if (damageDiceCount[i] > 0) {
 								EarthquakeDamageTarget t;
@@ -8018,7 +8022,6 @@ void ofApp::updateGameLogic() {
 							EffectOp apply = {};
 							apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
 							queueEffect(apply);
-							if (!isProcessingEffect) beginEffectSequence(); // <--- CRITICAL FIX: Trigger the damage queue!
 						}
 					}
 
@@ -10104,61 +10107,110 @@ void ofApp::drawGame() {
 
 						if (texBound) koboldKingTexture.unbind();
 					}
-				}
-				// --- FAERIE ---
-				else if (player.isFaerie) {
+				} else if (player.isFaerie) {
 					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					// Model is already rotated in setup
-					ofTranslate(0, 1.2f, 0); // Adjust vertical offset as needed
-					if (faerieTexture.isAllocated()) faerieTexture.bind();
-					faerieModel.drawFaces();
-					if (faerieTexture.isAllocated()) faerieTexture.unbind();
-				}
-				// --- WALL UNIT ---
-				else if (player.isWallUnit) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.0f, 0); // Adjust based on model pivot
-					// Standard FBX upright correction (if needed)
-					// ofRotateXDeg(0);
-
-					// If we have an external wall unit texture, bind it; otherwise let the model's own textures render (GLB)
-					if (wallUnitTexture.isAllocated()) {
-						wallUnitTexture.bind();
-						// Raise model so it sits on the ground and not intersect the floor
-						ofTranslate(0, TILE_SIZE * 0.168f, 0);
-						// Use flat shading while drawing the wall unit to avoid smooth shading
-						glShadeModel(GL_FLAT);
-						wallUnitModel.drawFaces();
-						glShadeModel(GL_SMOOTH);
-						wallUnitTexture.unbind();
+					ofTranslate(0, 1.2f, 0);
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(faerieModel.getModelMatrix());
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
+						if (faerieTexture.isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", faerieTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else {
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						}
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						faerieModel.drawFaces();
+						pbrShader.end();
 					} else {
-						// No external texture: draw model with its embedded textures (GLB) or material colors
-						ofTranslate(0, TILE_SIZE * 0.168f, 0);
-						// Draw GLB with flat shading to turn off smooth shading
-						glShadeModel(GL_FLAT);
-						wallUnitModel.drawFaces();
-						glShadeModel(GL_SMOOTH);
+						if (faerieTexture.isAllocated()) faerieTexture.bind();
+						faerieModel.drawFaces();
+						if (faerieTexture.isAllocated()) faerieTexture.unbind();
 					}
+				} else if (player.isWallUnit) {
+					ofTranslate(pos.x, 0.12f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, TILE_SIZE * 0.168f, 0);
 
-					// If Magic Wall Unit, apply a pulsing purple tint visual that matches tile sheen
-					if (player.isMagicWallUnit) {
-						// Pulse alpha in the same way the tile sheen does so the unit also glows
-						float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
-						int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
-						ofEnableBlendMode(OF_BLENDMODE_ADD);
-						ofSetColor(148, 0, 211, alpha);
-						// Avoid z-fighting by offsetting polygons slightly
-						glEnable(GL_POLYGON_OFFSET_FILL);
-						glPolygonOffset(-1.0f, -1.0f);
-						ofPushMatrix();
-						// Draw the whole model again in purple so the glow follows model curves exactly
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(wallUnitModel.getModelMatrix());
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
+						
+						if (wallUnitTexture.isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", wallUnitTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else {
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						}
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
 						wallUnitModel.drawFaces();
-						ofPopMatrix();
-						glDisable(GL_POLYGON_OFFSET_FILL);
-						ofSetColor(unitTint);
-						ofDisableBlendMode();
+						pbrShader.end();
+
+						if (player.isMagicWallUnit) {
+							float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
+							int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
+							ofEnableBlendMode(OF_BLENDMODE_ADD);
+							ofSetColor(148, 0, 211, alpha);
+							glEnable(GL_POLYGON_OFFSET_FILL);
+							glPolygonOffset(-1.0f, -1.0f);
+							wallUnitModel.drawFaces();
+							glDisable(GL_POLYGON_OFFSET_FILL);
+							ofSetColor(unitTint);
+							ofDisableBlendMode();
+						}
+					} else {
+						if (wallUnitTexture.isAllocated()) {
+							wallUnitTexture.bind();
+							glShadeModel(GL_FLAT);
+							wallUnitModel.drawFaces();
+							glShadeModel(GL_SMOOTH);
+							wallUnitTexture.unbind();
+						} else {
+							glShadeModel(GL_FLAT);
+							wallUnitModel.drawFaces();
+							glShadeModel(GL_SMOOTH);
+						}
+						if (player.isMagicWallUnit) {
+							float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
+							int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
+							ofEnableBlendMode(OF_BLENDMODE_ADD);
+							ofSetColor(148, 0, 211, alpha);
+							glEnable(GL_POLYGON_OFFSET_FILL);
+							glPolygonOffset(-1.0f, -1.0f);
+							wallUnitModel.drawFaces();
+							glDisable(GL_POLYGON_OFFSET_FILL);
+							ofSetColor(unitTint);
+							ofDisableBlendMode();
+						}
 					}
 				}
 				// --- ASSISTANT ---
@@ -10166,12 +10218,33 @@ void ofApp::drawGame() {
 					ofTranslate(pos.x, 0.12f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 2.04f, 0);
-					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
 
-					// Optional: Tint blue/purple to look magical, blended with the team tint
-					ofSetColor((200 * unitTint.r) / 255, (200 * unitTint.g) / 255, (255 * unitTint.b) / 255);
-					assistantModel.drawFaces();
-					ofSetColor(unitTint);
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(assistantModel.getModelMatrix());
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
+						pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						assistantModel.drawFaces();
+						pbrShader.end();
+					} else {
+						ofSetColor((200 * unitTint.r) / 255, (200 * unitTint.g) / 255, (255 * unitTint.b) / 255);
+						assistantModel.drawFaces();
+						ofSetColor(unitTint);
+					}
 				} else {
 					// Default Player
 					ofTranslate(pos.x, 0.12f, pos.z);
@@ -18084,7 +18157,7 @@ void ofApp::startNewTurn() {
 				}
 			}
 			// Tortoise form: ALL defensive stats don't expire
-			if (!startingPlayer.inTortoiseForm) {
+			if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != globalTurnCounter) {
 				int sidx = currentPlayerIndex;
 				if (startingPlayer.block > 0) {
 					EffectOp op = {};
@@ -18576,7 +18649,7 @@ void ofApp::continueNewTurn() {
 
 	// --- C. DEFENSIVE STAT EXPIRATION ---
 	// Tortoise form: ALL defensive stats don't expire
-	if (!startingPlayer.inTortoiseForm) {
+	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != globalTurnCounter) {
 		int sidx = currentPlayerIndex;
 		if (startingPlayer.block > 0) {
 			EffectOp op = {};
@@ -21000,7 +21073,8 @@ void ofApp::simulationTick() {
 							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 							for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 								Player & p = players[pidx];
-								if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+								bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
+								if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0 && isSameTeam) {
 									// Deterministic resurrection roll (decision-time via detailed resolver)
 									std::vector<int> rawRes;
 									int raw = resolveDiceRollDetailed(1, 4, rawRes);
@@ -21502,15 +21576,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 						target.deck.erase(target.deck.begin() + idx);
 
 						// Stagger the animations slightly so they don't perfectly overlap
-						if (isMultiplayer) {
-							RemovedCardAnimation rem;
-							rem.card = destroyed;
-							rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
-							rem.startTime = baseTime + (removed * 0.2f);
-							rem.currentScale = 1.8f;
-							rem.currentAlpha = 255.0f;
-							activeRemovedCardAnimations.push_back(rem);
-						}
+						RemovedCardAnimation rem;
+						rem.card = destroyed;
+						rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
+						rem.startTime = baseTime + (removed * 0.2f);
+						rem.currentScale = 1.8f;
+						rem.currentAlpha = 255.0f;
+						activeRemovedCardAnimations.push_back(rem);
 
 						removed++;
 					}
@@ -24543,15 +24615,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 				// If it's not being stolen, show the destruction animation
 				if (!op.data.removeTopCard.isSteal) {
-					if (isMultiplayer) {
-						RemovedCardAnimation rem;
-						rem.card = destroyed;
-						rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-						rem.startTime = ofGetElapsedTimef();
-						rem.currentScale = 1.8f;
-						rem.currentAlpha = 255.0f;
-						activeRemovedCardAnimations.push_back(rem);
-					}
+					RemovedCardAnimation rem;
+					rem.card = destroyed;
+					rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+					rem.startTime = ofGetElapsedTimef();
+					rem.currentScale = 1.8f;
+					rem.currentAlpha = 255.0f;
+					activeRemovedCardAnimations.push_back(rem);
 					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Card Destroyed!", ofColor::magenta);
 				}
 				ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
@@ -24958,6 +25028,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 5: // Block
 				target.block += delta;
 				if (delta != 0) {
+					if (delta > 0) target.defenseCycle = globalTurnCounter;
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
 					queueFloatingTextVisual(tPos, s, ofColor::gray);
 					if (delta > 0) {
@@ -24971,6 +25042,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 6: // Barrier
 				target.barrier += delta;
 				if (delta != 0) {
+					if (delta > 0) target.defenseCycle = globalTurnCounter;
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
 					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
 					if (delta > 0) {
@@ -24984,6 +25056,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 7: // HolyBlock
 				target.holyBlock += delta;
 				if (delta != 0) {
+					if (delta > 0) target.defenseCycle = globalTurnCounter;
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
 					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
 					if (delta > 0) {
@@ -24997,6 +25070,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 8: // Ward
 				target.ward += delta;
 				if (delta != 0) {
+					if (delta > 0) target.defenseCycle = globalTurnCounter;
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
 					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
 					if (delta > 0) {
@@ -25014,6 +25088,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 13: // Fortification
 				target.fortification += delta;
 				if (delta != 0) {
+					if (delta > 0) target.defenseCycle = globalTurnCounter;
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
 					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
 					if (delta > 0) {
@@ -27166,7 +27241,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 		}
 
-		// 4. Apply AOE Damage (Reads 3 from baseDamage dynamically)
+		// 4. Apply AOE Damage (Reads from baseDamage in cards.json)
 		for (int tIdx : targetsToDamage) {
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::DAMAGE;
@@ -27961,23 +28036,21 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 			createCardDisplay(stolenCard, resolvedTargetIndex, true);
 
-			if (isMultiplayer) {
-				auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
-					if (playerIndex < 0 || playerIndex >= (int)players.size()) return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-					const Player & owner = players[playerIndex];
-					int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
-					ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
-					return deckRect.getCenter();
-				};
+			auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
+				if (playerIndex < 0 || playerIndex >= (int)players.size()) return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+				const Player & owner = players[playerIndex];
+				int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
+				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
+				return deckRect.getCenter();
+			};
 
-				StolenCardAnimation newAnim;
-				newAnim.card = stolenCard;
-				newAnim.startTime = ofGetElapsedTimef() + 1.25f;
-				newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
-				newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
-				newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
-				activeStolenCardAnimations.push_back(newAnim);
-			}
+			StolenCardAnimation newAnim;
+			newAnim.card = stolenCard;
+			newAnim.startTime = ofGetElapsedTimef() + 1.25f;
+			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
+			newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
+			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
+			activeStolenCardAnimations.push_back(newAnim);
 
 			currentCardOutcome.targetPlayerIndex = resolvedTargetIndex;
 			playedSuccessfully = true;
@@ -28208,15 +28281,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentPlayer.deck.pop_back();
 			currentCardOutcome.destroyedCardType = destroyed.type;
 
-			if (isMultiplayer) {
-				RemovedCardAnimation rem;
-				rem.card = destroyed;
-				rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-				rem.startTime = ofGetElapsedTimef();
-				rem.currentScale = 1.8f;
-				rem.currentAlpha = 255.0f;
-				activeRemovedCardAnimations.push_back(rem);
-			}
+			RemovedCardAnimation rem;
+			rem.card = destroyed;
+			rem.startPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+			rem.startTime = ofGetElapsedTimef();
+			rem.currentScale = 1.8f;
+			rem.currentAlpha = 255.0f;
+			activeRemovedCardAnimations.push_back(rem);
 		}
 
 		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
@@ -28472,6 +28543,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnFaerieOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		queueEffect(spawnFaerieOp);
 
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_STRENGTHEN_ELEMENTS: {
+		beginEffectSequence();
+		EffectOp applyBuff = {};
+		applyBuff.type = EffectOpType::APPLY_STATUS;
+		applyBuff.data.status.targetIndex = currentPlayerIndex;
+		applyBuff.data.status.statusType = STATUS_STRENGTHEN_ELEMENTS;
+		applyBuff.data.status.duration = 3; // For the next 3 turns
+		queueEffect(applyBuff);
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -29535,17 +29619,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						} else {
 							if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
 						}
-					} else if (card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
-						if (board[x][y].hasWall) {
-							isValidTarget = true;
-						} else if (board[x][y].hasPlayer) {
-							for (const auto & p : players) {
-								if (p.x == x && p.y == y && p.isWallUnit && p.health > 0) {
-									isValidTarget = true;
-									break;
-								}
-							}
-						}
 					}
 					// 3. Default behaviors based on Targeting type
 					else {
@@ -30126,7 +30199,7 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 
 				// --- WALL CHECK ---
 				bool isBlocked = false;
-				if (board[nx][ny].hasPlayer) isBlocked = true; // Still blocked by other units
+				if (board[nx][ny].hasPlayer && !isGhost) isBlocked = true; // Blocked by other units if not Ghost
 				if (board[nx][ny].hasWall && !isGhost) isBlocked = true; // Blocked by wall if not Ghost
 
 				if (!isBlocked) {
@@ -30186,7 +30259,7 @@ std::vector<glm::vec2> ofApp::findShortestPathForPlayer(int playerIndex, glm::ve
 
 				// --- WALL CHECK ---
 				bool isBlocked = false;
-				if (board[nx][ny].hasPlayer) isBlocked = true; // Still blocked by other units
+				if (board[nx][ny].hasPlayer && !isGhost) isBlocked = true; // Blocked by other units if not Ghost
 				if (board[nx][ny].hasWall && !isGhost) isBlocked = true; // Blocked by wall if not Ghost
 
 				if (!isBlocked) {
@@ -30409,7 +30482,7 @@ std::string ofApp::buildSnapshotString() {
 		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
 		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.tortoiseAccumulatedDamage << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
 		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t" << p.nextTurnExtraDrawSetOnCycle << "\t"
-		   << p.fireApplierPlayerID << "\t" << p.poisonApplierPlayerID << "\t";
+		   << p.fireApplierPlayerID << "\t" << p.poisonApplierPlayerID << "\t" << p.defenseCycle << "\t";
 
 		auto encodeCards = [&](const std::vector<Card> & cards) {
 			std::string out;
@@ -30696,6 +30769,11 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 					p.poisonApplierPlayerID = std::stoi(parts[idx++]);
 				} else {
 					p.poisonApplierPlayerID = -1;
+				}
+				if (idx < (int)parts.size() && parts[idx] != "DECK") {
+					p.defenseCycle = std::stoi(parts[idx++]);
+				} else {
+					p.defenseCycle = -1;
 				}
 
 				auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
@@ -31355,8 +31433,9 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 		}
 		result.isTargetable = losInfo.isTargetable;
 	}
+
 	// For TARGET_ADJACENT_* cards: check adjacency
-	else if (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT) {
+	else if (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_ADJACENT_WALL) {
 		int dist = abs(tx - caster.x) + abs(ty - caster.y);
 		if (dist != 1) {
 			result.reason = INVALID_OUT_OF_RANGE;
@@ -31365,17 +31444,20 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 		// Tile is adjacent; check occupancy
 		bool hasOccupant = board[tx][ty].hasPlayer;
 		bool hasWall = board[tx][ty].hasWall;
-		if (card.type == CARD_DEMOLITION || card.type == CARD_FORTIFY) {
+
+		if (card.targeting == TARGET_ADJACENT_WALL || card.type == CARD_DEMOLITION || card.type == CARD_FORTIFY) {
 			result.isTargetable = hasWall;
+			if (!hasWall && hasOccupant) {
+				for (const auto & p : players) {
+					if (p.x == tx && p.y == ty && p.isWallUnit && p.health > 0) {
+						result.isTargetable = true;
+						break;
+					}
+				}
+			}
 		} else if (card.type == CARD_ROCK_CRUSH) {
 			result.isTargetable = (hasWall || (hasOccupant && !hasWall));
 		} else if (hasOccupant && !hasWall) {
-			result.isTargetable = true;
-		}
-	}
-	// For other targeting types, delegate to basic occupancy check
-	else {
-		if (board[tx][ty].hasPlayer) {
 			result.isTargetable = true;
 		}
 	}
@@ -31436,17 +31518,18 @@ void ofApp::calculateHighlights() {
 
 				bool canEnter = false;
 
-				if (!isOccupied) {
-					if (!isWall) {
-						canEnter = true; // Normal empty tile
-					} else if (p.inGhostForm) {
-						// Ghost entering wall: Allowed ONLY if they have > 1 AP remaining
-						// This ensures they can move *out* of the wall next step
-						// Current AP is total. nextCost is cost to reach *this* wall tile.
-						// So remaining AP = currentAP - nextCost.
+				if (p.inGhostForm) {
+					// Ghost can enter walls or units IF they have >= 1 AP remaining
+					if (!isWall && !isOccupied) {
+						canEnter = true;
+					} else {
 						if ((currentAP - nextCost) >= 1) {
 							canEnter = true;
 						}
+					}
+				} else {
+					if (!isWall && !isOccupied) {
+						canEnter = true;
 					}
 				}
 
@@ -32710,52 +32793,63 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	if (target.health <= 0) {
 		ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
 
-		// Faerie Resurrection (orthogonal adjacency only; no diagonals)
-		bool resurrected = false;
-		if (!target.isFaerie && target.x >= 0 && target.y >= 0) {
-			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-					if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
-					int nx = target.x + dx;
-					int ny = target.y + dy;
-					if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+		int dyingIdx = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (&players[i] == &target) {
+					dyingIdx = (int)i;
+					break;
+				}
+			}
 
-					for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
-						Player & p = players[pidx];
-						if (p.playerID == target.playerID) continue;
-						if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-							std::vector<int> rawRes;
-							int raw = resolveDiceRollDetailed(1, 4, rawRes);
-							int luckBonus = p.luck + computePassiveLuck((int)pidx);
-							int roll = raw + luckBonus;
-							if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
-							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
-							int hp = (target.maxHealth * roll) / 4;
-							if (hp < 1) hp = 1;
+			// Faerie Resurrection (orthogonal adjacency only; no diagonals)
+			bool resurrected = false;
+			if (!target.isFaerie && target.x >= 0 && target.y >= 0 && dyingIdx >= 0) {
+				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+						if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
+						int nx = target.x + dx;
+						int ny = target.y + dy;
+						if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 
-							int pct = roll * 25;
-							std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
-							queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
+						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+							Player & p = players[pidx];
+							bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (target.isMinion ? target.ownerID : target.playerID);
+							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0 && isSameTeam) {
+								std::vector<int> rawRes;
+								int raw = resolveDiceRollDetailed(1, 4, rawRes);
+								int luckBonus = p.luck + computePassiveLuck((int)pidx);
+								int roll = raw + luckBonus;
+								if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
+								int hp = (target.maxHealth * roll) / 4;
+								if (hp < 1) hp = 1;
 
-							{
-								EffectOp wait = {};
-								wait.type = EffectOpType::WAIT_VISUAL;
-								wait.data.damage.fixedDamage = 1;
-								queueEffect(wait);
+								int pct = roll * 25;
+								std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
+								queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
 
-								EffectOp setHp = {};
-								setHp.type = EffectOpType::MODIFY_STAT;
-								setHp.data.modifyStat.targetIndex = (int)pidx;
-								setHp.data.modifyStat.statType = 0; // HP
-								setHp.data.modifyStat.delta = hp - target.health;
-								setHp.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(setHp);
+								{
+									EffectOp wait = {};
+									wait.type = EffectOpType::WAIT_VISUAL;
+									wait.data.damage.fixedDamage = 1;
+									queueEffect(wait);
+
+									EffectOp setHp = {};
+									setHp.type = EffectOpType::MODIFY_STAT;
+									setHp.data.modifyStat.targetIndex = dyingIdx;
+									setHp.data.modifyStat.statType = 0; // HP
+									setHp.data.modifyStat.delta = hp - target.health;
+									setHp.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(setHp);
+								}
+								resurrected = true;
+								queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
+								ofLogNotice("Faerie") << "Unit " << target.playerID << " resurrected by faerie for " << hp << " HP.";
 							}
 						}
 					}
 				}
 			}
-		}
 
 		if (resurrected) {
 			return target.health < initialHealth;
@@ -35547,14 +35641,14 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
 	float availableWidth = ofGetWidth() * 0.7f;
 
-	while (viewCardScale > 0.5f) {
+	while (viewCardScale > 0.1f) {
 		float cardW = handBaseCardWidth * viewCardScale;
 		float cardH = baseCardHeight * viewCardScale;
 		float padding = 15.0f * viewCardScale;
 		int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
-		int rows = ceil((float)cardsToShow.size() / cols);
+		int rows = ceil((float)cardsToShow.size() / (float)cols);
 		if (rows * (cardH + padding) - padding <= availableHeight) break;
-		viewCardScale -= 0.1f;
+		viewCardScale -= 0.05f;
 	}
 
 	float viewCardWidth = handBaseCardWidth * viewCardScale;

@@ -829,6 +829,7 @@ struct Player {
 	int directSummonerID = -1; // ID of the specific unit that summoned this minion
 	bool assistantRerollUsedThisTurn = false; // Track the "once per turn" usage
 	int freeKickTurns = 0; // Number of turns (including current) that Kick costs 0
+	int defenseCycle = -1; // Tracks when shields were applied so they last a full round!
 
 	// Tortoise Form
 	bool inTortoiseForm = false;
