@@ -4619,14 +4619,25 @@ void ofApp::update() {
 	if (g_isGameOver && !eloCalculated && isMultiplayer) {
 		eloCalculated = true;
 
-		float expectedScore = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-		float actualScore = (g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f;
+		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
+		float myActual = (g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f;
 
-		eloChange = (int)round(32.0f * (actualScore - expectedScore));
+		// Dynamic K-Factor based on current rating
+		float kFactor = 24.0f; // Standard bracket
+		if (myElo < 1200) kFactor = 40.0f;       // Fast climb for beginners
+		else if (myElo > 2000) kFactor = 16.0f;  // Highly stable for grandmasters
+
+		// True skill calculation
+		eloChange = (int)round(kFactor * (myActual - myExpected));
+		
 		myElo += eloChange;
+		if (myElo < 300) {
+			eloChange += (300 - myElo); // Adjust visual change if we hit the floor
+			myElo = 300;
+		}
 
 		steamManager.setLocalElo(myElo);
-		ofLogNotice("Elo") << "Game Over. Actual: " << actualScore << ", Expected: " << expectedScore << ", Change: " << eloChange << ", New Elo: " << myElo;
+		ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected << ", Change: " << eloChange << ", New Rating: " << myElo;
 	}
 
 	// Process any visual-only events (animations, waits)
@@ -5904,7 +5915,7 @@ void ofApp::drawMultiplayerMenu() {
 
 	// --- RIGHT COLUMN: LEADERBOARD ---
 	ofSetColor(ofColor::cyan);
-	uiFont.drawString("Global Rankings (Elo)", rightColX, listY - 20.0f * uiScale);
+	uiFont.drawString("Global Rankings (Rating)", rightColX, listY - 20.0f * uiScale);
 
 	auto leaderboard = steamManager.getLeaderboardEntries();
 
@@ -13360,13 +13371,12 @@ void ofApp::drawGame() {
 			if (localAvatarReady) localAvatarImage.draw(panel.x + 50, panel.y + 30, 100, 100);
 			drawPixelTextCentered(uiFont, steamManager.getLocalPlayerName(), panel.x + 100, panel.y + 155, 1.0f, ofColor::white);
 
-			std::string eloStr = "Elo: " + std::to_string(myElo);
+			std::string eloStr = "Rating: " + std::to_string(myElo);
 			if (eloCalculated) {
 				std::string sign = (eloChange >= 0) ? "+" : "";
 				eloStr += " (" + sign + std::to_string(eloChange) + ")";
 			}
-			ofColor eloCol = (eloChange >= 0) ? ofColor::green : ofColor::red;
-			if (eloChange == 0) eloCol = ofColor::white;
+			ofColor eloCol = (eloChange > 0) ? ofColor::green : ((eloChange < 0) ? ofColor::red : ofColor::white);
 			drawPixelTextCentered(uiFont, eloStr, panel.x + 100, panel.y + 190, 1.0f, eloCol);
 
 			// Opponent Player (Right)
@@ -13374,14 +13384,31 @@ void ofApp::drawGame() {
 			if (opponentAvatarReady) opponentAvatarImage.draw(panel.x + panelW - 150, panel.y + 30, 100, 100);
 			drawPixelTextCentered(uiFont, steamManager.getOpponentName(), panel.x + panelW - 100, panel.y + 155, 1.0f, ofColor::white);
 
-			int oppEloChange = -eloChange; // Zero sum game!
-			std::string oppEloStr = "Elo: " + std::to_string(opponentElo + oppEloChange);
+			// Calculate opponent's actual change using their own Dynamic K-Factor
+			int oppEloChange = 0;
+			if (eloCalculated) {
+				// Reconstruct pre-game Elo for accurate math
+				int myPreGameElo = myElo - eloChange;
+				float oppExpected = 1.0f / (1.0f + pow(10.0f, (myPreGameElo - opponentElo) / 400.0f));
+				float oppActual = (g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f;
+
+				float oppK = 24.0f;
+				if (opponentElo < 1200) oppK = 40.0f;
+				else if (opponentElo > 2000) oppK = 16.0f;
+
+				oppEloChange = (int)round(oppK * (oppActual - oppExpected));
+				
+				if (opponentElo + oppEloChange < 300) {
+					oppEloChange = 300 - opponentElo;
+				}
+			}
+
+			std::string oppEloStr = "Rating: " + std::to_string(opponentElo + oppEloChange);
 			if (eloCalculated) {
 				std::string sign = (oppEloChange >= 0) ? "+" : "";
 				oppEloStr += " (" + sign + std::to_string(oppEloChange) + ")";
 			}
-			ofColor oppEloCol = (oppEloChange >= 0) ? ofColor::green : ofColor::red;
-			if (oppEloChange == 0) oppEloCol = ofColor::white;
+			ofColor oppEloCol = (oppEloChange > 0) ? ofColor::green : ((oppEloChange < 0) ? ofColor::red : ofColor::white);
 			drawPixelTextCentered(uiFont, oppEloStr, panel.x + panelW - 100, panel.y + 190, 1.0f, oppEloCol);
 
 			// VS text in middle
@@ -15059,7 +15086,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (debugForceEndTurnButton.inside(x, y)) {
 			if (currentState == STATE_GAMEPLAY) {
 				endTurnLocked = false;
-				if (isMultiplayer && isCurrentPlayerLocal()) {
+				if (isMultiplayer) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
@@ -16315,8 +16342,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			// -----------------------------------------------
 
+			if (isMultiplayer && !isCurrentPlayerLocal()) {
+				return; // Ignore clicks on the opponent's turn indicator
+			}
+
 			endTurnLocked = true;
-			if (isMultiplayer && isCurrentPlayerLocal()) {
+			if (isMultiplayer) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
@@ -17593,7 +17624,7 @@ void ofApp::keyPressed(int key) {
 			return;
 		}
 		endTurnLocked = true;
-		if (isMultiplayer && isCurrentPlayerLocal()) {
+		if (isMultiplayer) {
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
@@ -17921,19 +17952,6 @@ void ofApp::startNewTurn() {
 	} catch (...) {
 		ofLogWarning("Save") << "Failed to autosave game state at turn start.";
 	}
-
-	// --- MULTIPLAYER FIX ---
-	// Clients should not locally advance the turn index except when executing
-	// a lockstep command (e.g., processing CMD_END_TURN from the host) or
-	// while processing an effect sequence that originated from the command
-	// stream. Allow advancement when `isExecutingLockstepCommand` OR
-	// `isProcessingEffect` is true.
-	if (isMultiplayer && isClient() && !isExecutingLockstepCommand && !isProcessingEffect) {
-		ofLogNotice("Turn") << "Client: Turn Ended. Awaiting host turn-start via command stream.";
-		endTurnLocked = true; // Prevent clicking button again
-		return;
-	}
-	ofLogNotice("Turn") << "Continuing with turn advancement...";
 
 	bool activePlayerDied = g_activePlayerDiedThisTurn;
 	g_activePlayerDiedThisTurn = false; // Reset the flag
