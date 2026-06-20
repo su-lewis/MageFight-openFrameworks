@@ -3458,7 +3458,7 @@ void ofApp::setup() {
 	}
 
 	// Load main menu music (data path: bin/data/Sounds/Music/...)
-	mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
+	mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.ogg");
 	mainMenuMusic.setLoop(true);
 	mainMenuMusic.setVolume(0.6f);
 	mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
