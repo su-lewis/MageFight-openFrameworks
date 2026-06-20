@@ -35913,24 +35913,28 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 
-			if (header->type == PKT_HANDSHAKE) {
+		if (header->type == PKT_HANDSHAKE) {
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
 				// 1. HOST RECEIVES CLIENT REPLY
-				// Use steamManager.isHost() here because isMultiplayer is not true yet!
+				// Use steamManager.isHost() here because isMultiplayer might not be set yet!
 				if (steamManager.isHost() && pkt->playerID == 1) {
-					opponentElo = pkt->elo;
-					currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
+					// Prevent Host from calling setupGame() multiple times if client sends duplicate ACKs
+					if (!hasReceivedHandshake) {
+						opponentElo = pkt->elo;
+						currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
 
-					ofLogNotice("Network") << "Host received Client XOR Handshake. Final Seed: " << currentMapSeed;
+						ofLogNotice("Network") << "Host received Client XOR Handshake. Final Seed: " << currentMapSeed;
 
-					isMultiplayer = true;
-					myLocalPlayerID = 0;
-					waitingForClientHandshake = false;
+						isMultiplayer = true;
+						myLocalPlayerID = 0;
+						waitingForClientHandshake = false;
+						hasReceivedHandshake = true; // Flag it!
 
-					lastReceivedSeqByPlayer[0] = 0;
-					lastReceivedSeqByPlayer[1] = 0;
-					setupGame();
+						lastReceivedSeqByPlayer[0] = 0;
+						lastReceivedSeqByPlayer[1] = 0;
+						setupGame();
+					}
 				}
 				// 2. CLIENT RECEIVES HOST REQUEST
 				else if (!steamManager.isHost() && pkt->playerID == 0) {

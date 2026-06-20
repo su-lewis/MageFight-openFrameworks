@@ -459,8 +459,10 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 							 << " | Debug Msg: " << pInfo->m_info.m_szEndDebug;
 
 		if (pInfo->m_hConn == m_hConnection) {
+			// Mark as disconnected but don't fully close - allow reconnection
 			opponentDisconnected = true;
 			m_hConnection = k_HSteamNetConnection_Invalid;
+			ofLogNotice("Steam") << "Opponent disconnected - awaiting reconnection";
 		}
 		SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
 		break;
