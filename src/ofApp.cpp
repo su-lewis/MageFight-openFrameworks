@@ -3480,200 +3480,61 @@ void ofApp::setup() {
 	// Don't play music here - let update() handle it when window is actually focused
 	// This prevents music playing during loading if window is minimized
 
-	// --- Load Player Model ---
-	if (playerModel.load("Units/Player/model.glb")) {
-		playerModel.disableMaterials();
-		// Moderate player model scale (reduced from previous change)
-		playerModel.setScale(0.0051f, 0.0051f, 0.0051f);
-		playerModel.setRotation(0, 180, 0, 0, 1);
-	}
+// --- LOAD NEW STANDARDIZED MODELS ---
+// All models are pre-scaled to 2.0 Units, centered at origin, with embedded textures.
 
-	// Load Skeleton
-	skeletonModel.load("Units/Skeleton/skeleton.fbx");
-	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
-	skeletonModel.setRotation(0, 180, 1, 0, 0);
-	skeletonModel.setRotation(1, 180, 0, 1, 0);
-	skeletonModel.setScale(0.00312f, 0.00312f, 0.00312f);
-	skeletonModel.disableMaterials();
+	auto loadModelSafe = [](ofxAssimpModelLoader& model, const std::vector<std::string>& candidates) {
+		model.setScaleNormalization(false);
+		bool loaded = false;
+		for (const auto& path : candidates) {
+			// Check standard relative paths
+			std::vector<std::string> searchPaths = {
+				path,
+				"data/" + path,
+				"bin/data/" + path
+			};
+			
+			for (const auto& sp : searchPaths) {
+				if (ofFile(sp).exists()) {
+					if (model.loadModel(sp, true)) {
+						ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
+						loaded = true;
+						break;
+					}
+				}
+			}
+			if (loaded) break;
+		}
+		
+		if (!loaded) {
+			ofLogError("Models") << "FAILED TO LOAD MODEL. Searched for:";
+			for (const auto& p : candidates) ofLogError("Models") << " - " << p;
+		}
+		model.disableMaterials();
+	};
 
-	// Diagnostic: verify skeleton assets loaded
-	ofLogNotice("Load") << "Skeleton load: meshes=" << skeletonModel.getMeshCount()
-						<< " textureAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no");
+	// Provide the subfolder paths as well as the old root paths just in case!
+	loadModelSafe(playerModel, {"Units/Player/Wizard.fbx", "Units/Wizard/Wizard.fbx", "Units/Wizard.fbx"});
+	loadModelSafe(skeletonModel, {"Units/Skeleton/Skeleton.fbx", "Units/Skeleton/skeleton.fbx", "Units/Skeleton.fbx"});
+	loadModelSafe(golemModel, {"Units/Golem/Golem.fbx", "Units/Golem/golem.fbx", "Units/Golem.fbx"});
+	loadModelSafe(wolfModel, {"Units/Wolf/Wolf.fbx", "Units/Wolf/wolf.fbx", "Units/Wolf.fbx"});
+	loadModelSafe(koboldModel, {"Units/Kobold/Kobold.fbx", "Units/Kobold/kobold.fbx", "Units/Kobold/Kobold1/Kobold1.fbx"});
+	loadModelSafe(koboldKingModel, {"Units/KoboldKing/KoboldKing.fbx", "Units/KoboldKing/koboldking.fbx", "Units/KoboldKing.fbx"});
+	loadModelSafe(hellhoundModel, {"Units/Hellhound/Hellhound.fbx", "Units/Hellhound/hellhound.fbx", "Units/Hellhound.fbx"});
+	loadModelSafe(demonModel, {"Units/Demon/Demon.fbx", "Units/Demon/demon.fbx", "Units/Demon.fbx"});
+	loadModelSafe(tortoiseModel, {"Units/Tortoise/Tortoise.fbx", "Units/Tortoise/tortoise.fbx", "Units/Tortoise.fbx"});
+	loadModelSafe(ghostModel, {"Units/Ghost/Ghost.fbx", "Units/Ghost/ghost.fbx", "Units/Ghost.fbx"});
+	loadModelSafe(wallUnitModel, {"Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx"});
+	loadModelSafe(assistantModel, {"Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx", "Units/Assistant.fbx"});
+	loadModelSafe(faerieModel, {"Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx", "Units/Faerie.fbx"});
 
-	// Load Golem
-	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
-	golemModel.setScale(0.00432f, 0.00432f, 0.00432f);
-	golemModel.disableMaterials();
-	golemModel.disableTextures();
-	// Load Golem Variants
+	// Retain dynamic Golem variant textures (since spell-logic swaps them)
 	ofLoadImage(golemTexBase, "Units/Golem/texture_base.png");
 	ofLoadImage(golemTexRock, "Units/Golem/texture_rock.png");
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
 
-	// Load Wolf (OBJ with manual texture binding)
-	if (wolfModel.load("Units/Wolf/wolf.obj")) {
-		wolfModel.disableMaterials();
-		wolfModel.disableTextures();
-		wolfModel.setScaleNormalization(false);
-
-		// Load wolf textures manually
-		ofLoadImage(wolfBodyTex, "Units/Wolf/body.png");
-		ofLoadImage(wolfFaceTex, "Units/Wolf/face.png");
-		ofLoadImage(wolfFurTex, "Units/Wolf/fur.png");
-
-		// Smooth texture filtering
-		wolfBodyTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
-		wolfFaceTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
-		wolfFurTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
-
-		ofLogNotice() << "Wolf model loaded with " << wolfModel.getMeshCount() << " meshes";
-	}
-
-	// --- Load Kobold ---
-	// Try lowercase path first (some platforms/filesystems are case-sensitive)
-	std::string koboldPath1 = "Units/kobold/kobold1/goblin_bastard.glb";
-	std::string koboldPath2 = "Units/Kobold/Kobold1/goblin_bastard.glb";
-	if (koboldModel.load(koboldPath1) || koboldModel.load(koboldPath2)) {
-		koboldModel.disableMaterials();
-		koboldModel.setRotation(0, 180, 0, 0, 1);
-		// Scale down by ~30% to make kobold visually smaller
-		koboldModel.setScale(0.00294f, 0.00294f, 0.00294f);
-		ofLogNotice("Setup") << "Kobold model loaded.";
-	} else {
-		ofLogNotice("Setup") << "Kobold model failed to load (optional). Tried: " << koboldPath1 << " and " << koboldPath2;
-	}
-
-	// --- Load Kobold King ---
-	if (koboldKingModel.load("Units/KoboldKing/goblin_king.fbx")) {
-		koboldKingModel.disableMaterials();
-		koboldKingModel.disableTextures();
-
-		// 1. Rotation: Keep the Z flip if it was needed to make it upright
-		koboldKingModel.setRotation(0, 180, 0, 0, 1);
-
-		// 2. Scale: Reduced from 0.06 to 0.0042 (Approx 1.5x size of Player)
-		// Reduce further by 15% to avoid clipping and better fit tile
-		koboldKingModel.setScale(0.0036f, 0.0036f, 0.0036f);
-
-		if (ofLoadImage(koboldKingTexture, "Units/KoboldKing/01391eaa.dds")) {
-			koboldKingTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-			ofLogNotice("Setup") << "Kobold King texture loaded.";
-		} else {
-			ofLogError("Setup") << "Failed to load Units/KoboldKing/01391eaa.dds";
-		}
-
-		ofLogNotice("Setup") << "Kobold King model loaded.";
-	}
-
-	// --- Load Hellhound ---
-	if (hellhoundModel.load("Units/Hellhound/hellhound.glb")) {
-		hellhoundModel.disableMaterials();
-
-		// FIX: Rotate -90 around X to lift face off the ground
-		hellhoundModel.setRotation(0, 90, 1, 0, 0);
-
-		// Scale: slightly reduced to better fit and sit on ground
-		hellhoundModel.setScale(0.00504f, 0.00504f, 0.00504f);
-
-		ofLogNotice("Setup") << "Hellhound model loaded.";
-	}
-
-	// --- Load Demon ---
-	if (demonModel.load("Units/Demon/demonic_horned_horror_knight.glb")) {
-		demonModel.disableMaterials();
-		// Standard GLB fix
-		demonModel.setRotation(0, 180, 0, 0, 1);
-		// Demon should be large
-		demonModel.setScale(0.0069f, 0.0069f, 0.0069f);
-		ofLogNotice("Setup") << "Demon model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load demon model.";
-	}
-
-	// --- Load Tortoise ---
-	if (tortoiseModel.load("Units/Tortoise/Turtle_Kaiju_01.fbx")) {
-		tortoiseModel.disableMaterials();
-		tortoiseModel.disableTextures();
-		// Keep tortoise scale but we'll lower its placement in-view
-		tortoiseModel.setScale(0.00306f, 0.00306f, 0.00306f);
-		// Load texture
-		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
-		tortoiseTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		ofLogNotice("Setup") << "Tortoise model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load tortoise model.";
-	}
-
-	// --- Load Ghost ---
-	if (ghostModel.load("Units/Ghost/Halloween Ghost.fbx")) {
-		ghostModel.disableMaterials();
-		ghostModel.disableTextures(); // We will bind manually
-		ghostModel.setScale(0.003f, 0.003f, 0.003f);
-		ghostModel.setRotation(0, 180, 0, 0, 1);
-
-		// Load the texture provided in the zip
-		ofLoadImage(ghostBaseTex, "Units/Ghost/Ghost_BaseColor.png");
-
-		ofLogNotice("Setup") << "Ghost model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load Ghost model.";
-	}
-
-	// --- Load Wall Unit ---
-	// Prefer the GLB model (wallman.glb) and apply the pixel-art wall texture from Board/wall.png
-	if (wallUnitModel.load("Units/Wall/wallman.glb")) {
-		// Disable embedded materials/textures so we can bind our pixel-art texture
-		wallUnitModel.disableMaterials();
-		wallUnitModel.disableTextures();
-		wallUnitModel.setScaleNormalization(false);
-		wallUnitModel.setScale(0.042f, 0.042f, 0.042f);
-		wallUnitModel.setRotation(0, 180, 0, 0, 1);
-		wallUnitModel.setRotation(1, 180, 1, 0, 0);
-
-		// Load pixel-art wall texture from Board and set nearest filtering to avoid blurring
-		ofImage tmpImg;
-		if (tmpImg.load("Board/wall.png")) {
-			wallUnitTexture.loadData(tmpImg.getPixels());
-			wallUnitTexture.generateMipmap();
-			wallUnitTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-			wallUnitTexture.setTextureWrap(GL_REPEAT, GL_REPEAT);
-		} else {
-			ofLogError("Setup") << "Failed to load Board/wall.png for wall unit.";
-		}
-
-		ofLogNotice("Setup") << "Wall Unit GLB model loaded and texture applied.";
-	} else {
-		ofLogError("Setup") << "Wall Unit model failed to load.";
-	}
-
-	// --- Load Assistant ---
-	if (assistantModel.load("Units/Assistant/free_battlemage_wizard.glb")) {
-		assistantModel.disableMaterials();
-		assistantModel.setRotation(0, 180, 0, 0, 1);
-		// Adjust scale as needed, usually GLBs need around 0.0025 to 0.0045
-		assistantModel.setScale(0.0042f, 0.0042f, 0.0042f);
-		ofLogNotice("Setup") << "Assistant model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load Assistant model.";
-	}
-
-	// --- Load Faerie ---
-	if (faerieModel.load("Units/Faerie/Highly_detailed_3D_mo_1031064951_texture.glb")) {
-		faerieModel.disableMaterials();
-		// Faerie: moderate scale (reduced from previous change)
-		faerieModel.setScale(0.00576f, 0.00576f, 0.00576f);
-		faerieModel.setRotation(0, 180, 0, 0, 1);
-		if (ofLoadImage(faerieTexture, "Units/Faerie/gltf_embedded_0.jpeg")) {
-			faerieTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-			ofLogNotice("Setup") << "Faerie texture loaded.";
-		} else {
-			ofLogError("Setup") << "Failed to load Units/Faerie/gltf_embedded_0.jpeg for faerie.";
-		}
-		ofLogNotice("Setup") << "Faerie model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load Faerie model.";
-	}
+	ofLogNotice("Setup") << "All standard 3D models loaded successfully.";
 
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
@@ -6033,6 +5894,8 @@ void ofApp::applySettings() {
 }
 //--------------------------------------------------------------
 void ofApp::allocateWorldFbo(int w, int h) {
+	if (worldFbo.isAllocated() && worldFbo.getWidth() == std::max(2, w) && worldFbo.getHeight() == std::max(2, h)) return;
+
 	// Minimal allocator to ensure world FBOs exist. Full post-processing
 	// setup is handled elsewhere; keeping this simple avoids accidental
 	// large UI code being embedded here after prior edits.
@@ -6047,6 +5910,7 @@ void ofApp::allocateWorldFbo(int w, int h) {
 	worldFbo.allocate(s);
 	// Leave additional post-processing FBO allocations as-is elsewhere
 }
+
 // Recalculate ui
 void ofApp::recalculateUI(int w, int h) {
 	// 1. Update Camera Aspect Ratio
@@ -9134,6 +8998,7 @@ void ofApp::drawGame() {
 		glEnable(GL_COLOR_MATERIAL);
 		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 		glDisable(GL_LIGHTING);
+		glDisable(GL_CULL_FACE); // Force culling OFF globally so the board meshes never vanish
 
 		// --- SHADOW DEPTH PASS (simple footprint quads) ---
 		if (shadowDepthShaderLoaded && shadowFbo.isAllocated()) {
@@ -9185,147 +9050,49 @@ void ofApp::drawGame() {
 				}
 
 				// Render the actual model geometry into the shadow map so shadows match silhouette
-				float unitFacingAngle = player.facingAngle;
 
-				// Build model matrix similar to main pass transforms
+				// Select Model
+				ofxAssimpModelLoader* currentModel = &playerModel;
+
+				if (player.inTortoiseForm) currentModel = &tortoiseModel;
+				else if (player.inGhostForm) currentModel = &ghostModel;
+				else if (player.isSkeleton) currentModel = &skeletonModel;
+				else if (player.isGolem) currentModel = &golemModel;
+				else if (player.isWolf) currentModel = &wolfModel;
+				else if (player.isHellhound) currentModel = &hellhoundModel;
+				else if (player.isDemon) currentModel = &demonModel;
+				else if (player.isKobold) currentModel = &koboldModel;
+				else if (player.isKoboldKing) currentModel = &koboldKingModel;
+				else if (player.isFaerie) currentModel = &faerieModel;
+				else if (player.isWallUnit) currentModel = &wallUnitModel;
+				else if (player.isAssistant) currentModel = &assistantModel;
+
+				// Build model matrix perfectly synced with main pass
 				glm::mat4 modelMat(1.0f);
-
 				if (player.inGhostForm) {
-					// Ghost: elevated
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f + 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(player.facingAngle + 90.0f), glm::vec3(0, 1, 0));
-				} else if (player.isSkeleton) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Raise player model slightly so it sits better above the ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.88f, 0));
-				} else if (player.isGolem) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Lower golem slightly so it sits better on the ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.88f, 0));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
-				} else if (player.isWolf) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.48f, 0));
-					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(0.0216f, 0.0216f, 0.0216f));
-				} else if (player.isHellhound) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle + 180.0f), glm::vec3(0, 1, 0));
-					// Lower hellhound a bit
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.48f, 0));
-				} else if (player.isDemon) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 4.2f, 0));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
-				} else if (player.inTortoiseForm) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Lower tortoise on-board so it sits into the ground less
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.36f, 0));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
-				} else if (player.isKobold) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.72f, 0));
-				} else if (player.isKoboldKing) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 1, 0));
-					// Lower Kobold King slightly on-board
-					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.48f, 0));
-				} else if (player.isFaerie) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Raise faerie on-board so it appears above ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 1.68f, 0));
-				} else if (player.isWallUnit) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.168f, 0));
-				} else if (player.isAssistant) {
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Raise assistant a bit so it doesn't clip into the floor
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.64f, 0));
+					float floatY = 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
+					if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
+						if (board[player.x][player.y].hasWall) floatY += 1.8f;
+					}
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, floatY, p.z));
 				} else {
-					// Default player model
-					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.12f, p.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					// Raise player model slightly so it sits better above the ground
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.88f, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.0f, p.z));
 				}
 
-				// Apply model's internal transform (scale / rotation) so shadow depth
-				// sampling matches the opaque pass geometry.
-				if (player.isSkeleton) {
-					modelMat = modelMat * skeletonModel.getModelMatrix();
-				} else if (player.isGolem) {
-					modelMat = modelMat * golemModel.getModelMatrix();
-				} else if (player.isWolf) {
-					modelMat = modelMat * wolfModel.getModelMatrix();
-				} else if (player.isHellhound) {
-					modelMat = modelMat * hellhoundModel.getModelMatrix();
-				} else if (player.isDemon) {
-					modelMat = modelMat * demonModel.getModelMatrix();
-				} else if (player.inTortoiseForm) {
-					modelMat = modelMat * tortoiseModel.getModelMatrix();
-				} else if (player.isKobold) {
-					modelMat = modelMat * koboldModel.getModelMatrix();
-				} else if (player.isKoboldKing) {
-					modelMat = modelMat * koboldKingModel.getModelMatrix();
-				} else if (player.isFaerie) {
-					modelMat = modelMat * faerieModel.getModelMatrix();
-				} else if (player.isWallUnit) {
-					modelMat = modelMat * wallUnitModel.getModelMatrix();
-				} else if (player.isAssistant) {
-					modelMat = modelMat * assistantModel.getModelMatrix();
-				} else {
-					modelMat = modelMat * playerModel.getModelMatrix();
-				}
+				modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(player.facingAngle), glm::vec3(0, 1, 0));
+				
+				// FLIP Y-AXIS AND FIX BLENDER FBX SCALE (100x too big!)
+				float modelVisualScale = 0.02f;
+				modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
+				
+				// Combine our placement matrix with the model's normalized internal matrix
+				glm::mat4 baseModelMat = modelMat * currentModel->getModelMatrix();
 
-				shadowDepthShader.setUniformMatrix4f("uModel", modelMat);
-
-				// Draw the appropriate model meshes into the depth buffer
-				if (player.isSkeleton) {
-					for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi)
-						skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isGolem) {
-					for (unsigned int mi = 0; mi < golemModel.getMeshCount(); ++mi)
-						golemModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isWolf) {
-					for (unsigned int mi = 0; mi < wolfModel.getMeshCount(); ++mi)
-						wolfModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isHellhound) {
-					for (unsigned int mi = 0; mi < hellhoundModel.getMeshCount(); ++mi)
-						hellhoundModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isDemon) {
-					for (unsigned int mi = 0; mi < demonModel.getMeshCount(); ++mi)
-						demonModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.inTortoiseForm) {
-					for (unsigned int mi = 0; mi < tortoiseModel.getMeshCount(); ++mi)
-						tortoiseModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isKobold) {
-					for (unsigned int mi = 0; mi < koboldModel.getMeshCount(); ++mi)
-						koboldModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isKoboldKing) {
-					for (unsigned int mi = 0; mi < koboldKingModel.getMeshCount(); ++mi)
-						koboldKingModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isFaerie) {
-					for (unsigned int mi = 0; mi < faerieModel.getMeshCount(); ++mi)
-						faerieModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isWallUnit) {
-					for (unsigned int mi = 0; mi < wallUnitModel.getMeshCount(); ++mi)
-						wallUnitModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else if (player.isAssistant) {
-					for (unsigned int mi = 0; mi < assistantModel.getMeshCount(); ++mi)
-						assistantModel.getMeshHelper(mi).cachedMesh.drawFaces();
-				} else {
-					for (unsigned int mi = 0; mi < playerModel.getMeshCount(); ++mi)
-						playerModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				// Draw hierarchical mesh
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					glm::mat4 meshMat = currentModel->getMeshHelper(mi).matrix;
+					shadowDepthShader.setUniformMatrix4f("uModel", baseModelMat * meshMat);
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 				}
 			}
 
@@ -9687,576 +9454,198 @@ void ofApp::drawGame() {
 
 			// Diagnostic: Log minion model/render state once when first encountered
 			{
-				int pidx = &player - &players[0];
+				int pidx = -1;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (&players[i] == &player) { pidx = (int)i; break; }
+				}
 				if (player.isMinion && renderLoggedMinions.find(player.playerID) == renderLoggedMinions.end()) {
 					renderLoggedMinions.insert(player.playerID);
 					ofLogNotice("Render") << "Minion render: idx=" << pidx << " playerID=" << player.playerID
 										  << " flags=(skeleton=" << player.isSkeleton << ", hellhound=" << player.isHellhound << ", golem=" << player.isGolem << ", kobold=" << player.isKobold << ")"
 										  << " meshes=(skeleton=" << skeletonModel.getMeshCount() << ", hellhound=" << hellhoundModel.getMeshCount() << ", golem=" << golemModel.getMeshCount() << ")"
-										  << " pbrShaderLoaded=" << pbrShaderLoaded
-										  << " skeletonTextureAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no");
+										  << " pbrShaderLoaded=" << pbrShaderLoaded;
 				}
 			}
 
 			ofColor unitTint = ofColor::white;
 			int effectiveOwner = player.isMinion ? player.ownerID : player.playerID;
 			if (effectiveOwner == 0)
-				unitTint = ofColor(255, 120, 120); // Player 1: Red
+				unitTint = ofColor(255, 60, 60); // Player 1: Strong Red
 			else if (effectiveOwner == 1)
-				unitTint = ofColor(120, 255, 120); // Player 2: Green
+				unitTint = ofColor(60, 255, 60); // Player 2: Strong Green
+
+			// --- DRAW TEAM INDICATOR RING ---
+			// This explicitly shows which team the unit is on without ruining the model's texture.
+			ofPushStyle();
+			ofNoFill();
+			ofSetLineWidth(6.0f);
+			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 200);
+			ofPushMatrix();
+			ofTranslate(pos.x, 0.05f, pos.z);
+			ofRotateXDeg(90);
+			ofDrawCircle(0, 0, TILE_SIZE * 0.4f);
+			ofPopMatrix();
+			ofPopStyle();
+
+			ofxAssimpModelLoader* currentModel = &playerModel;
+			if (player.inTortoiseForm) currentModel = &tortoiseModel;
+			else if (player.inGhostForm) currentModel = &ghostModel;
+			else if (player.isSkeleton) currentModel = &skeletonModel;
+			else if (player.isGolem) currentModel = &golemModel;
+			else if (player.isWolf) currentModel = &wolfModel;
+			else if (player.isHellhound) currentModel = &hellhoundModel;
+			else if (player.isDemon) currentModel = &demonModel;
+			else if (player.isKobold) currentModel = &koboldModel;
+			else if (player.isKoboldKing) currentModel = &koboldKingModel;
+			else if (player.isFaerie) currentModel = &faerieModel;
+			else if (player.isWallUnit) currentModel = &wallUnitModel;
+			else if (player.isAssistant) currentModel = &assistantModel;
+
+			glm::mat4 modelMat(1.0f);
+			if (player.inGhostForm) {
+				float floatY = 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
+				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
+					if (board[player.x][player.y].hasWall) floatY += 1.8f;
+				}
+				modelMat = glm::translate(modelMat, glm::vec3(pos.x, floatY, pos.z));
+			} else {
+				modelMat = glm::translate(modelMat, glm::vec3(pos.x, 0.0f, pos.z));
+			}
+			modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(player.facingAngle), glm::vec3(0, 1, 0));
+
+			// FLIP Y-AXIS AND FIX BLENDER FBX SCALE (100x too big!)
+			float modelVisualScale = 0.02f;
+			modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
 
 			ofPushMatrix();
+			ofMultMatrix(modelMat);
+// --- 2. MODEL RENDERING & GHOST FORM ---
+			ofPushStyle();
+			glDisable(GL_CULL_FACE); 
+			glEnable(GL_NORMALIZE); // CRITICAL FIX: Fixes massive GPU lag caused by scaling down the models!
 
-			// --- 2. GHOST FORM (Overrides everything) ---
 			if (player.inGhostForm) {
-				ofTranslate(pos.x, 0.12f, pos.z);
-
-				// Base floating height
-				float floatY = 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
-
-				// CHECK IF IN WALL:
-				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
-					if (board[player.x][player.y].hasWall) {
-						floatY += 1.8f;
-					}
-				}
-
-				ofTranslate(0, floatY, 0);
-
-				// FLIP FIX: Changed +270 to +90 to flip it 180 degrees
-				ofRotateYDeg(player.facingAngle + 90);
-
-				ofRotateXDeg(0);
-
-				// Enable transparency
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				ofSetColor(255, 255, 255, 160); // Pure white/transparent ghost, no team tint!
 
-				ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
-
-				// Bind Texture
-				if (ghostBaseTex.isAllocated()) ghostBaseTex.bind();
-				ghostModel.drawFaces();
-				if (ghostBaseTex.isAllocated()) ghostBaseTex.unbind();
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getModelMatrix());
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+					glBindTexture(GL_TEXTURE_2D, 0); 
+					glDisable(GL_TEXTURE_2D);
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+					glEnable(GL_TEXTURE_2D);
+					ofPopMatrix();
+				}
+				ofPopMatrix();
 
 				ofDisableBlendMode();
 				ofSetColor(255);
-			}
+			} else {
+				if (pbrShaderLoaded && enableShaders) {
+					// PBR Shader Path
+					glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
+					glm::mat4 viewMat = glm::inverse(activeCam.getGlobalTransformMatrix());
+					glm::mat4 projMat = activeCam.getProjectionMatrix();
+					glm::mat4 viewProj = projMat * viewMat;
 
-			// --- 3. STANDARD MODELS ---
-			else {
-				float unitFacingAngle = player.facingAngle;
-				ofSetColor(unitTint);
+				pbrShader.begin();
+					pbrShader.setUniform4f("uTintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Draw in true original colors
+					pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+					pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+					pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+					pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+					ofVec3f camP = activeCam.getPosition();
+					pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+					pbrShader.setUniform1i("useNormalTex", 0);
+					if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
 
-				if (player.isSkeleton) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 2.4f, 0);
-					// Defensive fallback: if the skeleton model failed to load, render a placeholder
-					if (skeletonModel.getMeshCount() == 0) {
-						ofLogError("Render") << "Skeleton model missing: drawing placeholder at (" << pos.x << "," << pos.z << ")";
-						ofPushMatrix();
-						ofTranslate(0, 0.0f, 0);
-						ofSetColor(unitTint);
-						ofDrawSphere(0.0f, 1.0f, 0.0f, 0.6f);
-						ofSetColor(255);
-						ofPopMatrix();
-					} else {
-						if (pbrShaderLoaded && enableShaders) {
-							if (debugForceUnshadedDraw) {
-								ofLogNotice("Render") << "Forcing unshaded textured skeleton draw (debugForceUnshadedDraw=true)";
-								GLint prevP = 0;
-								glGetIntegerv(GL_CURRENT_PROGRAM, &prevP);
-								glUseProgram(0);
-								if (skeletonTexture.isAllocated()) skeletonTexture.bind();
-								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
-									skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
-								}
-								if (skeletonTexture.isAllocated()) skeletonTexture.unbind();
-								GLenum _err = glGetError();
-								if (_err != GL_NO_ERROR) ofLogError("Render") << "GL error after forced unshaded skeleton draw: " << _err;
-								if (prevP) glUseProgram(prevP);
-							} else {
-								// Diagnostic: log skeleton texture and mesh info before draw
-								ofLogNotice("Render") << "Skeleton draw: meshCount=" << skeletonModel.getMeshCount()
-													  << " skeletonTexAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no")
-													  << " texSize=" << (skeletonTexture.isAllocated() ? (std::to_string(skeletonTexture.getWidth()) + "x" + std::to_string(skeletonTexture.getHeight())) : "0x0");
+					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+						glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
+						glm::mat4 finalModelMat = baseModelMat * meshMat;
+						pbrShader.setUniformMatrix4f("uModel", finalModelMat);
 
-								// Apply model's internal matrix so PBR uses the correct scale/rotation
-								ofMultMatrix(skeletonModel.getModelMatrix());
-								ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-								ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-								ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-								ofMatrix4x4 viewProj = projMat * viewMat;
-								ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-								pbrShader.begin();
-								pbrShader.setUniformMatrix4f("uModel", modelMat);
-								pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-								pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-								pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-								pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-								pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-								ofVec3f camP = activeCam.getPosition();
-								pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-								if (skeletonTexture.isAllocated()) {
-									pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
-									pbrShader.setUniform1i("useAlbedoTex", 1);
-								} else {
-									pbrShader.setUniform1i("useAlbedoTex", 0);
-								}
-								pbrShader.setUniform1i("useNormalTex", 0);
-								if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-
-								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
-									skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
-								}
-							}
-							pbrShader.end();
-						} else {
-							skeletonTexture.bind();
-							skeletonModel.drawFaces();
-							skeletonTexture.unbind();
-						}
-					}
-				} else if (player.isGolem) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 3.6f, 0);
-					ofRotateXDeg(180);
-					ofRotateYDeg(90);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(golemModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalModelMat));
 						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						if (player.minionTexture) {
+
+						if (player.isGolem && player.minionTexture && player.minionTexture->isAllocated()) {
 							pbrShader.setUniformTexture("albedoTex", *player.minionTexture, 0);
 							pbrShader.setUniform1i("useAlbedoTex", 1);
-						} else
-							pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int mi = 0; mi < golemModel.getMeshCount(); ++mi)
-							golemModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						pbrShader.end();
-						// Optional: draw an unshaded flat pass to verify mesh visibility
-						if (debugFlatSkeletonDraw) {
-							GLint prevProg2 = 0;
-							glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg2);
-							glUseProgram(0);
-							ofSetColor(255, 100, 100);
-							skeletonModel.drawFaces();
-							ofSetColor(255);
-							GLenum flatErr = glGetError();
-							if (flatErr != GL_NO_ERROR) ofLogError("Render") << "GL error after flat skeleton draw: " << flatErr;
-							glUseProgram(prevProg2);
-						}
-					} else {
-						if (player.minionTexture) player.minionTexture->bind();
-						golemModel.drawFaces();
-						if (player.minionTexture) player.minionTexture->unbind();
-					}
-				} else if (player.isWolf) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.48f, 0);
-					ofScale(0.0216f, 0.0216f, 0.0216f);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(wolfModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-							ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
-							if (tex->isAllocated()) {
-								pbrShader.setUniformTexture("albedoTex", *tex, 0);
-								pbrShader.setUniform1i("useAlbedoTex", 1);
-							} else
-								pbrShader.setUniform1i("useAlbedoTex", 0);
-							wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-						}
-						pbrShader.end();
-					} else {
-						for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-							ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
-							if (tex->isAllocated()) tex->bind();
-							wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-							if (tex->isAllocated()) tex->unbind();
-						}
-					}
-					// Draw fur layers (meshes 0..5) using fur texture with alpha blending
-					glDepthMask(GL_FALSE);
-					ofEnableAlphaBlending();
-					if (wolfFurTex.isAllocated()) wolfFurTex.bind();
-					for (unsigned int i = 0; i <= 5 && i < wolfModel.getMeshCount(); i++) {
-						wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-					}
-					if (wolfFurTex.isAllocated()) wolfFurTex.unbind();
-					ofDisableAlphaBlending();
-					glDepthMask(GL_TRUE);
-				} else if (player.isHellhound) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					// Face movement direction like other minions
-					// Hellhound's model forward is reversed; add 180 degrees
-					ofRotateYDeg(unitFacingAngle + 180.0f);
-					// Slight vertical offset so paws/mesh clear the floor
-					ofTranslate(0, 0.72f, 0);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(hellhoundModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int mi = 0; mi < hellhoundModel.getMeshCount(); ++mi)
-							hellhoundModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						pbrShader.end();
-					} else {
-						hellhoundModel.drawFaces();
-					}
-
-				} else if (player.isDemon) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 4.2f, 0);
-					ofRotateYDeg(90);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(demonModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int mi = 0; mi < demonModel.getMeshCount(); ++mi)
-							demonModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						pbrShader.end();
-					} else {
-						demonModel.drawFaces();
-					}
-				} else if (player.inTortoiseForm) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.6f, 0);
-					ofRotateXDeg(180);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(tortoiseModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						if (tortoiseTexture.isAllocated()) {
-							pbrShader.setUniformTexture("albedoTex", tortoiseTexture, 0);
+						} else if (currentModel->getMeshHelper(mi).hasTexture()) {
+							pbrShader.setUniformTexture("albedoTex", currentModel->getMeshHelper(mi).getTextureRef(), 0);
 							pbrShader.setUniform1i("useAlbedoTex", 1);
-						} else
+						} else {
 							pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int mi = 0; mi < tortoiseModel.getMeshCount(); ++mi)
-							tortoiseModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						pbrShader.end();
-					} else {
-						if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
-						tortoiseModel.drawFaces();
-						if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
+						}
+						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
-				} else if (player.isKobold) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.72f, 0);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(koboldModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int mi = 0; mi < koboldModel.getMeshCount(); ++mi)
-							koboldModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						pbrShader.end();
-					} else {
-						koboldModel.drawFaces();
+					pbrShader.end();
+			} else {
+					// FIXED FUNCTION PIPELINE PATH
+					ofSetColor(255); // CRITICAL FIX: Draw the model in its true original colors!
+					
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getModelMatrix());
+					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+						ofPushMatrix();
+						ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+
+						bool hasTex = false;
+						if (player.isGolem && player.minionTexture && player.minionTexture->isAllocated()) {
+							player.minionTexture->bind();
+							hasTex = true;
+						} else if (currentModel->getMeshHelper(mi).hasTexture()) {
+							currentModel->getMeshHelper(mi).getTextureRef().bind();
+							hasTex = true;
+						} else {
+							glBindTexture(GL_TEXTURE_2D, 0); // Binds the default safe texture
+						}
+
+						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+
+						if (hasTex) {
+							if (player.isGolem && player.minionTexture) player.minionTexture->unbind();
+							else currentModel->getMeshHelper(mi).getTextureRef().unbind();
+						}
+
+						ofPopMatrix();
 					}
+					ofPopMatrix();
 				}
-				// --- KOBOLD KING ---
-				else if (player.isKoboldKing) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofRotateYDeg(-90);
-					ofTranslate(0, TILE_SIZE * 0.72f, 0);
 
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(koboldKingModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-
-						pbrShader.begin();
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
-
-						if (koboldKingTexture.isAllocated()) {
-							pbrShader.setUniformTexture("albedoTex", koboldKingTexture, 0);
-							pbrShader.setUniform1i("useAlbedoTex", 1);
-						} else {
-							pbrShader.setUniform1i("useAlbedoTex", 0);
-						}
-
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-
-						glDisable(GL_CULL_FACE);
-						for (unsigned int mi = 0; mi < koboldKingModel.getMeshCount(); ++mi) {
-							koboldKingModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						}
-						glEnable(GL_CULL_FACE);
-
-						pbrShader.end();
-					} else {
-						ofSetColor(255);
-						bool texBound = false;
-						if (koboldKingTexture.isAllocated()) {
-							koboldKingTexture.bind();
-							texBound = true;
-						}
-
-						glDisable(GL_CULL_FACE);
-						koboldKingModel.drawFaces();
-						glEnable(GL_CULL_FACE);
-
-						if (texBound) koboldKingTexture.unbind();
+				// MAGIC WALL EFFECT GLOW
+				if (player.isMagicWallUnit) {
+					float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
+					int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
+					ofEnableBlendMode(OF_BLENDMODE_ADD);
+					ofSetColor(148, 0, 211, alpha);
+					glEnable(GL_POLYGON_OFFSET_FILL);
+					glPolygonOffset(-1.0f, -1.0f);
+					
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getModelMatrix());
+					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+						ofPushMatrix();
+						ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+						glBindTexture(GL_TEXTURE_2D, 0); // Glow shouldn't use texture
+						glDisable(GL_TEXTURE_2D);
+						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+						glEnable(GL_TEXTURE_2D);
+						ofPopMatrix();
 					}
-				} else if (player.isFaerie) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 1.2f, 0);
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(faerieModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
-						if (faerieTexture.isAllocated()) {
-							pbrShader.setUniformTexture("albedoTex", faerieTexture, 0);
-							pbrShader.setUniform1i("useAlbedoTex", 1);
-						} else {
-							pbrShader.setUniform1i("useAlbedoTex", 0);
-						}
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						faerieModel.drawFaces();
-						pbrShader.end();
-					} else {
-						if (faerieTexture.isAllocated()) faerieTexture.bind();
-						faerieModel.drawFaces();
-						if (faerieTexture.isAllocated()) faerieTexture.unbind();
-					}
-				} else if (player.isWallUnit) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, TILE_SIZE * 0.168f, 0);
+					ofPopMatrix();
 
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(wallUnitModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
-						
-						if (wallUnitTexture.isAllocated()) {
-							pbrShader.setUniformTexture("albedoTex", wallUnitTexture, 0);
-							pbrShader.setUniform1i("useAlbedoTex", 1);
-						} else {
-							pbrShader.setUniform1i("useAlbedoTex", 0);
-						}
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						wallUnitModel.drawFaces();
-						pbrShader.end();
-
-						if (player.isMagicWallUnit) {
-							float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
-							int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
-							ofEnableBlendMode(OF_BLENDMODE_ADD);
-							ofSetColor(148, 0, 211, alpha);
-							glEnable(GL_POLYGON_OFFSET_FILL);
-							glPolygonOffset(-1.0f, -1.0f);
-							wallUnitModel.drawFaces();
-							glDisable(GL_POLYGON_OFFSET_FILL);
-							ofSetColor(unitTint);
-							ofDisableBlendMode();
-						}
-					} else {
-						if (wallUnitTexture.isAllocated()) {
-							wallUnitTexture.bind();
-							glShadeModel(GL_FLAT);
-							wallUnitModel.drawFaces();
-							glShadeModel(GL_SMOOTH);
-							wallUnitTexture.unbind();
-						} else {
-							glShadeModel(GL_FLAT);
-							wallUnitModel.drawFaces();
-							glShadeModel(GL_SMOOTH);
-						}
-						if (player.isMagicWallUnit) {
-							float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
-							int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
-							ofEnableBlendMode(OF_BLENDMODE_ADD);
-							ofSetColor(148, 0, 211, alpha);
-							glEnable(GL_POLYGON_OFFSET_FILL);
-							glPolygonOffset(-1.0f, -1.0f);
-							wallUnitModel.drawFaces();
-							glDisable(GL_POLYGON_OFFSET_FILL);
-							ofSetColor(unitTint);
-							ofDisableBlendMode();
-						}
-					}
-				}
-				// --- ASSISTANT ---
-				else if (player.isAssistant) {
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 2.04f, 0);
-
-					if (pbrShaderLoaded && enableShaders) {
-						ofMultMatrix(assistantModel.getModelMatrix());
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						pbrShader.setUniform3f("uViewPos", activeCam.getPosition().x, activeCam.getPosition().y, activeCam.getPosition().z);
-						pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						assistantModel.drawFaces();
-						pbrShader.end();
-					} else {
-						ofSetColor((200 * unitTint.r) / 255, (200 * unitTint.g) / 255, (255 * unitTint.b) / 255);
-						assistantModel.drawFaces();
-						ofSetColor(unitTint);
-					}
-				} else {
-					// Default Player
-					ofTranslate(pos.x, 0.12f, pos.z);
-					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 2.4f, 0);
-					if (playerTexture.isAllocated()) playerTexture.bind();
-					playerModel.drawFaces();
-					if (playerTexture.isAllocated()) playerTexture.unbind();
+					glDisable(GL_POLYGON_OFFSET_FILL);
+					ofSetColor(unitTint);
+					ofDisableBlendMode();
 				}
 			}
-
+			glDisable(GL_NORMALIZE); // Clean up lag fix
+			glDisable(GL_CULL_FACE); 
 			ofPopMatrix();
+			ofPopStyle();
 
 			// Critical Fix: Nuke any lingering OpenGL materials/colors from custom models
 			// (like Kobold King) so they don't tint the 3D scene geometry on the next frame.
@@ -10840,19 +10229,22 @@ void ofApp::drawGame() {
 					}
 
 					if (x == highlightX && y == highlightY) {
-						// Draw pulsing golden ring around current player's unit
-						float pulseScale = 0.75f + 0.25f * sin(ofGetElapsedTimef() * 2.5f);
+						// Draw pulsing golden ring just outside the team ring
+						float pulse = (sin(ofGetElapsedTimef() * 4.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
+						float outerRadius = TILE_SIZE * (0.42f + 0.12f * pulse); // Min 0.42, Max 0.54
+						float innerRadius = TILE_SIZE * (0.40f + 0.12f * pulse); 
+						
 						ofPushMatrix();
 						ofTranslate(0, surfaceY + 0.03f, 0);
 						ofRotateXDeg(90);
 						ofNoFill();
 						ofSetLineWidth(3.5f);
 						ofSetColor(255, 215, 0, 220); // Bright gold
-						ofDrawCircle(0, 0, TILE_SIZE * (0.55f * pulseScale));
+						ofDrawCircle(0, 0, outerRadius);
 						// Inner accent ring
 						ofSetLineWidth(1.5f);
 						ofSetColor(255, 255, 150, 180); // Lighter gold
-						ofDrawCircle(0, 0, TILE_SIZE * (0.40f * pulseScale));
+						ofDrawCircle(0, 0, innerRadius);
 						ofFill();
 						ofPopMatrix();
 					}
@@ -10985,7 +10377,7 @@ void ofApp::drawGame() {
 
 		glDepthMask(GL_TRUE);
 		ofEnableLighting();
-		cam.end();
+		activeCam.end();
 
 		if (!players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			const Player & previewCaster = players[currentPlayerIndex];
@@ -16030,63 +15422,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	case STATE_GAMEPLAY: {
 
-		// Delegate placement clicks to centralized handler
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
-			ofVec2f boardPos = mouseToBoard(x, y);
-			int gx = floor(boardPos.x), gy = floor(boardPos.y);
-			handleCardTargetClick(gx, gy);
-			// Click consumed by placement flow
-			return;
-		}
-		// --- WOLF PLACEMENT LOGIC ---
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && button == OF_MOUSE_BUTTON_LEFT) {
-			ofVec2f boardPos = mouseToBoard(x, y);
-			int gx = floor(boardPos.x), gy = floor(boardPos.y);
-
-			// Validation: In bounds, Empty, Adjacent to Summoner
-			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
-					if (dist == 1) {
-
-						// --- SPAWN THE WOLF (queue SPAWN_UNIT) ---
-						wolfSummonCount++; // Increment name counter (Wolf 1, Wolf 2)
-
-						EffectOp spawnOp = {};
-						spawnOp.type = EffectOpType::SPAWN_UNIT;
-						spawnOp.data.spawnUnit.toX = gx;
-						spawnOp.data.spawnUnit.toY = gy;
-						spawnOp.data.spawnUnit.summonKind = 2; // WOLF
-						spawnOp.data.spawnUnit.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
-						spawnOp.data.spawnUnit.maxHealth = 4;
-						spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
-						spawnOp.data.spawnUnit.ap = 0;
-						spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
-						queueEffect(spawnOp);
-
-						// Visual-only placement notifications are no longer needed;
-						// clients will deterministically compute summoned minion stats locally.
-
-						// --- HANDLE LOGIC FLOW ---
-
-						if (wolfSummonStage == 1) {
-							// Wolf/kobold placement (delegated)
-							// The centralized handler will perform validation and actual placement for
-							// both `CARD_CALL_FOR_KOBOLDS` and `CARD_CALL_FOR_WOLVES`.
-							if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
-								ofVec2f boardPos = mouseToBoard(x, y);
-								int gx = floor(boardPos.x), gy = floor(boardPos.y);
-								handleCardTargetClick(gx, gy);
-								return;
-							}
-						}
-					}
-				}
-			}
-
-			// Renewed Inspiration menu input is handled exclusively in processCardStateInput.
-		}
-
 		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
 		if (currentState != STATE_GAMEPLAY) return;
 
@@ -20019,8 +19354,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					createWall.data.createWall.isMagic = wasMagic;
 					queueEffect(createWall);
 				}
-
-				EffectOp mvCaster = {};
 			} else {
 				queueFloatingTextVisual(gridToWorld(casterPos.x, casterPos.y), "Blocked!", ofColor::red);
 			}
@@ -20279,19 +19612,6 @@ void ofApp::drawActiveCardInteractionUI() {
 	}
 
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
-		float t = (menuOpenDuration > 0.0f) ? std::clamp(elapsed / menuOpenDuration, 0.0f, 1.0f) : 1.0f;
-		float ease = 1.0f - powf(1.0f - t, 3.0f);
-		scale = glm::mix(menuOpenScale, 1.0f, ease);
-		ofPushMatrix();
-		float cx = ofGetWidth() * 0.5f;
-		float cy = ofGetHeight() * 0.5f;
-		ofTranslate(cx, cy);
-		ofScale(scale, scale);
-		ofTranslate(-cx, -cy);
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		// STANDARD MENU MATH FOR ALL CARDS
 		float w = 720.0f, h = 360.0f;
 		float mx = ofGetWidth() / 2.0f - w / 2.0f;
@@ -20526,6 +19846,12 @@ void ofApp::cancelAllTargeting() {
 	wolfSummonStage = 0;
 	koboldPlacementSourceX = -1;
 	koboldPlacementSourceY = -1;
+	
+	// CRITICAL FIX: Aggressively wipe the UI so "Done" instantly clears text/glows
+	isShowingTooltip = false;
+	tooltipText = "";
+	clearHighlights();
+	calculateTargetHighlights();
 
 	// Clear additional state not covered by resetCardInteraction()
 	// Waiting/rolling flags (migrated to effect/op pipeline)
@@ -34354,7 +33680,6 @@ void ofApp::drawMinionManagerUI() {
 	for (size_t i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
 		Player & minion = players[ui.playerIndex];
-		constexpr float kMinionPreviewScaleBoost = 1.4f;
 
 		bool isLeft = ui.bounds.x < ofGetWidth() / 2.0f;
 		float topY = isLeft ? p0_minionTop : p1_minionTop;
@@ -34373,141 +33698,161 @@ void ofApp::drawMinionManagerUI() {
 		ofColor unitTint = ofColor::white;
 		int effectiveOwner = minion.isMinion ? minion.ownerID : minion.playerID;
 		if (effectiveOwner == 0)
-			unitTint = ofColor(255, 120, 120);
+			unitTint = ofColor(255, 60, 60);
 		else if (effectiveOwner == 1)
-			unitTint = ofColor(120, 255, 120);
-		ofSetColor(unitTint);
+			unitTint = ofColor(60, 255, 60);
+		
+		ofSetColor(255); // Draw in true original colors
 
 		ofPushMatrix();
 
-		// --- UNIFIED MINION MODEL SCALING ---
-		// Translate down so models sit on the floor of the FBO
-		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 100);
+	// --- UNIFIED MINION MODEL SCALING ---
+		// FIX: With normalization disabled, origin is at feet. Put the feet near the bottom of the FBO.
+		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() * 0.85f);
 
-		// Map board coordinates to FBO pixels.
-		// This single multiplier perfectly preserves their relative sizes from the board, but 50% smaller overall!
-		float uScale = 4000.0f;
+		// Scale them to ~90 pixels tall (since they are natively 2 units tall, scale by 90)
+		// AND apply the 0.02f Blender FBX fix!
+		float uScale = 90.0f * 0.02f; 
+
 		ofScale(uScale, -uScale, uScale);
+		// Removed uYOffset because feet are already natively at 0
 
-		// Add the spinning UI display angle
 		ofRotateXDeg(-15);
 		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+		
+		glDisable(GL_CULL_FACE); // Ensure inside-out models don't vanish entirely
+		glEnable(GL_NORMALIZE);  // Prevent lighting calculation lag
 
-		// --- TORTOISE FORM PREVIEW (overrides normal model) ---
-		if (minion.inTortoiseForm) {
-			ofTranslate(0, 0.6f, 0);
-			ofRotateXDeg(180);
-			ofMultMatrix(tortoiseModel.getModelMatrix());
-			if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
-			tortoiseModel.drawFaces();
-			if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
-		}
-		// --- GOLEM ---
-		else if (minion.isGolem) {
-			ofTranslate(0, 3.6f, 0);
-			ofRotateXDeg(180);
-			ofRotateYDeg(90);
-			ofMultMatrix(golemModel.getModelMatrix());
-			if (minion.minionTexture) minion.minionTexture->bind();
-			golemModel.drawFaces();
-			if (minion.minionTexture) minion.minionTexture->unbind();
-		}
-		// --- WOLF ---
-		else if (minion.isWolf) {
-			ofTranslate(0, 0.48f, 0);
-			ofScale(0.0216f, 0.0216f, 0.0216f);
-			ofMultMatrix(wolfModel.getModelMatrix());
+		ofxAssimpModelLoader* currentModel = &playerModel;
 
-			for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-				ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
-				if (tex->isAllocated()) tex->bind();
-				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-				if (tex->isAllocated()) tex->unbind();
+		if (minion.inTortoiseForm) currentModel = &tortoiseModel;
+		else if (minion.inGhostForm) currentModel = &ghostModel;
+		else if (minion.isSkeleton) currentModel = &skeletonModel;
+		else if (minion.isGolem) currentModel = &golemModel;
+		else if (minion.isWolf) currentModel = &wolfModel;
+		else if (minion.isHellhound) currentModel = &hellhoundModel;
+		else if (minion.isDemon) currentModel = &demonModel;
+		else if (minion.isKobold) currentModel = &koboldModel;
+		else if (minion.isKoboldKing) currentModel = &koboldKingModel;
+		else if (minion.isFaerie) currentModel = &faerieModel;
+		else if (minion.isWallUnit) currentModel = &wallUnitModel;
+		else if (minion.isAssistant) currentModel = &assistantModel;
+
+		if (minion.inGhostForm) {
+			ofTranslate(0, 1.2f, 0); // floating in UI
+			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
+		}
+
+		if (minion.inGhostForm) {
+			ofPushMatrix();
+			ofMultMatrix(currentModel->getModelMatrix());
+			for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+				currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+				ofPopMatrix();
 			}
+			ofPopMatrix();
+			ofDisableBlendMode();
+			ofSetColor(255);
+		} else {
+			if (pbrShaderLoaded && enableShaders) {
+				// FIX: Correct pure matrices for FBO rendering
+				glm::mat4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+				glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
+				
+				glm::mat4 viewMat = glm::mat4(1.0f); // Identity view
+				glm::mat4 projMat = ofGetCurrentMatrix(OF_MATRIX_PROJECTION);
+				glm::mat4 viewProj = projMat * viewMat;
 
-			glDepthMask(GL_FALSE);
-			ofEnableAlphaBlending();
-			if (wolfFurTex.isAllocated()) wolfFurTex.bind();
-			for (unsigned int i = 0; i <= 5; i++) {
-				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+				pbrShader.begin();
+				pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
+				pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+				// The FBO doesn't use shadows, so just mock the shadow matrices to prevent errors
+				pbrShader.setUniformMatrix4f("uLightVP", viewProj);
+				pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+				pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+				pbrShader.setUniform3f("uViewPos", 0.0f, 0.0f, 0.0f);
+				
+				pbrShader.setUniform1i("useNormalTex", 0);
+
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
+					glm::mat4 finalModelMat = baseModelMat * meshMat;
+					pbrShader.setUniformMatrix4f("uModel", finalModelMat);
+
+					glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalModelMat));
+					pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+
+					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
+						pbrShader.setUniformTexture("albedoTex", *minion.minionTexture, 0);
+						pbrShader.setUniform1i("useAlbedoTex", 1);
+					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
+						pbrShader.setUniformTexture("albedoTex", currentModel->getMeshHelper(mi).getTextureRef(), 0);
+						pbrShader.setUniform1i("useAlbedoTex", 1);
+					} else {
+						pbrShader.setUniform1i("useAlbedoTex", 0);
+					}
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+				}
+				pbrShader.end();
+		} else {
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getModelMatrix());
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+
+					bool hasTex = false;
+					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
+						minion.minionTexture->bind();
+						hasTex = true;
+					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
+						currentModel->getMeshHelper(mi).getTextureRef().bind();
+						hasTex = true;
+					} else {
+						glBindTexture(GL_TEXTURE_2D, 0); 
+					}
+
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+
+					if (hasTex) {
+						if (minion.isGolem && minion.minionTexture) minion.minionTexture->unbind();
+						else currentModel->getMeshHelper(mi).getTextureRef().unbind();
+					}
+
+					ofPopMatrix();
+				}
+				ofPopMatrix();
 			}
-			if (wolfFurTex.isAllocated()) wolfFurTex.unbind();
-			ofDisableAlphaBlending();
-			glDepthMask(GL_TRUE);
-		}
-		// --- KOBOLD KING ---
-		else if (minion.isKoboldKing) {
-			ofTranslate(0, TILE_SIZE * 0.72f, 0);
-			ofRotateYDeg(-90);
-			ofMultMatrix(koboldKingModel.getModelMatrix());
-			if (koboldKingTexture.isAllocated()) koboldKingTexture.bind();
-			koboldKingModel.drawFaces();
-			if (koboldKingTexture.isAllocated()) koboldKingTexture.unbind();
-		}
-		// --- KOBOLD ---
-		else if (minion.isKobold) {
-			ofTranslate(0, 0.72f, 0);
-			ofMultMatrix(koboldModel.getModelMatrix());
-			koboldModel.drawFaces();
-		}
-		// --- HELLHOUND ---
-		else if (minion.isHellhound) {
-			ofTranslate(0, 0.72f, 0);
-			ofRotateYDeg(180.0f);
-			ofMultMatrix(hellhoundModel.getModelMatrix());
-			hellhoundModel.drawFaces();
-		}
-		// --- DEMON ---
-		else if (minion.isDemon) {
-			ofTranslate(0, 4.2f, 0);
-			ofRotateYDeg(90);
-			ofMultMatrix(demonModel.getModelMatrix());
-			demonModel.drawFaces();
-		}
-		// --- WALL UNIT ---
-		else if (minion.isWallUnit) {
-			ofTranslate(0, TILE_SIZE * 0.168f, 0);
-			ofMultMatrix(wallUnitModel.getModelMatrix());
-			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->bind();
-			wallUnitModel.drawFaces();
-			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->unbind();
 
 			if (minion.isMagicWallUnit) {
+				float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f);
+				int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
 				ofEnableBlendMode(OF_BLENDMODE_ADD);
-				ofSetColor(148, 0, 211, 120);
+				ofSetColor(148, 0, 211, alpha);
 				glEnable(GL_POLYGON_OFFSET_FILL);
 				glPolygonOffset(-1.0f, -1.0f);
+				
 				ofPushMatrix();
-				wallUnitModel.drawFaces();
+				ofMultMatrix(currentModel->getModelMatrix());
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+					ofPopMatrix();
+				}
 				ofPopMatrix();
+
 				glDisable(GL_POLYGON_OFFSET_FILL);
 				ofSetColor(unitTint);
 				ofDisableBlendMode();
 			}
 		}
-		// --- ASSISTANT ---
-		else if (minion.isAssistant) {
-			ofTranslate(0, 2.04f, 0);
-			ofMultMatrix(assistantModel.getModelMatrix());
-			assistantModel.drawFaces();
-		}
-		// --- FAERIE ---
-		else if (minion.isFaerie) {
-			ofTranslate(0, 1.2f, 0);
-			ofMultMatrix(faerieModel.getModelMatrix());
-			if (faerieTexture.isAllocated()) faerieTexture.bind();
-			faerieModel.drawFaces();
-			if (faerieTexture.isAllocated()) faerieTexture.unbind();
-		}
-		// --- SKELETON (Default) ---
-		else {
-			ofTranslate(0, 2.4f, 0);
-			ofMultMatrix(skeletonModel.getModelMatrix());
-			if (skeletonTexture.isAllocated()) skeletonTexture.bind();
-			skeletonModel.drawFaces();
-			if (skeletonTexture.isAllocated()) skeletonTexture.unbind();
-		}
 
+		
+		glDisable(GL_NORMALIZE);
 		ofPopMatrix();
 		ofDisableDepthTest();
 
@@ -36909,8 +36254,10 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 	// to avoid overlapping units (which can happen with networked packets
 	// or edge cases). Allow if target == previous position (no-op).
 	if (!(targetX == prevX && targetY == prevY) && board[targetX][targetY].hasPlayer) {
-		ofLogWarning("Movement") << "applyMovement blocked: target (" << targetX << "," << targetY << ") is occupied; movement aborted.";
-		return;
+		if (!p.inGhostForm) {
+			ofLogWarning("Movement") << "applyMovement blocked: target (" << targetX << "," << targetY << ") is occupied; movement aborted.";
+			return;
+		}
 	}
 
 	board[prevX][prevY].hasPlayer = false;
