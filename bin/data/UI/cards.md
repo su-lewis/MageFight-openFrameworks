@@ -280,7 +280,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Hellhound** in an adjacent empty tile. It takes double Holy damage.
+- **Effect Text:** **Summon** a **Hellhound** in an adjacent empty tile. Takes double Holy damage.
 - **Deck:** 2x Slash, 2x Flame Hit, 2x Fireball, 3x Dark Shield
 - **AP:** 2d6
 - **HP:** 2d6

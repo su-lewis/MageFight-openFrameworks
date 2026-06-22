@@ -2209,40 +2209,38 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 }
 
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
-	// Set the per-card `playedThisTurn` flag on the specific instance and move it to discard.
+	// Set the per-card `playedThisTurn` flag on the specific instance and move it to the limbo played pile.
 	bool movedToDiscard = false;
 	bool shouldDiscard = (playedCard.type != CARD_FORM_OF_TORTOISE && playedCard.type != CARD_FORM_OF_GHOST);
 
-	// Case A: card still in hand at handIndex — mark it, push to discard, then erase from hand
+	// Case A: card still in hand at handIndex — mark it, push to limbo, then erase from hand
 	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
 		if (caster.hand[handIndex].type == playedCard.type && caster.hand[handIndex].value == playedCard.value) {
 			caster.hand[handIndex].playedThisTurn = true;
-			// Move the actual Card instance (with flag) to discard
-			if (shouldDiscard) caster.discardPile.push_back(caster.hand[handIndex]);
+			// Move the actual Card instance (with flag) to the temporary played pile
+			if (shouldDiscard) caster.playedCardsPile.push_back(caster.hand[handIndex]);
 			caster.hand.erase(caster.hand.begin() + handIndex); // Remove the played card from hand
 			applyReplicateCopyToHand(caster, playedCard); // Handle replication
 			movedToDiscard = true;
 		}
 	}
 
-	// Case B: card was previously placed into the temporary "played" pile — move that instance
+	// Case B: card was previously placed into the temporary "played" pile
 	if (!movedToDiscard) {
 		for (auto it = caster.playedCardsPile.begin(); it != caster.playedCardsPile.end(); ++it) {
 			if (it->type == playedCard.type && it->value == playedCard.value) {
 				it->playedThisTurn = true;
-				if (shouldDiscard) caster.discardPile.push_back(*it);
-				caster.playedCardsPile.erase(it);
 				movedToDiscard = true;
 				break;
 			}
 		}
 	}
 
-	// Case C: fallback — create a copy of the played card, mark it, and push to discard
+	// Case C: fallback — create a copy of the played card, mark it, and push to limbo
 	if (!movedToDiscard && shouldDiscard) {
 		Card copy = playedCard;
 		copy.playedThisTurn = true;
-		caster.discardPile.push_back(copy);
+		caster.playedCardsPile.push_back(copy);
 	}
 
 	interactingCardIndex = handIndex; // Update the interacting card index
@@ -6456,8 +6454,10 @@ void ofApp::prepareGameVisualState() {
 
 		float life = quakeMoving ? 1.0f : ((cameraShakeDuration > 0.0f) ? (cameraShakeTimer / cameraShakeDuration) : 0.0f);
 		if (life > 0.0f) {
-			std::uniform_real_distribution<float> off(-1.0f, 1.0f);
-			cameraShakeOffset = glm::vec3(off(visualRNG), off(visualRNG) * 0.5f, off(visualRNG)) * cameraShakeIntensity * life;
+			// Even, smooth rumble across all axes, not dependent on camera world position
+			float t = ofGetElapsedTimef() * 45.0f;
+			float intensity = std::max(0.15f, cameraShakeIntensity); // Enforce a minimum floor so it's always felt
+			cameraShakeOffset = glm::vec3(sin(t), sin(t * 1.3f) * 0.6f, cos(t * 1.1f)) * intensity * life;
 		} else {
 			cameraShakeOffset = glm::vec3(0.0f);
 		}
@@ -7191,6 +7191,258 @@ void ofApp::prepareGameVisualState() {
 
 void ofApp::updateGameLogic() {
 
+	// --- EARTHQUAKE LOGICAL UPDATE ---
+	if (isEarthquakeActive) {
+		bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
+		if (isEarthquakeAnimatingStep && !pausedForDraft) {
+			float earthquakeSpeedScale = 0.2f;
+			float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
+			float prevT = earthquakeT;
+			earthquakeT += speed;
+
+			if (prevT < 0.0001f && earthquakeT > 0.0001f) {
+				// 1. PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver)
+				int n = (int)earthquakeUnits.size();
+				std::vector<int> damageDiceCount(n, 0);
+				std::vector<glm::ivec2> currentPos(n);
+				std::vector<glm::ivec2> intendedPos(n);
+				std::vector<bool> attemptedEnter(n, false);
+				std::vector<glm::ivec2> attemptedTarget(n, glm::ivec2(-999, -999));
+				std::vector<bool> isStopped(n, false);
+
+				for (int i = 0; i < n; ++i) {
+					currentPos[i] = earthquakeUnits[i].startGrid;
+					if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
+						intendedPos[i] = currentPos[i] + earthquakeUnits[i].direction;
+						isStopped[i] = false;
+					} else {
+						intendedPos[i] = currentPos[i];
+						isStopped[i] = true;
+					}
+				}
+
+				bool newCrashFound = true;
+				int iterations = 0;
+				while (newCrashFound && iterations < 20) {
+					newCrashFound = false;
+					iterations++;
+
+					for (int i = 0; i < n; ++i) {
+						if (isStopped[i]) continue;
+						bool crashThisLoop = false;
+						glm::ivec2 target = intendedPos[i];
+
+						bool hitWall = false;
+						bool outOfBounds = (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT);
+						if (!outOfBounds) hitWall = board[target.x][target.y].hasWall;
+
+						bool isGhost = false;
+						if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+							isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
+						}
+
+						if (outOfBounds || (hitWall && !isGhost)) {
+							if (!isGhost) damageDiceCount[i]++;
+							crashThisLoop = true;
+						}
+
+						if (!crashThisLoop) {
+							for (int j = 0; j < n; ++j) {
+								if (i == j) continue;
+								if (currentPos[j] == target && isStopped[j]) {
+									damageDiceCount[i]++;
+									damageDiceCount[j]++;
+									crashThisLoop = true;
+									break;
+								}
+								if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
+									damageDiceCount[i]++;
+									crashThisLoop = true;
+									break;
+								}
+								if (intendedPos[i] == intendedPos[j]) {
+									damageDiceCount[i]++;
+									crashThisLoop = true;
+									break;
+								}
+							}
+						}
+
+						if (crashThisLoop) {
+							attemptedEnter[i] = true;
+							attemptedTarget[i] = target;
+							isStopped[i] = true;
+							intendedPos[i] = currentPos[i];
+							newCrashFound = true;
+						}
+					}
+				}
+
+				for (int i = 0; i < n; ++i) {
+					if (isStopped[i] && earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
+						earthquakeUnits[i].crashed = true;
+						earthquakeUnits[i].isMoving = false;
+						earthquakeUnits[i].tilesToMove = 0;
+						earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
+						if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
+							playerAction = NONE;
+							selectedPieceGridX = -1;
+							selectedPieceGridY = -1;
+							hoverPath.clear();
+						}
+					}
+
+					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
+						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
+						std::vector<int> rawCrash;
+						int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
+
+						int quakeDamageBase = 8;
+						int outSlot = quakeDamageBase + (i % 8);
+						currentEffectSequence.blackboard[outSlot] = crashRoll;
+
+						queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
+						if (!activeDiceRolls.empty()) {
+							int newIdx = (int)activeDiceRolls.size() - 1;
+							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
+							std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+							glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(visualRNG)), glm::vec3(0, 1, 0));
+							activeDiceRolls[newIdx].finalQuat = wobble * matchFaceToCamera(glm::vec3(0, 1, 0));
+						}
+
+						FloatingText cft;
+						cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
+						cft.worldPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
+						cft.velocity = glm::vec3(0, 0.8f, 0);
+						cft.startTime = ofGetElapsedTimef();
+						cft.duration = 0.8f;
+						cft.color = ofColor::red;
+						activeFloatingTexts.push_back(cft);
+					}
+				}
+
+				{
+					int quakeDamageBase = 8;
+					bool anyDamage = false;
+
+					if (!isProcessingEffect) beginEffectSequence();
+
+					for (int i = 0; i < n; ++i) {
+						if (damageDiceCount[i] > 0) {
+							EarthquakeDamageTarget t;
+							t.playerIndex = earthquakeUnits[i].playerIndex;
+							t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
+							t.gridX = currentPos[i].x;
+							t.gridY = currentPos[i].y;
+							t.blackboardSlot = quakeDamageBase + (i % 8);
+							t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
+							earthquakeDamageTargets.push_back(t);
+							anyDamage = true;
+						}
+					}
+					if (anyDamage) {
+						EffectOp apply = {};
+						apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
+						queueEffect(apply);
+					}
+				}
+
+				int attemptCount[BOARD_WIDTH][BOARD_HEIGHT];
+				memset(attemptCount, 0, sizeof(attemptCount));
+				for (int i = 0; i < n; ++i) {
+					if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
+						int tx = attemptedTarget[i].x;
+						int ty = attemptedTarget[i].y;
+						if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT)
+							attemptCount[tx][ty]++;
+					}
+				}
+
+				for (int i = 0; i < n; ++i) {
+					if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
+						int tx = attemptedTarget[i].x;
+						int ty = attemptedTarget[i].y;
+						if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+						if (attemptCount[tx][ty] != 1) continue;
+						for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+							if (floatingKeyInstances[k].pos.x == tx && floatingKeyInstances[k].pos.y == ty) {
+								if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+									int pid = players[earthquakeUnits[i].playerIndex].isMinion ? players[earthquakeUnits[i].playerIndex].ownerID : players[earthquakeUnits[i].playerIndex].playerID;
+									checkKeyPickupAndDraftAfterSummon(tx, ty, pid, earthquakeUnits[i].playerIndex);
+								}
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			if (earthquakeT >= 1.0f) {
+				// 2. END OF STEP
+				earthquakeT = 0.0f;
+				earthquakeStep++;
+				bool roundComplete = true;
+
+				for (auto & unit : earthquakeUnits) {
+					if (unit.crashed) {
+						unit.crashed = false;
+						unit.isMoving = false;
+						unit.tilesToMove = 0;
+					} else if (unit.isMoving) {
+						int oldX = unit.startGrid.x;
+						int oldY = unit.startGrid.y;
+						int newX = unit.nextGrid.x;
+						int newY = unit.nextGrid.y;
+
+						if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
+						if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
+
+						unit.startGrid = unit.nextGrid;
+						unit.nextGrid = unit.startGrid + unit.direction;
+						unit.tilesToMove--;
+
+						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+							players[unit.playerIndex].x = unit.startGrid.x;
+							players[unit.playerIndex].y = unit.startGrid.y;
+							int pid = players[unit.playerIndex].isMinion ? players[unit.playerIndex].ownerID : players[unit.playerIndex].playerID;
+							checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid, unit.playerIndex);
+						}
+
+						if (unit.tilesToMove > 0)
+							roundComplete = false;
+						else
+							unit.isMoving = false;
+					}
+				}
+
+				if (roundComplete) {
+					isEarthquakeActive = false;
+					for (int bx = 0; bx < BOARD_WIDTH; ++bx)
+						for (int by = 0; by < BOARD_HEIGHT; ++by)
+							board[bx][by].hasPlayer = false;
+
+					for (size_t pi = 0; pi < players.size(); ++pi) {
+						players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
+						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
+						board[players[pi].x][players[pi].y].hasPlayer = true;
+					}
+
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+					}
+					animationPath.clear();
+					currentPathIndex = 0;
+					isPlayerAnimating = false;
+					animatingPlayerIndex = -1;
+					earthquakeUnits.clear();
+					earthquakeDiceAssignCounter = 0;
+					earthquakeWaitTimer = 0.0f;
+					invalidateTargetCache();
+				}
+			}
+		}
+	}
+
 	// If a turn start was deferred while visuals played, commit it now once visuals finished.
 	if (turnStartDeferred) {
 		bool commitNow = false;
@@ -7748,230 +8000,10 @@ void ofApp::updateGameLogic() {
 
 #endif
 
-		// --- EARTHQUAKE LOGIC ---
-		// Frame-based earthquake animation: resolved deterministically in
-		// `CARD_EARTHQUAKE` + `APPLY_EARTHQUAKE`. Re-enable runtime animation
-		// so units move slowly and pass through tiles visually.
+		// --- EARTHQUAKE LOGIC (VISUALS ONLY) ---
 		if (isEarthquakeActive) {
-
 			bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
-
-			// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
-
-			// PHASE 2: ANIMATION STEP (Simultaneous Movement)
 			if (isEarthquakeAnimatingStep && !pausedForDraft) {
-				// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
-				float earthquakeSpeedScale = 0.2f;
-				// Strictly use the simulation step time, NOT the monitor frame time!
-				float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
-				earthquakeT += speed;
-
-				bool anyStillMoving = false; // Kept to silence warning, or remove it
-				(void)anyStillMoving;
-
-				// --- PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver) ---
-				if (earthquakeT <= speed) {
-					int n = (int)earthquakeUnits.size();
-
-					// 1. Setup Simulation State
-					std::vector<int> damageDiceCount(n, 0);
-					std::vector<glm::ivec2> currentPos(n);
-					std::vector<glm::ivec2> intendedPos(n);
-					// Track tiles units *attempted* to enter this step (even if they later crash and don't move)
-					std::vector<bool> attemptedEnter(n, false);
-					std::vector<glm::ivec2> attemptedTarget(n, glm::ivec2(-999, -999));
-					std::vector<bool> isStopped(n, false);
-
-					// Initialize State
-					for (int i = 0; i < n; ++i) {
-						currentPos[i] = earthquakeUnits[i].startGrid;
-						if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
-							intendedPos[i] = currentPos[i] + earthquakeUnits[i].direction;
-							isStopped[i] = false;
-						} else {
-							intendedPos[i] = currentPos[i];
-							isStopped[i] = true;
-						}
-					}
-
-					// 2. Iterative Solver
-					bool newCrashFound = true;
-					int iterations = 0;
-					while (newCrashFound && iterations < 20) {
-						newCrashFound = false;
-						iterations++;
-
-						for (int i = 0; i < n; ++i) {
-							if (isStopped[i]) continue;
-
-							bool crashThisLoop = false;
-							glm::ivec2 target = intendedPos[i];
-
-							// A. Wall / Edge Check
-							bool hitWall = false;
-							bool outOfBounds = (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT);
-							if (!outOfBounds) hitWall = board[target.x][target.y].hasWall;
-
-							// GHOST LOGIC
-							bool isGhost = false;
-							if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-								isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
-							}
-
-							if (outOfBounds || (hitWall && !isGhost)) {
-								if (!isGhost) damageDiceCount[i]++;
-								crashThisLoop = true;
-							}
-
-							// B. Unit-to-Unit Checks
-							if (!crashThisLoop) {
-								for (int j = 0; j < n; ++j) {
-									if (i == j) continue;
-									if (currentPos[j] == target && isStopped[j]) {
-										damageDiceCount[i]++;
-										damageDiceCount[j]++;
-										crashThisLoop = true;
-										break;
-									}
-									if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
-										damageDiceCount[i]++;
-										crashThisLoop = true;
-										break;
-									}
-									if (intendedPos[i] == intendedPos[j]) {
-										damageDiceCount[i]++;
-										crashThisLoop = true;
-										break;
-									}
-								}
-							}
-
-							if (crashThisLoop) {
-								// Record that this unit attempted to enter 'target' but was blocked.
-								attemptedEnter[i] = true;
-								attemptedTarget[i] = target;
-
-								isStopped[i] = true;
-								intendedPos[i] = currentPos[i];
-								newCrashFound = true;
-							}
-						}
-					}
-
-					// 3. Apply Results
-					for (int i = 0; i < n; ++i) {
-						if (isStopped[i] && earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
-							earthquakeUnits[i].crashed = true;
-							earthquakeUnits[i].isMoving = false;
-							earthquakeUnits[i].tilesToMove = 0;
-							earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
-
-							if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
-								playerAction = NONE;
-								selectedPieceGridX = -1;
-								selectedPieceGridY = -1;
-								hoverPath.clear();
-							}
-						}
-
-						if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
-							earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-
-							// Deterministically roll crash damage AT THE EXACT MOMENT OF CRASH
-							// This is fully safe and synced because this code only runs within `simulationTick()`!
-							std::vector<int> rawCrash;
-							int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
-
-							int quakeDamageBase = 8;
-							int outSlot = quakeDamageBase + (i % 8); // Guaranteed safe slot allocation
-							currentEffectSequence.blackboard[outSlot] = crashRoll; // Save for APPLY_EARTHQUAKE_DAMAGE
-							queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
-							// Attach visual metadata to last added activeDiceRoll
-							if (!activeDiceRolls.empty()) {
-								int newIdx = (int)activeDiceRolls.size() - 1;
-								activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
-								std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-								glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(visualRNG)), glm::vec3(0, 1, 0));
-								activeDiceRolls[newIdx].finalQuat = wobble * matchFaceToCamera(glm::vec3(0, 1, 0));
-							}
-
-							FloatingText cft;
-							cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
-							cft.worldPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
-							cft.velocity = glm::vec3(0, 0.8f, 0);
-							cft.startTime = ofGetElapsedTimef();
-							cft.duration = 0.8f;
-							cft.color = ofColor::red;
-							activeFloatingTexts.push_back(cft);
-						}
-					}
-
-					// After queuing per-unit crash damage dice, record targets and queue APPLY_EARTHQUAKE_DAMAGE
-					{
-						int quakeDamageBase = 8;
-						bool anyDamage = false;
-
-						// MUST CALL THIS FIRST SO BLACKBOARD IS NOT WIPED BY QUEUE_EFFECT!
-						if (!isProcessingEffect) beginEffectSequence();
-
-						for (int i = 0; i < n; ++i) {
-							if (damageDiceCount[i] > 0) {
-								EarthquakeDamageTarget t;
-								t.playerIndex = earthquakeUnits[i].playerIndex;
-								t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
-								t.gridX = currentPos[i].x;
-								t.gridY = currentPos[i].y;
-								t.blackboardSlot = quakeDamageBase + (i % 8);
-								t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
-								earthquakeDamageTargets.push_back(t);
-								anyDamage = true;
-							}
-						}
-						if (anyDamage) {
-							EffectOp apply = {};
-							apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
-							queueEffect(apply);
-						}
-					}
-
-					// If any unit attempted to enter a tile containing a key but got blocked,
-					// allow them to trigger the key pickup/draft only if a single unit
-					// attempted that same tile. If multiple units attempted the same
-					// tile (bounce scenario), do not grant the key to any of them.
-					int attemptCount[BOARD_WIDTH][BOARD_HEIGHT];
-					memset(attemptCount, 0, sizeof(attemptCount));
-					for (int i = 0; i < n; ++i) {
-						if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
-							int tx = attemptedTarget[i].x;
-							int ty = attemptedTarget[i].y;
-							if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT)
-								attemptCount[tx][ty]++;
-						}
-					}
-
-					for (int i = 0; i < n; ++i) {
-						if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
-							int tx = attemptedTarget[i].x;
-							int ty = attemptedTarget[i].y;
-							if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
-							if (attemptCount[tx][ty] != 1) continue; // skip multi-attempt bounces
-
-							// Check if a floating key exists at that position
-							for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-								if (floatingKeyInstances[k].pos.x == tx && floatingKeyInstances[k].pos.y == ty) {
-									if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-										// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
-										int pid = players[earthquakeUnits[i].playerIndex].isMinion ? players[earthquakeUnits[i].playerIndex].ownerID : players[earthquakeUnits[i].playerIndex].playerID;
-										checkKeyPickupAndDraftAfterSummon(tx, ty, pid, earthquakeUnits[i].playerIndex);
-									}
-									break; // key handled (helper erases instance)
-								}
-							}
-						}
-					}
-				}
-
-				// Update Visuals
 				for (auto & unit : earthquakeUnits) {
 					if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) continue;
 					glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
@@ -7991,76 +8023,6 @@ void ofApp::updateGameLogic() {
 					}
 				}
 
-				// --- END OF STEP ---
-				if (earthquakeT >= 1.0f) {
-					earthquakeT = 0.0f;
-					earthquakeStep++;
-					bool roundComplete = true;
-
-					for (auto & unit : earthquakeUnits) {
-						if (unit.crashed) {
-							unit.crashed = false;
-							unit.isMoving = false;
-							unit.tilesToMove = 0;
-						} else if (unit.isMoving) {
-							int oldX = unit.startGrid.x;
-							int oldY = unit.startGrid.y;
-							int newX = unit.nextGrid.x;
-							int newY = unit.nextGrid.y;
-
-							if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
-							if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
-
-							unit.startGrid = unit.nextGrid;
-							unit.nextGrid = unit.startGrid + unit.direction;
-							unit.tilesToMove--;
-
-							if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
-								players[unit.playerIndex].x = unit.startGrid.x;
-								players[unit.playerIndex].y = unit.startGrid.y;
-							}
-
-							// Check for keys at the new position and trigger draft pickup if present.
-							// Use the player's network ID so minion owners resolve to their non-minion owner.
-							if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
-								// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
-								int pid = players[unit.playerIndex].isMinion ? players[unit.playerIndex].ownerID : players[unit.playerIndex].playerID;
-								checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid, unit.playerIndex);
-							}
-
-							if (unit.tilesToMove > 0)
-								roundComplete = false;
-							else
-								unit.isMoving = false;
-						}
-					}
-
-					if (roundComplete) {
-						isEarthquakeActive = false;
-						for (int bx = 0; bx < BOARD_WIDTH; ++bx)
-							for (int by = 0; by < BOARD_HEIGHT; ++by)
-								board[bx][by].hasPlayer = false;
-
-						for (size_t pi = 0; pi < players.size(); ++pi) {
-							players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
-							players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
-							board[players[pi].x][players[pi].y].hasPlayer = true;
-						}
-
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-							playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
-						}
-						animationPath.clear();
-						currentPathIndex = 0;
-						isPlayerAnimating = false;
-						animatingPlayerIndex = -1;
-						earthquakeUnits.clear();
-						earthquakeDiceAssignCounter = 0;
-						earthquakeWaitTimer = 0.0f;
-						invalidateTargetCache();
-					}
-				}
-
 				if (currentPlayerIndex >= 0) {
 					for (auto & u : earthquakeUnits) {
 						if (u.playerIndex == currentPlayerIndex) {
@@ -8069,34 +8031,6 @@ void ofApp::updateGameLogic() {
 						}
 					}
 				}
-
-				// --- DICE RESOLUTION ---
-				for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
-					DiceRoll & roll = *it;
-					float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-					float spinDuration = 0.8f;
-
-					if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
-						roll.isFinishedVisual = true;
-						if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-							// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
-							it = activeDiceRolls.erase(it);
-							continue;
-						}
-					}
-
-					// --- NEW: Remove Damage, Range, and generic dice after 2.5 seconds ---
-					if (roll.isFinishedVisual && roll.purpose != PURPOSE_AP && roll.purpose != PURPOSE_BONUS_AP) {
-						if (elapsedTime > spinDuration + 2.5f) {
-							it = activeDiceRolls.erase(it);
-							continue;
-						}
-					}
-					// ---------------------------------------------------------------------
-
-					++it;
-				}
-				return;
 			}
 		}
 
@@ -8115,11 +8049,6 @@ void ofApp::updateGameLogic() {
 
 		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 			roll.isFinishedVisual = true;
-			if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-				// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
-				it = activeDiceRolls.erase(it);
-				continue;
-			}
 
 			// --- BUILD DICE TEXT IMMEDIATELY ---
 			bool allGroupFinished = true;
@@ -9875,8 +9804,8 @@ void ofApp::drawGame() {
 			else if (player.isWallUnit || player.isMagicWallUnit)
 				headHeight = 6.0f;
 
-			// --- NEW: Unified altitude for status effects to clear all models uniformly ---
-			float unifiedStatusHeight = 8.0f; // Raised to clear all models safely
+			// Dynamic stacking height for overhead icons so they don't overlap
+			float currentOverheadY = headHeight + 0.5f;
 
 			// 3. DRAW SHADOW
 			ofPushMatrix();
@@ -9894,7 +9823,7 @@ void ofApp::drawGame() {
 				ofPushMatrix();
 
 				float bob = sin(ofGetElapsedTimef() * 1.5f) * 0.15f;
-				ofTranslate(pos.x, unifiedStatusHeight + 0.4f + bob, pos.z);
+				ofTranslate(pos.x, currentOverheadY + 0.4f + bob, pos.z);
 
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
@@ -9930,6 +9859,8 @@ void ofApp::drawGame() {
 					}
 				}
 				ofPopMatrix();
+
+				currentOverheadY += 1.2f;
 			}
 
 			// 4. DRAW FIRE
@@ -9942,8 +9873,8 @@ void ofApp::drawGame() {
 				float wobbleX = sin(time * 8.0f) * 0.15f;
 				float wobbleZ = cos(time * 7.0f) * 0.15f;
 
-				// Center it on the unit's torso instead of hardcoding 2.5f
-				ofTranslate(pos.x + wobbleX, headHeight * 0.6f, pos.z + wobbleZ);
+				// Center it on the unit's torso
+				ofTranslate(pos.x + wobbleX, headHeight * 0.5f, pos.z + wobbleZ);
 
 				// Billboard to camera
 				glm::vec3 camPos = cam.getPosition();
@@ -9953,8 +9884,8 @@ void ofApp::drawGame() {
 				// MOVEMENT: Pulse the size rapidly
 				float pulse = 1.0f + sin(time * 16.0f) * 0.08f;
 
-				// SMALLER SPRITE: Was 4.0f, now 2.8f
-				float spriteSize = 2.8f * pulse;
+				// Scale the fire relative to the unit's height
+				float spriteSize = std::max(2.5f, headHeight * 0.55f) * pulse;
 
 				// Faster animation frame swapping
 				int fireFrame = (int)(time * 12) % 4;
@@ -9969,7 +9900,8 @@ void ofApp::drawGame() {
 			// 5. DRAW SLEEP (Zs)
 			if (player.sleepTurnsRemaining > 0) {
 				ofPushMatrix();
-				ofTranslate(pos.x, unifiedStatusHeight, pos.z);
+				ofTranslate(pos.x, currentOverheadY, pos.z);
+				currentOverheadY += 1.0f; // Increase stack for next effect
 
 				float time = ofGetElapsedTimef();
 				float slowTime = time * 0.8f;
@@ -9993,16 +9925,17 @@ void ofApp::drawGame() {
 			// 6. DRAW PARALYSIS (Swirl)
 			if (player.isParalyzed) {
 				ofPushMatrix();
-				ofTranslate(pos.x, unifiedStatusHeight - 0.5f, pos.z);
+				ofTranslate(pos.x, 0.1f, pos.z); // Start near feet
 				ofPolyline swirl;
 				float time = ofGetElapsedTimef();
-				float swirlSpeed = time * 2.0f;
-				for (int i = 0; i < 20; i++) {
-					float t = i / 20.0f;
-					float angle = (t * TWO_PI * 1.5f) + swirlSpeed;
-					float radius = 0.3f;
-					float height = t * 0.4f;
-					swirl.addVertex(cos(angle) * radius, height, sin(angle) * radius);
+				float swirlSpeed = time * 3.0f;
+				for (int i = 0; i < 40; i++) {
+					float t = i / 40.0f;
+					float angle = (t * TWO_PI * 2.0f) + swirlSpeed;
+					// Bulge in the middle of the unit
+					float radius = 0.5f + sin(t * PI) * 0.3f;
+					float swirlH = t * headHeight;
+					swirl.addVertex(cos(angle) * radius, swirlH, sin(angle) * radius);
 				}
 				ofSetColor(255, 255, 0);
 				ofSetLineWidth(2);
@@ -10014,7 +9947,9 @@ void ofApp::drawGame() {
 			// 7. DRAW POISON (Skull Icon)
 			if (player.isPoisoned) {
 				ofPushMatrix();
-				ofTranslate(pos.x, unifiedStatusHeight + 0.3f, pos.z);
+				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
+				currentOverheadY += 1.0f;
+
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
@@ -10033,8 +9968,9 @@ void ofApp::drawGame() {
 				// Calculate an animated bob offset scaled to tile size
 				float bob = sin(ofGetElapsedTimef() * 6.0f) * (TILE_SIZE * 0.05f);
 
-				// Translate to just above the unit's head height
-				ofTranslate(pos.x, headHeight + (TILE_SIZE * 0.35f) + bob, pos.z);
+				// Translate to just above the highest status effect icon
+				ofTranslate(pos.x, currentOverheadY + 0.2f + bob, pos.z);
+				currentOverheadY += 1.0f;
 
 				// Billboard to always face the active player's camera
 				glm::vec3 camPos = activeCam.getPosition();
@@ -10086,18 +10022,19 @@ void ofApp::drawGame() {
 								glm::vec3 dirWorld = nextWorld - startWorld;
 								if (glm::length(dirWorld) > 0.0001f) dirWorld = glm::normalize(dirWorld);
 								// Arrow spacing along direction (much smaller spacing so arrows are close together)
-								float stepOffset = TILE_SIZE * 0.08f;
-								// Bright yellow
-								ofColor arrowCol = ofColor(255, 235, 59);
+								float stepOffset = TILE_SIZE * 0.15f;
+								// Bright yellow with glowing additive blend
+								ofColor arrowCol = ofColor(255, 255, 59, 200);
 
 								// Draw arrows without lighting so they appear bright and unaffected by scene lights
 								ofPushStyle();
 								ofDisableLighting();
+								ofEnableBlendMode(OF_BLENDMODE_ADD);
 								for (int i = 0; i < displayedRemaining; ++i) {
 									glm::vec3 arrowPos = pos + dirWorld * ((i + 1) * stepOffset);
 									ofPushMatrix();
 									// Position slightly above head
-									ofTranslate(arrowPos.x, unifiedStatusHeight + 0.6f, arrowPos.z);
+									ofTranslate(arrowPos.x, currentOverheadY + 0.5f, arrowPos.z);
 									// Lay flat on XZ
 									ofRotateXDeg(90);
 									// Rotate based on dirWorld to point correctly
@@ -10106,14 +10043,15 @@ void ofApp::drawGame() {
 									if (eq.direction.x == -1) dirAngle = 270.0f;
 									if (eq.direction.y == 1) dirAngle = 180.0f;
 									ofRotateZDeg(dirAngle);
-									// Draw arrow
+									// Draw larger arrow
 									ofSetColor(arrowCol);
-									float w = 0.5f;
-									float h = 0.35f;
+									float w = 1.0f;
+									float h = 0.8f;
 									ofDrawTriangle(0, -h, -w / 2.0f, 0.0f, w / 2.0f, 0.0f);
 									ofDrawRectangle(-w / 10.0f, 0.0f, w / 5.0f, h);
 									ofPopMatrix();
 								}
+								ofDisableBlendMode();
 								ofPopStyle();
 								ofEnableLighting();
 							}
@@ -10741,7 +10679,7 @@ void ofApp::drawGame() {
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 					isShowingTooltip = true;
 					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = "Tortoise Form: Buffer HP";
+					tooltipText = "Transform into a Tortoise until you take 5 Health damage. Your **Defence** does not expire. Deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**. ";
 				}
 				nextY = formY + formBarHeight;
 			}
@@ -10757,7 +10695,7 @@ void ofApp::drawGame() {
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 					isShowingTooltip = true;
 					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = "Ghost Form: Immune to Physical/Piercing";
+					tooltipText = "Transform into a Ghost until you take 4 Health damage. **Immune** to Physical and Piercing damage. Gain **Regeneration**. Move freely through walls and units (cannot end turn inside). Takes double Holy damage.";
 				}
 				nextY = formY + formBarHeight;
 			}
@@ -11244,6 +11182,24 @@ void ofApp::drawGame() {
 		float p0_statusY = p0_healthY - 10 * scale - p0_totalFormsHeight; // start above the topmost form
 		float smallFontScale = quantizePixelTextScale(fontScale * 0.8f);
 
+		auto drawStatusLine = [&](const std::string & text, ofColor color, const std::string & tooltip, float x, float & y) {
+			ofRectangle box = titleFont.getStringBoundingBox(text, 0, 0);
+			float sx = x + box.x * smallFontScale;
+			float sy = y + box.y * smallFontScale;
+			float sw = box.width * smallFontScale;
+			float sh = box.height * smallFontScale;
+
+			ofRectangle hitRect(sx - 4, sy - 4, sw + 8, sh + 8);
+			if (hitRect.inside(ofGetMouseX(), ofGetMouseY())) {
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() - 25 };
+				tooltipText = tooltip;
+			}
+
+			drawPixelTextBaseline(titleFont, text, x, y, smallFontScale, color);
+			y -= (sh) + (5 * scale);
+		};
+
 		// --- NEW STATUSES ---
 
 		// Draw combined Luck (permanent + passive)
@@ -11256,37 +11212,20 @@ void ofApp::drawGame() {
 		}
 		int p0Passive = (localPlayerIndex >= 0) ? computePassiveLuck(localPlayerIndex) : 0;
 		int p0TotalLuck = localPlayer->luck + p0Passive;
-		if (p0TotalLuck > 0) {
-			string luckText = "+" + ofToString(p0TotalLuck) + " Luck";
-			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
-			drawPixelTextBaseline(titleFont, luckText, p0_statusXStart, p0_statusY, smallFontScale, ofColor::darkGreen);
-			p0_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
-		}
 
-		if (localPlayer->nextTurnAPBonus > 0) {
-			string bonusText = "+" + ofToString(localPlayer->nextTurnAPBonus) + " AP Next Turn";
-			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
-			drawPixelTextBaseline(titleFont, bonusText, p0_statusXStart, p0_statusY, smallFontScale, ofColor::green);
-			p0_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
-		}
-
-		if (localPlayer->strengthenElementsTurnsRemaining > 0) {
-			string elemText = "Elem Buff (" + ofToString(localPlayer->strengthenElementsTurnsRemaining) + ")";
-			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
-			drawPixelTextBaseline(titleFont, elemText, p0_statusXStart, p0_statusY, smallFontScale, ofColor::orange);
-			p0_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
-		}
-
-		if (localPlayer->nextTurnD10AP) {
-			string d10Text = "D10 AP";
-			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
-			drawPixelTextBaseline(titleFont, d10Text, p0_statusXStart, p0_statusY, smallFontScale, ofColor::white);
-			p0_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
-		}
-
-		// Note: 'On Fire', 'Sleeping', 'Paralyzed', 'Poison Ready', and 'Poisoned'
-		// are intentionally not shown next to the AP counter — those statuses
-		// are represented with in-world effects/icons already.
+		if (p0TotalLuck > 0) drawStatusLine("+" + ofToString(p0TotalLuck) + " Luck", ofColor::darkGreen, "Luck: Adds to dice rolls", p0_statusXStart, p0_statusY);
+		if (localPlayer->nextTurnExtraDraw) drawStatusLine("Extra Draw", ofColor::magenta, "Extra Draw: Will draw extra card(s) next turn", p0_statusXStart, p0_statusY);
+		if (localPlayer->replicateQueued) drawStatusLine("Replicate", ofColor::cyan, "Replicate: Next card played will be copied to hand", p0_statusXStart, p0_statusY);
+		if (localPlayer->nextTurnAPBonus > 0) drawStatusLine("+" + ofToString(localPlayer->nextTurnAPBonus) + " AP Next Turn", ofColor::green, "Grants extra Action Points next turn", p0_statusXStart, p0_statusY);
+		if (localPlayer->strengthenElementsTurnsRemaining > 0) drawStatusLine("Elem Buff (" + ofToString(localPlayer->strengthenElementsTurnsRemaining) + ")", ofColor::orange, "Strengthen Elements: Copies Fire/Electric cards to hand", p0_statusXStart, p0_statusY);
+		if (localPlayer->nextTurnD10AP) drawStatusLine("D10 AP", ofColor::white, "AP roll uses a d10 next turn", p0_statusXStart, p0_statusY);
+		if (localPlayer->freeKickTurns > 0) drawStatusLine("Kick: Free (" + ofToString(localPlayer->freeKickTurns) + ")", ofColor::white, "Next Kick costs 0 AP", p0_statusXStart, p0_statusY);
+		if (localPlayer->hasRegeneration) drawStatusLine("Regeneration", ofColor(220, 20, 60), "Regeneration: Heals 1 HP at the start of turn", p0_statusXStart, p0_statusY);
+		if (localPlayer->onFire) drawStatusLine("Burning", ofColor::orange, "Burning: Takes 1d6 Fire damage at the start of turn (1-2 extinguishes)", p0_statusXStart, p0_statusY);
+		if (localPlayer->isPoisoned) drawStatusLine("Poisoned", ofColor::green, "Poisoned: Takes 1d6 Poison damage at start of turn (damage reduces by 1 each turn)", p0_statusXStart, p0_statusY);
+		if (localPlayer->nextAttackAddPoison) drawStatusLine("Poison Ready", ofColor::lightGreen, "Poison Ready: Next Physical/Piercing attack applies Poison", p0_statusXStart, p0_statusY);
+		if (localPlayer->isParalyzed) drawStatusLine("Paralyzed", ofColor::yellow, "Paralyzed: Must flip Heads on a coin to act (needs 2 Heads to cure)", p0_statusXStart, p0_statusY);
+		if (localPlayer->sleepTurnsRemaining > 0) drawStatusLine("Sleeping (" + ofToString(localPlayer->sleepTurnsRemaining) + ")", ofColor::cyan, "Sleeping: Skips turn. Wakes up upon taking damage or when timer expires", p0_statusXStart, p0_statusY);
 
 		/// --- Draw P1 AP Box (RIGHT - Opponent) ---
 		// Position opponent AP above their discard pile (mirrored layout)
@@ -11352,37 +11291,20 @@ void ofApp::drawGame() {
 		}
 		int p1Passive = (opponentPlayerIndex >= 0) ? computePassiveLuck(opponentPlayerIndex) : 0;
 		int p1TotalLuck = opponentPlayer->luck + p1Passive;
-		if (p1TotalLuck > 0) {
-			string luckText = "+" + ofToString(p1TotalLuck) + " Luck";
-			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
-			drawPixelTextBaseline(titleFont, luckText, p1_statusXStart, p1_statusY, smallFontScale, ofColor::darkGreen);
-			p1_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
-		}
 
-		// --- NEW STATUSES ---
-
-		if (opponentPlayer->nextTurnD10AP) {
-			string d10Text = "D10 AP";
-			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
-			drawPixelTextBaseline(titleFont, d10Text, p1_statusXStart, p1_statusY, smallFontScale, ofColor::white);
-			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
-		}
-
-		if (opponentPlayer->strengthenElementsTurnsRemaining > 0) {
-			string elemText = "Elem Buff (" + ofToString(opponentPlayer->strengthenElementsTurnsRemaining) + ")";
-			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
-			drawPixelTextBaseline(titleFont, elemText, p1_statusXStart, p1_statusY, smallFontScale, ofColor::orange);
-			p1_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
-		}
-
-		if (opponentPlayer->nextTurnAPBonus > 0) {
-			string bonusText = "+" + ofToString(opponentPlayer->nextTurnAPBonus) + " AP Next Turn";
-			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
-			drawPixelTextBaseline(titleFont, bonusText, p1_statusXStart, p1_statusY, smallFontScale, ofColor::green);
-			p1_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
-		}
-
-		// Note: see comment above — remove in-AP status texts for these effects.
+		if (p1TotalLuck > 0) drawStatusLine("+" + ofToString(p1TotalLuck) + " Luck", ofColor::darkGreen, "Luck: Adds to dice rolls", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->nextTurnExtraDraw) drawStatusLine("Extra Draw", ofColor::magenta, "Extra Draw: Will draw extra card(s) next turn", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->replicateQueued) drawStatusLine("Replicate", ofColor::cyan, "Replicate: Next card played will be copied to hand", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->nextTurnAPBonus > 0) drawStatusLine("+" + ofToString(opponentPlayer->nextTurnAPBonus) + " AP Next Turn", ofColor::green, "Grants extra Action Points next turn", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->strengthenElementsTurnsRemaining > 0) drawStatusLine("Elem Buff (" + ofToString(opponentPlayer->strengthenElementsTurnsRemaining) + ")", ofColor::orange, "Strengthen Elements: Copies Fire/Electric cards to hand", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->nextTurnD10AP) drawStatusLine("D10 AP", ofColor::white, "AP roll uses a d10 next turn", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->freeKickTurns > 0) drawStatusLine("Kick: Free (" + ofToString(opponentPlayer->freeKickTurns) + ")", ofColor::white, "Next Kick costs 0 AP", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->hasRegeneration) drawStatusLine("Regeneration", ofColor(220, 20, 60), "Regeneration: Heals 1 HP at the start of turn", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->onFire) drawStatusLine("Burning", ofColor::orange, "Burning: Takes 1d6 Fire damage at the start of turn (1-2 extinguishes)", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->isPoisoned) drawStatusLine("Poisoned", ofColor::green, "Poisoned: Takes 1d6 Poison damage at start of turn (damage reduces by 1 each turn)", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->nextAttackAddPoison) drawStatusLine("Poison Ready", ofColor::lightGreen, "Poison Ready: Next Physical/Piercing attack applies Poison", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->isParalyzed) drawStatusLine("Paralyzed", ofColor::yellow, "Paralyzed: Must flip Heads on a coin to act (needs 2 Heads to cure)", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->sleepTurnsRemaining > 0) drawStatusLine("Sleeping (" + ofToString(opponentPlayer->sleepTurnsRemaining) + ")", ofColor::cyan, "Sleeping: Skips turn. Wakes up upon taking damage or when timer expires", p1_statusXStart, p1_statusY);
 	}
 
 	// End Turn Button / Turn Indicator
@@ -13567,6 +13489,8 @@ cursor_check_done:;
 					if (up->onFire) unitStatusLines.push_back(std::string("Burning"));
 					if (up->isPoisoned) unitStatusLines.push_back(std::string("Poisoned"));
 					if (up->summonedOnTurnCycle == globalTurnCounter) unitStatusLines.push_back(std::string("Summoning Sickness"));
+					if (up->nextTurnExtraDraw) unitStatusLines.push_back(std::string("Extra Draw Ready"));
+					if (up->replicateQueued) unitStatusLines.push_back(std::string("Replicate Active"));
 
 					// Regeneration
 					if (up->hasRegeneration) unitStatusLines.push_back(std::string("Regeneration"));
@@ -16435,6 +16359,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (currentState != STATE_GAMEPLAY) return;
 
+	// --- PROCESS MENUS FIRST ---
+	// Allows victims of cards like Magic Blast to interact with their punishment menus
+	// even when it is technically the Caster's turn!
+	if (button == OF_MOUSE_BUTTON_LEFT) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+			processCardStateInput(x, y, button);
+			return;
+		}
+	}
+
 	// TURN VALIDATION: Only allow releasing if it's the local player's turn or a minion owned by the local player
 	// In singleplayer, allow releasing for the active player; only enforce in multiplayer.
 	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -16569,12 +16503,6 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 		const float dragThreshold = kHandDragStartThresholdPx;
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
-
-		// Handle menu button clicks
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-			processCardStateInput(x, y, button);
-			return;
-		}
 
 		if (draggedCardIndex != -1) {
 			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
@@ -17586,7 +17514,7 @@ void ofApp::startNewTurn() {
 				}
 			}
 			// Tortoise form: ALL defensive stats don't expire
-			if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != globalTurnCounter) {
+			if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
 				int sidx = currentPlayerIndex;
 				if (startingPlayer.block > 0) {
 					EffectOp op = {};
@@ -17633,6 +17561,7 @@ void ofApp::startNewTurn() {
 					op.data.modifyStat.deltaFromSlot = -1;
 					processEffectOp(op);
 				}
+				startingPlayer.defenseCycle = -1;
 			}
 
 			// Regeneration first
@@ -18078,7 +18007,7 @@ void ofApp::continueNewTurn() {
 
 	// --- C. DEFENSIVE STAT EXPIRATION ---
 	// Tortoise form: ALL defensive stats don't expire
-	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != globalTurnCounter) {
+	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
 		int sidx = currentPlayerIndex;
 		if (startingPlayer.block > 0) {
 			EffectOp op = {};
@@ -18125,6 +18054,7 @@ void ofApp::continueNewTurn() {
 			op.data.modifyStat.deltaFromSlot = -1;
 			processEffectOp(op);
 		}
+		startingPlayer.defenseCycle = -1;
 	}
 
 	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
@@ -19203,13 +19133,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		if (cardInteractionState != CARD_INTERACTION_STATE_MENU) return;
 	}
 
-	// Exempt Magic Blast from the hand-check because it is already discarded by the time the victim chooses
+	std::string cardName = "Unknown";
+	int cardCost = 0;
+
+	// Safe index fetching: The victim of a Magic Blast shouldn't check the Caster's hand size!
 	if (interactingCardType != CARD_MAGIC_BLAST && interactingCardType != PSEUDO_CARD_GHOST_RELOCATE) {
 		if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
+		cardName = players[currentPlayerIndex].hand[interactingCardIndex].name;
+		cardCost = players[currentPlayerIndex].hand[interactingCardIndex].cost;
+	} else {
+		if (interactingCardType == CARD_MAGIC_BLAST) cardName = "Magic Blast";
+		if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) cardName = "Ghost Relocate";
 	}
-
-	Player & caster = players[currentPlayerIndex];
-	Card & card = caster.hand[interactingCardIndex];
 
 	interactionMenuChoice = buttonId;
 
@@ -19321,7 +19256,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				cmd.params[5] = magicHandTargetTile.y;
 			}
 
-			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+			strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			if (isMultiplayer) {
 				sendInputCommand(cmd, true);
@@ -19586,9 +19521,15 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
+			// Apply Flurry of Fists multiplier
+			int mult = 1;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				mult += players[currentPlayerIndex].flurryOfFistsStacks;
+			}
+
 			int cardToAdd = (safeChoice == "x2 Punch" || safeChoice == "Punch") ? (int)CARD_PUNCH : (int)CARD_HAND_BLOCK;
 
-			for (int i = 0; i < 2; i++) {
+			for (int i = 0; i < 2 * mult; i++) {
 				EffectOp addOp = {};
 				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
 				addOp.data.addCard.targetIndex = safeTarget;
@@ -23179,33 +23120,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_EARTHQUAKE_DAMAGE: {
-		// Apply authoritative crash damage for earthquake; values are stored in blackboard slots
-		for (size_t ti = 0; ti < earthquakeDamageTargets.size(); ++ti) {
-			EarthquakeDamageTarget & t = earthquakeDamageTargets[ti];
-			if (t.playerIndex < 0) continue;
-			int slot = t.blackboardSlot;
-			if (slot < 0 || slot >= 16) continue;
-			int dmg = currentEffectSequence.blackboard[slot];
-			if (dmg <= 0) {
-				queueFloatingTextVisual(t.visualPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
-				continue;
-			}
-			int pidx = -1;
-			// Prefer stable playerID, then fall back to the original index if needed.
-			Player * target = nullptr;
-			if (t.playerID >= 0) pidx = findPlayerIndexByID(t.playerID);
-			if (pidx >= 0) target = getPlayer(pidx);
-			if (!target && t.playerIndex >= 0 && t.playerIndex < (int)players.size()) target = &players[t.playerIndex];
-			if (target) {
-				applyDamageTo(*target, dmg, DAMAGE_PHYSICAL, -1);
-			}
-		}
-		earthquakeDamageTargets.clear();
-		opComplete = true;
-		break;
-	}
-
 	case EffectOpType::APPLY_BONUS_AP: {
 		// Prefer explicit payload value; fallback to legacy blackboard slot (5).
 		int val = op.data.modifyStat.delta;
@@ -24448,7 +24362,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 5: // Block
 				target.block += delta;
 				if (delta != 0) {
-					if (delta > 0) target.defenseCycle = globalTurnCounter;
+					if (delta > 0) {
+						int expCycle = globalTurnCounter + 1;
+						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
+						target.defenseCycle = expCycle;
+					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
 					queueFloatingTextVisual(tPos, s, ofColor::gray);
 					if (delta > 0) {
@@ -24462,7 +24380,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 6: // Barrier
 				target.barrier += delta;
 				if (delta != 0) {
-					if (delta > 0) target.defenseCycle = globalTurnCounter;
+					if (delta > 0) {
+						int expCycle = globalTurnCounter + 1;
+						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
+						target.defenseCycle = expCycle;
+					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
 					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
 					if (delta > 0) {
@@ -24476,7 +24398,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 7: // HolyBlock
 				target.holyBlock += delta;
 				if (delta != 0) {
-					if (delta > 0) target.defenseCycle = globalTurnCounter;
+					if (delta > 0) {
+						int expCycle = globalTurnCounter + 1;
+						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
+						target.defenseCycle = expCycle;
+					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
 					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
 					if (delta > 0) {
@@ -24490,7 +24416,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 8: // Ward
 				target.ward += delta;
 				if (delta != 0) {
-					if (delta > 0) target.defenseCycle = globalTurnCounter;
+					if (delta > 0) {
+						int expCycle = globalTurnCounter + 1;
+						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
+						target.defenseCycle = expCycle;
+					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
 					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
 					if (delta > 0) {
@@ -24508,7 +24438,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			case 13: // Fortification
 				target.fortification += delta;
 				if (delta != 0) {
-					if (delta > 0) target.defenseCycle = globalTurnCounter;
+					if (delta > 0) {
+						int expCycle = globalTurnCounter + 1;
+						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
+						target.defenseCycle = expCycle;
+					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
 					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
 					if (delta > 0) {
@@ -24936,6 +24870,12 @@ void ofApp::queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor col
 
 	if (!isDamageNumberWithType(text)) return;
 
+	// Bypasses the visual FIFO queue during Earthquakes so damage text appears INSTANTLY
+	if (isEarthquakeActive) {
+		spawnFloatingText(pos, text, color);
+		return;
+	}
+
 	VisualEvent ev = {};
 	ev.type = VE_CUSTOM;
 	ev.startPos = pos;
@@ -25055,6 +24995,14 @@ void ofApp::updateCardStateMachine() {
 	}
 
 	if (cardPlayState == CARD_PLAY_STATE_FINISHED) {
+		// Flush limbo played cards into the real discard pile ONLY when everything is finished
+		// This guarantees cards that draw other cards won't instantly pull themselves!
+		for (auto & p : players) {
+			if (!p.playedCardsPile.empty()) {
+				p.discardPile.insert(p.discardPile.end(), p.playedCardsPile.begin(), p.playedCardsPile.end());
+				p.playedCardsPile.clear();
+			}
+		}
 		resetCardState();
 	}
 }
@@ -26876,7 +26824,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		beginEffectSequence();
 
-		triggerCameraShake(2.5f, 0.9f);
+		triggerCameraShake(1.2f, 0.9f);
 
 		currentCardOutcome.cardIndex = -1;
 		isEarthquakeActive = true;
@@ -26894,6 +26842,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			state.crashed = false;
 			state.tilesToMove = 0;
 			state.originalDistance = 0;
+			state.crashDiceLastStep = -1; // Force init
 
 			std::vector<int> rawDir;
 			int pickDir = resolveDiceRollDetailed(1, 4, rawDir);
@@ -27006,6 +26955,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		beginEffectSequence();
 
+		int koboldCount = 0;
+		for (const auto & p : players) {
+			if (p.isKobold && p.health > 0) koboldCount++;
+		}
+
 		EffectOp spawnKingOp = {};
 		spawnKingOp.type = EffectOpType::SPAWN_UNIT;
 		spawnKingOp.data.spawnUnit.toX = targetX;
@@ -27013,7 +26967,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKingOp.data.spawnUnit.summonKind = 5; // KOBOLD KING
 		spawnKingOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnKingOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnKingOp.data.spawnUnit.maxHealth = 0; // Handled dynamically by simulationTick
+		spawnKingOp.data.spawnUnit.maxHealth = koboldCount + 1; // Handled dynamically on spawn
 		spawnKingOp.data.spawnUnit.maxHealthFromSlot = -1;
 		spawnKingOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnKingOp);
@@ -29019,10 +28973,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (distGrid == 1) {
 					isPreview = true;
 
-					// 1. Special Case: Summon Magic Wall
-					// Can target empty tile OR existing normal wall to transform it
-					if (card.name == "Summon Magic Wall") {
-						if ((!board[x][y].hasWall && !board[x][y].hasPlayer) || (board[x][y].hasWall && !board[x][y].isMagicWall)) {
+					// 1. Special Case: Summon Walls
+					if (card.type == CARD_SUMMON_MAGIC_WALL || card.type == CARD_SUMMON_WALL || card.type == CARD_CREATE_WALL) {
+						if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
 							isValidTarget = true;
 						}
 					}
@@ -34741,6 +34694,33 @@ void ofApp::drawDraftScreen() {
 		float lineHeight = titleFont.getLineHeight() * scale;
 		float textSpacing = 15.0f * uiScale;
 		float currentY = startY - std::clamp(20.0f * uiScale, 15.0f, 40.0f) - lineHeight;
+
+		// --- MINI DECISION TIMER FOR OPPONENT DRAFTS ---
+		if (opponentDecisionTimerActive) {
+			float elapsed = (float)((int)(simulationFrame - opponentDecisionStartFrame));
+			float remaining = std::max(0.0f, (float)opponentDecisionDurationFrames - elapsed);
+			float pct = (opponentDecisionDurationFrames > 0) ? (remaining / (float)opponentDecisionDurationFrames) : 0.0f;
+			float barW = 240.0f * uiScale;
+			float barH = 14.0f * uiScale;
+			float barX = ofGetWidth() * 0.5f - barW * 0.5f;
+
+			// Draw timer bar
+			ofSetColor(20, 20, 30, 220 * g_menuAlphaMult);
+			ofDrawRectRounded(barX - 4.0f, currentY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+			ofSetColor(60, 60, 70, 255 * g_menuAlphaMult);
+			ofDrawRectRounded(barX, currentY, barW, barH, 4.0f);
+			ofColor fillC = ofColor::fromHsb(120 * pct, 200, 220);
+			ofSetColor(fillC.r, fillC.g, fillC.b, 255 * g_menuAlphaMult);
+			ofDrawRectRounded(barX, currentY, barW * pct, barH, 4.0f);
+
+			int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
+			std::string secsText = "Decision " + ofToString(secs) + "s";
+			ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
+			ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
+			uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, currentY - 6.0f);
+
+			currentY -= (barH + textSpacing + 12.0f * uiScale); // shift text up
+		}
 
 		float classTy = 0.0f;
 		if (!classTierText.empty()) {
