@@ -14,6 +14,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
+#include <map>
 #include <new>
 #include <nlohmann/json.hpp>
 #include <queue>
@@ -41,7 +42,8 @@ static const int MENU_GHOST_RELOCATE = 5;
 static float g_menuAlphaMult = 1.0f;
 
 // Tracks the playerID of whoever most recently damaged a unit (for Kill Credits)
-static std::unordered_map<int, int> g_lastDamagerMap;
+// FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
+static std::map<int, int> g_lastDamagerMap;
 
 static bool g_pendingShellSpike = false;
 static bool g_activePlayerDiedThisTurn = false;
@@ -2976,8 +2978,13 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	if (!minion.isMinion) return;
 
 	int drawCount = minion.isDemon ? 3 : 2;
-	if (minion.nextTurnExtraDraw && globalTurnCounter > minion.nextTurnExtraDrawSetOnCycle) {
-		drawCount++;
+
+	// FIX: Must parse the packed 32-bit integer (upper 16 = count, lower 16 = cycle)
+	int cycle = minion.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+	int count = (minion.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+
+	if (minion.nextTurnExtraDraw && globalTurnCounter > cycle) {
+		drawCount += count;
 		// DO NOT modify state here; draw execution is lockstep-driven.
 	}
 	// Queue the lockstep command only. Execution phase will perform actual draws.
@@ -4928,27 +4935,41 @@ void ofApp::update() {
 	}
 
 	// --- HARDWARE CURSOR UPDATE ---
-	if (currentCursor != previousCursor) {
-		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-		if (window) {
-			switch (currentCursor) {
-			case CURSOR_DEFAULT:
-				if (glfwArrow) glfwSetCursor(window, glfwArrow);
-				break;
-			case CURSOR_CLICK:
-				if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
-				break;
-			case CURSOR_GRAB:
-				if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
-				break;
-			case CURSOR_HOLD:
-				if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
-				break;
-			}
+	bool forceHideCursor = false;
+	if (currentState == STATE_GAMEPLAY && isCurrentPlayerLocal() && (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING)) {
+		ofVec2f bpos = mouseToBoard(ofGetMouseX(), ofGetMouseY());
+		if (floor(bpos.x) >= 0 && floor(bpos.x) < BOARD_WIDTH && floor(bpos.y) >= 0 && floor(bpos.y) < BOARD_HEIGHT) {
+			forceHideCursor = true;
 		}
-		previousCursor = currentCursor;
 	}
-}
+
+	if (forceHideCursor) {
+		ofHideCursor();
+		previousCursor = (CursorState)-1; // force hardware update when we return to standard UI
+	} else {
+		ofShowCursor();
+		if (currentCursor != previousCursor) {
+			GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+			if (window) {
+				switch (currentCursor) {
+				case CURSOR_DEFAULT:
+					if (glfwArrow) glfwSetCursor(window, glfwArrow);
+					break;
+				case CURSOR_CLICK:
+					if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
+					break;
+				case CURSOR_GRAB:
+					if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
+					break;
+				case CURSOR_HOLD:
+					if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
+					break;
+				}
+			}
+			previousCursor = currentCursor;
+		}
+	}
+} // <--- CRITICAL FIX: Closes the ofApp::update() function!
 
 // Begin an initiative-driven draft sequence for the specified winner index.
 // This ensures the deterministic ordering: Winner drafts Class 1 (2 picks), then
@@ -6754,7 +6775,7 @@ void ofApp::prepareGameVisualState() {
 					// Apply hover lift dynamically
 					float hoverLift = 0.0f;
 					bool isLocallyHovered = (isCurrentPlayerLocal() && static_cast<int>(i) == hoveredCardIndex);
-					bool isOpponentHovered = (!isCurrentPlayerLocal() && opponentHoverType == HOVER_HAND_CARD && static_cast<int>(i) == opponentHoverCardIndex);
+					bool isOpponentHovered = (!isCurrentPlayerLocal() && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && static_cast<int>(i) == opponentHoverCardIndex);
 
 					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1) {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
@@ -9411,7 +9432,7 @@ void ofApp::drawGame() {
 			bool foundEq2 = false;
 			if (isEarthquakeActive) {
 				for (const auto & eq : earthquakeUnits) {
-					if (eq.playerIndex == &player - &players[0]) {
+					if (eq.playerIndex == opaquePlayerIdx) {
 						pos = eq.visualPos;
 						foundEq2 = true;
 						break;
@@ -9958,7 +9979,8 @@ void ofApp::drawGame() {
 				float bob = sin(ofGetElapsedTimef() * 6.0f) * (TILE_SIZE * 0.05f);
 
 				// Translate to just above the highest status effect icon
-				ofTranslate(pos.x, currentOverheadY + 0.2f + bob, pos.z);
+				// Increased the base offset to ensure it floats clearly above all units
+				ofTranslate(pos.x, currentOverheadY + 2.0f + bob, pos.z);
 				currentOverheadY += 1.0f;
 
 				// Billboard to always face the active player's camera
@@ -10191,9 +10213,62 @@ void ofApp::drawGame() {
 			}
 
 			if (memchr(assistantEffectTiles, 1, sizeof(assistantEffectTiles)) != nullptr) {
-				ofColor assistantGreenColor(100, 220, 150, 170); // Lighter green for assistant effect areas
-				float avgSurfaceY = 0.0425f;
-				drawJoinedOutlines(assistantEffectTiles, assistantGreenColor, avgSurfaceY);
+				static bool cloverAttempted = false;
+				static ofImage cloverImage;
+				if (!cloverAttempted) {
+					cloverImage.load("Units/Assistant/Clover.png");
+					if (cloverImage.isAllocated()) {
+						cloverImage.setAnchorPercent(0.5f, 0.5f);
+						// Force Linear filtering so it renders smoothly before any global pixel shaders are applied
+						cloverImage.getTexture().setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+						cloverImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+					}
+					cloverAttempted = true;
+				}
+
+				if (cloverImage.isAllocated() && !disableAllGlow) {
+					ofPushStyle();
+					ofEnableDepthTest();
+					glDepthMask(GL_FALSE);
+					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+					// 75% opacity (0.75 * 255 = 191)
+					ofSetColor(255, 255, 255, 191);
+
+					// Size the clover to fit nicely inside the tile
+					float cloverSize = TILE_SIZE * 0.70f;
+
+					for (int x = 0; x < BOARD_WIDTH; x++) {
+						for (int y = 0; y < BOARD_HEIGHT; y++) {
+							if (assistantEffectTiles[x][y]) {
+								glm::vec3 worldPos = gridToWorld(x, y);
+
+								float height = 0.0425f;
+								if (board[x][y].hasWall) {
+									height = (TILE_SIZE * 0.5f) + 0.08f;
+								}
+
+								// Small breathing animation to make the clovers feel alive
+								float breathe = 1.0f + 0.05f * sin(ofGetElapsedTimef() * 2.0f + (x * 0.5f) + (y * 0.5f));
+
+								ofPushMatrix();
+								ofTranslate(worldPos.x, height, worldPos.z);
+								ofRotateXDeg(90);
+								ofScale(breathe, breathe, 1.0f);
+								cloverImage.draw(0, 0, cloverSize, cloverSize);
+								ofPopMatrix();
+							}
+						}
+					}
+
+					glDepthMask(GL_TRUE);
+					ofPopStyle();
+				} else {
+					// Fallback if the image isn't found
+					ofColor assistantGreenColor(100, 220, 150, 170);
+					float avgSurfaceY = 0.0425f;
+					drawJoinedOutlines(assistantEffectTiles, assistantGreenColor, avgSurfaceY);
+				}
 			}
 		}
 
@@ -10391,6 +10466,210 @@ void ofApp::drawGame() {
 			}
 			ofEnableLighting();
 			ofDisableDepthTest();
+		}
+
+		// --- 3D TARGETING ARROW AND PLACEMENT RING ---
+		// Rendered inside the World FBO so it gets affected by Pixel/C64 shaders!
+		if (!players.empty() && currentPlayerIndex >= 0) {
+			Player & p = players[currentPlayerIndex];
+			bool hasValidTarget = false;
+			glm::vec3 worldTarget;
+
+			bool isOverBoard = false;
+			glm::vec3 mouseWorldIntersect;
+
+			if (isCurrentPlayerLocal()) {
+				ofCamera & activeCamLocal = getActiveCamera();
+				glm::vec3 planePoint(0, 0, 0);
+				glm::vec3 planeNormal(0, 1, 0);
+				glm::vec3 rayOrigin = activeCamLocal.screenToWorld(glm::vec3(ofGetMouseX(), ofGetMouseY(), 0));
+				glm::vec3 rayDirection = activeCamLocal.screenToWorld(glm::vec3(ofGetMouseX(), ofGetMouseY(), 1)) - rayOrigin;
+				float distance;
+				if (glm::intersectRayPlane(rayOrigin, rayDirection, planePoint, planeNormal, distance)) {
+					mouseWorldIntersect = rayOrigin + rayDirection * distance;
+					float gridX = (mouseWorldIntersect.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
+					float gridY = (mouseWorldIntersect.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
+					if (floor(gridX) >= 0 && floor(gridX) < BOARD_WIDTH && floor(gridY) >= 0 && floor(gridY) < BOARD_HEIGHT) {
+						isOverBoard = true;
+					}
+				}
+			}
+
+			if (isCurrentPlayerLocal()) {
+				// Arrow strictly follows the 3D mouse intersection!
+				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && isOverBoard) {
+					worldTarget = mouseWorldIntersect;
+					hasValidTarget = true;
+				}
+			} else {
+				// Opponent's arrow securely snaps to the center of the grid tile!
+				if (static_cast<int>(opponentHoverType) == 4 && opponentHoverCardIndex != -1) {
+					int aimX = opponentHoverGridX;
+					int aimY = opponentHoverGridY;
+					if (aimX >= 0 && aimX < BOARD_WIDTH && aimY >= 0 && aimY < BOARD_HEIGHT) {
+						worldTarget = gridToWorld(aimX, aimY);
+						hasValidTarget = true;
+					}
+				}
+			}
+
+			ofPushStyle();
+			ofDisableLighting();
+			ofEnableDepthTest();
+			glDepthMask(GL_FALSE);
+			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+			if (hasValidTarget) {
+				// START FROM CURRENT UNIT INSTEAD OF CARD
+				glm::vec3 startPos = gridToWorld(p.x, p.y);
+				startPos.y += 2.0f; // Emit from the chest/waist of the unit
+
+				ofColor arrowCol = isCurrentPlayerLocal() ? ofColor(220, 30, 30, 230) : ofColor(50, 150, 255, 200);
+
+				float dist = glm::distance(startPos, worldTarget);
+				if (dist > 0.5f) {
+					glm::vec3 mid = (startPos + worldTarget) * 0.5f;
+					// Control point elevated for a smooth arc
+					glm::vec3 cp = mid + glm::vec3(0, dist * 0.40f, 0);
+
+					int segments = 40;
+					std::vector<glm::vec3> points;
+					for (int i = 0; i <= segments; i++) {
+						float t = (float)i / segments;
+						float u = 1.0f - t;
+						points.push_back((u * u) * startPos + (2.0f * u * t) * cp + (t * t) * worldTarget);
+					}
+
+					float lineWidth = 0.8f;
+					float outlineWidth = 0.2f;
+
+					ofMesh lineMeshRed;
+					ofMesh lineMeshBlack;
+					lineMeshRed.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+					lineMeshBlack.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+
+					float aw = 1.5f; // Chevron length
+					float ah = 1.2f; // Chevron width
+					float cutoffDist = aw * 0.6f;
+
+					for (size_t i = 0; i < points.size(); i++) {
+						glm::vec3 pt = points[i];
+						glm::vec3 tangent;
+
+						if (glm::distance(pt, worldTarget) < cutoffDist) {
+							tangent = glm::normalize(worldTarget - points[i > 0 ? i - 1 : 0]);
+							pt = worldTarget - tangent * cutoffDist;
+						} else if (i < points.size() - 1) {
+							tangent = glm::normalize(points[i + 1] - pt);
+						} else {
+							tangent = glm::normalize(pt - points[i - 1]);
+						}
+
+						// Calculate perpendicular right vector to lay the ribbon flat
+						glm::vec3 right = glm::normalize(glm::cross(tangent, glm::vec3(0, 1, 0)));
+						if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
+
+						float t = (float)i / segments;
+						float thicknessMult = ofLerp(0.2f, 1.0f, std::min(t * 4.0f, 1.0f));
+
+						float redHalf = (lineWidth * 0.5f) * thicknessMult;
+						float blackHalf = redHalf + outlineWidth;
+
+						lineMeshBlack.addVertex(pt + right * blackHalf);
+						lineMeshBlack.addVertex(pt - right * blackHalf);
+						lineMeshRed.addVertex(pt + right * redHalf);
+						lineMeshRed.addVertex(pt - right * redHalf);
+
+						if (glm::distance(points[i], worldTarget) < cutoffDist) break;
+					}
+
+					ofSetColor(0, 0, 0, arrowCol.a + 40);
+					lineMeshBlack.draw();
+					ofSetColor(arrowCol);
+					lineMeshRed.draw();
+
+					// Draw Chevron in 3D laying flat
+					ofPushMatrix();
+					ofTranslate(worldTarget.x, worldTarget.y, worldTarget.z);
+
+					// Rotation matrix to align the chevron with the incoming tangent
+					glm::vec3 tangentEnd = glm::normalize(worldTarget - cp);
+					glm::vec3 zAxis = tangentEnd;
+					glm::vec3 xAxis = glm::normalize(glm::cross(glm::vec3(0, 1, 0), zAxis));
+					if (glm::length(xAxis) < 0.001f) xAxis = glm::vec3(1, 0, 0);
+					glm::vec3 yAxis = glm::cross(zAxis, xAxis);
+					glm::mat4 rot(
+						xAxis.x, xAxis.y, xAxis.z, 0,
+						yAxis.x, yAxis.y, yAxis.z, 0,
+						zAxis.x, zAxis.y, zAxis.z, 0,
+						0, 0, 0, 1);
+					ofMultMatrix(rot);
+
+					float indent = aw * 0.45f;
+
+					auto drawChev = [&](float expand) {
+						ofBeginShape();
+						ofVertex(0, 0, 0); // Tip
+						ofVertex(-ah - expand, 0, -aw - expand); // Left outer corner
+						ofVertex(0, 0, -aw + indent); // Inner indent
+						ofVertex(ah + expand, 0, -aw - expand); // Right outer corner
+						ofEndShape(true);
+					};
+
+					ofSetColor(0, 0, 0, arrowCol.a + 40);
+					drawChev(outlineWidth);
+					ofSetColor(arrowCol);
+					drawChev(0.0f);
+					ofPopMatrix();
+
+					// Pulsing Cursor Ring at the tip
+					float pulseTime = ofGetElapsedTimef() * 8.0f;
+					float pulseScale = 1.0f + 0.15f * sin(pulseTime);
+
+					ofPushMatrix();
+					ofTranslate(worldTarget.x, worldTarget.y + 0.05f, worldTarget.z); // Slightly above ground
+					ofRotateXDeg(90);
+
+					ofNoFill();
+					ofSetColor(0, 0, 0, arrowCol.a);
+					ofSetLineWidth(6.0f);
+					ofDrawCircle(0, 0, 0.6f * pulseScale);
+					ofDrawCircle(0, 0, 0.15f);
+
+					ofSetColor(arrowCol);
+					ofSetLineWidth(3.0f);
+					ofDrawCircle(0, 0, 0.6f * pulseScale);
+					ofSetLineWidth(2.0f);
+					ofDrawCircle(0, 0, 0.15f);
+					ofPopMatrix();
+				}
+			}
+
+			// Draw 3D gold placement ring for wolves/kobolds
+			if (isCurrentPlayerLocal() && cardInteractionState == CARD_INTERACTION_STATE_PLACING && isOverBoard) {
+				float pulseTime = ofGetElapsedTimef() * 8.0f;
+				float pulseScale = 1.0f + 0.15f * sin(pulseTime);
+				ofColor color = ofColor(255, 200, 50, 220);
+
+				ofPushMatrix();
+				ofTranslate(mouseWorldIntersect.x, mouseWorldIntersect.y + 0.05f, mouseWorldIntersect.z);
+				ofRotateXDeg(90);
+
+				ofNoFill();
+				ofSetColor(0, 0, 0, color.a);
+				ofSetLineWidth(6.0f);
+				ofDrawCircle(0, 0, 0.6f * pulseScale);
+				ofDrawCircle(0, 0, 0.15f);
+
+				ofSetColor(color);
+				ofSetLineWidth(3.0f);
+				ofDrawCircle(0, 0, 0.6f * pulseScale);
+				ofSetLineWidth(2.0f);
+				ofDrawCircle(0, 0, 0.15f);
+				ofPopMatrix();
+			}
+
+			ofPopStyle();
 		}
 
 		glDepthMask(GL_TRUE);
@@ -11714,7 +11993,7 @@ void ofApp::drawGame() {
 				drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 				ofPopStyle();
 			}
-			if (isMultiplayer && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
+			if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
 				ofPushStyle();
 				ofNoFill();
 				const float lineW = 4.0f;
@@ -11793,89 +12072,6 @@ void ofApp::drawGame() {
 		// 3. PASS 2: Draw the "Top" card
 		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
 			drawHandCard(indexToDrawLast, true);
-		}
-	}
-
-	// --- DRAW HEARTHSTONE TARGETING ARROW ---
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & p = players[currentPlayerIndex];
-		int aimCardIndex = -1;
-		bool hasValidTarget = false;
-		glm::vec2 screenTarget;
-
-		if (isCurrentPlayerLocal()) {
-			if (draggedCardIndex != -1) {
-				aimCardIndex = draggedCardIndex;
-				screenTarget = glm::vec2(ofGetMouseX(), ofGetMouseY());
-				hasValidTarget = true;
-			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
-				aimCardIndex = interactingCardIndex;
-				screenTarget = glm::vec2(ofGetMouseX(), ofGetMouseY());
-				hasValidTarget = true;
-			}
-		} else {
-			if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex != -1) {
-				aimCardIndex = opponentHoverCardIndex;
-				int aimX = opponentHoverGridX;
-				int aimY = opponentHoverGridY;
-				if (aimX >= 0 && aimX < BOARD_WIDTH && aimY >= 0 && aimY < BOARD_HEIGHT) {
-					glm::vec3 worldTarget = gridToWorld(aimX, aimY);
-					glm::vec3 st = getActiveCamera().worldToScreen(worldTarget);
-					screenTarget = glm::vec2(st.x, st.y);
-					hasValidTarget = true;
-				}
-			}
-		}
-
-		if (aimCardIndex >= 0 && aimCardIndex < (int)p.hand.size() && hasValidTarget) {
-			float uiScale = getUIScaleFromHeight(ofGetHeight());
-			glm::vec2 startPos = p.hand[aimCardIndex].currentPos;
-			startPos.y -= (kCardPixelHeight * kHandCardVisualScale * p.hand[aimCardIndex].currentScale) * 0.5f;
-
-			auto drawHearthstoneArrow = [&](glm::vec2 start, glm::vec2 end, ofColor color, float scale) {
-				float dist = glm::distance(start, end);
-				if (dist < 10.0f * scale) return;
-
-				glm::vec2 mid = (start + end) * 0.5f;
-				glm::vec2 dir = glm::normalize(end - start);
-				glm::vec2 perp(-dir.y, dir.x);
-				if (perp.y > 0) perp *= -1.0f; // Curve upwards
-				glm::vec2 cp = mid + perp * (dist * 0.3f);
-
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(color);
-				ofSetLineWidth(8.0f * scale);
-
-				ofBeginShape();
-				int segments = 30;
-				for (int i = 0; i <= segments; i++) {
-					float t = (float)i / segments;
-					float u = 1.0f - t;
-					glm::vec2 pCurve = (u * u) * start + (2.0f * u * t) * cp + (t * t) * end;
-					ofVertex(pCurve.x, pCurve.y);
-				}
-				ofEndShape(false);
-
-				ofFill();
-				ofPushMatrix();
-				ofTranslate(end.x, end.y);
-				glm::vec2 tangent = glm::normalize(end - cp);
-				float angle = atan2(tangent.y, tangent.x);
-				ofRotateRad(angle);
-				float aw = 25.0f * scale;
-				float ah = 15.0f * scale;
-				ofDrawTriangle(0, 0, -aw, ah, -aw, -ah);
-				ofPopMatrix();
-
-				ofNoFill();
-				ofSetLineWidth(4.0f * scale);
-				ofDrawCircle(end.x, end.y, 20.0f * scale);
-				ofPopStyle();
-			};
-
-			ofColor arrowCol = isCurrentPlayerLocal() ? ofColor(255, 50, 50, 200) : ofColor(50, 150, 255, 200);
-			drawHearthstoneArrow(startPos, glm::vec2(screenTarget.x, screenTarget.y), arrowCol, uiScale);
 		}
 	}
 
@@ -12624,6 +12820,7 @@ void ofApp::drawGame() {
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
 		Card & interactionCard = players[currentPlayerIndex].hand[interactingCardIndex];
 		string msg = interactionCard.name + ": Choose target";
+
 		if (interactingCardType == CARD_TELEPORT) {
 			msg = "Teleport: Choose destination (Range: " + ofToString(interactionDiceRoll) + " ft)";
 		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
@@ -12634,7 +12831,20 @@ void ofApp::drawGame() {
 			msg = "Amnesia: Choose self or adjacent unit";
 		} else if (interactingCardType == CARD_BLOCKING_BOON) {
 			msg = "Blocking Boon (Tails): Choose an adjacent unit to lose 1 Max HP";
+		} else if (interactingCardType == CARD_DEATH) {
+			msg = "Death: Choose target";
+		} else if (interactingCardType == CARD_CHAIN_LIGHTNING) {
+			msg = "Chain Lightning: Choose first target";
+		} else if (interactingCardType == CARD_SUMMON_HELLHOUND) {
+			msg = "Summon Hellhound: Choose spawn tile";
+		} else if (interactingCardType == CARD_MAGIC_BOLT) {
+			msg = "Magic Bolt: Choose target";
+		} else if (interactingCardType == CARD_PUNCH) {
+			msg = "Punch: Choose target";
+		} else if (interactingCardType == CARD_FORM_OF_TORTOISE) {
+			msg = "Tortoise Shell Spike: Choose target";
 		}
+
 		drawInstructionText(msg);
 	}
 
@@ -13134,7 +13344,7 @@ cursor_check_done:;
 				newHoverGridX = floor(bpos.x);
 				newHoverGridY = floor(bpos.y);
 			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
-				newHoverType = HOVER_HAND_CARD;
+				newHoverType = 4; // SPECIAL HOVER STATE FOR TARGETING
 				newHoverCardIndex = interactingCardIndex;
 				ofVec2f bpos = mouseToBoard(x, y);
 				newHoverGridX = floor(bpos.x);
@@ -14609,8 +14819,25 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
-			hasUnlimitedAP = !hasUnlimitedAP;
-			// Snapshot suppressed: only sent on reconnect or desync recovery.
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "ToggleUnlimitedAP", sizeof(cmd.stringData) - 1);
+			sendInputCommand(cmd, true);
+			return;
+		}
+		if (debugUnlimitedTimeButton.inside(x, y)) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "ToggleUnlimitedTime", sizeof(cmd.stringData) - 1);
+			sendInputCommand(cmd, true);
 			return;
 		}
 		if (debugUnlimitedTimeButton.inside(x, y)) {
@@ -19058,9 +19285,14 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 	// Dispel Purge Target Acquired -> Open Status Menu
 	if (interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
-		interactionTargetIndex = targetIndex;
-		updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
-		determineStatusOptions(getPlayer(targetIndex));
+		if (targetIndex != -1) {
+			interactionTargetIndex = targetIndex;
+			updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, CARD_DISPEL);
+			determineStatusOptions(getPlayer(targetIndex));
+		} else {
+			queueFloatingTextVisual(gridToWorld(gridX, gridY), "No Target", ofColor::gray);
+			resetCardInteraction();
+		}
 		return;
 	}
 	switch (interactingCardType) {
@@ -21027,6 +21259,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// Read destination directly from packet parameters
 			glm::ivec2 dest(cmd.params[4], cmd.params[5]);
 
+			// FIX: Prevent out of bounds crash if packet data is malformed or invalid
+			if (dest.x < 0 || dest.x >= BOARD_WIDTH || dest.y < 0 || dest.y >= BOARD_HEIGHT) {
+				ofLogWarning("Lockstep") << "GHOST_RELOCATE out of bounds: " << dest.x << "," << dest.y;
+				break;
+			}
+
 			beginEffectSequence();
 			EffectOp mv = {};
 			mv.type = EffectOpType::MOVE_UNIT;
@@ -21576,6 +21814,24 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetX = cmd.params[0];
 		int targetY = cmd.params[1];
 		std::string actionName = cmd.stringData;
+
+		if (actionName == "ToggleUnlimitedAP") {
+			hasUnlimitedAP = !hasUnlimitedAP;
+			if (hasUnlimitedAP) currentAP = 99;
+			ofLogNotice("Debug") << "Unlimited AP: " << (hasUnlimitedAP ? "ON" : "OFF");
+			break;
+		}
+
+		if (actionName == "ToggleUnlimitedTime") {
+			turnTimerEnabled = !turnTimerEnabled;
+			if (turnTimerEnabled) {
+				turnStartFrame = (int)simulationFrame;
+				addGameLog("Turn timer enabled.");
+			} else {
+				addGameLog("Unlimited time enabled (turn timer disabled).");
+			}
+			break;
+		}
 
 		if (actionName == "Forfeit") {
 			ofLogNotice("Lockstep") << "Player " << cmd.playerID << " conceded.";
@@ -24003,7 +24259,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						target.deck.push_back(c);
 						// Only shuffle and show visual for main players (0, 1), not minions
 						if (!target.isMinion) {
-							if (!target.deck.empty()) { // Extra safety check to prevent animation crashes
+							if (!target.deck.empty()) { // Extra safety check to prevent double-handed crashes
 								shuffleGameVector(target.deck, tidx);
 							}
 							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
@@ -35833,7 +36089,7 @@ void ofApp::processNetworkPackets() {
 				if (!isMultiplayer) continue;
 				HoverPacket * pkt = (HoverPacket *)header;
 				int hoverTypeInt = static_cast<int>(pkt->hoverType);
-				if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_UNIT_SELECTED) {
+				if (hoverTypeInt >= 0 && hoverTypeInt <= 5) {
 					opponentHoverType = static_cast<HoverType>(hoverTypeInt);
 				}
 				opponentHoverGridX = static_cast<int>(pkt->gridX);
@@ -35856,8 +36112,8 @@ void ofApp::processNetworkPackets() {
 						players[currentPlayerIndex].y = savedPlayerY;
 					}
 				}
-				// If opponent is hovering a card, show their targeting highlights
-				else if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex >= 0) {
+				// If opponent is hovering a card OR targeting, show their targeting highlights
+				else if ((opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex >= 0) {
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
 						Player & currentPlayer = players[currentPlayerIndex];
 						if (opponentHoverCardIndex < static_cast<int>(currentPlayer.hand.size())) {
