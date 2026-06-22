@@ -6896,30 +6896,9 @@ void ofApp::prepareGameVisualState() {
 	// Reserve space above AP counters so minion panels don't overlap AP UI.
 
 	// Spawn any pending turn-start visuals requested by deterministic logic
-	if (pendingTurnStartVisuals >= 0 && pendingTurnStartVisuals < (int)players.size()) {
-		int endingIdx = pendingTurnStartVisuals;
-		Player & endingPlayer = players[endingIdx];
-		float now = ofGetElapsedTimef();
-		for (size_t i = 0; i < endingPlayer.hand.size(); ++i) {
-			Card c = endingPlayer.hand[i];
-			DrawCardAnimation anim;
-			anim.card = c;
-			anim.ownerIndex = endingIdx;
-			anim.ownerPlayerID = endingPlayer.playerID;
-			anim.pendingHandIndex = (int)i;
-			anim.startIsScreenSpace = true;
-			anim.startPos = glm::vec3(c.currentPos.x, c.currentPos.y, 0.0f);
-			anim.targetPos = glm::vec2(c.currentPos.x, c.currentPos.y);
-			anim.duration = 0.6f;
-			anim.startTime = now + (float)i * 0.04f;
-			anim.startScale = (c.currentScale > 0.0f ? c.currentScale : 1.0f);
-			anim.endScale = anim.startScale;
-			anim.currentScale = anim.startScale;
-			anim.currentAlpha = 255.0f;
-			activeDiscardCardAnimations.push_back(anim);
-		}
-		pendingTurnStartVisuals = -1;
-	}
+	// (Safely removed - animations are now spawned securely inside startNewTurn)
+	pendingTurnStartVisuals = -1;
+
 	float fontScale = scale * 1.0f;
 	ofRectangle apTextBox = titleFont.getStringBoundingBox("0 AP", 0, 0);
 	const float apRectHeight = (apTextBox.height * fontScale) + (20.0f * scale);
@@ -15881,16 +15860,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			// In multiplayer, client should always interact with their own player
-			// In single player, use currentPlayer
+			// Players can only move the currently active unit IF they own it.
 			Player * controlledPlayer = nullptr;
-			if (isMultiplayer && isClient()) {
-				// Find the player with matching playerID
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-						controlledPlayer = &players[i];
-						break;
-					}
+			if (isMultiplayer) {
+				int ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+				if (ownerID == myLocalPlayerID) {
+					controlledPlayer = &currentPlayer;
 				}
 			} else {
 				controlledPlayer = &currentPlayer;
@@ -15976,16 +15951,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
 
 						// Get the controlled player's index for AP calculations
+						// (The active unit is always the one moving, minion or player)
 						int controlledPlayerIndex = currentPlayerIndex;
-						if (isMultiplayer && isClient()) {
-							// Find the index of the controlled player
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-									controlledPlayerIndex = i;
-									break;
-								}
-							}
-						}
 
 						// Recompute available AP from any dice that have finished spinning this frame
 						int apNow = 0;
@@ -17460,12 +17427,31 @@ void ofApp::startNewTurn() {
 		ofLogNotice("Turn") << "Processing ending player: index=" << currentPlayerIndex << " playerID=" << endingPlayer.playerID;
 
 		// --- A. CLEANUP HAND & BUFFS ---
-		// Always clean up the ending player's hand so all machines see it disappear
-		// (Previously skipped for remote players, but that caused desync in opponent's view)
 		ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
-		// Spawn visual discard animations for the hand cards (visual-only)
-		// Request spawn of visual discard animations on next visual frame
-		pendingTurnStartVisuals = currentPlayerIndex;
+
+		// FIX: Spawn visual animations immediately BEFORE clearing the hand,
+		// otherwise the array is empty and the cards vanish instantly!
+		float now = ofGetElapsedTimef();
+		for (size_t i = 0; i < endingPlayer.hand.size(); ++i) {
+			Card c = endingPlayer.hand[i];
+			DrawCardAnimation anim;
+			anim.card = c;
+			anim.ownerIndex = currentPlayerIndex;
+			anim.ownerPlayerID = endingPlayer.playerID;
+			anim.pendingHandIndex = (int)i;
+			anim.startIsScreenSpace = true;
+			anim.startPos = glm::vec3(c.currentPos.x, c.currentPos.y, 0.0f);
+			anim.targetPos = glm::vec2(c.currentPos.x, c.currentPos.y);
+			anim.duration = 0.6f;
+			anim.startTime = now + (float)i * 0.04f;
+			anim.startScale = (c.currentScale > 0.0f ? c.currentScale : 1.0f);
+			anim.endScale = anim.startScale;
+			anim.currentScale = anim.startScale;
+			anim.currentAlpha = 255.0f;
+			activeDiscardCardAnimations.push_back(anim);
+		}
+
+		pendingTurnStartVisuals = -1;
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
@@ -19197,6 +19183,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	if (!isExecutingLockstepCommand) {
 		if (cardInteractionState != CARD_INTERACTION_STATE_MENU) return;
 	}
+
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return; // Safety check
 
 	std::string cardName = "Unknown";
 	int cardCost = 0;
@@ -21081,6 +21069,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_MAGIC_BLAST) {
 			beginEffectSequence();
 
+			// FIX: Prevent array-shift crash if previous target died! Use the stable player ID!
+			int safeTarget = findPlayerIndexByID(magicBlastTargetPlayerIndex);
+			if (safeTarget == -1) safeTarget = targetIndex; // Fallback if safe fetch fails
+
 			int dmgAmount = 5;
 			if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
 				int bd = players[currentPlayerIndex].hand[cardIndex].baseDamage;
@@ -21090,7 +21082,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (choice == 1) { // damage
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
-				dmgOp.data.damage.targetIndex = targetIndex;
+				dmgOp.data.damage.targetIndex = safeTarget;
 				dmgOp.data.damage.damageType = DAMAGE_MAGIC;
 				dmgOp.data.damage.fixedDamage = dmgAmount;
 				dmgOp.data.damage.damageFromSlot = -1;
@@ -21098,7 +21090,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			} else { // discard
 				EffectOp rmDeck = {};
 				rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
-				rmDeck.data.removeTopCard.targetIndex = targetIndex;
+				rmDeck.data.removeTopCard.targetIndex = safeTarget;
 				queueEffect(rmDeck);
 			}
 
@@ -23606,6 +23598,35 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_ON_FIRE_RESOLVE: {
+		int targetIdx = op.data.damage.targetIndex;
+		int appliedAmt = 0;
+		if (op.data.damage.damageFromSlot >= 0) appliedAmt = currentEffectSequence.blackboard[op.data.damage.damageFromSlot];
+		int rollResult = op.data.damage.fixedDamage; // The raw roll result
+
+		if (targetIdx >= 0 && targetIdx < (int)players.size()) {
+			Player & target = players[targetIdx];
+			if (appliedAmt > 0) {
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(appliedAmt) + " Fire", ofColor::red);
+			} else {
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-0 Fire", ofColor::gray);
+			}
+
+			// If they rolled a 1 or 2, the fire goes out naturally!
+			if (rollResult == 1 || rollResult == 2) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = targetIdx;
+				rm.data.status.statusType = STATUS_ON_FIRE;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_SLEEP_DURATION: {
 		// Sleep duration stored in blackboard slot 1
 		int dur = currentEffectSequence.blackboard[1];
@@ -23982,11 +24003,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						target.deck.push_back(c);
 						// Only shuffle and show visual for main players (0, 1), not minions
 						if (!target.isMinion) {
-							shuffleGameVector(target.deck, tidx);
+							if (!target.deck.empty()) { // Extra safety check to prevent animation crashes
+								shuffleGameVector(target.deck, tidx);
+							}
 							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
 						} else {
 							// Silent deterministic shuffle for minions
-							deterministic_shuffle_gameplay(target.deck);
+							if (!target.deck.empty()) {
+								deterministic_shuffle_gameplay(target.deck);
+							}
 						}
 						ofLogNotice("EffectQueue") << "Added card " << c.name << " to deck of player " << target.playerID;
 						break;
