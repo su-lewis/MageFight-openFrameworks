@@ -51,6 +51,9 @@ static bool g_activePlayerDiedThisTurn = false;
 static float g_mpLobbyScroll = 0.0f;
 static float g_mpLeaderboardScroll = 0.0f;
 
+static ofSoundPlayer g_gameMusic;
+static float savedGameMusicVolume = 0.0f;
+
 static bool g_isHostingLobby = false;
 static bool g_isConnectingToLobby = false;
 
@@ -821,12 +824,9 @@ static void drawPixelTextBaseline(const ofTrueTypeFont & font,
 	ofScale(s, s);
 	if (outlinePx > 0) {
 		ofSetColor(outlineColor);
-		for (int dy = -outlinePx; dy <= outlinePx; ++dy) {
-			for (int dx = -outlinePx; dx <= outlinePx; ++dx) {
-				if (dx == 0 && dy == 0) continue;
-				if (dx * dx + dy * dy > outlinePx * outlinePx) continue;
-				font.drawString(text, (float)dx / s, (float)dy / s);
-			}
+		int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
+		for (auto & off : offsets) {
+			font.drawString(text, (float)(off[0] * outlinePx) / s, (float)(off[1] * outlinePx) / s);
 		}
 	}
 	ofSetColor(fillColor);
@@ -928,17 +928,14 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 	const int r = std::max(0, outlinePx);
 	if (r > 0) {
-		for (int dy = -r; dy <= r; ++dy) {
-			for (int dx = -r; dx <= r; ++dx) {
-				if (dx == 0 && dy == 0) continue;
-				if (dx * dx + dy * dy > r * r) continue;
-				ofSetColor(outlineColor);
-				ofPushMatrix();
-				ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
-				ofScale(drawScale, drawScale);
-				font.drawString(text, 0, 0);
-				ofPopMatrix();
-			}
+		int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
+		for (auto & off : offsets) {
+			ofSetColor(outlineColor);
+			ofPushMatrix();
+			ofTranslate(txSnap + (float)(off[0] * r), tySnap + (float)(off[1] * r));
+			ofScale(drawScale, drawScale);
+			font.drawString(text, 0, 0);
+			ofPopMatrix();
 		}
 	}
 
@@ -3483,6 +3480,14 @@ void ofApp::setup() {
 	mainMenuMusic.setVolume(0.6f);
 	mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
 	ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
+
+	// Load game music
+	g_gameMusic.load("Sounds/Music/DungeonAmbience.ogg");
+	g_gameMusic.setLoop(true);
+	g_gameMusic.setVolume(0.6f);
+	g_gameMusic.setMultiPlay(false);
+	ofLogNotice("Audio") << "Game music loaded: " << (g_gameMusic.isLoaded() ? "yes" : "no");
+
 	// Initialize settings audio state to match loaded player
 	settingsMenuVolume = mainMenuMusic.getVolume();
 	// default master/sfx if not loaded from settings
@@ -4270,6 +4275,10 @@ void ofApp::updateAudio() {
 					mainMenuMusic.setVolume(0.0f);
 					musicMutedDueToMinimize = true;
 				}
+				if (g_gameMusic.isLoaded()) {
+					savedGameMusicVolume = g_gameMusic.getVolume();
+					g_gameMusic.setVolume(0.0f);
+				}
 				savedFootstepVolumes.clear();
 				for (size_t i = 0; i < footstepSounds.size(); ++i) {
 					savedFootstepVolumes.push_back(footstepSounds[i].getVolume());
@@ -4292,6 +4301,9 @@ void ofApp::updateAudio() {
 				if (mainMenuMusic.isLoaded()) {
 					mainMenuMusic.setVolume(savedMainMenuVolume);
 					musicMutedDueToMinimize = false;
+				}
+				if (g_gameMusic.isLoaded()) {
+					g_gameMusic.setVolume(savedGameMusicVolume);
 				}
 				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
 					footstepSounds[i].setVolume(savedFootstepVolumes[i]);
@@ -4608,6 +4620,10 @@ void ofApp::update() {
 					musicMutedDueToMinimize = true;
 					// Keep playing silently instead of stopping
 				}
+				if (g_gameMusic.isLoaded()) {
+					savedGameMusicVolume = g_gameMusic.getVolume();
+					g_gameMusic.setVolume(0.0f);
+				}
 				// Save and mute footstep sounds (if any)
 				savedFootstepVolumes.clear();
 				for (size_t i = 0; i < footstepSounds.size(); ++i) {
@@ -4634,6 +4650,9 @@ void ofApp::update() {
 				if (mainMenuMusic.isLoaded()) {
 					mainMenuMusic.setVolume(savedMainMenuVolume);
 					musicMutedDueToMinimize = false;
+				}
+				if (g_gameMusic.isLoaded()) {
+					g_gameMusic.setVolume(savedGameMusicVolume);
 				}
 				// Restore footstep volumes
 				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
@@ -4751,11 +4770,20 @@ void ofApp::update() {
 			} else {
 				ofLogError("Audio") << "Main menu music not loaded.";
 			}
+			if (g_gameMusic.isPlaying()) {
+				g_gameMusic.stop();
+			}
 		} else {
 			if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
 				if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
 			}
+			if (g_gameMusic.isLoaded()) {
+				if (!g_gameMusic.isPlaying()) {
+					g_gameMusic.play();
+				}
+			}
 		}
+
 		// Reset transient UI hover/pile state when changing major states
 		// Skip clearing hover/pile state for in-game drafts so pile hover and
 		// pile-view remain available while the draft modal is shown.
@@ -5430,7 +5458,7 @@ void ofApp::drawSettingsMenu() {
 		ofRectangle mlb = uiFont.getStringBoundingBox(masterLabel, 0, 0);
 		uiFont.drawString(masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10.0f * uiScale);
 
-		// Menu music slider
+		// Music slider (Controls both Menu and Game Music)
 		sliderY += 60;
 		settingsAudioVolumeSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
 		ofSetColor(ofColor(35));
@@ -5439,7 +5467,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
 		ofSetColor(ofColor::white);
-		string menuLabel = "Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
+		string menuLabel = "Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
 		ofRectangle ml2 = uiFont.getStringBoundingBox(menuLabel, 0, 0);
 		uiFont.drawString(menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10.0f * uiScale);
 
@@ -8057,11 +8085,6 @@ void ofApp::updateGameLogic() {
 		}
 
 		// --- FLAIL RESOLUTION ---
-
-		// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
-		for (auto & roll : activeDiceRolls) {
-			roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-		}
 	}
 
 	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
@@ -9376,6 +9399,27 @@ void ofApp::drawGame() {
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
 
 		ofSetColor(255);
+
+		// Pre-compute generic shader setup OUTSIDE the players loop to prevent context thrashing
+		bool shaderWasBound = false;
+		glm::mat4 viewMat = glm::inverse(activeCam.getGlobalTransformMatrix());
+		glm::mat4 projMat = activeCam.getProjectionMatrix();
+		glm::mat4 viewProj = projMat * viewMat;
+		ofVec3f camP = activeCam.getPosition();
+
+		if (pbrShaderLoaded && enableShaders) {
+			pbrShader.begin();
+			pbrShader.setUniform4f("uTintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Draw in true original colors
+			pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+			pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+			pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+			pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+			pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+			pbrShader.setUniform1i("useNormalTex", 0);
+			if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+			shaderWasBound = true;
+		}
+
 		// Draw simple blob shadows under players (so units appear grounded without full shadow-mapping)
 		int opaquePlayerIdx = 0;
 		for (const auto & player : players) {
@@ -9552,6 +9596,8 @@ void ofApp::drawGame() {
 			glEnable(GL_NORMALIZE); // CRITICAL FIX: Fixes massive GPU lag caused by scaling down the models!
 
 			if (player.inGhostForm) {
+				if (shaderWasBound) pbrShader.end(); // Briefly pause shader for transparent ghost pass
+
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 				ofSetColor(255, 255, 255, 160); // Pure white/transparent ghost, no team tint!
 
@@ -9570,24 +9616,12 @@ void ofApp::drawGame() {
 
 				ofDisableBlendMode();
 				ofSetColor(255);
-			} else {
-				if (pbrShaderLoaded && enableShaders) {
-					// PBR Shader Path
-					glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
-					glm::mat4 viewMat = glm::inverse(activeCam.getGlobalTransformMatrix());
-					glm::mat4 projMat = activeCam.getProjectionMatrix();
-					glm::mat4 viewProj = projMat * viewMat;
 
-					pbrShader.begin();
-					pbrShader.setUniform4f("uTintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Draw in true original colors
-					pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-					pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-					pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-					pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-					ofVec3f camP = activeCam.getPosition();
-					pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-					pbrShader.setUniform1i("useNormalTex", 0);
-					if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+				if (shaderWasBound) pbrShader.begin(); // Restore shader for the next unit in the loop
+			} else {
+				if (shaderWasBound) {
+					// PBR Shader Path (Global uniforms already bound outside the loop)
+					glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
 
 					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
 						glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
@@ -9608,7 +9642,6 @@ void ofApp::drawGame() {
 						}
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
-					pbrShader.end();
 				} else {
 					// FIXED FUNCTION PIPELINE PATH
 					ofSetColor(255); // CRITICAL FIX: Draw the model in its true original colors!
@@ -9686,6 +9719,11 @@ void ofApp::drawGame() {
 			glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
 
 			opaquePlayerIdx++;
+		}
+
+		// Safely close out the batched PBR Shader instance
+		if (shaderWasBound) {
+			pbrShader.end();
 		}
 
 		// --- HOVER GLOW RENDERING ---
@@ -14333,72 +14371,82 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 		}
-		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-			if (settingsAudioMasterSlider.inside(x, y)) {
-				draggingAudioMaster = true;
-				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
-				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				saveSettings();
-				return;
-			}
-			if (settingsAudioVolumeSlider.inside(x, y)) {
-				draggingAudioMenu = true;
-				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
-				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				saveSettings();
-				return;
-			}
-			if (settingsAudioSfxSlider.inside(x, y)) {
-				draggingAudioSfx = true;
-				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
-				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
-				saveSettings();
-				return;
-			}
+		if (settingsAudioMasterSlider.inside(x, y)) {
+			draggingAudioMaster = true;
+			float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
+			settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
+			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			saveSettings();
+			return;
 		}
-		if (currentSettingsTab == SETTINGS_TAB_GAME) {
-			if (settingsGameShowFPSBox.inside(x, y)) {
-				settingsShowFPS = !settingsShowFPS;
-				saveSettings();
-				return;
-			}
-			if (settingsCameraSensitivitySlider.inside(x, y)) {
-				float rel = (float)(x - settingsCameraSensitivitySlider.x) / (float)settingsCameraSensitivitySlider.width;
-				settingsCameraSensitivity = ofMap(rel, 0.0f, 1.0f, 0.5f, 2.0f, true);
-				saveSettings();
-				return;
-			}
-			if (settingsInvertYBox.inside(x, y)) {
-				settingsInvertCameraY = !settingsInvertCameraY;
-				saveSettings();
-				return;
-			}
-			if (settingsUIScaleSlider.inside(x, y)) {
-				float rel = (float)(x - settingsUIScaleSlider.x) / (float)settingsUIScaleSlider.width;
-				settingsUIScale = ofMap(rel, 0.0f, 1.0f, 0.75f, 1.25f, true);
-				saveSettings();
-				recalculateUI(ofGetWidth(), ofGetHeight());
-				return;
-			}
-			if (settingsVSyncBox.inside(x, y)) {
-				settingsUseVSync = !settingsUseVSync;
-				saveSettings();
-				if (settingsUseVSync)
-					ofSetVerticalSync(true);
-				else
-					ofSetVerticalSync(false);
-				return;
-			}
-			if (settingsShowHintsBox.inside(x, y)) {
-				settingsShowHints = !settingsShowHints;
-				saveSettings();
-				return;
-			}
+		if (settingsAudioVolumeSlider.inside(x, y)) {
+			draggingAudioMenu = true;
+			float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
+			settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
+			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			saveSettings();
+			return;
 		}
-		return;
+		if (settingsAudioVolumeSlider.inside(x, y)) {
+			draggingAudioMenu = true;
+			float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
+			settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
+			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			saveSettings();
+			return;
+		}
+		if (settingsAudioSfxSlider.inside(x, y)) {
+			draggingAudioSfx = true;
+			float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
+			settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
+			saveSettings();
+			return;
+		}
 	}
+	if (currentSettingsTab == SETTINGS_TAB_GAME) {
+		if (settingsGameShowFPSBox.inside(x, y)) {
+			settingsShowFPS = !settingsShowFPS;
+			saveSettings();
+			return;
+		}
+		if (settingsCameraSensitivitySlider.inside(x, y)) {
+			float rel = (float)(x - settingsCameraSensitivitySlider.x) / (float)settingsCameraSensitivitySlider.width;
+			settingsCameraSensitivity = ofMap(rel, 0.0f, 1.0f, 0.5f, 2.0f, true);
+			saveSettings();
+			return;
+		}
+		if (settingsInvertYBox.inside(x, y)) {
+			settingsInvertCameraY = !settingsInvertCameraY;
+			saveSettings();
+			return;
+		}
+		if (settingsUIScaleSlider.inside(x, y)) {
+			float rel = (float)(x - settingsUIScaleSlider.x) / (float)settingsUIScaleSlider.width;
+			settingsUIScale = ofMap(rel, 0.0f, 1.0f, 0.75f, 1.25f, true);
+			saveSettings();
+			recalculateUI(ofGetWidth(), ofGetHeight());
+			return;
+		}
+		if (settingsVSyncBox.inside(x, y)) {
+			settingsUseVSync = !settingsUseVSync;
+			saveSettings();
+			if (settingsUseVSync)
+				ofSetVerticalSync(true);
+			else
+				ofSetVerticalSync(false);
+			return;
+		}
+		if (settingsShowHintsBox.inside(x, y)) {
+			settingsShowHints = !settingsShowHints;
+			saveSettings();
+			return;
+		}
+	}
+
+	// Consume unhandled clicks within the settings menu
+	if (currentState == STATE_SETTINGS) return;
 
 	// Right-click cannot interact with cards during gameplay; it's only for cancellation/UI
 	if (button == OF_MOUSE_BUTTON_RIGHT && currentState == STATE_GAMEPLAY) {
@@ -16397,12 +16445,14 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
 				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
 				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				changed = true;
 			}
 			if (draggingAudioMenu) {
 				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
 				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
 				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				changed = true;
 			}
 			if (draggingAudioSfx) {
@@ -16588,7 +16638,6 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			};
 
 			bool hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
-			if (draggedCard.type == CARD_BURST_OF_LIGHT) hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard)); // Guarantee draggable!
 			bool hasPossibleTargets = hasAnyValidTargetForCard(draggedCardIndex);
 			bool canDragOutOfHand = hasEnoughAP && hasPossibleTargets;
 			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
@@ -18065,7 +18114,8 @@ void ofApp::startNewTurn() {
 	animatingPlayerIndex = -1;
 
 	// Tortoise form: ALL defensive stats don't expire
-	if (!startingPlayer.inTortoiseForm) {
+	// FIX: Respect the defenseCycle timer so buffs played on opponents survive until their NEXT turn!
+	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
 		int sidx = currentPlayerIndex;
 		if (startingPlayer.block > 0) {
 			EffectOp op = {};
@@ -18112,6 +18162,7 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.deltaFromSlot = -1;
 			processEffectOp(op);
 		}
+		startingPlayer.defenseCycle = -1; // Reset the cycle timer now that they are wiped!
 	}
 
 	// Regeneration first
@@ -20893,7 +20944,8 @@ void ofApp::simulationTick() {
 			}
 		}
 
-		if (!removeIndices.empty()) {
+		// CRITICAL FIX: Do not erase units and shift array indices if an effect sequence (like Resurrection) just started!
+		if (!removeIndices.empty() && !isProcessingEffect) {
 			std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
 			bool activePlayerDied = false;
 
@@ -22433,8 +22485,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 		{ // Scope block for victim variable to avoid crossing into next case label
 			// Handle Pushed Unit
-			Player * victim = getPlayer(magicHandPushedUnitIndex);
-			if (victim) {
+			if (magicHandPushedUnitIndex >= 0 && magicHandPushedUnitIndex < (int)players.size()) {
 				int dmg = currentEffectSequence.blackboard[0];
 
 				// Use central damage applicator so target-based modifiers stay consistent.
@@ -22472,14 +22523,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					mv.data.moveUnit.toY = finalDest.y;
 					processEffectOp(mv);
 
-					int applied = applyDamageWithMitigations(*victim, dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
+					// Re-fetch safely from the array to prevent dangling pointers!
+					int applied = applyDamageWithMitigations(players[magicHandPushedUnitIndex], dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
 					if (applied > 0) {
 						queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "-" + ofToString(applied) + " Phys", ofColor::red);
 					} else {
 						queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Absorbed", ofColor::gray);
 					}
 				} else {
-					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
+					// FIXED: Replaced undefined 'victim->x, victim->y' with array lookup
+					queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "CRUSHED!", ofColor::darkRed);
 					{
 						EffectOp kill = {};
 						kill.type = EffectOpType::MODIFY_STAT;
@@ -23335,7 +23388,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0; // FIX: Mode 0 = 0.8s wait so the dice finish spinning!
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_MAGIC_BLAST;
@@ -33867,6 +33920,9 @@ void ofApp::loadSettings() {
 		if (mainMenuMusic.isLoaded()) {
 			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 		}
+		if (g_gameMusic.isLoaded()) {
+			g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+		}
 
 		// Apply v-sync/framerate
 		if (settingsUseVSync)
@@ -34124,207 +34180,12 @@ void ofApp::drawMinionManagerUI() {
 		// Skip if completely out of view bounds vertically
 		if (ui.bounds.getBottom() < topY || ui.bounds.y > topY + viewH) continue;
 
-		// --- Render Model to FBO ---
-		modelFbo.begin();
-		ofClear(0, 0, 0, 0);
-		ofEnableDepthTest();
-		ofDisableLighting();
-		uiLight.disable();
-
-		ofColor unitTint = ofColor::white;
-		int effectiveOwner = minion.isMinion ? minion.ownerID : minion.playerID;
-		if (effectiveOwner == 0)
-			unitTint = ofColor(255, 60, 60);
-		else if (effectiveOwner == 1)
-			unitTint = ofColor(60, 255, 60);
-
-		ofSetColor(255); // Draw in true original colors
-
-		ofPushMatrix();
-
-		// --- UNIFIED MINION MODEL SCALING ---
-		// FIX: With normalization disabled, origin is at feet. Put the feet near the bottom of the FBO.
-		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() * 0.85f);
-
-		// Scale them to ~90 pixels tall (since they are natively 2 units tall, scale by 90)
-		// AND apply the 0.02f Blender FBX fix!
-		float uScale = 90.0f * 0.02f;
-
-		ofScale(uScale, -uScale, uScale);
-		// Removed uYOffset because feet are already natively at 0
-
-		ofRotateXDeg(-15);
-		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
-
-		glDisable(GL_CULL_FACE); // Ensure inside-out models don't vanish entirely
-		glEnable(GL_NORMALIZE); // Prevent lighting calculation lag
-
-		ofxAssimpModelLoader * currentModel = &playerModel;
-
-		if (minion.inTortoiseForm)
-			currentModel = &tortoiseModel;
-		else if (minion.inGhostForm)
-			currentModel = &ghostModel;
-		else if (minion.isSkeleton)
-			currentModel = &skeletonModel;
-		else if (minion.isGolem)
-			currentModel = &golemModel;
-		else if (minion.isWolf)
-			currentModel = &wolfModel;
-		else if (minion.isHellhound)
-			currentModel = &hellhoundModel;
-		else if (minion.isDemon)
-			currentModel = &demonModel;
-		else if (minion.isKobold)
-			currentModel = &koboldModel;
-		else if (minion.isKoboldKing)
-			currentModel = &koboldKingModel;
-		else if (minion.isFaerie)
-			currentModel = &faerieModel;
-		else if (minion.isWallUnit)
-			currentModel = &wallUnitModel;
-		else if (minion.isAssistant)
-			currentModel = &assistantModel;
-
-		if (minion.inGhostForm) {
-			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
-		}
-
-		if (minion.inGhostForm) {
-			ofPushMatrix();
-			ofMultMatrix(currentModel->getModelMatrix());
-			for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
-				ofPushMatrix();
-				ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
-				currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
-				ofPopMatrix();
-			}
-			ofPopMatrix();
-			ofDisableBlendMode();
-			ofSetColor(255);
-		} else {
-			if (pbrShaderLoaded && enableShaders) {
-				// FIX: Correct pure matrices for FBO rendering
-				glm::mat4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-				glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
-
-				glm::mat4 viewMat = glm::mat4(1.0f); // Identity view
-				glm::mat4 projMat = ofGetCurrentMatrix(OF_MATRIX_PROJECTION);
-				glm::mat4 viewProj = projMat * viewMat;
-
-				pbrShader.begin();
-				pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
-				pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-				// The FBO doesn't use shadows, so just mock the shadow matrices to prevent errors
-				pbrShader.setUniformMatrix4f("uLightVP", viewProj);
-				pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-				pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-				pbrShader.setUniform3f("uViewPos", 0.0f, 0.0f, 0.0f);
-
-				pbrShader.setUniform1i("useNormalTex", 0);
-
-				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
-					glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
-					glm::mat4 finalModelMat = baseModelMat * meshMat;
-					pbrShader.setUniformMatrix4f("uModel", finalModelMat);
-
-					glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalModelMat));
-					pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-
-					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
-						pbrShader.setUniformTexture("albedoTex", *minion.minionTexture, 0);
-						pbrShader.setUniform1i("useAlbedoTex", 1);
-					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
-						pbrShader.setUniformTexture("albedoTex", currentModel->getMeshHelper(mi).getTextureRef(), 0);
-						pbrShader.setUniform1i("useAlbedoTex", 1);
-					} else {
-						pbrShader.setUniform1i("useAlbedoTex", 0);
-					}
-					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
-				}
-				pbrShader.end();
-			} else {
-				ofPushMatrix();
-				ofMultMatrix(currentModel->getModelMatrix());
-				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
-					ofPushMatrix();
-					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
-
-					bool hasTex = false;
-					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
-						minion.minionTexture->bind();
-						hasTex = true;
-					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
-						currentModel->getMeshHelper(mi).getTextureRef().bind();
-						hasTex = true;
-					} else {
-						glBindTexture(GL_TEXTURE_2D, 0);
-					}
-
-					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
-
-					if (hasTex) {
-						if (minion.isGolem && minion.minionTexture)
-							minion.minionTexture->unbind();
-						else
-							currentModel->getMeshHelper(mi).getTextureRef().unbind();
-					}
-
-					ofPopMatrix();
-				}
-				ofPopMatrix();
-			}
-
-			if (minion.isMagicWallUnit) {
-				float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f);
-				int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
-				ofEnableBlendMode(OF_BLENDMODE_ADD);
-				ofSetColor(148, 0, 211, alpha);
-				glEnable(GL_POLYGON_OFFSET_FILL);
-				glPolygonOffset(-1.0f, -1.0f);
-
-				ofPushMatrix();
-				ofMultMatrix(currentModel->getModelMatrix());
-				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
-					ofPushMatrix();
-					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
-					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
-					ofPopMatrix();
-				}
-				ofPopMatrix();
-
-				glDisable(GL_POLYGON_OFFSET_FILL);
-				ofSetColor(unitTint);
-				ofDisableBlendMode();
-			}
-		}
-
-		glDisable(GL_NORMALIZE);
-		ofPopMatrix();
-		ofDisableDepthTest();
-
-		// CRITICAL FIX: Nuke any lingering OpenGL materials/colors from Assimp models (like Kobold King)
-		// inside the FBO rendering. If we don't do this, the models leave GL_COLOR_MATERIAL
-		// enabled and permanently tint the main 3D world (walls/floor) grey on the next frame!
-		ofSetColor(255, 255, 255, 255);
-		glDisable(GL_COLOR_MATERIAL);
-		glDisable(GL_LIGHTING);
-		float defaultAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-		float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
-		glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
-		glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
-
-		modelFbo.end();
-
 		// Setup Scissor clipping to hide overflowing elements
 		glEnable(GL_SCISSOR_TEST);
 		int scX = (int)((isLeft ? p0_minionLeft - 30 : p1_minionLeft - 30) * sfX);
 		int scW = (int)((minionPanelW + 60) * sfX);
 		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY);
 		int scH = (int)(viewH * sfY);
-		// Expand scissor more to avoid clipping the top outline due to
-		// integer rounding when the UI panel is flush with the top of the view.
 		int screenH = ofGetViewportHeight();
 		scY = std::max(0, scY - 8);
 		scH = std::min(screenH - scY, scH + 16);
@@ -34343,9 +34204,7 @@ void ofApp::drawMinionManagerUI() {
 
 		if (isActive) {
 			ofPushStyle();
-			// Yellow outline for minions, white for players
 			ofColor outlineColor = players[ui.playerIndex].isMinion ? ofColor::yellow : ofColor::white;
-			// Draw crisp outline only (no background)
 			ofNoFill();
 			ofSetColor(outlineColor);
 			ofSetLineWidth(3 * scale);
@@ -34354,7 +34213,6 @@ void ofApp::drawMinionManagerUI() {
 		}
 
 		if (isHovered && !isActive) {
-			// Only show white outline when hovering (if not already active)
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::white);
@@ -34383,7 +34241,6 @@ void ofApp::drawMinionManagerUI() {
 		} else if (minion.isKoboldKing) {
 			name = "Kobold King ";
 		} else if (minion.isKobold) {
-
 			name = "Kobold ";
 		} else if (minion.isWallUnit) {
 			if (minion.isMagicWallUnit)
@@ -34435,31 +34292,192 @@ void ofApp::drawMinionManagerUI() {
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
 
-		// (Minion luck/status moved to hover tooltip; no inline luck shown here)
-		//
-		// --- Draw Model FBO ---
+		// --- Compute Model Positioning ---
 		float modelSafetyPad = 10.0f * scale;
 		float statusBlockHeight = (nameBounds.height * fontScale) + (24.0f * scale);
 		if (minion.inTortoiseForm) statusBlockHeight += (17.0f * scale) + (2.0f * scale);
 		if (minion.inGhostForm) statusBlockHeight += (17.0f * scale) + (2.0f * scale);
 		float modelTopY = textBlockY + statusBlockHeight + (6.0f * scale);
 		float statsTopY = textBlockY;
-		// Use only the real remaining area to avoid padded/unused model space.
 		float modelAreaHeight = std::max(28.0f * scale, ui.bounds.getBottom() - modelTopY - modelSafetyPad);
-
-		// Ensure the model preview doesn't overflow the panel width (avoid scissor clipping)
 		float availableModelWidth = std::max(48.0f, contentRightX - contentLeftX - (2.0f * modelSafetyPad));
 		float modelW = std::min(modelAreaHeight, availableModelWidth);
 		float modelX = contentLeftX + ((contentRightX - contentLeftX) - modelW) * 0.5f;
 		float maxModelTop = ui.bounds.getBottom() - modelSafetyPad - modelW;
 		float modelY = std::clamp(modelTopY, ui.bounds.y + modelSafetyPad, maxModelTop);
-		ui.modelViewport.set(
-			modelX,
-			modelY,
-			modelW,
-			modelW);
+		ui.modelViewport.set(modelX, modelY, modelW, modelW);
+
+		// =========================================================
+		// --- RENDER 3D MODEL DIRECTLY OVER UI ---
+		// =========================================================
+		ofEnableDepthTest();
+		glClear(GL_DEPTH_BUFFER_BIT); // Clear depth buffer so model draws perfectly over 2D UI
+		ofDisableLighting();
+		uiLight.disable();
+
+		ofColor unitTint = ofColor::white;
+		int effectiveOwner = minion.isMinion ? minion.ownerID : minion.playerID;
+		if (effectiveOwner == 0)
+			unitTint = ofColor(255, 60, 60);
+		else if (effectiveOwner == 1)
+			unitTint = ofColor(60, 255, 60);
+
 		ofSetColor(255);
-		modelFbo.draw(ui.modelViewport);
+
+		ofPushMatrix();
+		// Position natively inside the computed viewport rect
+		ofTranslate(modelX + modelW / 2.0f, modelY + modelW * 0.85f);
+		float uScale = (modelW / 512.0f) * 90.0f * 0.02f; // Scale relative to viewport
+		ofScale(uScale, -uScale, uScale);
+		ofRotateXDeg(-15);
+		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+
+		glDisable(GL_CULL_FACE);
+		glEnable(GL_NORMALIZE);
+
+		ofxAssimpModelLoader * currentModel = &playerModel;
+		if (minion.inTortoiseForm)
+			currentModel = &tortoiseModel;
+		else if (minion.inGhostForm)
+			currentModel = &ghostModel;
+		else if (minion.isSkeleton)
+			currentModel = &skeletonModel;
+		else if (minion.isGolem)
+			currentModel = &golemModel;
+		else if (minion.isWolf)
+			currentModel = &wolfModel;
+		else if (minion.isHellhound)
+			currentModel = &hellhoundModel;
+		else if (minion.isDemon)
+			currentModel = &demonModel;
+		else if (minion.isKobold)
+			currentModel = &koboldModel;
+		else if (minion.isKoboldKing)
+			currentModel = &koboldKingModel;
+		else if (minion.isFaerie)
+			currentModel = &faerieModel;
+		else if (minion.isWallUnit)
+			currentModel = &wallUnitModel;
+		else if (minion.isAssistant)
+			currentModel = &assistantModel;
+
+		if (minion.inGhostForm) {
+			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
+			ofPushMatrix();
+			ofMultMatrix(currentModel->getModelMatrix());
+			for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+				currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+				ofPopMatrix();
+			}
+			ofPopMatrix();
+			ofDisableBlendMode();
+			ofSetColor(255);
+		} else {
+			if (pbrShaderLoaded && enableShaders) {
+				glm::mat4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+				glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
+				glm::mat4 viewMat = glm::mat4(1.0f);
+				glm::mat4 projMat = ofGetCurrentMatrix(OF_MATRIX_PROJECTION);
+				glm::mat4 viewProj = projMat * viewMat;
+
+				pbrShader.begin();
+				pbrShader.setUniform4f("uTintColor", unitTint.r / 255.0f, unitTint.g / 255.0f, unitTint.b / 255.0f, 1.0f);
+				pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+				pbrShader.setUniformMatrix4f("uLightVP", viewProj);
+				pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+				pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+				pbrShader.setUniform3f("uViewPos", 0.0f, 0.0f, 0.0f);
+				pbrShader.setUniform1i("useNormalTex", 0);
+
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
+					glm::mat4 finalModelMat = baseModelMat * meshMat;
+					pbrShader.setUniformMatrix4f("uModel", finalModelMat);
+
+					glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalModelMat));
+					pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+
+					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
+						pbrShader.setUniformTexture("albedoTex", *minion.minionTexture, 0);
+						pbrShader.setUniform1i("useAlbedoTex", 1);
+					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
+						pbrShader.setUniformTexture("albedoTex", currentModel->getMeshHelper(mi).getTextureRef(), 0);
+						pbrShader.setUniform1i("useAlbedoTex", 1);
+					} else {
+						pbrShader.setUniform1i("useAlbedoTex", 0);
+					}
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+				}
+				pbrShader.end();
+			} else {
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getModelMatrix());
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+					bool hasTex = false;
+					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
+						minion.minionTexture->bind();
+						hasTex = true;
+					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
+						currentModel->getMeshHelper(mi).getTextureRef().bind();
+						hasTex = true;
+					} else {
+						glBindTexture(GL_TEXTURE_2D, 0);
+					}
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+					if (hasTex) {
+						if (minion.isGolem && minion.minionTexture)
+							minion.minionTexture->unbind();
+						else
+							currentModel->getMeshHelper(mi).getTextureRef().unbind();
+					}
+					ofPopMatrix();
+				}
+				ofPopMatrix();
+			}
+
+			if (minion.isMagicWallUnit) {
+				float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f);
+				int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
+				ofEnableBlendMode(OF_BLENDMODE_ADD);
+				ofSetColor(148, 0, 211, alpha);
+				glEnable(GL_POLYGON_OFFSET_FILL);
+				glPolygonOffset(-1.0f, -1.0f);
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getModelMatrix());
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+					ofPopMatrix();
+				}
+				ofPopMatrix();
+				glDisable(GL_POLYGON_OFFSET_FILL);
+				ofSetColor(unitTint);
+				ofDisableBlendMode();
+			}
+		}
+
+		glDisable(GL_NORMALIZE);
+		ofPopMatrix();
+
+		// Clean up 3D State so UI rendering can resume
+		ofDisableDepthTest();
+		ofSetColor(255, 255, 255, 255);
+		glDisable(GL_COLOR_MATERIAL);
+		glDisable(GL_LIGHTING);
+		float defaultAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+		float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+		glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
+		glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
+
+		// =========================================================
+		// --- RESUME 2D UI RENDERING ---
+		// =========================================================
 
 		// --- Status Bars ---
 		float availableWidth = std::max(24.0f * scale, contentRightX - contentLeftX);
@@ -34494,7 +34512,6 @@ void ofApp::drawMinionManagerUI() {
 			ofDrawRectRounded(ui.discardRect, 3);
 		}
 
-		// (Minion status effects are shown only in the hover tooltip above the unit)
 		glDisable(GL_SCISSOR_TEST);
 	} // End of loop
 
@@ -35837,9 +35854,13 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_SNAPSHOT_BEGIN) {
 				SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;
 				incomingSnapshotId = bp->snapshotId;
-				incomingSnapshotExpectedSize = bp->totalSize;
+
+				// Clamp snapshot size to 10 MB to prevent memory exhaustion attacks
+				uint32_t safeSize = std::min(bp->totalSize, (uint32_t)(10 * 1024 * 1024));
+
+				incomingSnapshotExpectedSize = safeSize;
 				incomingSnapshotReceivedSize = 0;
-				incomingSnapshotBuffer.assign(bp->totalSize, '\0');
+				incomingSnapshotBuffer.assign(safeSize, '\0');
 				ofLogNotice("Network") << "Snapshot begin (id=" << incomingSnapshotId << ", bytes=" << incomingSnapshotExpectedSize << ")";
 				continue;
 			}
@@ -37021,72 +37042,60 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 		return 0; // End Turn
 	}
 
-	// --- 1. GENERATE ACTION MASK (20,000 Elements) ---
-	std::vector<float> actionMask(20000, 0.0f);
+	// --- 1. GENERATE SPARSE ACTION MASK ---
+	std::vector<float> validActions;
 	int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
 	int aiIdx = findPlayerIndexByID(activeID);
 
 	if (currentState == STATE_DRAFTING) {
-		// Only Draft Combinations are valid
-		actionMask[30] = 1.0f;
-		actionMask[31] = 1.0f;
-		actionMask[32] = 1.0f;
+		validActions.push_back(30.0f);
+		validActions.push_back(31.0f);
+		validActions.push_back(32.0f);
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-		// Only Menu UI interactions are valid
 		for (int i = 10; i <= 29; i++)
-			actionMask[i] = 1.0f;
+			validActions.push_back((float)i);
 		for (int i = 40; i <= 140; i++)
-			actionMask[i] = 1.0f; // Amnesia/Renewed UI
+			validActions.push_back((float)i);
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-		// Raw Targeting modes (Teleport, Spawn wolves, etc.)
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			for (int x = 0; x < BOARD_WIDTH; x++) {
-				if (board[x][y].isTargetable) {
-					actionMask[1000 + y * BOARD_WIDTH + x] = 1.0f;
-				}
+				if (board[x][y].isTargetable) validActions.push_back((float)(1000 + y * BOARD_WIDTH + x));
 			}
 		}
 	} else {
-		// Gameplay Actions
-		actionMask[0] = 1.0f; // End turn is always valid
+		validActions.push_back(0.0f); // End turn is always valid
 
 		if (aiIdx >= 0) {
 			Player & aiPlayer = players[aiIdx];
-
-			// Can we draw?
 			bool hasDrawn = (activeID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
 			if (!hasDrawn && !aiPlayer.deck.empty()) {
-				actionMask[1] = 1.0f;
+				validActions.push_back(1.0f);
 			}
 
-			// Can we use Assistant AP Reroll?
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == activeID && !players[i].assistantRerollUsedThisTurn) {
 					if (abs(players[i].x - players[currentPlayerIndex].x) + abs(players[i].y - players[currentPlayerIndex].y) <= 1) {
-						actionMask[2] = 1.0f;
+						validActions.push_back(2.0f);
 						break;
 					}
 				}
 			}
 
-			// Movement Masking (Estimate valid tiles based on AP)
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
 				for (int x = 0; x < BOARD_WIDTH; x++) {
 					int dist = abs(x - aiPlayer.x) + abs(y - aiPlayer.y);
 					if (dist > 0 && dist <= aiPlayer.ap && !board[x][y].hasWall && !board[x][y].hasPlayer) {
-						actionMask[200 + y * BOARD_WIDTH + x] = 1.0f;
+						validActions.push_back((float)(200 + y * BOARD_WIDTH + x));
 					}
 				}
 			}
 
-			// Card Playing Masking
 			int savedInteractionState = cardInteractionState;
 			int savedInteractingCardIdx = interactingCardIndex;
 
 			for (int i = 0; i < (int)aiPlayer.hand.size(); ++i) {
 				int cost = getEffectiveCardCostForPlayer(aiPlayer, aiPlayer.hand[i]);
 				if (aiPlayer.ap >= cost) {
-					// Use existing game logic to find mathematically legal targets!
 					interactingCardIndex = i;
 					calculateTargetHighlights(i);
 					bool hasTargets = false;
@@ -37094,20 +37103,17 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 					for (int y = 0; y < BOARD_HEIGHT; y++) {
 						for (int x = 0; x < BOARD_WIDTH; x++) {
 							if (board[x][y].isTargetable) {
-								actionMask[10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (y * BOARD_WIDTH + x)] = 1.0f;
+								validActions.push_back((float)(10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (y * BOARD_WIDTH + x)));
 								hasTargets = true;
 							}
 						}
 					}
 
-					// Self-target fallback if board returns empty but card is valid (like Time Vortex)
 					if (!hasTargets && (aiPlayer.hand[i].targeting == TARGET_NONE || aiPlayer.hand[i].targeting == TARGET_SELF)) {
-						actionMask[10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (aiPlayer.y * BOARD_WIDTH + aiPlayer.x)] = 1.0f;
+						validActions.push_back((float)(10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (aiPlayer.y * BOARD_WIDTH + aiPlayer.x)));
 					}
 				}
 			}
-
-			// Restore Game Visual State
 			cardInteractionState = (CardInteractionState)savedInteractionState;
 			interactingCardIndex = savedInteractingCardIdx;
 			calculateTargetHighlights(interactingCardIndex);
@@ -37116,11 +37122,12 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 
 	// --- 2. BUILD ZMQ PAYLOAD ---
 	std::vector<float> payload;
-	payload.reserve(2 + state.size() + actionMask.size());
+	payload.reserve(3 + state.size() + validActions.size());
 	payload.push_back(done ? 1.0f : 0.0f);
 	payload.push_back(reward);
 	payload.insert(payload.end(), state.begin(), state.end());
-	payload.insert(payload.end(), actionMask.begin(), actionMask.end());
+	payload.push_back(-1.0f); // Separator between state and sparse action mask
+	payload.insert(payload.end(), validActions.begin(), validActions.end());
 
 	// --- 3. COMMUNICATE WITH PYTHON ---
 	zmq::message_t request(payload.size() * sizeof(float));
