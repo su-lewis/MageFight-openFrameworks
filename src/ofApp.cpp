@@ -3256,7 +3256,22 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	float baselineY = y + (h / 2.0f) - ((bounds.y + bounds.height * 0.5f) * scale);
 	ofTranslate(x + (w - bounds.width * scale) / 2, baselineY);
 	ofScale(scale, scale);
-	// Draw the text without outline
+
+	// Draw Outline
+	int outlinePx = 2;
+	// If the text is dark (like the black text on Holy Block), give it a subtle white glow outline. Otherwise, thick black outline.
+	ofColor outlineColor = (color.getBrightness() < 50) ? ofColor(255, 255, 255, 200) : ofColor(0, 0, 0, 255);
+
+	ofSetColor(outlineColor);
+	for (int dy = -outlinePx; dy <= outlinePx; ++dy) {
+		for (int dx = -outlinePx; dx <= outlinePx; ++dx) {
+			if (dx == 0 && dy == 0) continue;
+			if (dx * dx + dy * dy > outlinePx * outlinePx) continue;
+			font.drawString(text, (float)dx / scale, (float)dy / scale);
+		}
+	}
+
+	// Draw the text
 	ofSetColor(color);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
@@ -3480,24 +3495,35 @@ void ofApp::setup() {
 	// Don't play music here - let update() handle it when window is actually focused
 	// This prevents music playing during loading if window is minimized
 
-// --- LOAD NEW STANDARDIZED MODELS ---
-// All models are pre-scaled to 2.0 Units, centered at origin, with embedded textures.
+	// --- LOAD NEW STANDARDIZED MODELS ---
+	// All models are pre-scaled to 2.0 Units, centered at origin, with embedded textures.
 
-	auto loadModelSafe = [](ofxAssimpModelLoader& model, const std::vector<std::string>& candidates) {
+	auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
 		model.setScaleNormalization(false);
 		bool loaded = false;
-		for (const auto& path : candidates) {
+		for (const auto & path : candidates) {
 			// Check standard relative paths
 			std::vector<std::string> searchPaths = {
 				path,
 				"data/" + path,
 				"bin/data/" + path
 			};
-			
-			for (const auto& sp : searchPaths) {
+
+			for (const auto & sp : searchPaths) {
 				if (ofFile(sp).exists()) {
 					if (model.loadModel(sp, true)) {
 						ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
+
+						// CRITICAL FIX: Generate Mipmaps for the model textures!
+						// This stops the models from becoming crunchy/pixelated when zooming out.
+						for (unsigned int i = 0; i < model.getMeshCount(); i++) {
+							if (model.getMeshHelper(i).hasTexture()) {
+								ofTexture & tex = model.getMeshHelper(i).getTextureRef();
+								tex.generateMipmap();
+								tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+							}
+						}
+
 						loaded = true;
 						break;
 					}
@@ -3505,34 +3531,51 @@ void ofApp::setup() {
 			}
 			if (loaded) break;
 		}
-		
+
 		if (!loaded) {
 			ofLogError("Models") << "FAILED TO LOAD MODEL. Searched for:";
-			for (const auto& p : candidates) ofLogError("Models") << " - " << p;
+			for (const auto & p : candidates)
+				ofLogError("Models") << " - " << p;
 		}
 		model.disableMaterials();
 	};
 
 	// Provide the subfolder paths as well as the old root paths just in case!
-	loadModelSafe(playerModel, {"Units/Player/Wizard.fbx", "Units/Wizard/Wizard.fbx", "Units/Wizard.fbx"});
-	loadModelSafe(skeletonModel, {"Units/Skeleton/Skeleton.fbx", "Units/Skeleton/skeleton.fbx", "Units/Skeleton.fbx"});
-	loadModelSafe(golemModel, {"Units/Golem/Golem.fbx", "Units/Golem/golem.fbx", "Units/Golem.fbx"});
-	loadModelSafe(wolfModel, {"Units/Wolf/Wolf.fbx", "Units/Wolf/wolf.fbx", "Units/Wolf.fbx"});
-	loadModelSafe(koboldModel, {"Units/Kobold/Kobold.fbx", "Units/Kobold/kobold.fbx", "Units/Kobold/Kobold1/Kobold1.fbx"});
-	loadModelSafe(koboldKingModel, {"Units/KoboldKing/KoboldKing.fbx", "Units/KoboldKing/koboldking.fbx", "Units/KoboldKing.fbx"});
-	loadModelSafe(hellhoundModel, {"Units/Hellhound/Hellhound.fbx", "Units/Hellhound/hellhound.fbx", "Units/Hellhound.fbx"});
-	loadModelSafe(demonModel, {"Units/Demon/Demon.fbx", "Units/Demon/demon.fbx", "Units/Demon.fbx"});
-	loadModelSafe(tortoiseModel, {"Units/Tortoise/Tortoise.fbx", "Units/Tortoise/tortoise.fbx", "Units/Tortoise.fbx"});
-	loadModelSafe(ghostModel, {"Units/Ghost/Ghost.fbx", "Units/Ghost/ghost.fbx", "Units/Ghost.fbx"});
-	loadModelSafe(wallUnitModel, {"Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx"});
-	loadModelSafe(assistantModel, {"Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx", "Units/Assistant.fbx"});
-	loadModelSafe(faerieModel, {"Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx", "Units/Faerie.fbx"});
+	loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
+	loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
+	loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
+	loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
+	loadModelSafe(koboldModel, { "Units/Kobold/Kobold1/Kobold1.fbx" });
+	loadModelSafe(koboldKingModel, { "Units/KoboldKing/KoboldKing.fbx" });
+	loadModelSafe(hellhoundModel, { "Units/Hellhound/Hellhound.fbx" });
+	loadModelSafe(demonModel, { "Units/Demon/Demon.fbx" });
+	loadModelSafe(tortoiseModel, { "Units/Tortoise/Tortoise.fbx" });
+	loadModelSafe(ghostModel, { "Units/Ghost/Ghost.fbx" });
+	loadModelSafe(wallUnitModel, { "Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx" });
+
+	// CRITICAL FIX: Force the Wall Unit texture back to Nearest (Pixel Art) filtering!
+	// This overrides the automatic smoothing applied by loadModelSafe.
+	for (unsigned int i = 0; i < wallUnitModel.getMeshCount(); i++) {
+		if (wallUnitModel.getMeshHelper(i).hasTexture()) {
+			ofTexture & tex = wallUnitModel.getMeshHelper(i).getTextureRef();
+			tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		}
+	}
+
+	loadModelSafe(assistantModel, { "Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx", "Units/Wizard.fbx" });
+	loadModelSafe(faerieModel, { "Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx", "Units/Faerie.fbx" });
 
 	// Retain dynamic Golem variant textures (since spell-logic swaps them)
-	ofLoadImage(golemTexBase, "Units/Golem/texture_base.png");
-	ofLoadImage(golemTexRock, "Units/Golem/texture_rock.png");
-	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
-	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
+	auto loadDynamicTex = [](ofTexture & tex, const std::string & path) {
+		if (ofLoadImage(tex, path)) {
+			tex.generateMipmap();
+			tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+		}
+	};
+	loadDynamicTex(golemTexBase, "Units/Golem/texture_base.png");
+	loadDynamicTex(golemTexRock, "Units/Golem/texture_rock.png");
+	loadDynamicTex(golemTexFire, "Units/Golem/texture_fire.png");
+	loadDynamicTex(golemTexElectric, "Units/Golem/texture_electric.png");
 
 	ofLogNotice("Setup") << "All standard 3D models loaded successfully.";
 
@@ -4485,12 +4528,14 @@ void ofApp::update() {
 
 		// Dynamic K-Factor based on current rating
 		float kFactor = 24.0f; // Standard bracket
-		if (myElo < 1200) kFactor = 40.0f;       // Fast climb for beginners
-		else if (myElo > 2000) kFactor = 16.0f;  // Highly stable for grandmasters
+		if (myElo < 1200)
+			kFactor = 40.0f; // Fast climb for beginners
+		else if (myElo > 2000)
+			kFactor = 16.0f; // Highly stable for grandmasters
 
 		// True skill calculation
 		eloChange = (int)round(kFactor * (myActual - myExpected));
-		
+
 		myElo += eloChange;
 		if (myElo < 300) {
 			eloChange += (300 - myElo); // Adjust visual change if we hit the floor
@@ -9026,13 +9071,14 @@ void ofApp::drawGame() {
 			shadowDepthShader.begin();
 			shadowDepthShader.setUniformMatrix4f("uLightVP", lightViewProj);
 
+			int shadowPlayerIdx = 0;
 			for (const auto & player : players) {
 				// compute same world pos logic as main pass
 				glm::vec3 p;
 				bool foundEqShadow = false;
 				if (isEarthquakeActive) {
 					for (const auto & eq : earthquakeUnits) {
-						if (eq.playerIndex == &player - &players[0]) {
+						if (eq.playerIndex == shadowPlayerIdx) {
 							p = eq.visualPos;
 							foundEqShadow = true;
 							break;
@@ -9052,25 +9098,37 @@ void ofApp::drawGame() {
 				// Render the actual model geometry into the shadow map so shadows match silhouette
 
 				// Select Model
-				ofxAssimpModelLoader* currentModel = &playerModel;
+				ofxAssimpModelLoader * currentModel = &playerModel;
 
-				if (player.inTortoiseForm) currentModel = &tortoiseModel;
-				else if (player.inGhostForm) currentModel = &ghostModel;
-				else if (player.isSkeleton) currentModel = &skeletonModel;
-				else if (player.isGolem) currentModel = &golemModel;
-				else if (player.isWolf) currentModel = &wolfModel;
-				else if (player.isHellhound) currentModel = &hellhoundModel;
-				else if (player.isDemon) currentModel = &demonModel;
-				else if (player.isKobold) currentModel = &koboldModel;
-				else if (player.isKoboldKing) currentModel = &koboldKingModel;
-				else if (player.isFaerie) currentModel = &faerieModel;
-				else if (player.isWallUnit) currentModel = &wallUnitModel;
-				else if (player.isAssistant) currentModel = &assistantModel;
+				if (player.inTortoiseForm)
+					currentModel = &tortoiseModel;
+				else if (player.inGhostForm)
+					currentModel = &ghostModel;
+				else if (player.isSkeleton)
+					currentModel = &skeletonModel;
+				else if (player.isGolem)
+					currentModel = &golemModel;
+				else if (player.isWolf)
+					currentModel = &wolfModel;
+				else if (player.isHellhound)
+					currentModel = &hellhoundModel;
+				else if (player.isDemon)
+					currentModel = &demonModel;
+				else if (player.isKobold)
+					currentModel = &koboldModel;
+				else if (player.isKoboldKing)
+					currentModel = &koboldKingModel;
+				else if (player.isFaerie)
+					currentModel = &faerieModel;
+				else if (player.isWallUnit)
+					currentModel = &wallUnitModel;
+				else if (player.isAssistant)
+					currentModel = &assistantModel;
 
 				// Build model matrix perfectly synced with main pass
 				glm::mat4 modelMat(1.0f);
 				if (player.inGhostForm) {
-					float floatY = 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
+					float floatY = sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
 					if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
 						if (board[player.x][player.y].hasWall) floatY += 1.8f;
 					}
@@ -9080,11 +9138,11 @@ void ofApp::drawGame() {
 				}
 
 				modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(player.facingAngle), glm::vec3(0, 1, 0));
-				
+
 				// FLIP Y-AXIS AND FIX BLENDER FBX SCALE (100x too big!)
 				float modelVisualScale = 0.02f;
 				modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
-				
+
 				// Combine our placement matrix with the model's normalized internal matrix
 				glm::mat4 baseModelMat = modelMat * currentModel->getModelMatrix();
 
@@ -9094,6 +9152,7 @@ void ofApp::drawGame() {
 					shadowDepthShader.setUniformMatrix4f("uModel", baseModelMat * meshMat);
 					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 				}
+				shadowPlayerIdx++;
 			}
 
 			shadowDepthShader.end();
@@ -9367,13 +9426,14 @@ void ofApp::drawGame() {
 
 		ofSetColor(255);
 		// Draw simple blob shadows under players (so units appear grounded without full shadow-mapping)
+		int opaquePlayerIdx = 0;
 		for (const auto & player : players) {
 			// compute world position for shadow (ground plane y=0)
 			glm::vec3 p;
 			bool foundEq = false;
 			if (isEarthquakeActive) {
 				for (const auto & eq : earthquakeUnits) {
-					if (eq.playerIndex == &player - &players[0]) {
+					if (eq.playerIndex == opaquePlayerIdx) {
 						p = eq.visualPos;
 						foundEq = true;
 						break;
@@ -9456,7 +9516,10 @@ void ofApp::drawGame() {
 			{
 				int pidx = -1;
 				for (size_t i = 0; i < players.size(); ++i) {
-					if (&players[i] == &player) { pidx = (int)i; break; }
+					if (&players[i] == &player) {
+						pidx = (int)i;
+						break;
+					}
 				}
 				if (player.isMinion && renderLoggedMinions.find(player.playerID) == renderLoggedMinions.end()) {
 					renderLoggedMinions.insert(player.playerID);
@@ -9483,29 +9546,42 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 			ofTranslate(pos.x, 0.05f, pos.z);
 			ofRotateXDeg(90);
-			ofDrawCircle(0, 0, TILE_SIZE * 0.4f);
+			ofDrawCircle(0, 0, TILE_SIZE * 0.32f); // Made smaller to hug the unit tightly
 			ofPopMatrix();
 			ofPopStyle();
 
-			ofxAssimpModelLoader* currentModel = &playerModel;
-			if (player.inTortoiseForm) currentModel = &tortoiseModel;
-			else if (player.inGhostForm) currentModel = &ghostModel;
-			else if (player.isSkeleton) currentModel = &skeletonModel;
-			else if (player.isGolem) currentModel = &golemModel;
-			else if (player.isWolf) currentModel = &wolfModel;
-			else if (player.isHellhound) currentModel = &hellhoundModel;
-			else if (player.isDemon) currentModel = &demonModel;
-			else if (player.isKobold) currentModel = &koboldModel;
-			else if (player.isKoboldKing) currentModel = &koboldKingModel;
-			else if (player.isFaerie) currentModel = &faerieModel;
-			else if (player.isWallUnit) currentModel = &wallUnitModel;
-			else if (player.isAssistant) currentModel = &assistantModel;
+			ofxAssimpModelLoader * currentModel = &playerModel;
+			if (player.inTortoiseForm)
+				currentModel = &tortoiseModel;
+			else if (player.inGhostForm)
+				currentModel = &ghostModel;
+			else if (player.isSkeleton)
+				currentModel = &skeletonModel;
+			else if (player.isGolem)
+				currentModel = &golemModel;
+			else if (player.isWolf)
+				currentModel = &wolfModel;
+			else if (player.isHellhound)
+				currentModel = &hellhoundModel;
+			else if (player.isDemon)
+				currentModel = &demonModel;
+			else if (player.isKobold)
+				currentModel = &koboldModel;
+			else if (player.isKoboldKing)
+				currentModel = &koboldKingModel;
+			else if (player.isFaerie)
+				currentModel = &faerieModel;
+			else if (player.isWallUnit)
+				currentModel = &wallUnitModel;
+			else if (player.isAssistant)
+				currentModel = &assistantModel;
 
 			glm::mat4 modelMat(1.0f);
 			if (player.inGhostForm) {
-				float floatY = 1.2f + sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
+				// Removed 1.2f base height, kept bobbing motion
+				float floatY = sin(ofGetElapsedTimef() * 2.0f) * 0.24f;
 				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
-					if (board[player.x][player.y].hasWall) floatY += 1.8f;
+					if (board[player.x][player.y].hasWall) floatY += 1.8f; // Still elevate so it doesn't clip inside walls
 				}
 				modelMat = glm::translate(modelMat, glm::vec3(pos.x, floatY, pos.z));
 			} else {
@@ -9519,9 +9595,9 @@ void ofApp::drawGame() {
 
 			ofPushMatrix();
 			ofMultMatrix(modelMat);
-// --- 2. MODEL RENDERING & GHOST FORM ---
+			// --- 2. MODEL RENDERING & GHOST FORM ---
 			ofPushStyle();
-			glDisable(GL_CULL_FACE); 
+			glDisable(GL_CULL_FACE);
 			glEnable(GL_NORMALIZE); // CRITICAL FIX: Fixes massive GPU lag caused by scaling down the models!
 
 			if (player.inGhostForm) {
@@ -9533,7 +9609,7 @@ void ofApp::drawGame() {
 				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
 					ofPushMatrix();
 					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
-					glBindTexture(GL_TEXTURE_2D, 0); 
+					glBindTexture(GL_TEXTURE_2D, 0);
 					glDisable(GL_TEXTURE_2D);
 					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					glEnable(GL_TEXTURE_2D);
@@ -9551,7 +9627,7 @@ void ofApp::drawGame() {
 					glm::mat4 projMat = activeCam.getProjectionMatrix();
 					glm::mat4 viewProj = projMat * viewMat;
 
-				pbrShader.begin();
+					pbrShader.begin();
 					pbrShader.setUniform4f("uTintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Draw in true original colors
 					pbrShader.setUniformMatrix4f("uViewProj", viewProj);
 					pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
@@ -9582,10 +9658,10 @@ void ofApp::drawGame() {
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
 					pbrShader.end();
-			} else {
+				} else {
 					// FIXED FUNCTION PIPELINE PATH
 					ofSetColor(255); // CRITICAL FIX: Draw the model in its true original colors!
-					
+
 					ofPushMatrix();
 					ofMultMatrix(currentModel->getModelMatrix());
 					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
@@ -9606,8 +9682,10 @@ void ofApp::drawGame() {
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 
 						if (hasTex) {
-							if (player.isGolem && player.minionTexture) player.minionTexture->unbind();
-							else currentModel->getMeshHelper(mi).getTextureRef().unbind();
+							if (player.isGolem && player.minionTexture)
+								player.minionTexture->unbind();
+							else
+								currentModel->getMeshHelper(mi).getTextureRef().unbind();
 						}
 
 						ofPopMatrix();
@@ -9623,7 +9701,7 @@ void ofApp::drawGame() {
 					ofSetColor(148, 0, 211, alpha);
 					glEnable(GL_POLYGON_OFFSET_FILL);
 					glPolygonOffset(-1.0f, -1.0f);
-					
+
 					ofPushMatrix();
 					ofMultMatrix(currentModel->getModelMatrix());
 					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
@@ -9643,7 +9721,7 @@ void ofApp::drawGame() {
 				}
 			}
 			glDisable(GL_NORMALIZE); // Clean up lag fix
-			glDisable(GL_CULL_FACE); 
+			glDisable(GL_CULL_FACE);
 			ofPopMatrix();
 			ofPopStyle();
 
@@ -9655,6 +9733,8 @@ void ofApp::drawGame() {
 			float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
 			glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
 			glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
+
+			opaquePlayerIdx++;
 		}
 
 		// --- HOVER GLOW RENDERING ---
@@ -9745,14 +9825,14 @@ void ofApp::drawGame() {
 		glDepthMask(GL_FALSE);
 		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
+		int transPlayerIdx = 0;
 		for (const auto & player : players) {
 			// 1. Determine Position
 			glm::vec3 pos;
 			bool foundEq = false;
 			if (isEarthquakeActive) {
-				int pIndex = (int)(&player - &players[0]);
 				for (const auto & eq : earthquakeUnits) {
-					if (eq.playerIndex == pIndex) {
+					if (eq.playerIndex == transPlayerIdx) {
 						pos = eq.visualPos;
 						foundEq = true;
 						break;
@@ -9771,18 +9851,32 @@ void ofApp::drawGame() {
 			}
 
 			// 2. Determine Head Height for Status Effects (Used in this loop)
-			float headHeight = 4.0f; // Default
-			if (player.isGolem)
-				headHeight = 5.5f;
-			else if (player.isWolf)
-				headHeight = 2.0f;
-			else if (player.isHellhound)
-				headHeight = 2.5f;
+			float headHeight = 6.5f; // Default (Wizard)
+			if (player.inTortoiseForm)
+				headHeight = 4.0f;
+			else if (player.inGhostForm)
+				headHeight = 6.5f;
+			else if (player.isGolem)
+				headHeight = 7.0f;
 			else if (player.isDemon)
+				headHeight = 8.0f;
+			else if (player.isHellhound)
+				headHeight = 4.5f;
+			else if (player.isWolf)
+				headHeight = 4.0f;
+			else if (player.isKobold || player.isKoboldKing)
+				headHeight = 4.0f;
+			else if (player.isFaerie)
+				headHeight = 3.5f;
+			else if (player.isSkeleton)
+				headHeight = 5.5f;
+			else if (player.isAssistant)
+				headHeight = 5.5f;
+			else if (player.isWallUnit || player.isMagicWallUnit)
 				headHeight = 6.0f;
 
 			// --- NEW: Unified altitude for status effects to clear all models uniformly ---
-			float unifiedStatusHeight = 7.0f;
+			float unifiedStatusHeight = 8.0f; // Raised to clear all models safely
 
 			// 3. DRAW SHADOW
 			ofPushMatrix();
@@ -9933,13 +10027,48 @@ void ofApp::drawGame() {
 				uiFont.drawString("[X]", -20, 0); // Simple skull representation
 				ofPopMatrix();
 			}
+			// 8. ACTIVE UNIT CHEVRON (Bobbing above head)
+			if (transPlayerIdx == currentPlayerIndex) {
+				ofPushMatrix();
+				// Calculate an animated bob offset scaled to tile size
+				float bob = sin(ofGetElapsedTimef() * 6.0f) * (TILE_SIZE * 0.05f);
 
-			// 8. EARTHQUAKE DIRECTION ARROWS (above head, follow unit)
+				// Translate to just above the unit's head height
+				ofTranslate(pos.x, headHeight + (TILE_SIZE * 0.35f) + bob, pos.z);
+
+				// Billboard to always face the active player's camera
+				glm::vec3 camPos = activeCam.getPosition();
+				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+
+				ofPushStyle();
+				ofDisableLighting(); // CRITICAL: Prevent scene lighting from turning the unlit 2D shape black!
+				glDisable(GL_CULL_FACE); // CRITICAL: Prevent the triangle from being culled
+
+				// Scale the chevron relative to the board tile size
+				float w = TILE_SIZE * 0.30f;
+				float h = TILE_SIZE * 0.22f;
+				float inset = TILE_SIZE * 0.035f;
+
+				// Draw Black Outline Triangle (Outer)
+				ofSetColor(0, 0, 0, 255);
+				ofDrawTriangle(-w / 2, h / 2, w / 2, h / 2, 0, -h / 2);
+
+				// Draw Inner Pure Gold Triangle
+				ofSetColor(255, 215, 0, 255);
+				ofDrawTriangle(-w / 2 + inset, h / 2 - inset * 0.8f, w / 2 - inset, h / 2 - inset * 0.8f, 0, -h / 2 + inset * 1.2f);
+
+				ofEnableLighting(); // Restore lighting for the rest of the transparent pass
+				ofPopStyle();
+
+				ofPopMatrix();
+			}
+
+			// 9. EARTHQUAKE DIRECTION ARROWS (above head, follow unit)
 			{
-				int pIndex = (int)(&player - &players[0]);
 				if (isEarthquakeActive) {
 					for (const auto & eq : earthquakeUnits) {
-						if (eq.playerIndex == pIndex && (eq.tilesToMove > 0 || eq.originalDistance > 0 || eq.crashed)) {
+						if (eq.playerIndex == transPlayerIdx && (eq.tilesToMove > 0 || eq.originalDistance > 0 || eq.crashed)) {
 							// Determine displayed remaining tiles: decrement once the step progress crosses halfway
 							int displayedRemaining = 0;
 							if (eq.crashed)
@@ -9992,6 +10121,8 @@ void ofApp::drawGame() {
 					}
 				}
 			}
+
+			transPlayerIdx++;
 		}
 
 		// Diable Lighting for Highlights
@@ -10207,48 +10338,8 @@ void ofApp::drawGame() {
 					}
 				}
 
-				// 5. Active Player Selection Square
-				if (!players.empty() && currentPlayerIndex >= 0) {
-					int highlightX = players[currentPlayerIndex].x;
-					int highlightY = players[currentPlayerIndex].y;
-
-					// ... (Existing animation/earthquake check logic) ...
-					if (isPlayerAnimating) {
-						glm::vec2 g = worldToGrid(playerVisualPos);
-						highlightX = (int)g.x;
-						highlightY = (int)g.y;
-					} else if (isEarthquakeActive) {
-						for (const auto & eq : earthquakeUnits) {
-							if (eq.playerIndex == currentPlayerIndex) {
-								glm::vec2 g = worldToGrid(eq.visualPos);
-								highlightX = (int)g.x;
-								highlightY = (int)g.y;
-								break;
-							}
-						}
-					}
-
-					if (x == highlightX && y == highlightY) {
-						// Draw pulsing golden ring just outside the team ring
-						float pulse = (sin(ofGetElapsedTimef() * 4.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
-						float outerRadius = TILE_SIZE * (0.42f + 0.12f * pulse); // Min 0.42, Max 0.54
-						float innerRadius = TILE_SIZE * (0.40f + 0.12f * pulse); 
-						
-						ofPushMatrix();
-						ofTranslate(0, surfaceY + 0.03f, 0);
-						ofRotateXDeg(90);
-						ofNoFill();
-						ofSetLineWidth(3.5f);
-						ofSetColor(255, 215, 0, 220); // Bright gold
-						ofDrawCircle(0, 0, outerRadius);
-						// Inner accent ring
-						ofSetLineWidth(1.5f);
-						ofSetColor(255, 255, 150, 180); // Lighter gold
-						ofDrawCircle(0, 0, innerRadius);
-						ofFill();
-						ofPopMatrix();
-					}
-				}
+				// The active player yellow ring was removed and replaced by a bobbing chevron
+				// above the unit in the transparent effects pass.
 				ofPopMatrix();
 			}
 		}
@@ -11132,17 +11223,18 @@ void ofApp::drawGame() {
 		if (!skipDrawP0AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
-			drawPixelTextCentered(titleFont, p0_apText, p0_apCenterX, p0_apCenterY, apFontScale, ofColor::green);
+			drawPixelTextCentered(titleFont, p0_apText, p0_apCenterX, p0_apCenterY, apFontScale, ofColor::green, 2, ofColor::black);
 
 			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
-				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
+				int alpha = (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f);
+				ofColor previewColor(255, 70, 70, alpha);
+				ofColor outlineColor(0, 0, 0, alpha);
 				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) + (12.0f * scale);
 				float p0_previewCenterY = p0_apCenterY;
 				float p0_previewCenterX = p0_previewAnchorX - (p0_previewTextBox.width * p0_previewScale * 0.5f);
-				drawPixelTextCentered(titleFont, apPreviewDisplayText, p0_previewCenterX, p0_previewCenterY, p0_previewScale, previewColor);
+				drawPixelTextCentered(titleFont, apPreviewDisplayText, p0_previewCenterX, p0_previewCenterY, p0_previewScale, previewColor, 2, outlineColor);
 			}
 		}
-
 		// --- DRAW P0 STATUSES (BOTTOM - Local Player) ---
 		// Position these relative to the local player's health bar: bottom-right, stacked above the HP counter
 		float p0_statusXStart = p0_healthX + 5 * scale;
@@ -11225,14 +11317,16 @@ void ofApp::drawGame() {
 		if (!skipDrawP1AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
-			drawPixelTextCentered(titleFont, p1_apText, p1_apCenterX, p1_apCenterY, apFontScale, ofColor::green);
+			drawPixelTextCentered(titleFont, p1_apText, p1_apCenterX, p1_apCenterY, apFontScale, ofColor::green, 2, ofColor::black);
 
 			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
-				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
+				int alpha = (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f);
+				ofColor previewColor(255, 70, 70, alpha);
+				ofColor outlineColor(0, 0, 0, alpha);
 				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) + (12.0f * scale);
 				float p1_previewCenterY = p1_apCenterY;
 				float p1_previewCenterX = p1_previewAnchorX - (p0_previewTextBox.width * p0_previewScale * 0.5f);
-				drawPixelTextCentered(titleFont, apPreviewDisplayText, p1_previewCenterX, p1_previewCenterY, p0_previewScale, previewColor);
+				drawPixelTextCentered(titleFont, apPreviewDisplayText, p1_previewCenterX, p1_previewCenterY, p0_previewScale, previewColor, 2, outlineColor);
 			}
 		}
 
@@ -11577,10 +11671,8 @@ void ofApp::drawGame() {
 				ofDrawRectRounded(rerollButtonRect, 8);
 				ofPopStyle();
 
-				ofSetColor(ofColor::cyan);
 				string txt = "Reroll AP";
-				ofRectangle b = uiFont.getStringBoundingBox(txt, 0, 0);
-				uiFont.drawString(txt, btnX + (btnW - b.width) / 2, btnY + (btnH + b.height) / 2);
+				drawStatText(uiFont, txt, btnX, btnY, btnW, btnH, ofColor::cyan, 1.0f);
 			} else {
 				rerollButtonRect.set(-1000, -1000, 0, 0);
 			}
@@ -12858,11 +12950,13 @@ void ofApp::drawGame() {
 				float oppActual = (g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f;
 
 				float oppK = 24.0f;
-				if (opponentElo < 1200) oppK = 40.0f;
-				else if (opponentElo > 2000) oppK = 16.0f;
+				if (opponentElo < 1200)
+					oppK = 40.0f;
+				else if (opponentElo > 2000)
+					oppK = 16.0f;
 
 				oppEloChange = (int)round(oppK * (oppActual - oppExpected));
-				
+
 				if (opponentElo + oppEloChange < 300) {
 					oppEloChange = 300 - opponentElo;
 				}
@@ -19846,7 +19940,7 @@ void ofApp::cancelAllTargeting() {
 	wolfSummonStage = 0;
 	koboldPlacementSourceX = -1;
 	koboldPlacementSourceY = -1;
-	
+
 	// CRITICAL FIX: Aggressively wipe the UI so "Done" instantly clears text/glows
 	isShowingTooltip = false;
 	tooltipText = "";
@@ -28298,11 +28392,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			maxRangeFeet = (float)(rNum * rSides);
 		}
 
+		// Use the exact same scaled integer math the execution server uses!
+		long long maxRangeHalfTiles = ((long long)maxRangeFeet * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
 				glm::vec2 targetPos(x, y);
-				float distFeet = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
-				if (distFeet <= maxRangeFeet + 0.1f) {
+				long long distSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
+
+				if (distSq <= maxDistSq) {
 					board[x][y].isTargetPreview = true;
 
 					bool isWall = board[x][y].hasWall;
@@ -29715,13 +29814,13 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << lastAPDiceNum
 	   << "\t" << lastAPDiceSides
 	   << "\t" << (hasUnlimitedAP ? 1 : 0)
-	   << "\t" << currentMapSeed 
-	   << "\t" << nextSummonOrder            // <--- FIX: Ensure minion turn order stays synced
-	   << "\t" << draftGenerationCounter     // <--- FIX: Ensure draft RNG stays synced
+	   << "\t" << currentMapSeed
+	   << "\t" << nextSummonOrder // <--- FIX: Ensure minion turn order stays synced
+	   << "\t" << draftGenerationCounter // <--- FIX: Ensure draft RNG stays synced
 	   << "\n";
 
 	ss << "DAMAGERMAP\t" << g_lastDamagerMap.size();
-	for (const auto& pair : g_lastDamagerMap) {
+	for (const auto & pair : g_lastDamagerMap) {
 		ss << "\t" << pair.first << "\t" << pair.second;
 	}
 	ss << "\n";
@@ -29990,8 +30089,8 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				g_lastDamagerMap.clear();
 				int count = std::stoi(parts[1]);
 				int pIdx = 2;
-				for(int i = 0; i < count && pIdx + 1 < (int)parts.size(); ++i) {
-					g_lastDamagerMap[std::stoi(parts[pIdx])] = std::stoi(parts[pIdx+1]);
+				for (int i = 0; i < count && pIdx + 1 < (int)parts.size(); ++i) {
+					g_lastDamagerMap[std::stoi(parts[pIdx])] = std::stoi(parts[pIdx + 1]);
 					pIdx += 2;
 				}
 			} else if (parts[0] == "TURN" && parts.size() >= 8) {
@@ -30130,7 +30229,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 					auto tokens = splitEscapedList(list);
 					for (const auto & tok : tokens) {
 						if (tok.empty()) continue;
-						
+
 						std::string n = tok;
 						int overrideCost = -1;
 						size_t pipePos = tok.find('|');
@@ -30144,8 +30243,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 							Card newCard = *c;
 							if (overrideCost >= 0) newCard.cost = overrideCost;
 							outVec.push_back(newCard);
-						}
-						else {
+						} else {
 							Card fallback;
 							fallback.name = n;
 							outVec.push_back(fallback);
@@ -30199,7 +30297,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 					auto tokens = splitEscapedList(parts[4]);
 					for (const auto & tok : tokens) {
 						if (tok.empty()) continue;
-						
+
 						std::string n = tok;
 						int overrideCost = -1;
 						size_t pipePos = tok.find('|');
@@ -30461,7 +30559,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 //--------------------------------------------------------------
 void ofApp::sendSnapshotToClient(bool useTurnStartBackup) {
 	if (!isMultiplayer || !isHost()) return;
-	
+
 	// If requested (e.g. for reconnects), use the pristine Turn-Start state to avoid mid-spell desyncs
 	std::string data = (useTurnStartBackup && !turnStartBackupSnapshot.empty()) ? turnStartBackupSnapshot : buildSnapshotString();
 	uint32_t snapshotId = ++lastSnapshotId;
@@ -32169,62 +32267,62 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
 
 		int dyingIdx = -1;
-			for (size_t i = 0; i < players.size(); ++i) {
-				if (&players[i] == &target) {
-					dyingIdx = (int)i;
-					break;
-				}
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (&players[i] == &target) {
+				dyingIdx = (int)i;
+				break;
 			}
+		}
 
-			// Faerie Resurrection (orthogonal adjacency only; no diagonals)
-			bool resurrected = false;
-			if (!target.isFaerie && target.x >= 0 && target.y >= 0 && dyingIdx >= 0) {
-				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-						if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
-						int nx = target.x + dx;
-						int ny = target.y + dy;
-						if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+		// Faerie Resurrection (orthogonal adjacency only; no diagonals)
+		bool resurrected = false;
+		if (!target.isFaerie && target.x >= 0 && target.y >= 0 && dyingIdx >= 0) {
+			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+					if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
+					int nx = target.x + dx;
+					int ny = target.y + dy;
+					if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 
-						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
-							Player & p = players[pidx];
-							bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (target.isMinion ? target.ownerID : target.playerID);
-							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0 && isSameTeam) {
-								std::vector<int> rawRes;
-								int raw = resolveDiceRollDetailed(1, 4, rawRes);
-								int luckBonus = p.luck + computePassiveLuck((int)pidx);
-								int roll = raw + luckBonus;
-								if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
-								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
-								int hp = (target.maxHealth * roll) / 4;
-								if (hp < 1) hp = 1;
+					for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+						Player & p = players[pidx];
+						bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (target.isMinion ? target.ownerID : target.playerID);
+						if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0 && isSameTeam) {
+							std::vector<int> rawRes;
+							int raw = resolveDiceRollDetailed(1, 4, rawRes);
+							int luckBonus = p.luck + computePassiveLuck((int)pidx);
+							int roll = raw + luckBonus;
+							if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
+							int hp = (target.maxHealth * roll) / 4;
+							if (hp < 1) hp = 1;
 
-								int pct = roll * 25;
-								std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
-								queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
+							int pct = roll * 25;
+							std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
+							queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
 
-								{
-									EffectOp wait = {};
-									wait.type = EffectOpType::WAIT_VISUAL;
-									wait.data.damage.fixedDamage = 1;
-									queueEffect(wait);
+							{
+								EffectOp wait = {};
+								wait.type = EffectOpType::WAIT_VISUAL;
+								wait.data.damage.fixedDamage = 1;
+								queueEffect(wait);
 
-									EffectOp setHp = {};
-									setHp.type = EffectOpType::MODIFY_STAT;
-									setHp.data.modifyStat.targetIndex = dyingIdx;
-									setHp.data.modifyStat.statType = 0; // HP
-									setHp.data.modifyStat.delta = hp - target.health;
-									setHp.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(setHp);
-								}
-								resurrected = true;
-								queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
-								ofLogNotice("Faerie") << "Unit " << target.playerID << " resurrected by faerie for " << hp << " HP.";
+								EffectOp setHp = {};
+								setHp.type = EffectOpType::MODIFY_STAT;
+								setHp.data.modifyStat.targetIndex = dyingIdx;
+								setHp.data.modifyStat.statType = 0; // HP
+								setHp.data.modifyStat.delta = hp - target.health;
+								setHp.data.modifyStat.deltaFromSlot = -1;
+								processEffectOp(setHp);
 							}
+							resurrected = true;
+							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
+							ofLogNotice("Faerie") << "Unit " << target.playerID << " resurrected by faerie for " << hp << " HP.";
 						}
 					}
 				}
 			}
+		}
 
 		if (resurrected) {
 			return target.health < initialHealth;
@@ -33701,45 +33799,56 @@ void ofApp::drawMinionManagerUI() {
 			unitTint = ofColor(255, 60, 60);
 		else if (effectiveOwner == 1)
 			unitTint = ofColor(60, 255, 60);
-		
+
 		ofSetColor(255); // Draw in true original colors
 
 		ofPushMatrix();
 
-	// --- UNIFIED MINION MODEL SCALING ---
+		// --- UNIFIED MINION MODEL SCALING ---
 		// FIX: With normalization disabled, origin is at feet. Put the feet near the bottom of the FBO.
 		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() * 0.85f);
 
 		// Scale them to ~90 pixels tall (since they are natively 2 units tall, scale by 90)
 		// AND apply the 0.02f Blender FBX fix!
-		float uScale = 90.0f * 0.02f; 
+		float uScale = 90.0f * 0.02f;
 
 		ofScale(uScale, -uScale, uScale);
 		// Removed uYOffset because feet are already natively at 0
 
 		ofRotateXDeg(-15);
 		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
-		
+
 		glDisable(GL_CULL_FACE); // Ensure inside-out models don't vanish entirely
-		glEnable(GL_NORMALIZE);  // Prevent lighting calculation lag
+		glEnable(GL_NORMALIZE); // Prevent lighting calculation lag
 
-		ofxAssimpModelLoader* currentModel = &playerModel;
+		ofxAssimpModelLoader * currentModel = &playerModel;
 
-		if (minion.inTortoiseForm) currentModel = &tortoiseModel;
-		else if (minion.inGhostForm) currentModel = &ghostModel;
-		else if (minion.isSkeleton) currentModel = &skeletonModel;
-		else if (minion.isGolem) currentModel = &golemModel;
-		else if (minion.isWolf) currentModel = &wolfModel;
-		else if (minion.isHellhound) currentModel = &hellhoundModel;
-		else if (minion.isDemon) currentModel = &demonModel;
-		else if (minion.isKobold) currentModel = &koboldModel;
-		else if (minion.isKoboldKing) currentModel = &koboldKingModel;
-		else if (minion.isFaerie) currentModel = &faerieModel;
-		else if (minion.isWallUnit) currentModel = &wallUnitModel;
-		else if (minion.isAssistant) currentModel = &assistantModel;
+		if (minion.inTortoiseForm)
+			currentModel = &tortoiseModel;
+		else if (minion.inGhostForm)
+			currentModel = &ghostModel;
+		else if (minion.isSkeleton)
+			currentModel = &skeletonModel;
+		else if (minion.isGolem)
+			currentModel = &golemModel;
+		else if (minion.isWolf)
+			currentModel = &wolfModel;
+		else if (minion.isHellhound)
+			currentModel = &hellhoundModel;
+		else if (minion.isDemon)
+			currentModel = &demonModel;
+		else if (minion.isKobold)
+			currentModel = &koboldModel;
+		else if (minion.isKoboldKing)
+			currentModel = &koboldKingModel;
+		else if (minion.isFaerie)
+			currentModel = &faerieModel;
+		else if (minion.isWallUnit)
+			currentModel = &wallUnitModel;
+		else if (minion.isAssistant)
+			currentModel = &assistantModel;
 
 		if (minion.inGhostForm) {
-			ofTranslate(0, 1.2f, 0); // floating in UI
 			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
 		}
@@ -33761,7 +33870,7 @@ void ofApp::drawMinionManagerUI() {
 				// FIX: Correct pure matrices for FBO rendering
 				glm::mat4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
 				glm::mat4 baseModelMat = modelMat * glm::mat4(currentModel->getModelMatrix());
-				
+
 				glm::mat4 viewMat = glm::mat4(1.0f); // Identity view
 				glm::mat4 projMat = ofGetCurrentMatrix(OF_MATRIX_PROJECTION);
 				glm::mat4 viewProj = projMat * viewMat;
@@ -33774,7 +33883,7 @@ void ofApp::drawMinionManagerUI() {
 				pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
 				pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
 				pbrShader.setUniform3f("uViewPos", 0.0f, 0.0f, 0.0f);
-				
+
 				pbrShader.setUniform1i("useNormalTex", 0);
 
 				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
@@ -33797,7 +33906,7 @@ void ofApp::drawMinionManagerUI() {
 					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 				}
 				pbrShader.end();
-		} else {
+			} else {
 				ofPushMatrix();
 				ofMultMatrix(currentModel->getModelMatrix());
 				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
@@ -33812,14 +33921,16 @@ void ofApp::drawMinionManagerUI() {
 						currentModel->getMeshHelper(mi).getTextureRef().bind();
 						hasTex = true;
 					} else {
-						glBindTexture(GL_TEXTURE_2D, 0); 
+						glBindTexture(GL_TEXTURE_2D, 0);
 					}
 
 					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 
 					if (hasTex) {
-						if (minion.isGolem && minion.minionTexture) minion.minionTexture->unbind();
-						else currentModel->getMeshHelper(mi).getTextureRef().unbind();
+						if (minion.isGolem && minion.minionTexture)
+							minion.minionTexture->unbind();
+						else
+							currentModel->getMeshHelper(mi).getTextureRef().unbind();
 					}
 
 					ofPopMatrix();
@@ -33834,7 +33945,7 @@ void ofApp::drawMinionManagerUI() {
 				ofSetColor(148, 0, 211, alpha);
 				glEnable(GL_POLYGON_OFFSET_FILL);
 				glPolygonOffset(-1.0f, -1.0f);
-				
+
 				ofPushMatrix();
 				ofMultMatrix(currentModel->getModelMatrix());
 				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
@@ -33851,7 +33962,6 @@ void ofApp::drawMinionManagerUI() {
 			}
 		}
 
-		
 		glDisable(GL_NORMALIZE);
 		ofPopMatrix();
 		ofDisableDepthTest();
@@ -35419,7 +35529,7 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 
-		if (header->type == PKT_HANDSHAKE) {
+			if (header->type == PKT_HANDSHAKE) {
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
 				// 1. HOST RECEIVES CLIENT REPLY
