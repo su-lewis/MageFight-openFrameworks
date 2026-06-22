@@ -4141,6 +4141,8 @@ std::string ofApp::getPlayerDisplayName(int index) {
 		prefix = "Faerie";
 	else if (p->isWallUnit)
 		prefix = "Wall";
+	else if (p->isKoboldKing)
+		prefix = "Kobold King";
 	else if (p->isKobold)
 		prefix = "Kobold";
 	else if (p->isAssistant)
@@ -4162,7 +4164,7 @@ std::string ofApp::getPlayerDisplayName(int index) {
 		if (i == (size_t)index) break;
 		Player & other = players[i];
 		if (!other.isMinion) continue;
-		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold" && other.isKobold) || (prefix == "Assistant" && other.isAssistant) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
+		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold King" && other.isKoboldKing) || (prefix == "Kobold" && other.isKobold) || (prefix == "Assistant" && other.isAssistant) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
 			if (other.ownerID == p->ownerID) ord++;
 		}
 	}
@@ -6717,7 +6719,7 @@ void ofApp::prepareGameVisualState() {
 
 	// Hand Interpolation (144Hz Smooth + No Bouncing)
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player * handPlayer = (isMultiplayer && !isMyTurn()) ? nullptr : &players[currentPlayerIndex];
+		Player * handPlayer = &players[currentPlayerIndex];
 		if (handPlayer) {
 			size_t numCards = handPlayer->hand.size();
 
@@ -6751,14 +6753,25 @@ void ofApp::prepareGameVisualState() {
 
 					// Apply hover lift dynamically
 					float hoverLift = 0.0f;
-					if (static_cast<int>(i) == hoveredCardIndex && draggedCardIndex == -1) {
-						// Calculate exactly how high to lift the card so the entire scaled card is visible
-						// above the bottom of the screen.
+					bool isLocallyHovered = (isCurrentPlayerLocal() && static_cast<int>(i) == hoveredCardIndex);
+					bool isOpponentHovered = (!isCurrentPlayerLocal() && opponentHoverType == HOVER_HAND_CARD && static_cast<int>(i) == opponentHoverCardIndex);
+
+					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1) {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
 						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
 						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
 						hoverLift = desiredHoverY - handPlayer->hand[i].targetPos.y;
 					}
+
+					float targetScaleVal = 1.0f;
+					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+						targetScaleVal = 1.0f;
+					} else if (isLocallyHovered || isOpponentHovered) {
+						targetScaleVal = kHandHoverScale;
+					}
+					if (isCurrentPlayerLocal() && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
+
+					handPlayer->hand[i].targetScale = targetScaleVal;
 
 					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
 					float scaleLerp = 1.0f - std::exp(-springScale * dt);
@@ -7081,10 +7094,11 @@ void ofApp::prepareGameVisualState() {
 			if (m.isWolf) return 3;
 			if (m.isHellhound) return 4;
 			if (m.isDemon) return 5;
-			if (m.isKobold || m.isKoboldKing) return 6; // group kobolds together
+			if (m.isKobold) return 6;
 			if (m.isAssistant) return 7;
 			if (m.isWallUnit) return 8;
 			if (m.isFaerie) return 9;
+			if (m.isKoboldKing) return 10;
 			return 0;
 		};
 
@@ -9666,9 +9680,11 @@ void ofApp::drawGame() {
 			drawTileGlow(localHoverGridX, localHoverGridY, ofColor(255, 255, 255, 200), 4.0f);
 		}
 
-		// Draw red glow for opponent's hover (only in multiplayer)
+		// Draw glow for opponent's hover (only in multiplayer)
 		if (isMultiplayer && opponentHoverType == HOVER_UNIT && opponentHoverGridX >= 0 && opponentHoverGridX < BOARD_WIDTH && opponentHoverGridY >= 0 && opponentHoverGridY < BOARD_HEIGHT) {
-			drawTileGlow(opponentHoverGridX, opponentHoverGridY, ofColor(255, 0, 0, 200), 4.0f);
+			// Red if it's their turn, Blue if they are just spectator-hovering on our turn
+			ofColor glowColor = isMyTurn() ? ofColor(0, 150, 255, 200) : ofColor(255, 0, 0, 200);
+			drawTileGlow(opponentHoverGridX, opponentHoverGridY, glowColor, 4.0f);
 		}
 
 		// --- DICE RENDERING ---
@@ -9780,13 +9796,13 @@ void ofApp::drawGame() {
 			else if (player.inGhostForm)
 				headHeight = 6.5f;
 			else if (player.isGolem)
-				headHeight = 7.0f;
+				headHeight = 15.0f;
 			else if (player.isDemon)
-				headHeight = 8.0f;
+				headHeight = 15.0f;
 			else if (player.isHellhound)
 				headHeight = 4.5f;
 			else if (player.isWolf)
-				headHeight = 4.0f;
+				headHeight = 15.0f;
 			else if (player.isKobold || player.isKoboldKing)
 				headHeight = 4.0f;
 			else if (player.isFaerie)
@@ -9796,7 +9812,7 @@ void ofApp::drawGame() {
 			else if (player.isAssistant)
 				headHeight = 5.5f;
 			else if (player.isWallUnit || player.isMagicWallUnit)
-				headHeight = 6.0f;
+				headHeight = 15.0f;
 
 			// Dynamic stacking height for overhead icons so they don't overlap
 			float currentOverheadY = headHeight + 0.5f;
@@ -11597,32 +11613,15 @@ void ofApp::drawGame() {
 		}
 	}
 
-	// --- OPTIMIsED HAND DRAWING ---
+	// --- OPTIMISED HAND DRAWING ---
 	// Draw the hand area only when we have a valid player/context (match rest of UI)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		// Hearthstone-style hover scale for cards
 		const float hoverScale = kHandHoverScale;
 
-		// In multiplayer, show BOTH players' hands at bottom in a shared space
-		// Get both local and opponent player
-		Player * handPlayer = nullptr;
-		Player * opponentHandPlayer = nullptr;
-
-		if (isMultiplayer) {
-			int localID = myLocalPlayerID;
-			int opponentID = (localID == 0) ? 1 : 0;
-
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == localID && !players[i].isMinion) {
-					handPlayer = &players[i];
-				}
-				if (players[i].playerID == opponentID && !players[i].isMinion) {
-					opponentHandPlayer = &players[i];
-				}
-			}
-		} else {
-			handPlayer = &players[currentPlayerIndex];
-		}
+		// There is only one hand area at the bottom. Since hands are wiped at the end
+		// of each turn, only the active unit (player or minion) has cards to draw!
+		Player * handPlayer = &players[currentPlayerIndex];
 
 		if (!handPlayer) return;
 		Player & currentPlayer = *handPlayer;
@@ -11816,33 +11815,88 @@ void ofApp::drawGame() {
 		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
 			drawHandCard(indexToDrawLast, true);
 		}
+	}
 
-		// --- DRAW OPPONENT'S HAND IN SAME BOTTOM AREA (SHARED HAND SPACE) ---
-		if (isMultiplayer && opponentHandPlayer && !opponentHandPlayer->hand.empty() && !isCurrentPlayerLocal()) {
-			// Draw opponent's cards alongside local player's cards in the bottom hand area
-			for (size_t i = 0; i < opponentHandPlayer->hand.size(); ++i) {
-				Card & card = opponentHandPlayer->hand[i];
-				float w = handBaseCardWidth * card.currentScale;
-				float h = baseCardHeight * card.currentScale;
+	// --- DRAW HEARTHSTONE TARGETING ARROW ---
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player & p = players[currentPlayerIndex];
+		int aimCardIndex = -1;
+		bool hasValidTarget = false;
+		glm::vec2 screenTarget;
 
-				float drawX = card.currentPos.x - w / 2;
-				float drawY = card.currentPos.y - h / 2;
-
-				// Draw the card face
-				ofSetColor(255);
-				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, opponentHandPlayer);
-
-				// Draw hover glow if opponent is hovering this card
-				if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == static_cast<int>(i)) {
-					ofPushStyle();
-					ofNoFill();
-					ofSetColor(255, 0, 0, 200); // Red glow for opponent
-					ofSetLineWidth(4);
-					ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
-					ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
-					ofPopStyle();
+		if (isCurrentPlayerLocal()) {
+			if (draggedCardIndex != -1) {
+				aimCardIndex = draggedCardIndex;
+				screenTarget = glm::vec2(ofGetMouseX(), ofGetMouseY());
+				hasValidTarget = true;
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+				aimCardIndex = interactingCardIndex;
+				screenTarget = glm::vec2(ofGetMouseX(), ofGetMouseY());
+				hasValidTarget = true;
+			}
+		} else {
+			if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex != -1) {
+				aimCardIndex = opponentHoverCardIndex;
+				int aimX = opponentHoverGridX;
+				int aimY = opponentHoverGridY;
+				if (aimX >= 0 && aimX < BOARD_WIDTH && aimY >= 0 && aimY < BOARD_HEIGHT) {
+					glm::vec3 worldTarget = gridToWorld(aimX, aimY);
+					glm::vec3 st = getActiveCamera().worldToScreen(worldTarget);
+					screenTarget = glm::vec2(st.x, st.y);
+					hasValidTarget = true;
 				}
 			}
+		}
+
+		if (aimCardIndex >= 0 && aimCardIndex < (int)p.hand.size() && hasValidTarget) {
+			float uiScale = getUIScaleFromHeight(ofGetHeight());
+			glm::vec2 startPos = p.hand[aimCardIndex].currentPos;
+			startPos.y -= (kCardPixelHeight * kHandCardVisualScale * p.hand[aimCardIndex].currentScale) * 0.5f;
+
+			auto drawHearthstoneArrow = [&](glm::vec2 start, glm::vec2 end, ofColor color, float scale) {
+				float dist = glm::distance(start, end);
+				if (dist < 10.0f * scale) return;
+
+				glm::vec2 mid = (start + end) * 0.5f;
+				glm::vec2 dir = glm::normalize(end - start);
+				glm::vec2 perp(-dir.y, dir.x);
+				if (perp.y > 0) perp *= -1.0f; // Curve upwards
+				glm::vec2 cp = mid + perp * (dist * 0.3f);
+
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(color);
+				ofSetLineWidth(8.0f * scale);
+
+				ofBeginShape();
+				int segments = 30;
+				for (int i = 0; i <= segments; i++) {
+					float t = (float)i / segments;
+					float u = 1.0f - t;
+					glm::vec2 pCurve = (u * u) * start + (2.0f * u * t) * cp + (t * t) * end;
+					ofVertex(pCurve.x, pCurve.y);
+				}
+				ofEndShape(false);
+
+				ofFill();
+				ofPushMatrix();
+				ofTranslate(end.x, end.y);
+				glm::vec2 tangent = glm::normalize(end - cp);
+				float angle = atan2(tangent.y, tangent.x);
+				ofRotateRad(angle);
+				float aw = 25.0f * scale;
+				float ah = 15.0f * scale;
+				ofDrawTriangle(0, 0, -aw, ah, -aw, -ah);
+				ofPopMatrix();
+
+				ofNoFill();
+				ofSetLineWidth(4.0f * scale);
+				ofDrawCircle(end.x, end.y, 20.0f * scale);
+				ofPopStyle();
+			};
+
+			ofColor arrowCol = isCurrentPlayerLocal() ? ofColor(255, 50, 50, 200) : ofColor(50, 150, 255, 200);
+			drawHearthstoneArrow(startPos, glm::vec2(screenTarget.x, screenTarget.y), arrowCol, uiScale);
 		}
 	}
 
@@ -12984,15 +13038,12 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// 3. Check for "Draggable" things (Cards in hand)
 	Player * handPlayer = nullptr;
-	if (isMultiplayer) {
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-				handPlayer = &players[i];
-				break;
-			}
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player & activeP = players[currentPlayerIndex];
+		int activeOwner = activeP.isMinion ? activeP.ownerID : activeP.playerID;
+		if (!isMultiplayer || activeOwner == myLocalPlayerID) {
+			handPlayer = &activeP;
 		}
-	} else if (!players.empty() && currentPlayerIndex >= 0) {
-		handPlayer = &players[currentPlayerIndex];
 	}
 
 	if (handPlayer) {
@@ -13093,6 +13144,38 @@ void ofApp::mouseMoved(int x, int y) {
 		}
 	}
 cursor_check_done:;
+
+	// --- OVERRIDE FOR DRAGGING/AIMING/DRAFTING HOVERS ---
+	if (currentState == STATE_GAMEPLAY) {
+		if (isCurrentPlayerLocal()) {
+			if (draggedCardIndex != -1) {
+				newHoverType = HOVER_HAND_CARD;
+				newHoverCardIndex = draggedCardIndex;
+				ofVec2f bpos = mouseToBoard(x, y);
+				newHoverGridX = floor(bpos.x);
+				newHoverGridY = floor(bpos.y);
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+				newHoverType = HOVER_HAND_CARD;
+				newHoverCardIndex = interactingCardIndex;
+				ofVec2f bpos = mouseToBoard(x, y);
+				newHoverGridX = floor(bpos.x);
+				newHoverGridY = floor(bpos.y);
+			}
+		}
+	} else if (currentState == STATE_DRAFTING) {
+		if (isLocalDraftingPlayer(draftPlayerIndex)) {
+			float cardW, cardH, spacing, startX, startY;
+			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
+			for (size_t i = 0; i < draftOptions.size(); ++i) {
+				float cx = startX + i * (cardW + spacing);
+				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
+					newHoverType = HOVER_HAND_CARD;
+					newHoverCardIndex = (int)i;
+					break;
+				}
+			}
+		}
+	}
 
 	// --- LOGIC UPDATES ---
 	switch (currentState) {
@@ -13216,16 +13299,22 @@ cursor_check_done:;
 		}
 
 		int activeCardForHighlight = -1;
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
-			activeCardForHighlight = interactingCardIndex;
-		else if (draggedCardIndex != -1)
-			activeCardForHighlight = draggedCardIndex; // Dragging card - use dragged card for highlights
-		else if (selectedCardIndex != -1)
-			activeCardForHighlight = selectedCardIndex;
-		else if (ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex != -1)
-			activeCardForHighlight = pressedCardIndex;
-		else
-			activeCardForHighlight = hoveredCardIndex;
+		if (isCurrentPlayerLocal()) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+				activeCardForHighlight = interactingCardIndex;
+			else if (draggedCardIndex != -1)
+				activeCardForHighlight = draggedCardIndex;
+			else if (selectedCardIndex != -1)
+				activeCardForHighlight = selectedCardIndex;
+			else if (ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex != -1)
+				activeCardForHighlight = pressedCardIndex;
+			else
+				activeCardForHighlight = hoveredCardIndex;
+		} else {
+			if (opponentHoverType == HOVER_HAND_CARD) {
+				activeCardForHighlight = opponentHoverCardIndex;
+			}
+		}
 
 		calculateTargetHighlights(activeCardForHighlight);
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
@@ -16889,25 +16978,6 @@ void ofApp::keyPressed(int key) {
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & activePlayer = players[currentPlayerIndex];
 
-		// Determine which local player object represents "us" for drawing.
-		int localPlayerIndex = -1;
-		Player * localPlayer = nullptr;
-		if (isMultiplayer) {
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-					localPlayerIndex = (int)i;
-					localPlayer = &players[i];
-					break;
-				}
-			}
-			if (localPlayerIndex == -1) localPlayerIndex = 0;
-		} else {
-			localPlayerIndex = currentPlayerIndex;
-			localPlayer = &players[localPlayerIndex];
-		}
-
-		if (!localPlayer) return;
-
 		// Determine whether main-deck draw is allowed for the active actor
 		bool isLocalPlayersTurnForMainDeck = false;
 		if (isMultiplayer) {
@@ -16930,12 +17000,13 @@ void ofApp::keyPressed(int key) {
 			activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
 		}
 		bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
 
-		int baseDraw = localPlayer->isDemon ? 3 : 2;
-		int cycle = localPlayer->nextTurnExtraDrawSetOnCycle & 0xFFFF;
-		int count = (localPlayer->nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
-		int extra = (localPlayer->nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
+		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew || activePlayer.hasDrawnThisTurn) return;
+
+		int baseDraw = activePlayer.isDemon ? 3 : 2;
+		int cycle = activePlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+		int count = (activePlayer.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+		int extra = (activePlayer.nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
 		int cardsToDraw = baseDraw + extra;
 
 		// Queue a deterministic draw command instead of drawing locally here.
@@ -20153,17 +20224,10 @@ void ofApp::drawCard(bool sendPacket) {
 			anim.currentPos = glm::vec2(start2D.x, start2D.y); // initialize in screen-space so first frame is correct
 		}
 
-		// Set anim.targetPos to the standard hand area (centered, top or bottom)
+		// Set anim.targetPos to the standard hand area (bottom)
 		// Card already exists in hand, so use current hand size directly.
 		size_t numCards = currentPlayer.hand.size();
-		bool handAtTop = false;
-		if (isMultiplayer) {
-			handAtTop = (players[currentPlayerIndex].playerID != myLocalPlayerID);
-		} else {
-			// In singleplayer the active player's hand is shown at the bottom
-			handAtTop = false;
-		}
-		float handCenterY = handAtTop ? 130.0f : (ofGetHeight() - 130.0f);
+		float handCenterY = ofGetHeight() - 130.0f;
 		float handBaseCardWidth = kCardPixelWidth;
 		float handAreaWidth = ofGetWidth() * 0.6f;
 		float totalCardWidths = numCards * handBaseCardWidth;
@@ -20703,7 +20767,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			queueEffect(rm);
 			if (!isProcessingEffect) beginEffectSequence();
 		}
-		if (lp.playerID == myLocalPlayerID) {
+		int ownerID = lp.isMinion ? lp.ownerID : lp.playerID;
+		if (ownerID == myLocalPlayerID) {
 			hasDrawnCardsThisTurn = true;
 			lp.hasDrawnThisTurn = true;
 		} else {
@@ -24263,6 +24328,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 			int actualDrawn = (int)players[playerIndex].hand.size() - handSizeBefore;
 			currentEffectSequence.blackboard[15] = actualDrawn;
+
+			if (actualDrawn > 0) {
+				addGameLog(getPlayerSteamName(playerIndex) + " drew " + ofToString(actualDrawn) + " card(s)");
+			}
 			// Normalize hand visuals and flags similar to network command handling
 			Player & lp = players[playerIndex];
 			for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
@@ -34848,7 +34917,10 @@ void ofApp::drawDraftScreen() {
 		}
 		// Hover Highlight (White/Subtle) using unscaled hit area
 		// Only draw hover when the slot isn't hidden and the accept hasn't been applied
-		else if (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY())) {
+		bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
+		bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == (int)i);
+
+		if (isLocallyHovered || isOpponentHovered) {
 			ofPushStyle();
 			ofNoFill();
 			// Soft outer fade glow
