@@ -4935,7 +4935,9 @@ void ofApp::update() {
 	}
 
 	// --- HARDWARE CURSOR UPDATE ---
+	static bool wasCursorHidden = false;
 	bool forceHideCursor = false;
+
 	if (currentState == STATE_GAMEPLAY && isCurrentPlayerLocal() && (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING)) {
 		ofVec2f bpos = mouseToBoard(ofGetMouseX(), ofGetMouseY());
 		if (floor(bpos.x) >= 0 && floor(bpos.x) < BOARD_WIDTH && floor(bpos.y) >= 0 && floor(bpos.y) < BOARD_HEIGHT) {
@@ -4943,14 +4945,23 @@ void ofApp::update() {
 		}
 	}
 
-	if (forceHideCursor) {
-		ofHideCursor();
-		previousCursor = (CursorState)-1; // force hardware update when we return to standard UI
-	} else {
-		ofShowCursor();
-		if (currentCursor != previousCursor) {
-			GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-			if (window) {
+	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+	if (window) {
+		if (forceHideCursor) {
+			if (!wasCursorHidden) {
+				// Use pure GLFW_CURSOR_HIDDEN to hide without locking/trapping the pointer
+				glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+				wasCursorHidden = true;
+			}
+		} else {
+			if (wasCursorHidden) {
+				// Restore to normal pointer mode
+				glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+				wasCursorHidden = false;
+				previousCursor = (CursorState)-1; // force hardware update
+			}
+
+			if (currentCursor != previousCursor) {
 				switch (currentCursor) {
 				case CURSOR_DEFAULT:
 					if (glfwArrow) glfwSetCursor(window, glfwArrow);
@@ -4965,11 +4976,11 @@ void ofApp::update() {
 					if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
 					break;
 				}
+				previousCursor = currentCursor;
 			}
-			previousCursor = currentCursor;
 		}
 	}
-} // <--- CRITICAL FIX: Closes the ofApp::update() function!
+}
 
 // Begin an initiative-driven draft sequence for the specified winner index.
 // This ensures the deterministic ordering: Winner drafts Class 1 (2 picks), then
@@ -6777,7 +6788,10 @@ void ofApp::prepareGameVisualState() {
 					bool isLocallyHovered = (isCurrentPlayerLocal() && static_cast<int>(i) == hoveredCardIndex);
 					bool isOpponentHovered = (!isCurrentPlayerLocal() && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && static_cast<int>(i) == opponentHoverCardIndex);
 
-					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1) {
+					// If the card is actively being aimed/targeted, DO NOT hover it
+					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
+
+					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1 && !isActivelyTargeting) {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
 						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
 						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
@@ -6787,7 +6801,7 @@ void ofApp::prepareGameVisualState() {
 					float targetScaleVal = 1.0f;
 					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 						targetScaleVal = 1.0f;
-					} else if (isLocallyHovered || isOpponentHovered) {
+					} else if ((isLocallyHovered || isOpponentHovered) && !isActivelyTargeting) {
 						targetScaleVal = kHandHoverScale;
 					}
 					if (isCurrentPlayerLocal() && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
@@ -10235,8 +10249,8 @@ void ofApp::drawGame() {
 					// 75% opacity (0.75 * 255 = 191)
 					ofSetColor(255, 255, 255, 191);
 
-					// Size the clover to fit nicely inside the tile
-					float cloverSize = TILE_SIZE * 0.70f;
+					// Size the tightly-cropped clover to fill exactly 75% of the tile
+					float cloverSize = TILE_SIZE * 0.75f;
 
 					for (int x = 0; x < BOARD_WIDTH; x++) {
 						for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -10482,8 +10496,14 @@ void ofApp::drawGame() {
 				ofCamera & activeCamLocal = getActiveCamera();
 				glm::vec3 planePoint(0, 0, 0);
 				glm::vec3 planeNormal(0, 1, 0);
-				glm::vec3 rayOrigin = activeCamLocal.screenToWorld(glm::vec3(ofGetMouseX(), ofGetMouseY(), 0));
-				glm::vec3 rayDirection = activeCamLocal.screenToWorld(glm::vec3(ofGetMouseX(), ofGetMouseY(), 1)) - rayOrigin;
+
+				// Map mouse coordinates to the current viewport (fixes FBO rendering offsets!)
+				ofRectangle vp = ofGetCurrentViewport();
+				float mx = ofMap(ofGetMouseX(), 0, ofGetWidth(), vp.x, vp.x + vp.width);
+				float my = ofMap(ofGetMouseY(), 0, ofGetHeight(), vp.y, vp.y + vp.height);
+
+				glm::vec3 rayOrigin = activeCamLocal.screenToWorld(glm::vec3(mx, my, 0));
+				glm::vec3 rayDirection = activeCamLocal.screenToWorld(glm::vec3(mx, my, 1)) - rayOrigin;
 				float distance;
 				if (glm::intersectRayPlane(rayOrigin, rayDirection, planePoint, planeNormal, distance)) {
 					mouseWorldIntersect = rayOrigin + rayDirection * distance;
@@ -10522,153 +10542,174 @@ void ofApp::drawGame() {
 			if (hasValidTarget) {
 				// START FROM CURRENT UNIT INSTEAD OF CARD
 				glm::vec3 startPos = gridToWorld(p.x, p.y);
-				startPos.y += 2.0f; // Emit from the chest/waist of the unit
+				// Emit from the center of the unit's tile at the bottom
+				startPos.y += 0.05f;
 
 				ofColor arrowCol = isCurrentPlayerLocal() ? ofColor(220, 30, 30, 230) : ofColor(50, 150, 255, 200);
 
 				float dist = glm::distance(startPos, worldTarget);
-				if (dist > 0.5f) {
+				if (dist > 0.1f) {
 					glm::vec3 mid = (startPos + worldTarget) * 0.5f;
-					// Control point elevated for a smooth arc
-					glm::vec3 cp = mid + glm::vec3(0, dist * 0.40f, 0);
 
-					int segments = 40;
-					std::vector<glm::vec3> points;
-					for (int i = 0; i <= segments; i++) {
-						float t = (float)i / segments;
+					// Control point elevated significantly based on distance!
+					// Scales aggressively so far shots arch high over walls.
+					float archHeight = std::max(dist * 0.45f, (float)TILE_SIZE * 1.5f);
+					glm::vec3 cp = mid + glm::vec3(0, archHeight, 0);
+
+					// --- 1. SEGMENTED BLOCKS (Hearthstone Style) ---
+					float timeOffset = ofGetElapsedTimef() * 0.15f;
+
+					// Calculate number of blocks based on distance so they are densely packed
+					int numBlocks = std::max(2, (int)(dist / (TILE_SIZE * 0.45f)));
+
+					// LONGER, NARROWER BLOCKS
+					float blockLength = TILE_SIZE * 0.26f;
+					float blockWidth = TILE_SIZE * 0.12f;
+
+					ofDisableLighting(); // Clean flat 2D colors
+
+					float ringRadius = TILE_SIZE * 0.45f; // Used to offset blocks and head
+					float headLength = TILE_SIZE * 0.5f;
+
+					// Mathematical constraint to guarantee blocks never pass the back of the chevron
+					// Gap (0.1f) + Chevron Length (0.5f) + Half a Block Length (0.13f)
+					float keepOutTarget = ringRadius + TILE_SIZE * 0.1f + headLength + blockLength * 0.6f;
+					float keepOutStart = TILE_SIZE * 0.35f;
+
+					// If targeting extremely close (e.g. adjacent tile), scale down the keep-out zones
+					// so that at least 1 or 2 blocks can squeeze in between the start and the chevron.
+					if (dist < keepOutStart + keepOutTarget + TILE_SIZE * 0.2f) {
+						float scaleKeepOut = dist / (keepOutStart + keepOutTarget + TILE_SIZE * 0.3f);
+						keepOutTarget *= scaleKeepOut;
+						keepOutStart *= scaleKeepOut;
+					}
+
+					for (int i = 0; i < numBlocks; ++i) {
+						float t = fmod((float)i / numBlocks + timeOffset, 1.0f);
+						if (t < 0) t += 1.0f;
+
 						float u = 1.0f - t;
-						points.push_back((u * u) * startPos + (2.0f * u * t) * cp + (t * t) * worldTarget);
-					}
+						glm::vec3 blockPos = (u * u) * startPos + (2.0f * u * t) * cp + (t * t) * worldTarget;
 
-					float lineWidth = 0.8f;
-					float outlineWidth = 0.2f;
+						// Fade/hide blocks too close to the start or end
+						float distToTarget = glm::distance(blockPos, worldTarget);
+						float distToStart = glm::distance(blockPos, startPos);
 
-					ofMesh lineMeshRed;
-					ofMesh lineMeshBlack;
-					lineMeshRed.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
-					lineMeshBlack.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+						// Ensure lines end well before the chevron head, and start outside the unit
+						if (distToTarget < keepOutTarget) continue;
+						if (distToStart < keepOutStart) continue;
 
-					float aw = 1.5f; // Chevron length
-					float ah = 1.2f; // Chevron width
-					float cutoffDist = aw * 0.6f;
+						// Tangent for aiming
+						glm::vec3 tangent = glm::normalize(2.0f * u * (cp - startPos) + 2.0f * t * (worldTarget - cp));
 
-					for (size_t i = 0; i < points.size(); i++) {
-						glm::vec3 pt = points[i];
-						glm::vec3 tangent;
-
-						if (glm::distance(pt, worldTarget) < cutoffDist) {
-							tangent = glm::normalize(worldTarget - points[i > 0 ? i - 1 : 0]);
-							pt = worldTarget - tangent * cutoffDist;
-						} else if (i < points.size() - 1) {
-							tangent = glm::normalize(points[i + 1] - pt);
-						} else {
-							tangent = glm::normalize(pt - points[i - 1]);
-						}
-
-						// Calculate perpendicular right vector to lay the ribbon flat
+						// To prevent twisting/flipping over itself at steep angles,
+						// use the global Up vector (Y-axis) to calculate Right.
 						glm::vec3 right = glm::normalize(glm::cross(tangent, glm::vec3(0, 1, 0)));
-						if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
+						if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0); // Failsafe
+						glm::vec3 up = glm::cross(right, tangent);
 
-						float t = (float)i / segments;
-						float thicknessMult = ofLerp(0.2f, 1.0f, std::min(t * 4.0f, 1.0f));
+						glm::mat4 rot(
+							right.x, right.y, right.z, 0,
+							tangent.x, tangent.y, tangent.z, 0, // Y is forward for the 2D rect
+							up.x, up.y, up.z, 0,
+							0, 0, 0, 1);
 
-						float redHalf = (lineWidth * 0.5f) * thicknessMult;
-						float blackHalf = redHalf + outlineWidth;
+						ofPushMatrix();
+						ofTranslate(blockPos.x, blockPos.y, blockPos.z);
+						ofMultMatrix(rot);
 
-						lineMeshBlack.addVertex(pt + right * blackHalf);
-						lineMeshBlack.addVertex(pt - right * blackHalf);
-						lineMeshRed.addVertex(pt + right * redHalf);
-						lineMeshRed.addVertex(pt - right * redHalf);
+						// Black Outline Edge (Thinner)
+						ofSetColor(0, 0, 0, arrowCol.a + 50);
+						ofDrawRectRounded(-blockWidth / 2 - 0.2f, -blockLength / 2 - 0.2f, blockWidth + 0.4f, blockLength + 0.4f, 1.0f);
 
-						if (glm::distance(points[i], worldTarget) < cutoffDist) break;
+						// Solid Red Block
+						ofSetColor(arrowCol);
+						ofDrawRectRounded(-blockWidth / 2, -blockLength / 2, blockWidth, blockLength, 1.0f);
+
+						ofPopMatrix();
 					}
 
-					ofSetColor(0, 0, 0, arrowCol.a + 40);
-					lineMeshBlack.draw();
-					ofSetColor(arrowCol);
-					lineMeshRed.draw();
-
-					// Draw Chevron in 3D laying flat
+					// --- 2. 3D ARROW HEAD (Tilted to match the curve trajectory) ---
 					ofPushMatrix();
-					ofTranslate(worldTarget.x, worldTarget.y, worldTarget.z);
 
-					// Rotation matrix to align the chevron with the incoming tangent
+					// Tangent exactly at t=1 (end of bezier)
 					glm::vec3 tangentEnd = glm::normalize(worldTarget - cp);
-					glm::vec3 zAxis = tangentEnd;
-					glm::vec3 xAxis = glm::normalize(glm::cross(glm::vec3(0, 1, 0), zAxis));
-					if (glm::length(xAxis) < 0.001f) xAxis = glm::vec3(1, 0, 0);
-					glm::vec3 yAxis = glm::cross(zAxis, xAxis);
-					glm::mat4 rot(
-						xAxis.x, xAxis.y, xAxis.z, 0,
-						yAxis.x, yAxis.y, yAxis.z, 0,
-						zAxis.x, zAxis.y, zAxis.z, 0,
+					// Removed tangentEnd.y = 0; so it angles dynamically downwards into the target!
+
+					// Position the tip just outside the target ring with a clear gap
+					glm::vec3 headPos = worldTarget - tangentEnd * (ringRadius + TILE_SIZE * 0.1f);
+					ofTranslate(headPos.x, headPos.y, headPos.z);
+
+					// Build rotation matrix matching the 3D curve exactly
+					glm::vec3 rightHead = glm::normalize(glm::cross(tangentEnd, glm::vec3(0, 1, 0)));
+					if (glm::length(rightHead) < 0.001f) rightHead = glm::vec3(1, 0, 0);
+					glm::vec3 upHead = glm::normalize(glm::cross(rightHead, tangentEnd));
+					glm::vec3 forwardHead = tangentEnd;
+
+					glm::mat4 rotHead(
+						rightHead.x, rightHead.y, rightHead.z, 0,
+						upHead.x, upHead.y, upHead.z, 0,
+						forwardHead.x, forwardHead.y, forwardHead.z, 0,
 						0, 0, 0, 1);
-					ofMultMatrix(rot);
+					ofMultMatrix(rotHead);
 
-					float indent = aw * 0.45f;
+					float aw = TILE_SIZE * 0.35f; // Width
+					float al = TILE_SIZE * 0.5f; // Length
+					float ai = TILE_SIZE * 0.2f; // Indent
 
-					auto drawChev = [&](float expand) {
-						ofBeginShape();
-						ofVertex(0, 0, 0); // Tip
-						ofVertex(-ah - expand, 0, -aw - expand); // Left outer corner
-						ofVertex(0, 0, -aw + indent); // Inner indent
-						ofVertex(ah + expand, 0, -aw - expand); // Right outer corner
-						ofEndShape(true);
-					};
+					ofMesh headFill;
+					headFill.setMode(OF_PRIMITIVE_TRIANGLES);
+					ofMesh headLine;
+					headLine.setMode(OF_PRIMITIVE_LINE_LOOP);
 
-					ofSetColor(0, 0, 0, arrowCol.a + 40);
-					drawChev(outlineWidth);
+					// Ensure pTip is at the exact origin so the translation places the tip exactly at the gap
+					glm::vec3 pTip(0, 0, 0);
+					glm::vec3 pLeft(-aw, 0, -al);
+					glm::vec3 pRight(aw, 0, -al);
+					glm::vec3 pIndent(0, 0, -al + ai);
+
+					headFill.addVertex(pTip);
+					headFill.addVertex(pLeft);
+					headFill.addVertex(pIndent);
+					headFill.addVertex(pTip);
+					headFill.addVertex(pIndent);
+					headFill.addVertex(pRight);
+
+					headLine.addVertex(pTip);
+					headLine.addVertex(pLeft);
+					headLine.addVertex(pIndent);
+					headLine.addVertex(pRight);
+
 					ofSetColor(arrowCol);
-					drawChev(0.0f);
+					headFill.draw();
+
+					// Thinner Outline for Head
+					ofSetColor(0, 0, 0, arrowCol.a + 50);
+					ofSetLineWidth(2.5f);
+					headLine.draw();
 					ofPopMatrix();
 
-					// Pulsing Cursor Ring at the tip
-					float pulseTime = ofGetElapsedTimef() * 8.0f;
-					float pulseScale = 1.0f + 0.15f * sin(pulseTime);
-
+					// --- 3. LARGE STATIC TARGET RING ---
 					ofPushMatrix();
-					ofTranslate(worldTarget.x, worldTarget.y + 0.05f, worldTarget.z); // Slightly above ground
+					ofTranslate(worldTarget.x, worldTarget.y + 0.05f, worldTarget.z);
 					ofRotateXDeg(90);
 
+					// Black border
 					ofNoFill();
 					ofSetColor(0, 0, 0, arrowCol.a);
-					ofSetLineWidth(6.0f);
-					ofDrawCircle(0, 0, 0.6f * pulseScale);
-					ofDrawCircle(0, 0, 0.15f);
+					ofSetLineWidth(8.0f);
+					ofDrawCircle(0, 0, ringRadius);
+					ofDrawCircle(0, 0, TILE_SIZE * 0.1f);
 
+					// Colored inner ring
 					ofSetColor(arrowCol);
-					ofSetLineWidth(3.0f);
-					ofDrawCircle(0, 0, 0.6f * pulseScale);
+					ofSetLineWidth(4.0f);
+					ofDrawCircle(0, 0, ringRadius);
 					ofSetLineWidth(2.0f);
-					ofDrawCircle(0, 0, 0.15f);
+					ofDrawCircle(0, 0, TILE_SIZE * 0.1f);
 					ofPopMatrix();
 				}
 			}
-
-			// Draw 3D gold placement ring for wolves/kobolds
-			if (isCurrentPlayerLocal() && cardInteractionState == CARD_INTERACTION_STATE_PLACING && isOverBoard) {
-				float pulseTime = ofGetElapsedTimef() * 8.0f;
-				float pulseScale = 1.0f + 0.15f * sin(pulseTime);
-				ofColor color = ofColor(255, 200, 50, 220);
-
-				ofPushMatrix();
-				ofTranslate(mouseWorldIntersect.x, mouseWorldIntersect.y + 0.05f, mouseWorldIntersect.z);
-				ofRotateXDeg(90);
-
-				ofNoFill();
-				ofSetColor(0, 0, 0, color.a);
-				ofSetLineWidth(6.0f);
-				ofDrawCircle(0, 0, 0.6f * pulseScale);
-				ofDrawCircle(0, 0, 0.15f);
-
-				ofSetColor(color);
-				ofSetLineWidth(3.0f);
-				ofDrawCircle(0, 0, 0.6f * pulseScale);
-				ofSetLineWidth(2.0f);
-				ofDrawCircle(0, 0, 0.15f);
-				ofPopMatrix();
-			}
-
 			ofPopStyle();
 		}
 
