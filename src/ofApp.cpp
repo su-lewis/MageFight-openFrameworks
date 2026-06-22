@@ -7278,12 +7278,26 @@ void ofApp::updateGameLogic() {
 					}
 				}
 
+				// 3. Apply Results
+				bool anyCrashes = false;
+				for (int i = 0; i < n; ++i) {
+					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
+						anyCrashes = true;
+						break;
+					}
+				}
+
+				if (anyCrashes && !isProcessingEffect) {
+					beginEffectSequence();
+				}
+
 				for (int i = 0; i < n; ++i) {
 					if (isStopped[i] && earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
 						earthquakeUnits[i].crashed = true;
 						earthquakeUnits[i].isMoving = false;
 						earthquakeUnits[i].tilesToMove = 0;
 						earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
+
 						if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
 							playerAction = NONE;
 							selectedPieceGridX = -1;
@@ -7294,14 +7308,13 @@ void ofApp::updateGameLogic() {
 
 					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
 						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
+
+						// Deterministically roll crash damage AT THE EXACT MOMENT OF CRASH
 						std::vector<int> rawCrash;
 						int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
 
-						int quakeDamageBase = 8;
-						int outSlot = quakeDamageBase + (i % 8);
-						currentEffectSequence.blackboard[outSlot] = crashRoll;
-
 						queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
+
 						if (!activeDiceRolls.empty()) {
 							int newIdx = (int)activeDiceRolls.size() - 1;
 							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
@@ -7318,32 +7331,13 @@ void ofApp::updateGameLogic() {
 						cft.duration = 0.8f;
 						cft.color = ofColor::red;
 						activeFloatingTexts.push_back(cft);
-					}
-				}
 
-				{
-					int quakeDamageBase = 8;
-					bool anyDamage = false;
-
-					if (!isProcessingEffect) beginEffectSequence();
-
-					for (int i = 0; i < n; ++i) {
-						if (damageDiceCount[i] > 0) {
-							EarthquakeDamageTarget t;
-							t.playerIndex = earthquakeUnits[i].playerIndex;
-							t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
-							t.gridX = currentPos[i].x;
-							t.gridY = currentPos[i].y;
-							t.blackboardSlot = quakeDamageBase + (i % 8);
-							t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
-							earthquakeDamageTargets.push_back(t);
-							anyDamage = true;
+						// DIRECTLY APPLY CRASH DAMAGE
+						int pidx = earthquakeUnits[i].playerIndex;
+						if (pidx >= 0 && pidx < (int)players.size()) {
+							ofLogNotice("Earthquake") << "Applying " << crashRoll << " crash damage to player " << pidx;
+							applyDamageTo(players[pidx], crashRoll, DAMAGE_PHYSICAL, -1);
 						}
-					}
-					if (anyDamage) {
-						EffectOp apply = {};
-						apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
-						queueEffect(apply);
 					}
 				}
 
