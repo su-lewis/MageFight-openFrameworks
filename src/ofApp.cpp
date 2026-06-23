@@ -4235,75 +4235,6 @@ void ofApp::updateVisuals() {
 void ofApp::updateAudio() {
 	if (headless) return; // CRITICAL FIX: Kill battery saver and audio in headless mode
 
-	// --- INACTIVITY BATTERY-SAVER (Singleplayer only) ---
-	if (!isMultiplayer) {
-		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-		bool windowActive = true;
-		if (window) {
-			int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
-			int iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
-			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
-		}
-
-		if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
-			windowActive = true;
-		}
-
-		// --- CRITICAL FIX 3: NEVER THROTTLE TRAINING SPEED ---
-		if (headless) windowActive = true;
-		// -----------------------------------------------------
-
-		if (!windowActive) {
-			if (!gameSuspendedDueToInactivity) {
-				gameSuspendedDueToInactivity = true;
-				ofSetVerticalSync(false);
-				ofSetFrameRate(15);
-				savedMasterVolume = settingsMasterVolume;
-				if (mainMenuMusic.isLoaded()) {
-					savedMainMenuWasPlaying = mainMenuMusic.isPlaying();
-					savedMainMenuVolume = mainMenuMusic.getVolume();
-					savedMainMenuPositionMS = mainMenuMusic.getPositionMS();
-					mainMenuMusic.setVolume(0.0f);
-					musicMutedDueToMinimize = true;
-				}
-				if (g_gameMusic.isLoaded()) {
-					savedGameMusicVolume = g_gameMusic.getVolume();
-					g_gameMusic.setVolume(0.0f);
-				}
-				savedFootstepVolumes.clear();
-				for (size_t i = 0; i < footstepSounds.size(); ++i) {
-					savedFootstepVolumes.push_back(footstepSounds[i].getVolume());
-					footstepSounds[i].setVolume(0.0f);
-				}
-				ofLogNotice("Power") << "Singleplayer inactive: visuals paused, FPS throttled, audio muted. Logic continues.";
-			}
-		} else {
-			if (gameSuspendedDueToInactivity) {
-				gameSuspendedDueToInactivity = false;
-				if (settingsFramerateSliderValue >= 0.999f) {
-					ofSetVerticalSync(false);
-					ofSetFrameRate(0);
-				} else {
-					int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-					targetFPS = std::min(targetFPS, 300);
-					ofSetVerticalSync(false);
-					ofSetFrameRate(targetFPS);
-				}
-				if (mainMenuMusic.isLoaded()) {
-					mainMenuMusic.setVolume(savedMainMenuVolume);
-					musicMutedDueToMinimize = false;
-				}
-				if (g_gameMusic.isLoaded()) {
-					g_gameMusic.setVolume(savedGameMusicVolume);
-				}
-				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
-					footstepSounds[i].setVolume(savedFootstepVolumes[i]);
-				}
-				ofLogNotice("Power") << "Singleplayer active: visuals resumed and audio restored.";
-			}
-		}
-	}
-
 	// Dragging hand loop fade handling
 	if (draggingHandLoop.isLoaded()) {
 		bool currentlyDragging = (draggedCardIndex != -1);
@@ -4509,6 +4440,11 @@ void ofApp::updateStateMachine() {
 }
 
 void ofApp::update() {
+	// Fallback to catch un-minimize events where the OS drops the resize callback
+	if (ofGetWidth() > 0 && ofGetHeight() > 0 && (ofGetWidth() != lastWindowWidth || ofGetHeight() != lastWindowHeight)) {
+		recalculateUI(ofGetWidth(), ofGetHeight());
+	}
+
 	steamManager.update();
 
 	// --- RUN AI ---
@@ -4581,17 +4517,20 @@ void ofApp::update() {
 	if (!isMultiplayer) {
 		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 		bool windowActive = true;
+		int iconified = GLFW_FALSE;
 		if (window) {
 			int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
-			int iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
+			iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
 			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
 		}
 
 		// FIX: Never suspend if we are in the main menu and connected to Steam (Hosting a lobby)
 		// Suspending while the Steam Overlay is open causes it to freeze/crash!
-		if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
+		// However, if the game is completely minimized (iconified), we DO want to suspend it.
+		if (currentState == STATE_MAIN_MENU && steamManager.isConnected() && iconified == GLFW_FALSE) {
 			windowActive = true;
 		}
+		if (headless) windowActive = true;
 
 		if (!windowActive) {
 			if (!gameSuspendedDueToInactivity) {
@@ -6009,6 +5948,8 @@ void ofApp::allocateWorldFbo(int w, int h) {
 
 // Recalculate ui
 void ofApp::recalculateUI(int w, int h) {
+	if (w <= 0 || h <= 0) return; // Prevent breaking UI hitboxes on minimize
+
 	// 1. Update Camera Aspect Ratio
 	cam.setAspectRatio((float)w / (float)h);
 	cam2.setAspectRatio((float)w / (float)h);
@@ -9184,39 +9125,73 @@ void ofApp::drawGame() {
 			if (card.type == CARD_NONE) return 0.0f;
 			if (unit.x < 0 || unit.x >= BOARD_WIDTH || unit.y < 0 || unit.y >= BOARD_HEIGHT) return 0.0f;
 
+			bool isSplashCard = card.isAoe || card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT;
+
 			// Ranged / direct-target cards use the precomputed unit-tile hit chance.
-			if (!card.isAoe) {
-				if (board[unit.x][unit.y].hasTooltipInfo && board[unit.x][unit.y].isTargetPreview) {
+			if (!isSplashCard) {
+				// Only show % if the tile is actually targetable, to avoid showing 100% over the caster for non-self spells
+				if (board[unit.x][unit.y].hasTooltipInfo && board[unit.x][unit.y].isTargetable) {
 					return board[unit.x][unit.y].hitChance;
 				}
 				return 0.0f;
 			}
 
-			// AOE cards: reuse the highlighted valid centers and compute whether each
+			// AOE/Splash cards: reuse the targetable centers and compute whether each
 			// center can reach this unit, then keep the best chance for the label.
-			int diceNum = (card.aoeRadiusDiceNum > 0) ? card.aoeRadiusDiceNum : 1;
-			int sides = (card.aoeRadiusDiceSides > 0) ? card.aoeRadiusDiceSides : 20;
-			int aoeFeet = diceNum * sides;
 			float bestChance = 0.0f;
+
+			// Direct targeting chance (if the unit itself can be clicked directly)
+			if (board[unit.x][unit.y].isTargetable && board[unit.x][unit.y].hasTooltipInfo) {
+				bestChance = board[unit.x][unit.y].hitChance;
+			}
+
+			int aoeFeet = 0;
+			if (card.type == CARD_MAGIC_BOLT || card.isAoe) {
+				aoeFeet = (card.aoeRadiusDiceNum > 0) ? (card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20;
+			}
+
 			for (int cx = 0; cx < BOARD_WIDTH; ++cx) {
 				for (int cy = 0; cy < BOARD_HEIGHT; ++cy) {
-					if (!board[cx][cy].isAoeCenter) continue;
-					float centerDistFeetToUnit = glm::distance(glm::vec2((float)cx, (float)cy), glm::vec2((float)unit.x, (float)unit.y)) * 5.0f;
-					float distToUnitFeet = std::max(0.0f, centerDistFeetToUnit - 2.5f);
-					if (distToUnitFeet > aoeFeet + 0.01f) continue;
-					auto losPath = getLineOfSightPath(glm::vec2((float)cx, (float)cy) + glm::vec2(0.5f, 0.5f), glm::vec2(unit.x, unit.y) + glm::vec2(0.5f, 0.5f));
-					bool blocked = false;
-					for (const auto & step : losPath) {
-						if ((int)step.x == cx && (int)step.y == cy) continue;
-						if ((int)step.x == unit.x && (int)step.y == unit.y) break;
-						if (isTileWall((int)step.x, (int)step.y)) {
-							blocked = true;
-							break;
+					if (!board[cx][cy].isTargetable) continue;
+
+					bool reaches = false;
+
+					if (card.type == CARD_MAGIC_BLAST) {
+						int dx = std::abs(unit.x - cx);
+						int dy = std::abs(unit.y - cy);
+						if (dx + dy == 1) reaches = true;
+					} else if (card.type == CARD_CHAIN_LIGHTNING) {
+						int dx = std::abs(unit.x - cx);
+						int dy = std::abs(unit.y - cy);
+						if (dx <= 1 && dy <= 1 && (dx > 0 || dy > 0)) {
+							bool blocked = false;
+							if (dx == 1 && dy == 1) {
+								if (isTileWall(cx + (unit.x - cx), cy) && isTileWall(cx, cy + (unit.y - cy))) blocked = true;
+							}
+							if (!blocked) reaches = true;
+						}
+					} else {
+						// Standard AOE
+						float centerDistFeetToUnit = glm::distance(glm::vec2((float)cx + 0.5f, (float)cy + 0.5f), glm::vec2((float)unit.x + 0.5f, (float)unit.y + 0.5f)) * 5.0f;
+						float distToUnitFeet = std::max(0.0f, centerDistFeetToUnit - 2.5f);
+						if (distToUnitFeet <= (float)aoeFeet + 0.01f) {
+							auto losPath = getLineOfSightPath(glm::vec2((float)cx + 0.5f, (float)cy + 0.5f), glm::vec2((float)unit.x + 0.5f, (float)unit.y + 0.5f));
+							bool blocked = false;
+							for (const auto & step : losPath) {
+								if ((int)step.x == cx && (int)step.y == cy) continue;
+								if ((int)step.x == unit.x && (int)step.y == unit.y) break;
+								if (isTileWall((int)step.x, (int)step.y)) {
+									blocked = true;
+									break;
+								}
+							}
+							if (!blocked) reaches = true;
 						}
 					}
-					if (blocked) continue;
-					float chance = calcChanceFromMinRoll((int)ceil(distToUnitFeet), diceNum, sides);
-					bestChance = std::max(bestChance, chance);
+
+					if (reaches) {
+						bestChance = std::max(bestChance, board[cx][cy].hitChance);
+					}
 				}
 			}
 			return bestChance;
@@ -10773,9 +10748,7 @@ void ofApp::drawGame() {
 
 				ofEnableAlphaBlending();
 				for (const auto & label : previewLabelsToDraw) {
-					ofSetColor(0, 0, 0, 180);
-					drawPixelTextCentered(titleFont, label.text, label.screenPos.x + 1.0f, label.screenPos.y + 1.0f, 0.62f, ofColor::black);
-					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, label.color);
+					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, label.color, 2, ofColor(0, 0, 0, 255));
 				}
 			}
 		}
