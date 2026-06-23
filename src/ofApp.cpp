@@ -10567,7 +10567,7 @@ void ofApp::drawGame() {
 
 			if (isCurrentPlayerLocal()) {
 				// Arrow strictly follows the 3D mouse intersection!
-				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && isOverBoard) {
+				if ((cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) && isOverBoard) {
 					worldTarget = mouseWorldIntersect;
 					hasValidTarget = true;
 				}
@@ -10592,10 +10592,25 @@ void ofApp::drawGame() {
 			if (hasValidTarget) {
 				// START FROM CURRENT UNIT INSTEAD OF CARD
 				glm::vec3 startPos = gridToWorld(p.x, p.y);
+
+				// If placing a minion, shoot the arrow from the summon source tile
+				if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+					if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldPlacementSourceX >= 0) {
+						startPos = gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY);
+					} else if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfPlacementSourceX >= 0) {
+						startPos = gridToWorld(wolfPlacementSourceX, wolfPlacementSourceY);
+					}
+				}
+
 				// Emit from the center of the unit's tile at the bottom
 				startPos.y += 0.05f;
 
 				ofColor arrowCol = isCurrentPlayerLocal() ? ofColor(220, 30, 30, 230) : ofColor(50, 150, 255, 200);
+
+				// Use Gold for placement actions
+				if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+					arrowCol = isCurrentPlayerLocal() ? ofColor(255, 215, 0, 230) : ofColor(50, 150, 255, 200);
+				}
 
 				float dist = glm::distance(startPos, worldTarget);
 				if (dist > 0.1f) {
@@ -13444,7 +13459,7 @@ cursor_check_done:;
 				ofVec2f bpos = mouseToBoard(x, y);
 				newHoverGridX = floor(bpos.x);
 				newHoverGridY = floor(bpos.y);
-			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 				newHoverType = 4; // SPECIAL HOVER STATE FOR TARGETING
 				newHoverCardIndex = interactingCardIndex;
 				ofVec2f bpos = mouseToBoard(x, y);
