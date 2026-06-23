@@ -6809,8 +6809,9 @@ void ofApp::prepareGameVisualState() {
 
 					// If the card is actively being aimed/targeted, DO NOT hover it
 					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
+					bool isRenewedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
-					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1 && !isActivelyTargeting) {
+					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1 && !isActivelyTargeting && !isRenewedMenu) {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
 						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
 						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
@@ -6818,7 +6819,7 @@ void ofApp::prepareGameVisualState() {
 					}
 
 					float targetScaleVal = 1.0f;
-					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+					if (isRenewedMenu) {
 						targetScaleVal = 1.0f;
 					} else if ((isLocallyHovered || isOpponentHovered) && !isActivelyTargeting) {
 						targetScaleVal = kHandHoverScale;
