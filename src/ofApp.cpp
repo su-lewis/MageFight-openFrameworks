@@ -9914,8 +9914,8 @@ void ofApp::drawGame() {
 				float wobbleX = sin(time * 8.0f) * 0.15f;
 				float wobbleZ = cos(time * 7.0f) * 0.15f;
 
-				// Center it on the unit's torso
-				ofTranslate(pos.x + wobbleX, headHeight * 0.5f, pos.z + wobbleZ);
+				// Elevate the fire to span from 2ft up to 6ft (center at Y=4)
+				ofTranslate(pos.x + wobbleX, 4.0f, pos.z + wobbleZ);
 
 				// Billboard to camera
 				glm::vec3 camPos = cam.getPosition();
@@ -9925,8 +9925,8 @@ void ofApp::drawGame() {
 				// MOVEMENT: Pulse the size rapidly
 				float pulse = 1.0f + sin(time * 16.0f) * 0.08f;
 
-				// Scale the fire relative to the unit's height
-				float spriteSize = std::max(2.5f, headHeight * 0.55f) * pulse;
+				// Fixed 4ft height (centered at 4, spanning 2 to 6)
+				float spriteSize = 4.0f * pulse;
 
 				// Faster animation frame swapping
 				int fireFrame = (int)(time * 12) % 4;
@@ -10003,6 +10003,39 @@ void ofApp::drawGame() {
 				uiFont.drawString("[X]", -20, 0); // Simple skull representation
 				ofPopMatrix();
 			}
+
+			// 7b. DRAW POISON READY (Add Poison)
+			if (player.nextAttackAddPoison) {
+				ofPushMatrix();
+				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
+				currentOverheadY += 1.0f;
+				glm::vec3 camPos = cam.getPosition();
+				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+				float time = ofGetElapsedTimef();
+				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
+				ofScale(0.015f * pulse, 0.015f * pulse, 0.015f * pulse);
+				ofSetColor(100, 255, 100);
+				uiFont.drawString("Poison Coated", -55, 0);
+				ofPopMatrix();
+			}
+
+			// 7c. DRAW REPLICATE QUEUED
+			if (player.replicateQueued) {
+				ofPushMatrix();
+				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
+				currentOverheadY += 1.0f;
+				glm::vec3 camPos = cam.getPosition();
+				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+				float time = ofGetElapsedTimef();
+				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
+				ofScale(0.015f * pulse, 0.015f * pulse, 0.015f * pulse);
+				ofSetColor(0, 255, 255);
+				uiFont.drawString("Replicating", -45, 0);
+				ofPopMatrix();
+			}
+
 			// 8. ACTIVE UNIT CHEVRON (Bobbing above head)
 			if (transPlayerIdx == currentPlayerIndex) {
 				ofPushMatrix();
@@ -10760,9 +10793,12 @@ void ofApp::drawGame() {
 				}
 
 				ofDisableLighting(); // <--- CRITICAL FIX: Turn off 3D lighting before drawing 2D text!
+				glDisable(GL_LIGHTING);
+				glDisable(GL_COLOR_MATERIAL);
 				ofEnableAlphaBlending();
 				for (const auto & label : previewLabelsToDraw) {
-					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, label.color, 2, ofColor(0, 0, 0, 255));
+					// Force white text with a black outline to override any corrupted GL colors
+					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, ofColor(255, 255, 255, 255), 2, ofColor(0, 0, 0, 255));
 				}
 			}
 		}
@@ -13230,6 +13266,8 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(gameOverReplayBtn, 10);
 			drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f, ofColor::white);
 		}
+
+		ofPopStyle(); // CRITICAL FIX: Prevent memory leak by popping the style pushed at the top of g_isGameOver!
 	}
 
 } // End of drawGame()
@@ -24259,32 +24297,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_FLAIL_DAMAGE_RESOLVE: {
-		int baseOut = op.data.damage.damageFromSlot;
-		int count = op.data.damage.targetIndex;
-		for (int i = 0; i < count; ++i) {
-			int slot = baseOut + i;
-			int applied = 0;
-			if (slot >= 0 && slot < 16) applied = currentEffectSequence.blackboard[slot];
-			if (i < (int)currentCardOutcome.targetedPlayers.size()) {
-				int pid = currentCardOutcome.targetedPlayers[i];
-				int pidx = findPlayerIndexByID(pid);
-				Player * target = getPlayer(pidx);
-				if (!target) continue;
-				glm::vec3 tpos = gridToWorld(target->x, target->y);
-				if (applied > 0) {
-					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + " Physical", ofColor::red);
-				} else {
-					queueFloatingTextVisual(tpos, "Absorbed", ofColor::gray);
-				}
-			}
-		}
-		currentCardOutcome.targetedPlayers.clear();
-		if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		opComplete = true;
-		break;
-	}
-
 	case EffectOpType::APPLY_ATTACK_RESOLVE: {
 		int baseOut = op.data.damage.damageFromSlot;
 		int count = op.data.damage.targetIndex;
@@ -25082,6 +25094,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				case STATUS_GHOST_FORM:
 					target.inGhostForm = false;
 					target.ghostDamageTaken = 0;
+					target.hasRegeneration = (target.isFaerie || target.isSkeleton); // Remove regen unless naturally possessed
 					if (target.ghostFormCard.type == CARD_FORM_OF_GHOST) {
 						target.discardPile.push_back(target.ghostFormCard);
 						target.ghostFormCard.type = CARD_NONE;
@@ -26484,12 +26497,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentEffectSequence.blackboard[0] = totalDmg;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 10, rawDmg, totalDmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 1; // Wait for dice
+			queueEffect(wait);
+
+			// Route through the central Attack pipeline so Poison Synergy works!
+			currentCardOutcome.attackDamageType = DAMAGE_PHYSICAL;
+			currentCardOutcome.attackTargetIndices.push_back(unitIdx);
+
 			EffectOp dmgOp = {};
-			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = unitIdx;
-			dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			dmgOp.data.damage.fixedDamage = 0;
-			dmgOp.data.damage.damageFromSlot = 0;
+			dmgOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(dmgOp);
 		}
 
@@ -27077,6 +27095,22 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
+	case CARD_ADD_POISON: {
+		beginEffectSequence();
+		EffectOp op = {};
+		op.type = EffectOpType::APPLY_STATUS;
+		op.data.status.targetIndex = currentPlayerIndex;
+		op.data.status.statusType = STATUS_ADD_POISON;
+		op.data.status.duration = 0;
+		queueEffect(op);
+
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Poison Coated!", ofColor::green);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_FLURRY_OF_FISTS: {
 		if (resolvedTargetIndex != -1) {
 			beginEffectSequence();
@@ -27091,13 +27125,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				draws *= mult;
 			}
 
-			// 1. Deal Physical Damage
+			// 1. Deal Physical Damage (Routed through APPLY_ATTACK for Poison synergy)
+			currentEffectSequence.blackboard[0] = totalDamage;
+			currentCardOutcome.attackDamageType = playedCard.damageType;
+			currentCardOutcome.attackTargetIndices.clear();
+			currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
+
 			EffectOp dmgOp = {};
-			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = resolvedTargetIndex;
-			dmgOp.data.damage.damageType = playedCard.damageType;
-			dmgOp.data.damage.fixedDamage = totalDamage;
-			dmgOp.data.damage.damageFromSlot = -1;
+			dmgOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(dmgOp);
 
 			// 2. Draw Cards
@@ -27358,14 +27393,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
 			}
 
-			// 1. Deal Damage
+			// 1. Deal Damage (Routed through APPLY_ATTACK for Poison synergy)
 			if (totalDamage > 0) {
+				currentEffectSequence.blackboard[0] = totalDamage;
+				currentCardOutcome.attackDamageType = DAMAGE_PHYSICAL;
+				currentCardOutcome.attackTargetIndices.clear();
+				currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
+
 				EffectOp dmgOp = {};
-				dmgOp.type = EffectOpType::DAMAGE;
-				dmgOp.data.damage.targetIndex = resolvedTargetIndex;
-				dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
-				dmgOp.data.damage.fixedDamage = totalDamage;
-				dmgOp.data.damage.damageFromSlot = -1;
+				dmgOp.type = EffectOpType::APPLY_ATTACK;
 				queueEffect(dmgOp);
 			} else {
 				// Visual feedback if the discard pile was empty
@@ -27707,51 +27743,22 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock + currentPlayer.fortification;
 
-		bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
-		if (applyPoisonBuff) {
-			EffectOp rmPoisonBuff = {};
-			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
-			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
-			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
-			rmPoisonBuff.data.status.duration = 0;
-			queueEffect(rmPoisonBuff);
-		}
-
 		if (totalBlock > 0) {
-			EffectOp damageOp;
-			damageOp.type = EffectOpType::DAMAGE;
-			damageOp.data.damage.targetIndex = resolvedTargetIndex;
-			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			damageOp.data.damage.fixedDamage = totalBlock;
-			damageOp.data.damage.damageFromSlot = -1;
+			// Routed through APPLY_ATTACK for Poison synergy
+			currentEffectSequence.blackboard[0] = totalBlock;
+			currentCardOutcome.attackDamageType = DAMAGE_PHYSICAL;
+			currentCardOutcome.attackTargetIndices.clear();
+			currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
+
+			EffectOp damageOp = {};
+			damageOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(damageOp);
-
-			if (applyPoisonBuff) {
-				EffectOp apPoison = {};
-				apPoison.type = EffectOpType::APPLY_STATUS;
-				apPoison.data.status.targetIndex = resolvedTargetIndex;
-				apPoison.data.status.statusType = STATUS_POISONED;
-				apPoison.data.status.duration = 0;
-				queueEffect(apPoison);
-
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-				currentCardOutcome.poisonTargetPlayerIDs.clear();
-				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[resolvedTargetIndex].playerID);
-
-				std::vector<int> rawPoison;
-				int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
-				currentEffectSequence.blackboard[0] = poisonVal;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_POISON;
-				queueEffect(ap);
-			}
 		} else {
 			queueFloatingTextVisual(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
 		}
 
 		if (currentPlayer.block > 0) {
+
 			EffectOp op = {};
 			op.type = EffectOpType::MODIFY_STAT;
 			op.data.modifyStat.targetIndex = currentPlayerIndex;
@@ -27809,6 +27816,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		Player * target = getPlayer(resolvedTargetIndex);
 		int biteDamage = 3;
 		int hpBefore = target ? target->health : 0;
+
+		bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+		if (applyPoisonBuff) {
+			EffectOp rmPoisonBuff = {};
+			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+			rmPoisonBuff.data.status.duration = 0;
+			queueEffect(rmPoisonBuff);
+		}
+
 		EffectOp damageOp;
 		damageOp.type = EffectOpType::DAMAGE;
 		damageOp.data.damage.targetIndex = resolvedTargetIndex;
@@ -27816,6 +27834,27 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		damageOp.data.damage.fixedDamage = biteDamage;
 		damageOp.data.damage.damageFromSlot = -1;
 		queueEffect(damageOp);
+
+		if (applyPoisonBuff) {
+			std::vector<int> rawPoison;
+			int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
+			currentEffectSequence.blackboard[0] = poisonVal;
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+			EffectOp apPoison = {};
+			apPoison.type = EffectOpType::APPLY_STATUS;
+			apPoison.data.status.targetIndex = resolvedTargetIndex;
+			apPoison.data.status.statusType = STATUS_POISONED;
+			apPoison.data.status.duration = 0;
+			queueEffect(apPoison);
+
+			currentCardOutcome.poisonTargetPlayerIDs.clear();
+			currentCardOutcome.poisonTargetPlayerIDs.push_back(target->playerID);
+
+			EffectOp doPoisonDmg = {};
+			doPoisonDmg.type = EffectOpType::APPLY_POISON;
+			queueEffect(doPoisonDmg);
+		}
 
 		int addCardType = -1;
 		for (const auto & c : allCards) {
@@ -27905,13 +27944,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
 			}
 
-			// 1. Queue the Damage Effect
+			// 1. Queue the Damage Effect (Routed through APPLY_ATTACK for Poison synergy)
+			currentEffectSequence.blackboard[0] = totalDamage;
+			currentCardOutcome.attackDamageType = playedCard.damageType;
+			currentCardOutcome.attackTargetIndices.clear();
+			currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
+
 			EffectOp dmgOp = {};
-			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = resolvedTargetIndex;
-			dmgOp.data.damage.damageType = playedCard.damageType;
-			dmgOp.data.damage.fixedDamage = totalDamage;
-			dmgOp.data.damage.damageFromSlot = -1;
+			dmgOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(dmgOp);
 
 			// 2. Queue the Lifesteal (Heal) Effect on the Caster
@@ -28227,9 +28267,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		{
-			int baseOut = 8;
-			int outIdx = 0;
-			currentCardOutcome.targetedPlayers.clear();
+			currentCardOutcome.attackDamageType = playedCard.damageType;
+			currentCardOutcome.attackTargetIndices.clear();
+
 			for (int dx = -1; dx <= 1; ++dx) {
 				for (int dy = -1; dy <= 1; ++dy) {
 					if (dx == 0 && dy == 0) continue;
@@ -28252,23 +28292,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 							break;
 						}
 					}
-					if (targetIdx == -1) continue;
-					Player & tgt = players[targetIdx];
-					int outSlot = baseOut + outIdx;
-					int dmg = currentEffectSequence.blackboard[0];
-					if (dmg <= 0) dmg = 0;
-					applyDamageWithMitigationsQueued(tgt, dmg, playedCard.damageType, currentPlayerIndex, outSlot);
-					currentCardOutcome.targetedPlayers.push_back(players[targetIdx].playerID);
-					outIdx++;
+					if (targetIdx != -1) {
+						currentCardOutcome.attackTargetIndices.push_back(targetIdx);
+					}
 				}
 			}
 
-			EffectOp res = {};
-			res.type = EffectOpType::APPLY_FLAIL_DAMAGE_RESOLVE;
-			res.data.damage.damageFromSlot = 8;
-			res.data.damage.targetIndex = outIdx;
-			res.data.damage.damageType = playedCard.damageType;
-			queueEffect(res);
+			EffectOp atk = {};
+			atk.type = EffectOpType::APPLY_ATTACK;
+			queueEffect(atk);
 		}
 
 		playedSuccessfully = true;
