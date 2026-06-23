@@ -9126,22 +9126,27 @@ void ofApp::drawGame() {
 			if (unit.x < 0 || unit.x >= BOARD_WIDTH || unit.y < 0 || unit.y >= BOARD_HEIGHT) return 0.0f;
 
 			bool isSplashCard = card.isAoe || card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT;
+			bool isCaster = (&unit == &players[currentPlayerIndex]);
+
+			// If it's the caster, ONLY show % if it's a splash card
+			if (isCaster && !isSplashCard) {
+				return 0.0f;
+			}
 
 			// Ranged / direct-target cards use the precomputed unit-tile hit chance.
 			if (!isSplashCard) {
-				// Only show % if the tile is actually targetable, to avoid showing 100% over the caster for non-self spells
+				// Only show % if the tile is actually targetable
 				if (board[unit.x][unit.y].hasTooltipInfo && board[unit.x][unit.y].isTargetable) {
 					return board[unit.x][unit.y].hitChance;
 				}
 				return 0.0f;
 			}
 
-			// AOE/Splash cards: reuse the targetable centers and compute whether each
-			// center can reach this unit, then keep the best chance for the label.
+			// AOE/Splash cards:
 			float bestChance = 0.0f;
 
-			// Direct targeting chance (if the unit itself can be clicked directly)
-			if (board[unit.x][unit.y].isTargetable && board[unit.x][unit.y].hasTooltipInfo) {
+			// Direct targeting chance (if the unit itself can be clicked directly, and isn't the caster)
+			if (board[unit.x][unit.y].isTargetable && board[unit.x][unit.y].hasTooltipInfo && !isCaster) {
 				bestChance = board[unit.x][unit.y].hitChance;
 			}
 
@@ -33043,8 +33048,6 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 	int endX = (int)floor(rayEnd.x);
 	int endY = (int)floor(rayEnd.y);
 
-	bool isDiagonalShot = (startX != endX) && (startY != endY);
-
 	for (size_t i = 0; i < path.size(); ++i) {
 		glm::vec2 current = path[i];
 		int cx = (int)current.x;
@@ -33053,10 +33056,18 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 		bool isStart = (cx == startX && cy == startY);
 		bool isEnd = (cx == endX && cy == endY);
 
-		// --- GAP / CHOKE RULE ---
-		if (isDiagonalShot) {
-			int gapType = isGapTile(current);
-			if (gapType == 1 || gapType == 2) return false;
+		// --- DIAGONAL PINCH RULE ---
+		// If we moved diagonally, check if the two corners we squeezed between are both walls.
+		if (i > 0) {
+			glm::vec2 prev = path[i - 1];
+			int px = (int)prev.x;
+			int py = (int)prev.y;
+
+			if (cx != px && cy != py) {
+				if (isTileBlocked(cx, py) && isTileBlocked(px, cy)) {
+					return false; // Hard blocked by a corner pinch!
+				}
+			}
 		}
 
 		// --- DIRECT BLOCKING ---
