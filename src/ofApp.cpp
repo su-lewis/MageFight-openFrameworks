@@ -45,6 +45,13 @@ static float g_menuAlphaMult = 1.0f;
 // FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
 static std::map<int, int> g_lastDamagerMap;
 
+struct DefenseRecord {
+	int statType;
+	int amount;
+	int expirationCycle;
+};
+static std::map<int, std::vector<DefenseRecord>> g_playerDefenses;
+
 static bool g_pendingShellSpike = false;
 static bool g_activePlayerDiedThisTurn = false;
 
@@ -4690,7 +4697,7 @@ void ofApp::update() {
 
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
-		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SAVE_BROWSER || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_SAVE_BROWSER)));
+		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SAVE_BROWSER || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_MULTIPLAYER_MENU || stateBeforeSettings == STATE_SAVE_BROWSER)));
 
 		if (isMenuContext) {
 			if (mainMenuMusic.isLoaded()) {
@@ -6038,7 +6045,7 @@ void ofApp::setupGame() {
 	isExecutingLockstepCommand = false;
 	pendingVisualKeyDraftQueue.clear();
 	resetCardState();
-
+	g_playerDefenses.clear();
 	// Clear transient and persistent gameplay state to ensure a true reset
 	players.clear();
 	graveyard.clear();
@@ -6046,6 +6053,7 @@ void ofApp::setupGame() {
 
 	g_pendingShellSpike = false;
 	g_actionHistory.clear();
+	g_playerDefenses.clear();
 
 	// Repopulate default floating key positions so keys are present
 	// when a new game is started (previously keys were only added in setup()).
@@ -10751,6 +10759,7 @@ void ofApp::drawGame() {
 					previewLabelsToDraw.push_back({ glm::vec2(screen.x, screen.y - 14.0f), ofToString((int)round(chance * 100.0f)) + "%", ofColor::white });
 				}
 
+				ofDisableLighting(); // <--- CRITICAL FIX: Turn off 3D lighting before drawing 2D text!
 				ofEnableAlphaBlending();
 				for (const auto & label : previewLabelsToDraw) {
 					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, label.color, 2, ofColor(0, 0, 0, 255));
@@ -18358,52 +18367,35 @@ void ofApp::continueNewTurn() {
 
 	// --- C. DEFENSIVE STAT EXPIRATION ---
 	// Tortoise form: ALL defensive stats don't expire
-	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
-		int sidx = currentPlayerIndex;
-		if (startingPlayer.block > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 5; // Block
-			op.data.modifyStat.delta = -startingPlayer.block;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.holyBlock > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 7; // HolyBlock
-			op.data.modifyStat.delta = -startingPlayer.holyBlock;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.ward > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 8; // Ward
-			op.data.modifyStat.delta = -startingPlayer.ward;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.fortification > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 13; // Fortification
-			op.data.modifyStat.delta = -startingPlayer.fortification;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.barrier > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 6; // Barrier
-			op.data.modifyStat.delta = -startingPlayer.barrier;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+	if (!startingPlayer.inTortoiseForm) {
+		auto & recs = g_playerDefenses[startingPlayer.playerID];
+		for (auto it = recs.begin(); it != recs.end();) {
+			if (globalTurnCounter >= it->expirationCycle) {
+				int toRemove = 0;
+				if (it->statType == 5)
+					toRemove = std::min(startingPlayer.block, it->amount);
+				else if (it->statType == 6)
+					toRemove = std::min(startingPlayer.barrier, it->amount);
+				else if (it->statType == 7)
+					toRemove = std::min(startingPlayer.holyBlock, it->amount);
+				else if (it->statType == 8)
+					toRemove = std::min(startingPlayer.ward, it->amount);
+				else if (it->statType == 13)
+					toRemove = std::min(startingPlayer.fortification, it->amount);
+
+				if (toRemove > 0) {
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = currentPlayerIndex;
+					op.data.modifyStat.statType = it->statType;
+					op.data.modifyStat.delta = -toRemove;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
+				}
+				it = recs.erase(it);
+			} else {
+				++it;
+			}
 		}
 		startingPlayer.defenseCycle = -1;
 	}
@@ -24844,6 +24836,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						int expCycle = globalTurnCounter + 1;
 						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
 						target.defenseCycle = expCycle;
+						g_playerDefenses[target.playerID].push_back({ 5, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
 					queueFloatingTextVisual(tPos, s, ofColor::gray);
@@ -24862,6 +24855,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						int expCycle = globalTurnCounter + 1;
 						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
 						target.defenseCycle = expCycle;
+						g_playerDefenses[target.playerID].push_back({ 6, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
 					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
@@ -24880,6 +24874,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						int expCycle = globalTurnCounter + 1;
 						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
 						target.defenseCycle = expCycle;
+						g_playerDefenses[target.playerID].push_back({ 7, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
 					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
@@ -24898,6 +24893,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						int expCycle = globalTurnCounter + 1;
 						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
 						target.defenseCycle = expCycle;
+						g_playerDefenses[target.playerID].push_back({ 8, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
 					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
@@ -24920,6 +24916,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						int expCycle = globalTurnCounter + 1;
 						if (targetIndex < currentPlayerIndex) expCycle = globalTurnCounter + 2;
 						target.defenseCycle = expCycle;
+						g_playerDefenses[target.playerID].push_back({ 13, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
 					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
@@ -30243,6 +30240,15 @@ std::string ofApp::buildSnapshotString() {
 	}
 	ss << "\n";
 
+	ss << "DEFENSES\t" << g_playerDefenses.size();
+	for (const auto & pair : g_playerDefenses) {
+		ss << "\t" << pair.first << "\t" << pair.second.size();
+		for (const auto & rec : pair.second) {
+			ss << "\t" << rec.statType << "\t" << rec.amount << "\t" << rec.expirationCycle;
+		}
+	}
+	ss << "\n";
+
 	ss << "QUEUE\t" << networkPending.draftQueue.size();
 	for (int v : networkPending.draftQueue)
 		ss << "\t" << v;
@@ -30510,6 +30516,25 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				for (int i = 0; i < count && pIdx + 1 < (int)parts.size(); ++i) {
 					g_lastDamagerMap[std::stoi(parts[pIdx])] = std::stoi(parts[pIdx + 1]);
 					pIdx += 2;
+				}
+			} else if (parts[0] == "DEFENSES") {
+				g_playerDefenses.clear();
+				int numPlayers = std::stoi(parts[1]);
+				int pIdx = 2;
+				for (int i = 0; i < numPlayers; ++i) {
+					if (pIdx >= (int)parts.size()) break;
+					int pID = std::stoi(parts[pIdx++]);
+					int numRecs = std::stoi(parts[pIdx++]);
+					std::vector<DefenseRecord> recs;
+					for (int r = 0; r < numRecs; ++r) {
+						if (pIdx + 2 >= (int)parts.size()) break;
+						DefenseRecord rec;
+						rec.statType = std::stoi(parts[pIdx++]);
+						rec.amount = std::stoi(parts[pIdx++]);
+						rec.expirationCycle = std::stoi(parts[pIdx++]);
+						recs.push_back(rec);
+					}
+					g_playerDefenses[pID] = recs;
 				}
 			} else if (parts[0] == "TURN" && parts.size() >= 8) {
 				tmpTurnDurationFrames = std::stoi(parts[1]);
@@ -33730,6 +33755,7 @@ void ofApp::cleanupGame() {
 	afkStrikeCounts = { 0, 0 };
 	reconnectForfeitStartTime = -1.0f;
 	playerAction = NONE;
+	g_playerDefenses.clear();
 	selectedCardIndex = -1;
 	draggedCardIndex = -1;
 	isPlayerAnimating = false;
