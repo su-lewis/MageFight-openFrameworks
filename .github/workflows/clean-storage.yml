@@ -1,0 +1,42 @@
+name: Clean GitHub Actions Storage
+
+on:
+  workflow_dispatch: # Allows you to trigger this manually from the Actions tab
+  schedule:
+    - cron: '0 0 * * 0' # Optional: Automatically runs every Sunday at midnight
+
+permissions:
+  actions: write # Strictly required to delete caches and artifacts
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🧹 Delete all Caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Fetching and deleting all caches..."
+          # gh cache delete --all is native to the GitHub CLI
+          gh cache delete --all --repo $REPO || echo "No caches found or already cleared."
+
+      - name: 🗑️ Delete all Artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Fetching all artifacts..."
+          # Use pagination to grab every single artifact ID
+          ARTIFACT_IDS=$(gh api -X GET /repos/$REPO/actions/artifacts --paginate -q '.artifacts[].id')
+          
+          if [ -z "$ARTIFACT_IDS" ]; then
+            echo "No artifacts found."
+          else
+            echo "Found artifacts. Deleting..."
+            for ID in $ARTIFACT_IDS; do
+              echo "Deleting artifact ID: $ID"
+              gh api -X DELETE /repos/$REPO/actions/artifacts/$ID
+            done
+            echo "All artifacts successfully deleted."
+          fi
