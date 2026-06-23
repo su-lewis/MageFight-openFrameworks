@@ -7196,53 +7196,50 @@ void ofApp::prepareGameVisualState() {
 		}                                                                                                                         \
 	} while (0)
 
-#define EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(playerIdx)                                         \
-	do {                                                                                         \
-		Player & _p = players[(playerIdx)];                                                      \
-		std::queue<glm::ivec2> _q;                                                               \
-		std::vector<std::vector<int>> _dist(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));    \
-		_q.push({ _p.x, _p.y });                                                                 \
-		_dist[_p.x][_p.y] = 0;                                                                   \
-		int _minDist = -1;                                                                       \
-		ghostRelocateChoices.clear();                                                            \
-		while (!_q.empty()) {                                                                    \
-			glm::ivec2 _curr = _q.front();                                                       \
-			_q.pop();                                                                            \
-			int _d = _dist[_curr.x][_curr.y];                                                    \
-			if (_minDist != -1 && _d > _minDist) continue;                                       \
-			bool _occupied = false;                                                              \
-			for (auto & _op : players) {                                                         \
-				if (_op.health > 0 && _op.x == _curr.x && _op.y == _curr.y) {                    \
-					_occupied = true;                                                            \
-					break;                                                                       \
-				}                                                                                \
-			}                                                                                    \
-			if (!board[_curr.x][_curr.y].hasWall && !_occupied) {                                \
-				_minDist = _d;                                                                   \
-				ghostRelocateChoices.push_back(_curr);                                           \
-				if (ghostRelocateChoices.size() >= 4) break;                                     \
-			} else {                                                                             \
-				glm::ivec2 _dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };              \
-				for (auto & _dir : _dirs) {                                                      \
-					int _nx = _curr.x + _dir.x;                                                  \
-					int _ny = _curr.y + _dir.y;                                                  \
-					if (_nx >= 0 && _nx < BOARD_WIDTH && _ny >= 0 && _ny < BOARD_HEIGHT) {       \
-						if (_dist[_nx][_ny] == -1) {                                             \
-							_dist[_nx][_ny] = _d + 1;                                            \
-							_q.push({ _nx, _ny });                                               \
-						}                                                                        \
-					}                                                                            \
-				}                                                                                \
-			}                                                                                    \
-		}                                                                                        \
-		if (ghostRelocateChoices.empty()) ghostRelocateChoices.push_back({ _p.x, _p.y });        \
-		ghostRelocateTargetIndex = (playerIdx);                                                  \
-		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, -1, PSEUDO_CARD_GHOST_RELOCATE); \
-		opponentDecisionTimerActive = true;                                                      \
-		opponentDecisionStartFrame = simulationFrame;                                            \
-		opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;                          \
-		opponentDecisionPlayerIndex = (playerIdx);                                               \
-		if (isMultiplayer) sendMenuState(5, (playerIdx), -1, -1);                                \
+#define EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(playerIdx)                                              \
+	do {                                                                                              \
+		Player & _p = players[(playerIdx)];                                                           \
+		std::queue<glm::ivec2> _q;                                                                    \
+		std::vector<std::vector<int>> _dist(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));         \
+		_q.push({ _p.x, _p.y });                                                                      \
+		_dist[_p.x][_p.y] = 0;                                                                        \
+		int _minDist = -1;                                                                            \
+		ghostRelocateChoices.clear();                                                                 \
+		while (!_q.empty()) {                                                                         \
+			glm::ivec2 _curr = _q.front();                                                            \
+			_q.pop();                                                                                 \
+			int _d = _dist[_curr.x][_curr.y];                                                         \
+			if (_minDist != -1 && _d > _minDist) continue;                                            \
+			bool _occupied = false;                                                                   \
+			for (auto & _op : players) {                                                              \
+				if (_op.health > 0 && _op.x == _curr.x && _op.y == _curr.y) {                         \
+					_occupied = true;                                                                 \
+					break;                                                                            \
+				}                                                                                     \
+			}                                                                                         \
+			if (!board[_curr.x][_curr.y].hasWall && !_occupied) {                                     \
+				_minDist = _d;                                                                        \
+				ghostRelocateChoices.push_back(_curr);                                                \
+				if (ghostRelocateChoices.size() >= 4) break;                                          \
+			} else {                                                                                  \
+				glm::ivec2 _dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };                   \
+				for (auto & _dir : _dirs) {                                                           \
+					int _nx = _curr.x + _dir.x;                                                       \
+					int _ny = _curr.y + _dir.y;                                                       \
+					if (_nx >= 0 && _nx < BOARD_WIDTH && _ny >= 0 && _ny < BOARD_HEIGHT) {            \
+						if (_dist[_nx][_ny] == -1) {                                                  \
+							_dist[_nx][_ny] = _d + 1;                                                 \
+							_q.push({ _nx, _ny });                                                    \
+						}                                                                             \
+					}                                                                                 \
+				}                                                                                     \
+			}                                                                                         \
+		}                                                                                             \
+		if (ghostRelocateChoices.empty()) ghostRelocateChoices.push_back({ _p.x, _p.y });             \
+		ghostRelocateTargetIndex = (playerIdx);                                                       \
+		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_GHOST_RELOCATE); \
+		if (isMultiplayer) sendMenuState(5, (playerIdx), -1, -1);                                     \
+		calculateTargetHighlights(-1);                                                                \
 	} while (0)
 
 void ofApp::updateGameLogic() {
@@ -7508,7 +7505,7 @@ void ofApp::updateGameLogic() {
 
 	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
 	bool isMagicBlastActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) || (opponentInteraction.open && opponentInteraction.type == 4);
-	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
+	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
 	bool isOpponentDraftActive = (currentState == STATE_DRAFTING && isInGameDraft);
 
 	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isOpponentDraftActive)) {
@@ -9842,29 +9839,29 @@ void ofApp::drawGame() {
 			}
 
 			// 2. Determine Head Height for Status Effects (Used in this loop)
-			float headHeight = 6.5f; // Default (Wizard)
+			float headHeight = 5.0f; // Default (Wizard)
 			if (player.inTortoiseForm)
 				headHeight = 4.0f;
 			else if (player.inGhostForm)
-				headHeight = 6.5f;
+				headHeight = 5.0f;
 			else if (player.isGolem)
-				headHeight = 15.0f;
+				headHeight = 8.0f;
 			else if (player.isDemon)
-				headHeight = 15.0f;
+				headHeight = 8.0f;
 			else if (player.isHellhound)
 				headHeight = 4.5f;
 			else if (player.isWolf)
-				headHeight = 15.0f;
+				headHeight = 8.0f;
 			else if (player.isKobold || player.isKoboldKing)
 				headHeight = 4.0f;
 			else if (player.isFaerie)
-				headHeight = 3.5f;
+				headHeight = 4.5f;
 			else if (player.isSkeleton)
 				headHeight = 5.5f;
 			else if (player.isAssistant)
 				headHeight = 5.5f;
 			else if (player.isWallUnit || player.isMagicWallUnit)
-				headHeight = 15.0f;
+				headHeight = 8.0f;
 
 			// Dynamic stacking height for overhead icons so they don't overlap
 			float currentOverheadY = headHeight + 0.5f;
@@ -10609,9 +10606,16 @@ void ofApp::drawGame() {
 					float ringRadius = TILE_SIZE * 0.45f; // Used to offset blocks and head
 					float headLength = TILE_SIZE * 0.5f;
 
+					glm::vec3 tangentEnd = glm::normalize(worldTarget - cp);
+					float lenXZ = glm::length(glm::vec2(tangentEnd.x, tangentEnd.z));
+					float pushBackDist = ringRadius + TILE_SIZE * 0.15f;
+					if (lenXZ > 0.05f) {
+						pushBackDist = (ringRadius + TILE_SIZE * 0.15f) / lenXZ;
+					}
+					pushBackDist = std::min(pushBackDist, dist * 0.45f);
+
 					// Mathematical constraint to guarantee blocks never pass the back of the chevron
-					// Gap (0.1f) + Chevron Length (0.5f) + Half a Block Length (0.13f)
-					float keepOutTarget = ringRadius + TILE_SIZE * 0.1f + headLength + blockLength * 0.6f;
+					float keepOutTarget = pushBackDist + headLength * 0.8f;
 					float keepOutStart = TILE_SIZE * 0.35f;
 
 					// If targeting extremely close (e.g. adjacent tile), scale down the keep-out zones
@@ -10620,6 +10624,7 @@ void ofApp::drawGame() {
 						float scaleKeepOut = dist / (keepOutStart + keepOutTarget + TILE_SIZE * 0.3f);
 						keepOutTarget *= scaleKeepOut;
 						keepOutStart *= scaleKeepOut;
+						pushBackDist *= scaleKeepOut;
 					}
 
 					for (int i = 0; i < numBlocks; ++i) {
@@ -10670,12 +10675,8 @@ void ofApp::drawGame() {
 					// --- 2. 3D ARROW HEAD (Tilted to match the curve trajectory) ---
 					ofPushMatrix();
 
-					// Tangent exactly at t=1 (end of bezier)
-					glm::vec3 tangentEnd = glm::normalize(worldTarget - cp);
-					// Removed tangentEnd.y = 0; so it angles dynamically downwards into the target!
-
 					// Position the tip just outside the target ring with a clear gap
-					glm::vec3 headPos = worldTarget - tangentEnd * (ringRadius + TILE_SIZE * 0.1f);
+					glm::vec3 headPos = worldTarget - tangentEnd * pushBackDist;
 					ofTranslate(headPos.x, headPos.y, headPos.z);
 
 					// Build rotation matrix matching the 3D curve exactly
@@ -12922,6 +12923,8 @@ void ofApp::drawGame() {
 			msg = "Punch: Choose target";
 		} else if (interactingCardType == CARD_FORM_OF_TORTOISE) {
 			msg = "Tortoise Shell Spike: Choose target";
+		} else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+			msg = "Materialized in Wall: Choose an empty tile to teleport to";
 		}
 
 		drawInstructionText(msg);
@@ -16779,6 +16782,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				resetCardInteraction();
 				return;
 			}
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+				ofLogNotice("Input") << "Right-click ignored for mandatory ghost relocate targeting.";
+				return;
+			}
 			// If we are in an in-game key draft, ignore right-click cancels
 			if (currentState == STATE_DRAFTING && isInGameDraft) {
 				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
@@ -16851,7 +16858,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		}
 		if (players.empty() || currentPlayerIndex < 0) return;
 
-		if (endTurnLocked) {
+		if (endTurnLocked && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)) {
 			ofLogNotice("Input") << "Action blocked: Turn timer expired (endTurnLocked).";
 			if (draggedCardIndex != -1) {
 				Player & currentPlayer = players[currentPlayerIndex];
@@ -18353,17 +18360,19 @@ void ofApp::continueNewTurn() {
 	// Ensure temp luck is correct for the starting player before AP is rolled
 	recalcTempLuck();
 
-	// Reset assistant abilities if it's the assistant's turn
-	if (startingPlayer.isAssistant) {
-		EffectOp rm = {};
-		rm.type = EffectOpType::REMOVE_STATUS;
-		rm.data.status.targetIndex = currentPlayerIndex;
-		rm.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
-		rm.data.status.duration = 0;
-		queueEffect(rm);
-		if (!isProcessingEffect) beginEffectSequence();
-		// AP for assistants will be handled in the AP roll logic below.
+	// Reset assistant abilities for the active player's assistants (and the player themselves if they are an assistant)
+	for (size_t i = 0; i < players.size(); ++i) {
+		if (players[i].isAssistant && (players[i].directSummonerID == startingPlayer.playerID || (int)i == currentPlayerIndex)) {
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = (int)i;
+			rm.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+		}
 	}
+	if (!isProcessingEffect) beginEffectSequence();
+	// AP for assistants will be handled in the AP roll logic below.
 
 	// --- 0. SUMMONING SICKNESS CHECK .
 	if (startingPlayer.summonedOnTurnCycle == globalTurnCounter) {
@@ -18891,9 +18900,17 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 						turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
 						turnTimerPausedRemainingFrames = 0;
 					}
-					opponentDecisionTimerActive = false;
-					opponentDecisionStartFrame = 0;
-					opponentDecisionPlayerIndex = -1;
+
+					if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+						opponentDecisionTimerActive = true;
+						opponentDecisionStartFrame = simulationFrame;
+						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+						opponentDecisionPlayerIndex = optPlayer;
+					} else {
+						opponentDecisionTimerActive = false;
+						opponentDecisionStartFrame = 0;
+						opponentDecisionPlayerIndex = -1;
+					}
 				}
 			}
 		}
@@ -19215,6 +19232,33 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 		resetCardInteraction();
 		// FIX: Removed resetCardState() so the Teleport effect sequence can finish resolving!
+		return;
+	}
+
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+		bool isValid = false;
+		for (const auto & choice : ghostRelocateChoices) {
+			if (choice.x == gridX && choice.y == gridY) {
+				isValid = true;
+				break;
+			}
+		}
+		if (isValid) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = MENU_GHOST_RELOCATE;
+			cmd.params[1] = ghostRelocateTargetIndex;
+			cmd.params[2] = 0; // Not used
+			cmd.params[3] = -1;
+			cmd.params[4] = gridX;
+			cmd.params[5] = gridY;
+			sendInputCommand(cmd, true);
+		}
 		return;
 	}
 
@@ -19994,7 +20038,7 @@ void ofApp::drawActiveCardInteractionUI() {
 
 	float scale = 1.0f;
 	g_menuAlphaMult = 1.0f;
-	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS);
+	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE));
 
 	if (isAnimatedMenu) {
 		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
@@ -20960,7 +21004,16 @@ void ofApp::simulationTick() {
 				graveyard.push_back(death);
 
 				if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
-					board[players[idx].x][players[idx].y].hasPlayer = false;
+					bool hasOther = false;
+					for (size_t j = 0; j < players.size(); ++j) {
+						if ((int)j != idx && players[j].x == players[idx].x && players[j].y == players[idx].y && players[j].health > 0) {
+							hasOther = true;
+							break;
+						}
+					}
+					if (!hasOther) {
+						board[players[idx].x][players[idx].y].hasPlayer = false;
+					}
 				}
 
 				// Update active dice associations
@@ -21365,13 +21418,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toX = dest.x;
 			mv.data.moveUnit.toY = dest.y;
 			queueEffect(mv);
-
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = tgt;
-			rm.data.status.statusType = STATUS_GHOST_FORM;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
 
 			// Visual / cleanup
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
@@ -22208,6 +22254,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		riCard.playedThisTurn = true;
 		p.discardPile.push_back(riCard);
 		p.hand.erase(p.hand.begin() + shiftedRiIndex);
+
+		applyReplicateCopyToHand(p, riCard);
+
 		completeCardPlayAnimation(riCard, playerIdx);
 
 		// Now queue the finalization in the EffectOp sequence
@@ -22231,6 +22280,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
+
 	// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
 	default:
 		ofLogWarning("Lockstep") << "Unknown command type: " << (int)cmd.commandType;
@@ -22564,7 +22614,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			Player & p = players[uidx];
 			// Clear previous board occupancy
 			if (p.x >= 0 && p.x < BOARD_WIDTH && p.y >= 0 && p.y < BOARD_HEIGHT) {
-				board[p.x][p.y].hasPlayer = false;
+				bool othersOnPrev = false;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if ((int)i != uidx && players[i].x == p.x && players[i].y == p.y && players[i].health > 0) {
+						othersOnPrev = true;
+						break;
+					}
+				}
+				if (!othersOnPrev) {
+					board[p.x][p.y].hasPlayer = false;
+				}
 			}
 			// Apply new position
 			int nx = m.toX;
@@ -22794,8 +22853,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) {
-							endPoint = path[i - 1] + 0.5f;
+						if (stepDistSq > maxDistSq) {
+							endPoint = path[i > 0 ? i - 1 : 0] + 0.5f;
 							break;
 						}
 						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
@@ -22888,11 +22947,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
 			std::vector<int> aoeTargets;
 
-			// --- FIX: AOE expands accurately from the physical center of the impact tile! ---
 			glm::vec2 impactCenter = glm::vec2((float)currentCardOutcome.primaryTarget.x + 0.5f, (float)currentCardOutcome.primaryTarget.y + 0.5f);
 
 			for (size_t i = 0; i < players.size(); ++i) {
-				if ((int)i == currentPlayerIndex) continue; // Exclude caster from AOE!
+				if ((int)i == currentCardOutcome.casterIndex) continue; // Exclude caster from AOE!
 				Player & p = players[i];
 				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
 
@@ -22965,8 +23023,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (path.size() > 1) {
 				for (size_t i = 1; i < path.size(); ++i) {
 					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (i > 1 && stepDistSq > maxDistSq) {
-						endPoint = path[i - 1] + 0.5f;
+					if (stepDistSq > maxDistSq) {
+						endPoint = path[i > 0 ? i - 1 : 0] + 0.5f;
 						break;
 					}
 
@@ -23031,6 +23089,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			std::vector<int> aoeTargets;
 			for (size_t i = 0; i < players.size(); ++i) {
+				if ((int)i == currentCardOutcome.casterIndex) continue; // Exclude caster!
 				Player & p = players[i];
 				if (p.health <= 0) continue;
 
@@ -23119,8 +23178,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) {
-							endPoint = path[i - 1] + 0.5f;
+						if (stepDistSq > maxDistSq) {
+							endPoint = path[i > 0 ? i - 1 : 0] + 0.5f;
 							break;
 						}
 
@@ -23282,8 +23341,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
 						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) {
-							endPoint = path[i - 1] + 0.5f;
+						if (stepDistSq > maxDistSq) {
+							endPoint = path[i > 0 ? i - 1 : 0] + 0.5f;
 							break;
 						}
 
@@ -23411,7 +23470,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (path.size() > 1) {
 				for (size_t i = 1; i < path.size(); ++i) {
 					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (i > 1 && stepDistSq > maxDistSq) break;
+					if (stepDistSq > maxDistSq) break;
 
 					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 					if (isTileBlocked(impactTile.x, impactTile.y)) break;
@@ -23453,6 +23512,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
+				if ((int)i == currentCardOutcome.casterIndex) continue; // Exclude caster from Splash!
 				if (players[i].health <= 0) continue;
 				if (isTileWall(players[i].x, players[i].y)) continue; // Magic Blast splash doesn't penetrate walls
 				int dx = std::abs(players[i].x - impactTile.x);
@@ -23780,7 +23840,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				death.turnDied = globalTurnCounter;
 				death.deck = target->deck;
 				graveyard.push_back(death);
-				board[target->x][target->y].hasPlayer = false;
+
+				bool hasOther = false;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (&players[i] != target && players[i].x == target->x && players[i].y == target->y && players[i].health > 0) {
+						hasOther = true;
+						break;
+					}
+				}
+				if (!hasOther) {
+					board[target->x][target->y].hasPlayer = false;
+				}
+
 				target->x = -1000;
 				{
 					EffectOp kill = {};
@@ -25902,29 +25973,6 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				handleCardMenuClick("damage");
 			else if (btn2.inside(mouseX, mouseY))
 				handleCardMenuClick("discard");
-			break;
-
-		case PSEUDO_CARD_GHOST_RELOCATE:
-			for (size_t i = 0; i < ghostRelocateButtons.size(); ++i) {
-				if (ghostRelocateButtons[i].inside(mouseX, mouseY)) {
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.seq = 0;
-					cmd.commandId = nextCommandId++;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_MENU_CHOICE;
-					cmd.params[0] = MENU_GHOST_RELOCATE;
-					cmd.params[1] = ghostRelocateTargetIndex;
-					cmd.params[2] = (int)i;
-					cmd.params[3] = -1;
-					// FIX: Pass the exact X and Y coordinates over the network
-					// so the Host doesn't have to guess which tile we picked!
-					cmd.params[4] = ghostRelocateChoices[i].x;
-					cmd.params[5] = ghostRelocateChoices[i].y;
-					sendInputCommand(cmd, true);
-				}
-			}
 			break;
 
 		default:
@@ -28625,6 +28673,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 	}
 
+	// --- GHOST RELOCATE TARGETING HIGHLIGHTING ---
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+		for (const auto & choice : ghostRelocateChoices) {
+			if (choice.x >= 0 && choice.x < BOARD_WIDTH && choice.y >= 0 && choice.y < BOARD_HEIGHT) {
+				board[choice.x][choice.y].isTargetable = true;
+				board[choice.x][choice.y].isTargetPreview = true;
+			}
+		}
+		return;
+	}
 	// --- BLOCKING BOON TAILS TARGETING HIGHLIGHTING ---
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON && blockingBoonPendingCasterIndex >= 0) {
 		Player & caster = players[blockingBoonPendingCasterIndex];
@@ -32726,7 +32784,18 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		death.turnDied = globalTurnCounter;
 		death.deck = target.deck;
 		graveyard.push_back(death);
-		board[target.x][target.y].hasPlayer = false;
+
+		bool hasOther = false;
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (&players[i] != &target && players[i].x == target.x && players[i].y == target.y && players[i].health > 0) {
+				hasOther = true;
+				break;
+			}
+		}
+		if (!hasOther) {
+			board[target.x][target.y].hasPlayer = false;
+		}
+
 		target.x = -1000;
 	}
 
@@ -36759,7 +36828,16 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 		}
 	}
 
-	board[prevX][prevY].hasPlayer = false;
+	bool othersOnPrev = false;
+	for (size_t i = 0; i < players.size(); ++i) {
+		if ((int)i != playerIndex && players[i].x == prevX && players[i].y == prevY && players[i].health > 0) {
+			othersOnPrev = true;
+			break;
+		}
+	}
+	if (!othersOnPrev) {
+		board[prevX][prevY].hasPlayer = false;
+	}
 
 	if (newAP >= 0) {
 		ofLogNotice("APDebug") << "applyMovement: playerIndex=" << playerIndex << " prev_currentAP=" << currentAP << " newAP=" << newAP << " p.ap(before)=" << p.ap;
