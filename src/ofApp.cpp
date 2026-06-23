@@ -94,17 +94,8 @@ static std::string makeSavePath(const std::string & p) {
 }
 
 void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
-	if (footstepSounds.empty()) return;
-	float nowSec = ofGetElapsedTimef();
-	if (nowSec < nextHandSfxAt) return;
-
-	std::uniform_int_distribution<int> soundIdx(0, (int)footstepSounds.size() - 1);
-	int idx = soundIdx(visualRNG);
-	float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * volumeMul, 0.0f, 1.0f);
-	footstepSounds[idx].setSpeed(std::clamp(speed, 0.70f, 1.50f));
-	footstepSounds[idx].setVolume(vol);
-	footstepSounds[idx].play();
-	nextHandSfxAt = nowSec + 0.045f;
+	// Disabled: Footstep sounds should not play on cards.
+	return;
 }
 
 namespace {
@@ -6917,6 +6908,7 @@ void ofApp::prepareGameVisualState() {
 							int idx = footIdx(visualRNG);
 							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
 							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+							footstepSounds[idx].setVolume(std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f));
 							footstepSounds[idx].play();
 						}
 						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
@@ -8593,6 +8585,7 @@ void ofApp::updateGameLogic() {
 							int idx = footIdx(visualRNG);
 							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
 							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+							footstepSounds[idx].setVolume(std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f));
 							footstepSounds[idx].play();
 						}
 
@@ -22950,7 +22943,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 impactCenter = glm::vec2((float)currentCardOutcome.primaryTarget.x + 0.5f, (float)currentCardOutcome.primaryTarget.y + 0.5f);
 
 			for (size_t i = 0; i < players.size(); ++i) {
-				if ((int)i == currentCardOutcome.casterIndex) continue; // Exclude caster from AOE!
 				Player & p = players[i];
 				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
 
@@ -23089,7 +23081,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			std::vector<int> aoeTargets;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if ((int)i == currentCardOutcome.casterIndex) continue; // Exclude caster!
 				Player & p = players[i];
 				if (p.health <= 0) continue;
 
@@ -23512,7 +23503,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
-				if ((int)i == currentCardOutcome.casterIndex) continue; // Exclude caster from Splash!
 				if (players[i].health <= 0) continue;
 				if (isTileWall(players[i].x, players[i].y)) continue; // Magic Blast splash doesn't penetrate walls
 				int dx = std::abs(players[i].x - impactTile.x);
@@ -33150,9 +33140,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return false;
 	};
 
-	// --- NEW: Orthogonal (Same Row / Column) Bypass ---
-	// If the target is in the exact same row or column, and there is nothing strictly
-	// between them, it's a valid straight shot. Bypasses the strict 2-face cover rule.
+	// --- Orthogonal (Same Row / Column) Bypass & Block ---
 	if (dxDist == 0 || dyDist == 0) {
 		bool pathClear = true;
 		int stepX = (targetTile.x > casterTile.x) ? 1 : ((targetTile.x < casterTile.x) ? -1 : 0);
@@ -33172,6 +33160,10 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 
 		if (pathClear) {
 			return { true, casterCenter, targetCenter };
+		} else {
+			// IMPORTANT: If orthogonal path is blocked, you cannot hit them.
+			// No "leaning" allowed for targets strictly on the same row or column behind a wall!
+			return { false, casterCenter, targetCenter };
 		}
 	}
 
@@ -33188,16 +33180,6 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		else if (dest.y < source.y)
 			dirs.push_back({ 0, -1 });
 
-		// If orthogonal (straight shot), add perpendiculars so caster can still lean out!
-		if (dirs.size() == 1) {
-			if (dirs[0].x != 0) {
-				dirs.push_back({ 0, 1 });
-				dirs.push_back({ 0, -1 });
-			} else {
-				dirs.push_back({ 1, 0 });
-				dirs.push_back({ -1, 0 });
-			}
-		}
 		return dirs;
 	};
 
@@ -33207,7 +33189,8 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	std::vector<glm::vec2> validCasterPoints;
 	for (auto dir : casterFaceDirs) {
 		if (!isCoverAt((int)casterTile.x + (int)dir.x, (int)casterTile.y + (int)dir.y)) {
-			validCasterPoints.push_back(casterCenter + dir * 0.49f);
+			// EXACT CENTERS: Use exactly 0.5f offset from the tile center
+			validCasterPoints.push_back(casterCenter + dir * 0.5f);
 		}
 	}
 
@@ -33236,21 +33219,26 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	// Take exactly the 2 closest faces
 	std::vector<glm::vec2> targetFaceDirs = { targetFacesByDist[0].second, targetFacesByDist[1].second };
 
-	// "If one is blocked then it's invalid. Only the two closest faces"
 	std::vector<glm::vec2> validTargetPoints;
 	for (auto dir : targetFaceDirs) {
-		if (isCoverAt((int)targetTile.x + (int)dir.x, (int)targetTile.y + (int)dir.y)) {
-			// One of the 2 closest faces is blocked by cover/unit! Invalid shot.
-			return { false, casterCenter, targetCenter };
+		// As long as ONE of their 2 closest faces is empty, they are exposed!
+		if (!isCoverAt((int)targetTile.x + (int)dir.x, (int)targetTile.y + (int)dir.y)) {
+			// EXACT CENTERS: Use exactly 0.5f offset from the tile center
+			validTargetPoints.push_back(targetCenter + dir * 0.5f);
 		}
-		validTargetPoints.push_back(targetCenter + dir * 0.49f);
+	}
+
+	// If BOTH closest faces are completely blocked, they are fully in cover from that angle.
+	if (validTargetPoints.empty()) {
+		return { false, casterCenter, targetCenter };
 	}
 
 	// 3. Check if ANY valid face-to-face line is clear
-	for (auto cp : validCasterPoints) {
-		for (auto tp : validTargetPoints) {
-			if (checkRayPhysics(cp, tp)) {
-				return { true, cp, tp };
+	for (size_t c = 0; c < validCasterPoints.size(); ++c) {
+		for (size_t t = 0; t < validTargetPoints.size(); ++t) {
+			if (checkRayPhysics(validCasterPoints[c], validTargetPoints[t])) {
+				// Both physics and visuals now share these exact points
+				return { true, validCasterPoints[c], validTargetPoints[t] };
 			}
 		}
 	}
