@@ -6054,6 +6054,7 @@ void ofApp::setupGame() {
 	g_pendingShellSpike = false;
 	g_actionHistory.clear();
 	g_playerDefenses.clear();
+	turnTimerEnabled = true; // Ensure turn timer is enabled for every game
 
 	// Repopulate default floating key positions so keys are present
 	// when a new game is started (previously keys were only added in setup()).
@@ -9134,6 +9135,10 @@ void ofApp::drawGame() {
 			if (unit.x < 0 || unit.x >= BOARD_WIDTH || unit.y < 0 || unit.y >= BOARD_HEIGHT) return 0.0f;
 
 			bool isSplashCard = card.isAoe || card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT;
+
+			// AoE cards cannot hit units standing inside a wall (e.g., Ghosts)
+			if (isSplashCard && board[unit.x][unit.y].hasWall) return 0.0f;
+
 			bool isCaster = (&unit == &players[currentPlayerIndex]);
 
 			// If it's the caster, ONLY show % if it's a splash card
@@ -10973,7 +10978,7 @@ void ofApp::drawGame() {
 	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
 	// During drafting, keep timer visible for both peers so the draft phase always
 	// has an explicit countdown, even when it's not the local player's pick.
-	bool showGameplayTimer = (!isMultiplayer || isMyTurn());
+	bool showGameplayTimer = true; // Always display the turn timer during gameplay in online versus
 	bool showDraftTimer = true;
 
 	// FIX: Keep the timer rendering during in-game drafts
@@ -13728,6 +13733,7 @@ cursor_check_done:;
 					std::string breakdown = "\nHits:";
 					for (size_t i = 0; i < players.size(); ++i) {
 						if ((int)i == currentPlayerIndex) continue;
+						if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
 						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
 						if (distToPlayerFeet <= feet + 0.01f) {
@@ -22969,6 +22975,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
+				if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
 
 				float centerDistFeet = glm::distance(impactCenter, glm::vec2((float)p.x + 0.5f, (float)p.y + 0.5f)) * 5.0f;
 				float distToPlayerFeet = std::max(0.0f, centerDistFeet - 2.5f);
@@ -23107,6 +23114,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.health <= 0) continue;
+				if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
 
 				int dx = std::abs(p.x - impactTile.x);
 				int dy = std::abs(p.y - impactTile.y);
@@ -26881,6 +26889,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if ((int)i == currentPlayerIndex) continue; // Do not affect self
 			Player & p = players[i];
 			if (p.health <= 0) continue;
+			if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
 
 			glm::vec2 targetCenter = { (float)p.x + 0.5f, (float)p.y + 0.5f };
 			float centerDistFeet = glm::distance(casterCenter, targetCenter) * 5.0f;
@@ -27082,6 +27091,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				int nx = w.x + d.x;
 				int ny = w.y + d.y;
 				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (board[nx][ny].hasWall) continue; // AoE wall immunity
 					if (board[nx][ny].hasPlayer) {
 						// Identify who is on this tile
 						for (size_t i = 0; i < players.size(); i++) {
@@ -29037,11 +29047,12 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						preview = true;
 
 						bool hitsSomeone = false;
-						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex)) {
+						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex) && !board[impactTile.x][impactTile.y].hasWall) {
 							hitsSomeone = true;
 						} else {
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
+								if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
 								float centerDistFeetToPlayer = glm::distance(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 								float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
 								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
@@ -29100,6 +29111,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					bool hitsSomeone = false;
 					for (size_t i = 0; i < players.size(); ++i) {
 						if ((int)i == currentPlayerIndex) continue;
+						if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
 						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
 						if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
@@ -29717,7 +29729,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 									int nx = x + dx;
 									int ny = y + dy;
-									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
 										bool blocked = false;
 										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check (Chain Lightning only)
 											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
@@ -30172,12 +30184,12 @@ std::vector<glm::vec2> ofApp::findShortestPathForPlayer(int playerIndex, glm::ve
 // Get player display name (Steam name in multiplayer, "Player 1"/"Player 2" in singleplayer)
 std::string ofApp::getPlayerSteamName(int playerIndex) {
 	if (playerIndex < 0 || playerIndex >= (int)players.size()) return "Unknown";
-	int playerID = players[playerIndex].playerID;
+	int ownerID = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
 
 	if (isMultiplayer) {
-		return (playerID == 0) ? player0SteamName : player1SteamName;
+		return (ownerID == 0) ? player0SteamName : player1SteamName;
 	} else {
-		return (playerID == 0) ? "Player 1" : "Player 2";
+		return (ownerID == 0) ? "Player 1" : "Player 2";
 	}
 }
 
@@ -35140,7 +35152,11 @@ void ofApp::drawDraftScreen() {
 	// 1. Construct Specific Instruction Text
 	string pName = "";
 	if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
-		pName = getPlayerSteamName(draftPlayerIndex);
+		if (isInGameDraft && players[draftPlayerIndex].isMinion) {
+			pName = getPlayerDisplayName(draftPlayerIndex);
+		} else {
+			pName = getPlayerSteamName(draftPlayerIndex);
+		}
 	} else {
 		pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
 	}
@@ -35153,7 +35169,7 @@ void ofApp::drawDraftScreen() {
 	} else {
 		// Header shows which draft this is for the player whose draft it is.
 		// If it's the local player's draft, display "Your first/second draft" instead of their Steam name.
-		bool isMyTurnToDraft = (!players.empty() && players[draftPlayerIndex].playerID == myLocalPlayerID);
+		bool isMyTurnToDraft = isLocalDraftingPlayer(draftPlayerIndex);
 		if (draftStage == 0) {
 			header = isMyTurnToDraft ? "Your first draft" : (pName + "'s first draft");
 			instr = isMyTurnToDraft ? "Choose 2 (Get 2 Copies)" : "Choosing 2 (Gets 2 Copies)";
@@ -35422,9 +35438,10 @@ void ofApp::drawDraftScreen() {
 	// Only show the Accept button to the drafting player (or in singleplayer)
 	bool showAccept = true;
 	if (isMultiplayer) {
-		if (!players.empty() && players[draftPlayerIndex].playerID != myLocalPlayerID) showAccept = false;
+		if (!players.empty() && !isLocalDraftingPlayer(draftPlayerIndex)) showAccept = false;
 	}
 	// Hide accept if we've already applied it locally (it should vanish)
+
 	if (draftAcceptApplied) showAccept = false;
 
 	if (showAccept && !draftOptions.empty()) {
