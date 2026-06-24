@@ -4380,7 +4380,7 @@ void ofApp::updateStateMachine() {
 		if (steamManager.checkAndClearDisconnectFlag()) {
 			ChatMessage msg;
 			msg.playerName = "[SERVER]";
-			std::string opponentName = steamManager.getOpponentName();
+			std::string opponentName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
 			msg.message = opponentName + " disconnected";
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
@@ -6099,9 +6099,8 @@ void ofApp::setupGame() {
 	networkPending = NetworkPending();
 	recentPlaceSentIndices.clear();
 
-	// Hard limit: 180 seconds (2 turns) to reconnect before auto-forfeit
-	reconnectForfeitDuration = 180.0f;
-
+	// Hard limit: 30 seconds to reconnect before auto-forfeit
+	reconnectForfeitDuration = 90.0f;
 	// Reset per-turn/game counters and flags
 	currentAP = 0;
 	hasDrawnCardsThisTurn = false;
@@ -8718,7 +8717,7 @@ void ofApp::buildLevelMesh() {
 
 				// Top face: dark only if an adjacent wall exists immediately to the north
 				bool northAdjacent = false;
-				int ny = y - 1;
+				int ny = shouldFlipCamera() ? y + 1 : y - 1; // Flip check on client as camera rotation swaps North/South
 				if (ny >= 0 && ny < BOARD_HEIGHT) northAdjacent = board[x][ny].hasWall;
 
 				if (northAdjacent)
@@ -8817,8 +8816,15 @@ void ofApp::buildFloorMesh() {
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 
-			// Deterministic Randomness based on coordinate
-			unsigned int seed = (x * 73856093) ^ (y * 19349663);
+			int sx = x;
+			int sy = y;
+			if (shouldFlipCamera()) {
+				sx = (BOARD_WIDTH - 1) - x;
+				sy = (BOARD_HEIGHT - 1) - y;
+			}
+
+			// Deterministic Randomness based on coordinate (flipped on client to match host)
+			unsigned int seed = (sx * 73856093) ^ (sy * 19349663);
 			std::mt19937 tileRng(seed);
 
 			// Pick Random Texture Index (0 to 5)
@@ -9306,12 +9312,12 @@ void ofApp::drawGame() {
 				float halfW = widthWorld * 0.5f;
 				float halfH = heightWorld * 0.5f;
 
-				glm::vec3 right = glm::vec3(1, 0, 0);
-
-				// Always face the local camera
+				// Always face the local camera dynamically
 				ofVec3f camP = localCamera.getPosition();
 				glm::vec3 camPos(camP.x, camP.y, camP.z);
 				glm::vec3 forward = camPos - pos;
+				glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0, 1, 0), forward));
+				if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
 				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
 				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
 				float pitch = atan2f(forward.y, forwardLenXZ);
@@ -9324,19 +9330,13 @@ void ofApp::drawGame() {
 				glm::vec3 upTilt = tiltQ * upVec;
 				glm::vec3 rightTilt = tiltQ * right;
 
-				float u0 = flipForLocal ? 1.0f : 0.0f;
-				float u1 = flipForLocal ? 0.0f : 1.0f;
+				float u0 = 0.0f;
+				float u1 = 1.0f;
 
 				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
 				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
 				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
 				glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
-
-				if (flipForLocal) {
-					// Mirror the quad in world space (swap left/right)
-					std::swap(p0, p1);
-					std::swap(p3, p2);
-				}
 
 				ofMesh quad;
 				quad.setMode(OF_PRIMITIVE_TRIANGLES);
@@ -12539,17 +12539,15 @@ void ofApp::drawGame() {
 			// chat box to only the vertical space required for those lines.
 			float contentPadding = 8.0f * scale;
 			if (!isChatOpen && !visibleWrappedBlocks.empty()) {
-				// Flatten to count total lines
 				int totalLines = 0;
 				for (const auto & blk : visibleWrappedBlocks)
 					totalLines += (int)blk.size();
 				// Compute minimal height (lines + padding)
 				chatBoxHeight = std::max(chatBoxHeight, (float)totalLines * (18.0f * scale) + 2.0f * contentPadding);
-				// No tabs when chat is not open
 				tabHeight = 0.0f;
 			}
 
-			// Store rect for click detection (chatWindowRect stores top-left via y - height - tab)
+			// Store rect for click detection (bottom-aligned rendering)
 			chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
 
 			// Draw main chat box background (50% opacity black with black outline)
@@ -16041,8 +16039,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
 			}
 
-			// Main Deck Click: determine which player's deck UI should be clickable
-			ofRectangle activeDeckRect = (activePlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+			// Main Deck Click: Map the target deck rect dynamically based on local perspective
+			ofRectangle activeDeckRect = (activePlayer.playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
 			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
 			bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
 			bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
@@ -17180,7 +17178,7 @@ void ofApp::keyPressed(int key) {
 
 				// Add to local chat history (singleplayer or multiplayer)
 				ChatMessage msg;
-				msg.playerName = getPlayerSteamName(myLocalPlayerID == 0 ? 0 : 1);
+				msg.playerName = (isMultiplayer) ? (myLocalPlayerID == 0 ? player0SteamName : player1SteamName) : (myLocalPlayerID == 0 ? "Player 1" : "Player 2");
 				msg.message = chatInput;
 				msg.timestamp = ofGetElapsedTimef();
 				chatHistory.push_back(msg);
@@ -20578,12 +20576,12 @@ void ofApp::drawCard(bool sendPacket) {
 			(void)staticUICardWidth; // unused
 			float staticUICardHeight = (kCardPixelHeight * 0.58f) * scale;
 			(void)staticUICardHeight; // unused
-			// Determine deck UI start position based on the owning player's playerID
+			// Determine deck UI start position based on local perspective
 			int owner = anim.ownerIndex;
 			glm::vec2 start2D;
 			if (owner >= 0 && owner < (int)players.size() && !players[owner].isMinion) {
 				int ownerPlayerID = players[owner].playerID;
-				if (ownerPlayerID == 0) {
+				if (ownerPlayerID == myLocalPlayerID) {
 					start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
 					drawSourceRect = p0_deckRect;
 					hasDrawSourceRect = true;
@@ -20593,7 +20591,7 @@ void ofApp::drawCard(bool sendPacket) {
 					hasDrawSourceRect = true;
 				}
 			} else {
-				// Fallback to player 0 deck center
+				// Fallback to local player deck center
 				start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
 				drawSourceRect = p0_deckRect;
 				hasDrawSourceRect = true;
@@ -21654,6 +21652,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
 		isExecutingLockstepCommand = false;
+
+		// Cleanly close the modal menu overlay on all peers once execution resolves
+		resetCardInteraction();
+
 		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
 		}
@@ -31303,11 +31305,7 @@ glm::ivec2 ofApp::transformWorldToGrid(glm::vec3 worldPos) {
 	int gx = (int)std::round((worldPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
 	int gy = (int)std::round((worldPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
 
-	if (shouldFlipCamera()) {
-		gx = (BOARD_WIDTH - 1) - gx;
-		gy = (BOARD_HEIGHT - 1) - gy;
-	}
-
+	// No-op: World-space coordinates are absolute in 3D; do not manually flip them
 	return glm::ivec2(gx, gy);
 }
 
@@ -35849,6 +35847,23 @@ void ofApp::drawTrainMenuUI() {
 }
 //--------------------------------------------------------------
 void ofApp::exit() {
+	// Treat mid-match Alt-F4/terminations as a forfeit loss
+	if (isMultiplayer && !g_isGameOver && !eloCalculated) {
+		eloCalculated = true;
+		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
+		float myActual = 0.0f; // Loss
+		float kFactor = 24.0f;
+		if (myElo < 1200)
+			kFactor = 40.0f;
+		else if (myElo > 2000)
+			kFactor = 16.0f;
+		int change = (int)round(kFactor * (myActual - myExpected));
+		myElo += change;
+		if (myElo < 300) myElo = 300;
+		steamManager.setLocalElo(myElo);
+		ofLogNotice("Elo") << "Forfeit on Exit. Rating change: " << change << ". New Rating: " << myElo;
+	}
+
 	// 1. Close network sockets first
 	if (zmqSocket) {
 		zmqSocket->close();
@@ -36261,15 +36276,11 @@ void ofApp::processNetworkPackets() {
 				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
 
 				ChatMessage msg;
-				// Find player index for this playerID
-				int senderIndex = -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == static_cast<int>(pkt->playerID) && !players[i].isMinion) {
-						senderIndex = i;
-						break;
-					}
+				if (isMultiplayer) {
+					msg.playerName = (pkt->playerID == 0) ? player0SteamName : player1SteamName;
+				} else {
+					msg.playerName = (pkt->playerID == 0) ? "Player 1" : "Player 2";
 				}
-				msg.playerName = (senderIndex >= 0) ? getPlayerSteamName(senderIndex) : ("Player " + ofToString(pkt->playerID));
 				msg.message = pkt->message;
 				msg.timestamp = ofGetElapsedTimef();
 				chatHistory.push_back(msg);
