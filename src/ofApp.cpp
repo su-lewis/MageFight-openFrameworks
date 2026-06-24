@@ -4271,29 +4271,24 @@ void ofApp::updateAudio() {
 }
 
 void ofApp::updateStateMachine() {
-	// Draft scheduled generation / end handling
+
+	// Draft scheduled generation / end handling (Now using deterministic frame timing!)
 	if (draftNextScheduled) {
-		float now = ofGetElapsedTimef();
-		if (now >= draftNextAt) {
+		if (simulationFrame >= (uint32_t)draftNextAt) {
 			draftNextScheduled = false;
 			int ct = draftNextClassTier;
 			draftNextClassTier = -1;
 			generateDraftOptions(ct);
 		}
 	}
+
 	if (draftEndScheduled) {
-		float now = ofGetElapsedTimef();
-		if (now >= draftEndAt) {
+		if (simulationFrame >= (uint32_t)draftEndAt) {
 			draftEndScheduled = false;
-			initialDraftComplete = true; // <-- CRITICAL: Prevents instant-death bug!
-			ofLogNotice("Draft") << "Processing scheduled draft end: nextPlayer=" << draftEndNextPlayerIndex << " now=" << now;
-			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
-				// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
-				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
-			}
-			currentState = STATE_GAMEPLAY;
-			// Defer authoritative turn start into the deterministic tick
-			requestStartNewTurn();
+			// Instead of instantly starting the turn, we queue the visual finalization!
+			networkPending.draftFinalize = true;
+			networkPending.draftShuffleNeeded = true;
+			ofLogNotice("Draft") << "Draft end timer hit. Waiting for visuals to finish...";
 		}
 	}
 
@@ -4311,12 +4306,33 @@ void ofApp::updateStateMachine() {
 
 		if (picksDone && shufflesDone && diceVisualsFinishedAndLinger()) {
 			networkPending.draftFinalize = false;
-			initialDraftComplete = true;
-			// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
-			currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
+			initialDraftComplete = true; // <-- CRITICAL: Prevents instant-death bug!
+
+			ofLogNotice("Draft") << "Visuals complete! Starting match. nextPlayer=" << draftEndNextPlayerIndex;
+			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
+				// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
+				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
+			}
 			currentState = STATE_GAMEPLAY;
-			// Schedule the first turn start to run inside simulationTick()
+			// Defer authoritative turn start into the deterministic tick
 			requestStartNewTurn();
+		}
+	}
+
+	// Host Fallback: If ClientReady packet was dropped by Steam, force start after 3 seconds
+	if (isMultiplayer && isHost() && hostWaitingForClientsReadyStartTime > 0.0f) {
+		if (ofGetElapsedTimef() - hostWaitingForClientsReadyStartTime > 3.0f) {
+			ofLogNotice("Network") << "Host: ClientReady timeout, force starting match.";
+			hostWaitingForClientsReadyStartTime = 0.0f;
+
+			InputCommandPacket startCmd = {};
+			startCmd.type = PKT_INPUT_COMMAND;
+			startCmd.playerID = myLocalPlayerID;
+			startCmd.commandId = nextCommandId++;
+			startCmd.turnNumber = globalTurnCounter;
+			startCmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+			sendInputCommand(startCmd, true);
 		}
 	}
 
@@ -4997,7 +5013,8 @@ void ofApp::startShuffleVisual(int playerIndex, float delaySeconds) {
 void ofApp::scheduleGenerateDraftOptions(int classTier, float delaySeconds) {
 	draftNextScheduled = true;
 	draftNextClassTier = classTier;
-	draftNextAt = ofGetElapsedTimef() + delaySeconds;
+	// Convert seconds to exact lockstep simulation frames!
+	draftNextAt = (float)(simulationFrame + (uint32_t)(delaySeconds * turnTimerFramesPerSecond));
 }
 
 //--------------------------------------------------------------
@@ -6256,13 +6273,16 @@ void ofApp::setupGame() {
 		playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
-	// If host in multiplayer, wait for client-ready signal before starting.
-	if (isMultiplayer && isHost()) {
-		hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
-		clientsReady.clear();
-		ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
+	if (isMultiplayer) {
+		if (isHost()) {
+			hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
+			clientsReady.clear();
+			ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
+		} else {
+			ofLogNotice("Game") << "Client: waiting for StartMatch command from host.";
+		}
 	} else {
-		// Singleplayer or clientless host: start immediately
+		// Singleplayer: start immediately
 		startInitiativePhase();
 	}
 }
@@ -14345,6 +14365,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
+			isVsAI = false;
+			isAIvsAI = false;
 			currentState = STATE_MULTIPLAYER_MENU;
 			steamManager.refreshLobbies();
 			steamManager.fetchLeaderboard();
@@ -17915,468 +17937,273 @@ void ofApp::startNewTurn() {
 		if (endingPlayer.bonusTurns > 0) {
 			endingPlayer.bonusTurns--;
 			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
-
-			// The current player is STILL the ending player. We just reset their state.
-			Player & startingPlayer = endingPlayer;
-
-			// Reset Stats for Bonus Turn
-			if (startingPlayer.hasRegeneration) {
-				if (startingPlayer.health < startingPlayer.maxHealth) {
-					startingPlayer.health++;
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
-				}
-			}
-			// Tortoise form: ALL defensive stats don't expire
-			if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
-				int sidx = currentPlayerIndex;
-				if (startingPlayer.block > 0) {
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = sidx;
-					op.data.modifyStat.statType = 5; // Block
-					op.data.modifyStat.delta = -startingPlayer.block;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-				}
-				if (startingPlayer.holyBlock > 0) {
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = sidx;
-					op.data.modifyStat.statType = 7; // HolyBlock
-					op.data.modifyStat.delta = -startingPlayer.holyBlock;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-				}
-				if (startingPlayer.ward > 0) {
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = sidx;
-					op.data.modifyStat.statType = 8; // Ward
-					op.data.modifyStat.delta = -startingPlayer.ward;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-				}
-				if (startingPlayer.fortification > 0) {
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = sidx;
-					op.data.modifyStat.statType = 13; // Fortification
-					op.data.modifyStat.delta = -startingPlayer.fortification;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-				}
-				if (startingPlayer.barrier > 0) {
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = sidx;
-					op.data.modifyStat.statType = 6; // Barrier
-					op.data.modifyStat.delta = -startingPlayer.barrier;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-				}
-				startingPlayer.defenseCycle = -1;
-			}
-
-			// Regeneration first
-			if (startingPlayer.hasRegeneration) {
-				if (startingPlayer.health < startingPlayer.maxHealth) {
-					int sidx = currentPlayerIndex;
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = sidx;
-					op.data.modifyStat.statType = 0; // HP
-					op.data.modifyStat.delta = 1;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
-				}
-			}
-
-			if (!isProcessingEffect) beginEffectSequence();
-
-			bool skipTurn = false;
-
-			// 1. On Fire
-			if (startingPlayer.onFire) {
-				std::vector<int> rawFire;
-				int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-				currentEffectSequence.blackboard[0] = rollResult;
-				int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-				if (applied > 0)
-					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
-				else
-					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-
-				if (rollResult == 1 || rollResult == 2) {
-					startingPlayer.onFire = false;
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = currentPlayerIndex;
-					rm.data.status.statusType = STATUS_ON_FIRE;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-				}
-				queueVisualDelay(1.2f);
-			}
-
-			if (startingPlayer.health <= 0) skipTurn = true;
-
-			// 2. Poison
-			if (!skipTurn && startingPlayer.isPoisoned) {
-				std::vector<int> rawPoison;
-				int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-				int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
-				if (actualDamage > 0) {
-					applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
-				} else {
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
-				}
-
-				startingPlayer.poisonReduction += 1;
-				if (startingPlayer.poisonReduction >= 6) {
-					startingPlayer.isPoisoned = false;
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = currentPlayerIndex;
-					rm.data.status.statusType = STATUS_POISONED;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-					startingPlayer.poisonReduction = 0;
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
-				}
-				queueVisualDelay(1.2f);
-			}
-
-			if (startingPlayer.health <= 0) skipTurn = true;
-
-			// 3. Paralysis
-			if (!skipTurn && startingPlayer.isParalyzed) {
-				std::vector<int> rawFlip;
-				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
-
-				if (flip == 2) {
-					startingPlayer.paralysisHeadsCount++;
-					if (startingPlayer.paralysisHeadsCount >= 2) {
-						startingPlayer.isParalyzed = false;
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = currentPlayerIndex;
-						rm.data.status.statusType = STATUS_PARALYZED;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-						startingPlayer.paralysisHeadsCount = 0;
-						queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
-					} else {
-						ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
-					}
-				} else {
-					startingPlayer.paralysisHeadsCount = 0;
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
-					skipTurn = true;
-				}
-				queueVisualDelay(1.2f);
-			}
-
-			// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
-			if (startingPlayer.sleepTurnsRemaining > 0) {
-				startingPlayer.sleepTurnsRemaining--;
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
-				skipTurn = true;
-				queueVisualDelay(1.2f);
-			}
-
-			if (skipTurn) {
-				EffectOp wait = {};
-				wait.type = EffectOpType::WAIT_VISUAL;
-				wait.data.damage.fixedDamage = 1;
-				queueEffect(wait);
-
-				EffectOp endOp = {};
-				endOp.type = EffectOpType::MODIFY_STAT;
-				endOp.data.modifyStat.statType = 99; // 99 = End Turn Immediate
-				queueEffect(endOp);
-
-				if (!isProcessingEffect) beginEffectSequence();
-				return;
-			}
-
-			continueNewTurn();
-			return; // <--- FIX: Do not fall through to the next player!
-		}
-	}
-
-	// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
-	// FIX: Removed the while loop. We just increment once.
-	// Sickness is now handled inside continueNewTurn to ensure correct timing.
-
-	// Maintain "Oldest Minion -> Newest Minion -> Player" turn order
-	int endingPlayerID = players[currentPlayerIndex].playerID;
-
-	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-		int ownerA = a.isMinion ? a.ownerID : a.playerID;
-		int ownerB = b.isMinion ? b.ownerID : b.playerID;
-		if (ownerA != ownerB) return ownerA < ownerB; // Group by Team
-		if (a.isMinion && !b.isMinion) return true; // Minions before Player
-		if (!a.isMinion && b.isMinion) return false; // Player after Minions
-		return a.summonOrder < b.summonOrder; // Oldest Minions first
-	});
-
-	// Re-find the ending player's index now that the array has shifted
-	for (size_t i = 0; i < players.size(); i++) {
-		if (players[i].playerID == endingPlayerID) {
-			currentPlayerIndex = (int)i;
-			break;
-		}
-	}
-
-	// Safely advance to the correct next unit
-	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
-
-	if (currentPlayerIndex == 0) globalTurnCounter++;
-
-	Player & startingPlayer = players[currentPlayerIndex];
-
-	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
-	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
-
-	// Add game log entry for turn start
-	addGameLog("Turn " + ofToString(globalTurnCounter) + ": " + getPlayerSteamName(currentPlayerIndex) + "'s turn");
-
-	// Ensure temp luck is correct for the starting player before AP is rolled
-	recalcTempLuck();
-
-	// --- C. RESET STATE FOR NORMAL TURN ---
-	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
-	animationPath.clear();
-	isPlayerAnimating = false;
-	animatingPlayerIndex = -1;
-
-	// Tortoise form: ALL defensive stats don't expire
-	// FIX: Respect the defenseCycle timer so buffs played on opponents survive until their NEXT turn!
-	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
-		int sidx = currentPlayerIndex;
-		if (startingPlayer.block > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 5; // Block
-			op.data.modifyStat.delta = -startingPlayer.block;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.holyBlock > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 7; // HolyBlock
-			op.data.modifyStat.delta = -startingPlayer.holyBlock;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.ward > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 8; // Ward
-			op.data.modifyStat.delta = -startingPlayer.ward;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.fortification > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 13; // Fortification
-			op.data.modifyStat.delta = -startingPlayer.fortification;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		if (startingPlayer.barrier > 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 6; // Barrier
-			op.data.modifyStat.delta = -startingPlayer.barrier;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-		}
-		startingPlayer.defenseCycle = -1; // Reset the cycle timer now that they are wiped!
-	}
-
-	// Regeneration first
-	if (startingPlayer.hasRegeneration) {
-		if (startingPlayer.health < startingPlayer.maxHealth) {
-			int sidx = currentPlayerIndex;
-			EffectOp op = {};
-			op.type = EffectOpType::MODIFY_STAT;
-			op.data.modifyStat.targetIndex = sidx;
-			op.data.modifyStat.statType = 0; // HP
-			op.data.modifyStat.delta = 1;
-			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
-		}
-	}
-
-	bool skipTurn = false;
-
-	// 1. On Fire
-	if (startingPlayer.onFire) {
-		std::vector<int> rawFire;
-		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-		if (applied > 0)
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
-		else
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-
-		if (rollResult == 1 || rollResult == 2) {
-			startingPlayer.onFire = false;
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_ON_FIRE;
-			rm.data.status.duration = 0;
-			processEffectOp(rm);
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-		}
-		queueVisualDelay(1.2f);
-	}
-
-	if (startingPlayer.health <= 0) skipTurn = true;
-
-	// 2. Poison
-	if (!skipTurn && startingPlayer.isPoisoned) {
-		std::vector<int> rawPoison;
-		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-		int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
-		if (actualDamage > 0) {
-			applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
 		} else {
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
+			// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
+			// Maintain "Oldest Minion -> Newest Minion -> Player" turn order
+			int endingPlayerID = players[currentPlayerIndex].playerID;
+
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB; // Group by Team
+				if (a.isMinion && !b.isMinion) return true; // Minions before Player
+				if (!a.isMinion && b.isMinion) return false; // Player after Minions
+				return a.summonOrder < b.summonOrder; // Oldest Minions first
+			});
+
+			// Re-find the ending player's index now that the array has shifted
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == endingPlayerID) {
+					currentPlayerIndex = (int)i;
+					break;
+				}
+			}
+
+			// Safely advance to the correct next unit
+			currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+			if (currentPlayerIndex == 0) globalTurnCounter++;
 		}
 
-		startingPlayer.poisonReduction += 1;
-		if (startingPlayer.poisonReduction >= 6) {
-			startingPlayer.isPoisoned = false;
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_POISONED;
-			rm.data.status.duration = 0;
-			processEffectOp(rm);
-			startingPlayer.poisonReduction = 0;
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
+		Player & startingPlayer = players[currentPlayerIndex];
+
+		ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
+		ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
+
+		// Add game log entry for turn start
+		addGameLog("Turn " + ofToString(globalTurnCounter) + ": " + getPlayerSteamName(currentPlayerIndex) + "'s turn");
+
+		// Ensure temp luck is correct for the starting player before AP is rolled
+		recalcTempLuck();
+
+		// --- C. RESET STATE FOR NORMAL TURN ---
+		playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+		animationPath.clear();
+		isPlayerAnimating = false;
+		animatingPlayerIndex = -1;
+
+		// Tortoise form: ALL defensive stats don't expire
+		// FIX: Respect the defenseCycle timer so buffs played on opponents survive until their NEXT turn!
+		if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
+			int sidx = currentPlayerIndex;
+			if (startingPlayer.block > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = sidx;
+				op.data.modifyStat.statType = 5; // Block
+				op.data.modifyStat.delta = -startingPlayer.block;
+				op.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(op);
+			}
+			if (startingPlayer.holyBlock > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = sidx;
+				op.data.modifyStat.statType = 7; // HolyBlock
+				op.data.modifyStat.delta = -startingPlayer.holyBlock;
+				op.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(op);
+			}
+			if (startingPlayer.ward > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = sidx;
+				op.data.modifyStat.statType = 8; // Ward
+				op.data.modifyStat.delta = -startingPlayer.ward;
+				op.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(op);
+			}
+			if (startingPlayer.fortification > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = sidx;
+				op.data.modifyStat.statType = 13; // Fortification
+				op.data.modifyStat.delta = -startingPlayer.fortification;
+				op.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(op);
+			}
+			if (startingPlayer.barrier > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = sidx;
+				op.data.modifyStat.statType = 6; // Barrier
+				op.data.modifyStat.delta = -startingPlayer.barrier;
+				op.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(op);
+			}
+			startingPlayer.defenseCycle = -1; // Reset the cycle timer now that they are wiped!
 		}
-		queueVisualDelay(1.2f);
-	}
 
-	if (startingPlayer.health <= 0) skipTurn = true;
+		// Regeneration first
+		if (startingPlayer.hasRegeneration) {
+			if (startingPlayer.health < startingPlayer.maxHealth) {
+				int sidx = currentPlayerIndex;
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = sidx;
+				op.data.modifyStat.statType = 0; // HP
+				op.data.modifyStat.delta = 1;
+				op.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(op);
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
+			}
+		}
 
-	// 3. Paralysis
-	if (!skipTurn && startingPlayer.isParalyzed) {
-		std::vector<int> rawFlip;
-		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+		if (!isProcessingEffect) beginEffectSequence();
 
-		if (flip == 2) {
-			startingPlayer.paralysisHeadsCount++;
-			if (startingPlayer.paralysisHeadsCount >= 2) {
-				startingPlayer.isParalyzed = false;
+		bool skipTurn = false;
+
+		// 1. On Fire
+		if (startingPlayer.onFire) {
+			std::vector<int> rawFire;
+			int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
+			currentEffectSequence.blackboard[0] = rollResult;
+			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+			if (applied > 0)
+				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
+			else
+				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
+
+			if (rollResult == 1 || rollResult == 2) {
+				startingPlayer.onFire = false;
 				EffectOp rm = {};
 				rm.type = EffectOpType::REMOVE_STATUS;
 				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_PARALYZED;
+				rm.data.status.statusType = STATUS_ON_FIRE;
 				rm.data.status.duration = 0;
-				processEffectOp(rm);
-				startingPlayer.paralysisHeadsCount = 0;
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
+				queueEffect(rm);
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+			}
+			queueVisualDelay(1.2f);
+		}
+
+		if (startingPlayer.health <= 0) skipTurn = true;
+
+		// 2. Poison
+		if (!skipTurn && startingPlayer.isPoisoned) {
+			std::vector<int> rawPoison;
+			int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+			int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
+			if (actualDamage > 0) {
+				applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
 			} else {
-				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
 			}
-		} else {
-			startingPlayer.paralysisHeadsCount = 0;
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
+
+			startingPlayer.poisonReduction += 1;
+			if (startingPlayer.poisonReduction >= 6) {
+				startingPlayer.isPoisoned = false;
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_POISONED;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				startingPlayer.poisonReduction = 0;
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
+			}
+			queueVisualDelay(1.2f);
+		}
+
+		if (startingPlayer.health <= 0) skipTurn = true;
+
+		// 3. Paralysis
+		if (!skipTurn && startingPlayer.isParalyzed) {
+			std::vector<int> rawFlip;
+			int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+
+			if (flip == 2) {
+				startingPlayer.paralysisHeadsCount++;
+				if (startingPlayer.paralysisHeadsCount >= 2) {
+					startingPlayer.isParalyzed = false;
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = currentPlayerIndex;
+					rm.data.status.statusType = STATUS_PARALYZED;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+					startingPlayer.paralysisHeadsCount = 0;
+					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
+				} else {
+					ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
+				}
+			} else {
+				startingPlayer.paralysisHeadsCount = 0;
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
+				skipTurn = true;
+			}
+			queueVisualDelay(1.2f);
+		}
+
+		// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
+		if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
+			startingPlayer.sleepTurnsRemaining--;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 			skipTurn = true;
-		}
-		queueVisualDelay(1.2f);
-	}
-
-	// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
-	if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
-		startingPlayer.sleepTurnsRemaining--;
-		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
-		skipTurn = true;
-		queueVisualDelay(1.2f);
-	}
-
-	if (skipTurn) {
-		EffectOp wait = {};
-		wait.type = EffectOpType::WAIT_VISUAL;
-		wait.data.damage.fixedDamage = 1;
-		queueEffect(wait);
-
-		EffectOp endOp = {};
-		endOp.type = EffectOpType::MODIFY_STAT;
-		endOp.data.modifyStat.statType = 99; // 99 = End Turn Immediate
-		queueEffect(endOp);
-
-		if (!isProcessingEffect) beginEffectSequence();
-		return;
-	}
-
-	// Dark Shield special AP roll
-	if (startingPlayer.nextTurnBonusDiceFromMinions) {
-		int minionCount = 0;
-		for (const auto & p : players) {
-			if ((p.isSkeleton || p.isHellhound) && p.health > 0) minionCount++;
+			queueVisualDelay(1.2f);
 		}
 
-		lastAPDiceNum = minionCount;
-		lastAPDiceSides = 6;
+		if (skipTurn) {
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 1;
+			queueEffect(wait);
 
-		// Dark Shield: Roll Xd6 where X = total skeletons + hellhounds on board
-		// This REPLACES the normal AP roll, not adds to it
-		if (minionCount > 0) {
-			std::vector<int> rawAP;
-			int apRollRaw = resolveDiceRollDetailed(minionCount, 6, rawAP);
-			int luckBonus = 0;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			EffectOp endOp = {};
+			endOp.type = EffectOpType::MODIFY_STAT;
+			endOp.data.modifyStat.statType = 99; // 99 = End Turn Immediate
+			queueEffect(endOp);
+
+			if (!isProcessingEffect) beginEffectSequence();
+			return;
+		}
+
+		// Dark Shield special AP roll
+		if (startingPlayer.nextTurnBonusDiceFromMinions) {
+			int minionCount = 0;
+			for (const auto & p : players) {
+				if ((p.isSkeleton || p.isHellhound) && p.health > 0) minionCount++;
 			}
-			int apRoll = apRollRaw + (minionCount * luckBonus);
-			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), minionCount, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
-			lastAPRawResults = rawAP;
-		} else {
-			currentEffectSequence.blackboard[0] = 0;
-			lastAPRawResults.clear();
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "No Minions (0 AP)", ofColor::gray);
+
+			lastAPDiceNum = minionCount;
+			lastAPDiceSides = 6;
+
+			// Dark Shield: Roll Xd6 where X = total skeletons + hellhounds on board
+			// This REPLACES the normal AP roll, not adds to it
+			if (minionCount > 0) {
+				std::vector<int> rawAP;
+				int apRollRaw = resolveDiceRollDetailed(minionCount, 6, rawAP);
+				int luckBonus = 0;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				}
+				int apRoll = apRollRaw + (minionCount * luckBonus);
+				currentEffectSequence.blackboard[0] = apRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), minionCount, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+				lastAPRawResults = rawAP;
+			} else {
+				currentEffectSequence.blackboard[0] = 0;
+				lastAPRawResults.clear();
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "No Minions (0 AP)", ofColor::gray);
+			}
+
+			EffectOp clearBonusDice = {};
+			clearBonusDice.type = EffectOpType::REMOVE_STATUS;
+			clearBonusDice.data.status.targetIndex = currentPlayerIndex;
+			clearBonusDice.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+			clearBonusDice.data.status.duration = 0;
+			queueEffect(clearBonusDice);
+			if (!isProcessingEffect) beginEffectSequence();
+			// WE DO NOT RETURN. Let it fall through to the immediate AP resolution block in continueNewTurn()
 		}
 
-		EffectOp clearBonusDice = {};
-		clearBonusDice.type = EffectOpType::REMOVE_STATUS;
-		clearBonusDice.data.status.targetIndex = currentPlayerIndex;
-		clearBonusDice.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
-		clearBonusDice.data.status.duration = 0;
-		queueEffect(clearBonusDice);
-		if (!isProcessingEffect) beginEffectSequence();
-		// WE DO NOT RETURN. Let it fall through to the immediate AP resolution block below.
+		continueNewTurn();
 	}
-
-	continueNewTurn();
 }
 
 void ofApp::requestStartNewTurn() {
@@ -21358,14 +21185,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// Special handling: if this is an Amnesia accept payload, apply selections
 		if (menuType == CARD_AMNESIA && choice == 3) {
 			std::vector<int> sel;
-			std::string s(cmd.stringData);
-			size_t pos = 0;
-			while (pos < s.size()) {
-				size_t comma = s.find(',', pos);
-				std::string tok = (comma == std::string::npos) ? s.substr(pos) : s.substr(pos, comma - pos);
-				if (!tok.empty()) sel.push_back(std::stoi(tok));
-				if (comma == std::string::npos) break;
-				pos = comma + 1;
+			uint32_t maskLow = (uint32_t)cmd.params[4];
+			uint32_t maskHigh = (uint32_t)cmd.params[5];
+			for (int i = 0; i < 32; ++i) {
+				if (maskLow & (1U << i)) sel.push_back(i);
+				if (maskHigh & (1U << i)) sel.push_back(i + 32);
 			}
 
 			// Validate target index
@@ -21895,7 +21719,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				scheduleGenerateDraftOptions(1, delay);
 			} else {
 				draftEndScheduled = true;
-				draftEndAt = ofGetElapsedTimef() + delay;
+				// Convert seconds to exact lockstep simulation frames!
+				draftEndAt = (float)(simulationFrame + (uint32_t)(delay * turnTimerFramesPerSecond));
 				draftEndNextPlayerIndex = nextPlayerIdx;
 				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
 			}
@@ -21978,6 +21803,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetX = cmd.params[0];
 		int targetY = cmd.params[1];
 		std::string actionName = cmd.stringData;
+
+		if (actionName == "StartMatch") {
+			startInitiativePhase();
+			break;
+		}
 
 		if (actionName == "ToggleUnlimitedAP") {
 			hasUnlimitedAP = !hasUnlimitedAP;
@@ -22218,14 +22048,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (playerIdx < 0 || playerIdx >= (int)players.size()) break;
 
 		std::vector<int> sel;
-		std::string s(cmd.stringData);
-		size_t pos = 0;
-		while (pos < s.size()) {
-			size_t comma = s.find(',', pos);
-			std::string tok = (comma == std::string::npos) ? s.substr(pos) : s.substr(pos, comma - pos);
-			if (!tok.empty()) sel.push_back(std::stoi(tok));
-			if (comma == std::string::npos) break;
-			pos = comma + 1;
+		uint32_t maskLow = (uint32_t)cmd.params[4];
+		uint32_t maskHigh = (uint32_t)cmd.params[5];
+		for (int i = 0; i < 32; ++i) {
+			if (maskLow & (1U << i)) sel.push_back(i);
+			if (maskHigh & (1U << i)) sel.push_back(i + 32);
 		}
 
 		Player & p = players[playerIdx];
@@ -25848,13 +25675,16 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = (int)validSelections.size();
 				cmd.params[2] = interactingCardIndex;
 
-				std::string s;
-				for (size_t i = 0; i < validSelections.size(); ++i) {
-					if (i) s.push_back(',');
-					s += ofToString(validSelections[i]);
+				uint32_t maskLow = 0;
+				uint32_t maskHigh = 0;
+				for (int idx : validSelections) {
+					if (idx < 32)
+						maskLow |= (1U << idx);
+					else if (idx < 64)
+						maskHigh |= (1U << (idx - 32));
 				}
-				strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
-				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+				cmd.params[4] = (int)maskLow;
+				cmd.params[5] = (int)maskHigh;
 
 				sendInputCommand(cmd, true);
 				renewedSelectedHandIndices.clear();
@@ -25914,20 +25744,18 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.params[0] = (int)interactingCardType;
 						cmd.params[1] = amnesiaTargetPlayerIndex;
 						cmd.params[2] = 3;
-						cmd.params[3] = interactingCardIndex; // FIX: Pass the card index properly!
+						cmd.params[3] = interactingCardIndex;
 
-						int n = std::min((int)amnesiaSelectedIndices.size(), 8);
-						cmd.params[4] = n;
-						for (int i = 0; i < n && i < 3; ++i)
-							cmd.params[5 + i] = amnesiaSelectedIndices[i];
-
-						std::string s;
-						for (size_t i = 0; i < amnesiaSelectedIndices.size(); ++i) {
-							if (i) s.push_back(',');
-							s += ofToString(amnesiaSelectedIndices[i]);
+						uint32_t maskLow = 0;
+						uint32_t maskHigh = 0;
+						for (int idx : amnesiaSelectedIndices) {
+							if (idx < 32)
+								maskLow |= (1U << idx);
+							else if (idx < 64)
+								maskHigh |= (1U << (idx - 32));
 						}
-						strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
-						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+						cmd.params[4] = (int)maskLow;
+						cmd.params[5] = (int)maskHigh;
 
 						sendInputCommand(cmd, true);
 						amnesiaDeckCopy.clear();
@@ -27832,6 +27660,35 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	case CARD_DARK_SHIELD: {
+		beginEffectSequence();
+
+		// Give Holy Block
+		int blockAmt = playedCard.holyBlockAmount > 0 ? playedCard.holyBlockAmount : 7;
+
+		EffectOp hbOp = {};
+		hbOp.type = EffectOpType::MODIFY_STAT;
+		hbOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		hbOp.data.modifyStat.statType = 7; // Holy Block
+		hbOp.data.modifyStat.delta = blockAmt;
+		hbOp.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(hbOp);
+
+		// Apply the AP modifier status for the start of the next turn
+		EffectOp statusOp = {};
+		statusOp.type = EffectOpType::APPLY_STATUS;
+		statusOp.data.status.targetIndex = currentPlayerIndex;
+		statusOp.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+		statusOp.data.status.duration = 0;
+		queueEffect(statusOp);
+
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(blockAmt) + " Holy Block", ofColor(255, 215, 0));
+
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -30291,8 +30148,15 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << lastAPDiceSides
 	   << "\t" << (hasUnlimitedAP ? 1 : 0)
 	   << "\t" << currentMapSeed
-	   << "\t" << nextSummonOrder // <--- FIX: Ensure minion turn order stays synced
-	   << "\t" << draftGenerationCounter // <--- FIX: Ensure draft RNG stays synced
+	   << "\t" << nextSummonOrder
+	   << "\t" << draftGenerationCounter
+	   << "\t" << koboldsRemainingToPlace
+	   << "\t" << koboldSummonCount
+	   << "\t" << wolfSummonStage
+	   << "\t" << koboldPlacementSourceX
+	   << "\t" << koboldPlacementSourceY
+	   << "\t" << wolfPlacementSourceX
+	   << "\t" << wolfPlacementSourceY
 	   << "\n";
 
 	ss << "DAMAGERMAP\t" << g_lastDamagerMap.size();
@@ -30445,6 +30309,56 @@ std::string ofApp::buildSnapshotString() {
 		ss << "KEY\t" << key.pos.x << "\t" << key.pos.y << "\t" << key.set << "\n";
 	}
 
+	// Save transient placement state
+	ss << "PLACEMENT\t" << koboldsRemainingToPlace << "\t" << koboldSummonCount << "\t" << wolfSummonStage
+	   << "\t" << koboldPlacementSourceX << "\t" << koboldPlacementSourceY
+	   << "\t" << wolfPlacementSourceX << "\t" << wolfPlacementSourceY << "\n";
+
+	// Save transient interaction states
+	ss << "INTERACT\t" << (int)cardInteractionState << "\t" << (int)interactingCardType << "\t" << interactingCardIndex << "\t" << interactionTargetIndex
+	   << "\t" << interactionTargetTile.x << "\t" << interactionTargetTile.y
+	   << "\t" << magicHandTargetTile.x << "\t" << magicHandTargetTile.y
+	   << "\t" << (opponentInteraction.open ? 1 : 0) << "\t" << opponentInteraction.type << "\t" << opponentInteraction.targetIndex << "\t" << opponentInteraction.hoveredChoice << "\t" << opponentInteraction.cardIndex
+	   << "\t" << (g_pendingShellSpike ? 1 : 0) << "\t" << ghostRelocateTargetIndex << "\t" << magicBlastTargetPlayerIndex << "\t" << magicBlastChoicesRemaining
+	   << "\t" << amnesiaTargetPlayerIndex << "\t" << numCardsToRemove << "\t" << amnesiaChooserPlayerID << "\t" << blockingBoonPendingCasterIndex << "\n";
+
+	ss << "GHOST_CHOICES\t" << ghostRelocateChoices.size();
+	for (const auto & c : ghostRelocateChoices)
+		ss << "\t" << c.x << "\t" << c.y;
+	ss << "\n";
+
+	ss << "MB_SPLASH\t" << magicBlastSplashTargetIndices.size();
+	for (int idx : magicBlastSplashTargetIndices)
+		ss << "\t" << idx;
+	ss << "\n";
+
+	ss << "BOON_COINS\t" << blockingBoonPendingCoinRawResults.size();
+	for (int res : blockingBoonPendingCoinRawResults)
+		ss << "\t" << res;
+	ss << "\n";
+
+	ss << "AMNESIA_SEL\t" << amnesiaSelectedIndices.size();
+	for (int idx : amnesiaSelectedIndices)
+		ss << "\t" << idx;
+	ss << "\n";
+
+	ss << "RENEW_SEL\t" << renewedSelectedHandIndices.size();
+	for (int idx : renewedSelectedHandIndices)
+		ss << "\t" << idx;
+	ss << "\n";
+
+	ss << "OUTCOME\t" << (int)currentCardOutcome.cardType << "\t" << currentCardOutcome.cardIndex << "\t" << currentCardOutcome.casterIndex << "\t" << currentCardOutcome.primaryTarget.x << "\t" << currentCardOutcome.primaryTarget.y << "\t" << (currentCardOutcome.apPaid ? 1 : 0) << "\t" << (int)currentCardOutcome.attackDamageType << "\t" << currentCardOutcome.targetPlayerIndex << "\t" << (int)currentCardOutcome.destroyedCardType << "\n";
+
+	ss << "OUTCOME_ATK\t" << currentCardOutcome.attackTargetIndices.size();
+	for (int idx : currentCardOutcome.attackTargetIndices)
+		ss << "\t" << idx;
+	ss << "\n";
+
+	ss << "OUTCOME_PSN\t" << currentCardOutcome.poisonTargetPlayerIDs.size();
+	for (int id : currentCardOutcome.poisonTargetPlayerIDs)
+		ss << "\t" << id;
+	ss << "\n";
+
 	return ss.str();
 }
 
@@ -30519,6 +30433,41 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	std::vector<DeathMarker> tmpGraveyard;
 	std::vector<FloatingKey> tmpFloatingKeys;
 
+	// Transient state holders
+	int tmpKoboldsRemainingToPlace = 0;
+	int tmpKoboldSummonCount = 0;
+	int tmpWolfSummonStage = 0;
+	int tmpKoboldPlacementSourceX = -1;
+	int tmpKoboldPlacementSourceY = -1;
+	int tmpWolfPlacementSourceX = -1;
+	int tmpWolfPlacementSourceY = -1;
+
+	CardInteractionState tmpCardInteractionState = CARD_INTERACTION_STATE_IDLE;
+	CardType tmpInteractingCardType = CARD_NONE;
+	int tmpInteractingCardIndex = -1;
+	int tmpInteractionTargetIndex = -1;
+	glm::vec2 tmpInteractionTargetTile(-1, -1);
+	glm::ivec2 tmpMagicHandTargetTile(-1, -1);
+	bool tmpOppOpen = false;
+	int tmpOppType = 0;
+	int tmpOppTarget = -1;
+	int tmpOppHover = -1;
+	int tmpOppCard = -1;
+	bool tmpPendingShellSpike = false;
+	int tmpGhostRelocateTargetIndex = -1;
+	int tmpMagicBlastTargetPlayerIndex = -1;
+	int tmpMagicBlastChoicesRemaining = 0;
+	int tmpAmnesiaTargetPlayerIndex = -1;
+	int tmpNumCardsToRemove = 0;
+	int tmpAmnesiaChooserPlayerID = -1;
+	int tmpBlockingBoonPendingCasterIndex = -1;
+	std::vector<glm::ivec2> tmpGhostRelocateChoices;
+	std::vector<int> tmpMagicBlastSplashTargetIndices;
+	std::vector<int> tmpBlockingBoonPendingCoinRawResults;
+	std::vector<int> tmpAmnesiaSelectedIndices;
+	std::vector<int> tmpRenewedSelectedHandIndices;
+	CardOutcome tmpOutcome;
+
 	// Initialize board copy from current to keep any non-snapshot fields intact until swap
 	for (int x = 0; x < BOARD_WIDTH; ++x)
 		for (int y = 0; y < BOARD_HEIGHT; ++y)
@@ -30569,6 +30518,23 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				if (parts.size() > 17) {
 					nextSummonOrder = std::stoi(parts[16]);
 					draftGenerationCounter = std::stoi(parts[17]);
+				}
+				if (parts.size() > 24) {
+					koboldsRemainingToPlace = std::stoi(parts[18]);
+					koboldSummonCount = std::stoi(parts[19]);
+					wolfSummonStage = std::stoi(parts[20]);
+					koboldPlacementSourceX = std::stoi(parts[21]);
+					koboldPlacementSourceY = std::stoi(parts[22]);
+					wolfPlacementSourceX = std::stoi(parts[23]);
+					wolfPlacementSourceY = std::stoi(parts[24]);
+				} else {
+					koboldsRemainingToPlace = 0;
+					koboldSummonCount = 0;
+					wolfSummonStage = 0;
+					koboldPlacementSourceX = -1;
+					koboldPlacementSourceY = -1;
+					wolfPlacementSourceX = -1;
+					wolfPlacementSourceY = -1;
 				}
 			} else if (parts[0] == "DAMAGERMAP") {
 				g_lastDamagerMap.clear();
@@ -30781,10 +30747,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 			}
 		}
 
-		// Now parse graveyard and keys from the remaining stream
-		// Reset stream to continue from current position (we already consumed all lines above)
-		// The previous loop consumed entire stream, but some snapshots include grave/key lines after players
-		// We'll re-read from the beginning to capture any remaining tagged lines robustly.
+		// Now parse graveyard, keys, and transient interaction states from the remaining stream
 		ss.clear();
 		ss.seekg(0);
 		while (std::getline(ss, line)) {
@@ -30825,6 +30788,74 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				key.pos.y = std::stoi(parts[2]);
 				key.set = std::stoi(parts[3]);
 				tmpFloatingKeys.push_back(key);
+			} else if (parts[0] == "PLACEMENT" && parts.size() >= 8) {
+				tmpKoboldsRemainingToPlace = std::stoi(parts[1]);
+				tmpKoboldSummonCount = std::stoi(parts[2]);
+				tmpWolfSummonStage = std::stoi(parts[3]);
+				tmpKoboldPlacementSourceX = std::stoi(parts[4]);
+				tmpKoboldPlacementSourceY = std::stoi(parts[5]);
+				tmpWolfPlacementSourceX = std::stoi(parts[6]);
+				tmpWolfPlacementSourceY = std::stoi(parts[7]);
+			} else if (parts[0] == "INTERACT" && parts.size() >= 22) {
+				tmpCardInteractionState = (CardInteractionState)std::stoi(parts[1]);
+				tmpInteractingCardType = (CardType)std::stoi(parts[2]);
+				tmpInteractingCardIndex = std::stoi(parts[3]);
+				tmpInteractionTargetIndex = std::stoi(parts[4]);
+				tmpInteractionTargetTile.x = std::stof(parts[5]);
+				tmpInteractionTargetTile.y = std::stof(parts[6]);
+				tmpMagicHandTargetTile.x = std::stoi(parts[7]);
+				tmpMagicHandTargetTile.y = std::stoi(parts[8]);
+				tmpOppOpen = (std::stoi(parts[9]) != 0);
+				tmpOppType = std::stoi(parts[10]);
+				tmpOppTarget = std::stoi(parts[11]);
+				tmpOppHover = std::stoi(parts[12]);
+				tmpOppCard = std::stoi(parts[13]);
+				tmpPendingShellSpike = (std::stoi(parts[14]) != 0);
+				tmpGhostRelocateTargetIndex = std::stoi(parts[15]);
+				tmpMagicBlastTargetPlayerIndex = std::stoi(parts[16]);
+				tmpMagicBlastChoicesRemaining = std::stoi(parts[17]);
+				tmpAmnesiaTargetPlayerIndex = std::stoi(parts[18]);
+				tmpNumCardsToRemove = std::stoi(parts[19]);
+				tmpAmnesiaChooserPlayerID = std::stoi(parts[20]);
+				tmpBlockingBoonPendingCasterIndex = std::stoi(parts[21]);
+			} else if (parts[0] == "GHOST_CHOICES") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpGhostRelocateChoices.push_back({ std::stoi(parts[2 + i * 2]), std::stoi(parts[3 + i * 2]) });
+			} else if (parts[0] == "MB_SPLASH") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpMagicBlastSplashTargetIndices.push_back(std::stoi(parts[2 + i]));
+			} else if (parts[0] == "BOON_COINS") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpBlockingBoonPendingCoinRawResults.push_back(std::stoi(parts[2 + i]));
+			} else if (parts[0] == "AMNESIA_SEL") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpAmnesiaSelectedIndices.push_back(std::stoi(parts[2 + i]));
+			} else if (parts[0] == "RENEW_SEL") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpRenewedSelectedHandIndices.push_back(std::stoi(parts[2 + i]));
+			} else if (parts[0] == "OUTCOME" && parts.size() >= 10) {
+				tmpOutcome.cardType = (CardType)std::stoi(parts[1]);
+				tmpOutcome.cardIndex = std::stoi(parts[2]);
+				tmpOutcome.casterIndex = std::stoi(parts[3]);
+				tmpOutcome.primaryTarget.x = std::stoi(parts[4]);
+				tmpOutcome.primaryTarget.y = std::stoi(parts[5]);
+				tmpOutcome.apPaid = (std::stoi(parts[6]) != 0);
+				tmpOutcome.attackDamageType = (DamageType)std::stoi(parts[7]);
+				tmpOutcome.targetPlayerIndex = std::stoi(parts[8]);
+				tmpOutcome.destroyedCardType = (CardType)std::stoi(parts[9]);
+			} else if (parts[0] == "OUTCOME_ATK") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpOutcome.attackTargetIndices.push_back(std::stoi(parts[2 + i]));
+			} else if (parts[0] == "OUTCOME_PSN") {
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i)
+					tmpOutcome.poisonTargetPlayerIDs.push_back(std::stoi(parts[2 + i]));
 			}
 		}
 
@@ -31044,6 +31075,45 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	buildLevelMesh();
 	buildFloorMesh();
 	invalidateTargetCache();
+
+	// Restore transient interaction / placement states
+	koboldsRemainingToPlace = tmpKoboldsRemainingToPlace;
+	koboldSummonCount = tmpKoboldSummonCount;
+	wolfSummonStage = tmpWolfSummonStage;
+	koboldPlacementSourceX = tmpKoboldPlacementSourceX;
+	koboldPlacementSourceY = tmpKoboldPlacementSourceY;
+	wolfPlacementSourceX = tmpWolfPlacementSourceX;
+	wolfPlacementSourceY = tmpWolfPlacementSourceY;
+
+	cardInteractionState = tmpCardInteractionState;
+	interactingCardType = tmpInteractingCardType;
+	interactingCardIndex = tmpInteractingCardIndex;
+	interactionTargetIndex = tmpInteractionTargetIndex;
+	interactionTargetTile = tmpInteractionTargetTile;
+	magicHandTargetTile = tmpMagicHandTargetTile;
+
+	opponentInteraction.open = tmpOppOpen;
+	opponentInteraction.type = tmpOppType;
+	opponentInteraction.targetIndex = tmpOppTarget;
+	opponentInteraction.hoveredChoice = tmpOppHover;
+	opponentInteraction.cardIndex = tmpOppCard;
+
+	g_pendingShellSpike = tmpPendingShellSpike;
+	ghostRelocateTargetIndex = tmpGhostRelocateTargetIndex;
+	magicBlastTargetPlayerIndex = tmpMagicBlastTargetPlayerIndex;
+	magicBlastChoicesRemaining = tmpMagicBlastChoicesRemaining;
+	amnesiaTargetPlayerIndex = tmpAmnesiaTargetPlayerIndex;
+	numCardsToRemove = tmpNumCardsToRemove;
+	amnesiaChooserPlayerID = tmpAmnesiaChooserPlayerID;
+	blockingBoonPendingCasterIndex = tmpBlockingBoonPendingCasterIndex;
+
+	ghostRelocateChoices = tmpGhostRelocateChoices;
+	magicBlastSplashTargetIndices = tmpMagicBlastSplashTargetIndices;
+	blockingBoonPendingCoinRawResults = tmpBlockingBoonPendingCoinRawResults;
+	amnesiaSelectedIndices = tmpAmnesiaSelectedIndices;
+	renewedSelectedHandIndices = tmpRenewedSelectedHandIndices;
+
+	currentCardOutcome = tmpOutcome;
 
 	// Clear any stale highlights from pre-restore state
 	clearHighlights();
@@ -36151,9 +36221,18 @@ void ofApp::processNetworkPackets() {
 					clientsReady.insert(cr->playerID);
 					// For 2-player matches, start when we have any client ready
 					if (!clientsReady.empty()) {
-						ofLogNotice("Network") << "All clients ready - starting initiative phase.";
+						ofLogNotice("Network") << "All clients ready - broadcasting StartMatch command.";
 						hostWaitingForClientsReadyStartTime = 0.0f;
-						startInitiativePhase();
+
+						// Broadcast a StartMatch command!
+						InputCommandPacket startCmd = {};
+						startCmd.type = PKT_INPUT_COMMAND;
+						startCmd.playerID = myLocalPlayerID;
+						startCmd.commandId = nextCommandId++;
+						startCmd.turnNumber = globalTurnCounter;
+						startCmd.commandType = CMD_PSEUDO_ACTION;
+						strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+						sendInputCommand(startCmd, true); // True = apply locally too
 					}
 				}
 				continue;
@@ -36987,11 +37066,19 @@ std::string ofApp::getDeckStateString(const Player & p) {
 
 void ofApp::updateAI() {
 	if (!isVsAI && !isAIvsAI) return;
-	if (isVsAI && !isAIvsAI && !isMyTurn()) return;
+
+	// FIX: The AI was accidentally running during the Human's turn,
+	// evaluating its own deck, and spamming the "Draw Card" action infinitely
+	// onto the human player! Changing `!isMyTurn()` to `isMyTurn()` fixes this.
+	if (isVsAI && !isAIvsAI && isMyTurn()) return;
 
 	if (endTurnLocked || g_isGameOver) return;
 
 	bool isGameBusy = false;
+
+	// FIX: Prevent the AI from thinking/spamming if it already has commands waiting to execute!
+	if (!commandQueue.empty() || isExecutingLockstepCommand) isGameBusy = true;
+
 	if (isProcessingEffect || isEarthquakeActive || isPlayerAnimating) isGameBusy = true;
 	for (const auto & roll : activeDiceRolls) {
 		if (!roll.isFinishedVisual) isGameBusy = true;
@@ -37410,16 +37497,19 @@ void ofApp::executeAIAction(int actionIndex) {
 				cmd.params[0] = (int)CARD_AMNESIA;
 				cmd.params[1] = amnesiaTargetPlayerIndex;
 				cmd.params[2] = 3;
-				cmd.params[4] = amnesiaSelectedIndices.size();
-				for (int i = 0; i < std::min(3, (int)amnesiaSelectedIndices.size()); ++i)
-					cmd.params[5 + i] = amnesiaSelectedIndices[i];
+				cmd.params[3] = interactingCardIndex;
 
-				std::string s;
-				for (size_t i = 0; i < amnesiaSelectedIndices.size(); ++i) {
-					if (i) s += ",";
-					s += std::to_string(amnesiaSelectedIndices[i]);
+				uint32_t maskLow = 0;
+				uint32_t maskHigh = 0;
+				for (int idx : amnesiaSelectedIndices) {
+					if (idx < 32)
+						maskLow |= (1U << idx);
+					else if (idx < 64)
+						maskHigh |= (1U << (idx - 32));
 				}
-				strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+				cmd.params[4] = (int)maskLow;
+				cmd.params[5] = (int)maskHigh;
+
 				sendInputCommand(cmd, true);
 				amnesiaDeckCopy.clear();
 				amnesiaSelectedIndices.clear();
@@ -37430,12 +37520,17 @@ void ofApp::executeAIAction(int actionIndex) {
 				cmd.params[1] = renewedSelectedHandIndices.size();
 				cmd.params[2] = interactingCardIndex;
 
-				std::string s;
-				for (size_t i = 0; i < renewedSelectedHandIndices.size(); ++i) {
-					if (i) s += ",";
-					s += std::to_string(renewedSelectedHandIndices[i]);
+				uint32_t maskLow = 0;
+				uint32_t maskHigh = 0;
+				for (int idx : renewedSelectedHandIndices) {
+					if (idx < 32)
+						maskLow |= (1U << idx);
+					else if (idx < 64)
+						maskHigh |= (1U << (idx - 32));
 				}
-				strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+				cmd.params[4] = (int)maskLow;
+				cmd.params[5] = (int)maskHigh;
+
 				sendInputCommand(cmd, true);
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();

@@ -411,7 +411,7 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) return;
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
-	
+
 	// FIX: If we just created the lobby, we already know we are the Host.
 	// Do not ask Steam who the owner is, because the backend is too slow
 	// and will return 0, falsely stripping our Host status!
@@ -457,16 +457,6 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 		// THIS WILL PRINT THE EXACT REASON STEAM KILLED THE CONNECTION
 		ofLogNotice("Steam") << "Connection Failed! Error Code: " << pInfo->m_info.m_eEndReason
 							 << " | Debug Msg: " << pInfo->m_info.m_szEndDebug;
-
-		if (pInfo->m_hConn == m_hConnection) {
-			// Mark as disconnected but don't fully close - allow reconnection
-			opponentDisconnected = true;
-			m_hConnection = k_HSteamNetConnection_Invalid;
-			ofLogNotice("Steam") << "Opponent disconnected - awaiting reconnection";
-		}
-		SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-		break;
-		ofLogNotice("Steam") << "Connection Closed/Failed.";
 
 		if (pInfo->m_hConn == m_hConnection) {
 			// Mark as disconnected but don't fully close - allow reconnection
