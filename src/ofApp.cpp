@@ -4520,6 +4520,48 @@ void ofApp::update() {
 
 		steamManager.setLocalElo(myElo);
 		ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected << ", Change: " << eloChange << ", New Rating: " << myElo;
+
+		// --- DISCORD GAME HISTORY WEBHOOK ---
+		// Sent by Host, OR by the Client if the Host disconnected (meaning they are the only one left)
+		if (steamManager.isHost() || !steamManager.hasOpponent()) {
+			std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
+
+			if (!historyWebhook.empty()) {
+				// Use cached names so they exist even if the opponent just disconnected
+				std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
+				std::string oppName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
+				std::string winnerName = (g_winnerID == myLocalPlayerID) ? myName : oppName;
+
+				// Calculate opponent's Elo change for the message
+				int myPreGameElo = myElo - eloChange;
+				float oppExpected = 1.0f / (1.0f + pow(10.0f, (myPreGameElo - opponentElo) / 400.0f));
+				float oppActual = (g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f;
+				float oppK = (opponentElo < 1200) ? 40.0f : (opponentElo > 2000 ? 16.0f : 24.0f);
+				int oppEloChange = (int)round(oppK * (oppActual - oppExpected));
+				int newOppElo = std::max(300, opponentElo + oppEloChange);
+
+				std::string signMe = (eloChange >= 0) ? "+" : "";
+				std::string signOpp = (oppEloChange >= 0) ? "+" : "";
+
+				// \n needs to be escaped as \\n in the C++ JSON string to create a newline
+				std::string msg = "⚔️ **MATCH FINISHED** ⚔️\\n";
+				msg += "**" + myName + "** (" + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
+				msg += "**" + oppName + "** (" + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\\n";
+				msg += "🏆 **Winner:** " + winnerName;
+
+				std::string jsonPayload = "{\"content\": \"" + msg + "\"}";
+
+				std::thread([historyWebhook, jsonPayload]() {
+					ofHttpRequest req(historyWebhook, "discord_history");
+					req.method = ofHttpRequest::POST;
+					req.contentType = "application/json";
+					req.body = jsonPayload;
+					ofURLFileLoader loader;
+					loader.handleRequest(req);
+				}).detach();
+			}
+		}
+		// ----------------------------------------------------
 	}
 
 	// Process any visual-only events (animations, waits)
@@ -14600,6 +14642,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (g_isHostingLobby || g_isConnectingToLobby) {
 			ofRectangle cancelBtn(ofGetWidth() / 2.0f - 100.0f, ofGetHeight() / 2.0f + 80.0f, 200.0f, 50.0f);
 			if (cancelBtn.inside(x, y)) {
+
+				// --- DISCORD CANCEL MATCHMAKING WEBHOOK ---
+				if (g_isHostingLobby) {
+					std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
+
+					if (!webhookURL.empty()) {
+						std::string playerName = steamManager.getLocalPlayerName();
+						if (playerName.empty()) playerName = "A Mage";
+
+						std::string jsonPayload = "{\"content\": \"❌ **" + playerName + "** has stopped hosting a match.\"}";
+						std::thread([webhookURL, jsonPayload]() {
+							ofHttpRequest req(webhookURL, "discord_cancel");
+							req.method = ofHttpRequest::POST;
+							req.contentType = "application/json";
+							req.body = jsonPayload;
+							ofURLFileLoader loader;
+							loader.handleRequest(req);
+						}).detach();
+					}
+				}
+				// ------------------------------------------
+
 				steamManager.leaveLobby();
 				g_isHostingLobby = false;
 				g_isConnectingToLobby = false;
@@ -14632,7 +14696,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (playerName.empty()) playerName = "A Mage";
 
 				// Build the JSON payload for Discord
-				std::string jsonPayload = "{\"content\": \"@here 🧙‍♂️ **" + playerName + "** is hosting a match! Boot up Mage Fight!\"}";
+				std::string jsonPayload = "{\"content\": \"@here 🧙‍♂️ **" + playerName + "** is hosting a match! Join now!\"}";
 
 				// Use a detached C++ thread to send the request in the background
 				std::thread([webhookURL, jsonPayload]() {
