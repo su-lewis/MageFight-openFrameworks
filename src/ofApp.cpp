@@ -3519,7 +3519,7 @@ void ofApp::setup() {
 
 			for (const auto & sp : searchPaths) {
 				if (ofFile(sp).exists()) {
-					if (model.loadModel(sp, true)) {
+					if (model.load(sp, true)) {
 						ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
 
 						// CRITICAL FIX: Generate Mipmaps for the model textures!
@@ -6759,6 +6759,7 @@ void ofApp::prepareGameVisualState() {
 					float hoverLift = 0.0f;
 					bool isLocallyHovered = (isCurrentPlayerLocal() && static_cast<int>(i) == hoveredCardIndex);
 					bool isOpponentHovered = (!isCurrentPlayerLocal() && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && static_cast<int>(i) == opponentHoverCardIndex);
+					(void)isOpponentHovered; // suppress unused warning
 
 					// If the card is actively being aimed/targeted, DO NOT hover it
 					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
@@ -7456,14 +7457,18 @@ void ofApp::updateGameLogic() {
 
 	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isOpponentDraftActive)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
-		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
-			bool localOwnsDecision = true;
-			if (isMultiplayer && opponentDecisionPlayerIndex >= 0 && opponentDecisionPlayerIndex < (int)players.size()) {
-				const Player & decider = players[opponentDecisionPlayerIndex];
-				int deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
-				localOwnsDecision = (deciderOwner == myLocalPlayerID);
-			}
 
+		bool localOwnsDecision = true;
+		if (isMultiplayer && opponentDecisionPlayerIndex >= 0 && opponentDecisionPlayerIndex < (int)players.size()) {
+			const Player & decider = players[opponentDecisionPlayerIndex];
+			int deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
+			localOwnsDecision = (deciderOwner == myLocalPlayerID);
+		}
+
+		// Host gives a 3-second grace period to the client to avoid generating duplicate commands on the exact same frame
+		int graceFrames = (isHost() && !localOwnsDecision) ? (3 * turnTimerFramesPerSecond) : 0;
+
+		if (elapsedDecisionFrames >= opponentDecisionDurationFrames + graceFrames) {
 			if (localOwnsDecision || isHost()) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -7570,7 +7575,21 @@ void ofApp::updateGameLogic() {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
 		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
 			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
-			if (elapsedFrames >= turnDurationFrames) {
+
+			// Host grace period to prevent double-execution desyncs on timeouts
+			int graceFrames = 0;
+			if (isHost()) {
+				bool isLocalTurn = false;
+				if (timerState == STATE_DRAFTING) {
+					isLocalTurn = isLocalDraftingPlayer(draftPlayerIndex);
+				} else {
+					int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+					isLocalTurn = (activeOwner == myLocalPlayerID);
+				}
+				if (!isLocalTurn) graceFrames = 3 * turnTimerFramesPerSecond;
+			}
+
+			if (elapsedFrames >= turnDurationFrames + graceFrames) {
 				if (timerState == STATE_GAMEPLAY) {
 					registerAfkTimeoutForCurrentOwner();
 					if (currentState == STATE_MAIN_MENU) {
@@ -9108,48 +9127,6 @@ void ofApp::drawGame() {
 		};
 		std::vector<PreviewLabel> previewLabels;
 
-		auto calcChanceFromMinRoll = [](int minRoll, int diceNum, int sides) -> float {
-			int maxPossible = diceNum * sides;
-			if (minRoll <= diceNum) return 1.0f;
-			if (minRoll > maxPossible) return 0.0f;
-			if (diceNum == 1) {
-				int success = sides - minRoll + 1;
-				if (success < 0) success = 0;
-				return (float)success / (float)sides;
-			}
-			if (diceNum <= 6) {
-				std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxPossible + 1, 0));
-				dp[0][0] = 1;
-				for (int d = 1; d <= diceNum; ++d) {
-					for (int s = d; s <= d * sides; ++s) {
-						int sum = 0;
-						int faceMax = std::min(s - (d - 1), sides);
-						for (int face = 1; face <= faceMax; ++face) {
-							sum += dp[d - 1][s - face];
-						}
-						dp[d][s] = sum;
-					}
-				}
-				long long successCount = 0;
-				for (int s = minRoll; s <= maxPossible; ++s)
-					successCount += dp[diceNum][s];
-				long long total = 1;
-				for (int i = 0; i < diceNum; ++i)
-					total *= sides;
-				if (total > 0) return (float)((double)successCount / (double)total);
-			}
-			float mean = diceNum * (sides + 1) / 2.0f;
-			float variance = diceNum * (sides * sides - 1) / 12.0f;
-			float stdDev = sqrt(variance);
-			float z = (minRoll - 0.5f - mean) / stdDev;
-			if (z <= -3.0f) return 1.0f;
-			if (z >= 3.0f) return 0.0f;
-			float hitChance = 0.5f - (z * 0.15f);
-			if (hitChance < 0.0f) hitChance = 0.0f;
-			if (hitChance > 1.0f) hitChance = 1.0f;
-			return hitChance;
-		};
-
 		auto computePreviewChanceForUnit = [&](const Card & card, const Player & unit) -> float {
 			if (card.type == CARD_NONE) return 0.0f;
 			if (unit.x < 0 || unit.x >= BOARD_WIDTH || unit.y < 0 || unit.y >= BOARD_HEIGHT) return 0.0f;
@@ -9301,7 +9278,9 @@ void ofApp::drawGame() {
 
 			// Always use the local player's camera and flip logic so keys face the local view
 			ofCamera & localCamera = getActiveCamera();
+			(void)localCamera; // Suppress unused warning
 			bool flipForLocal = shouldFlipCamera();
+			(void)flipForLocal; // Suppress unused warning
 			for (const auto & inst : visibleKeyInstances) {
 				const std::vector<ofTexture> * setTex = nullptr;
 				if (inst.set == 1)
@@ -9327,14 +9306,7 @@ void ofApp::drawGame() {
 				float halfH = heightWorld * 0.5f;
 
 				// Always face the local camera dynamically
-				ofVec3f camP = localCamera.getPosition();
-				glm::vec3 camPos(camP.x, camP.y, camP.z);
-				glm::vec3 forward = camPos - pos;
-				glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0, 1, 0), forward));
-				if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
-				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
-				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
-				float yaw = atan2f(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				float yaw = shouldFlipCamera() ? 180.0f : 0.0f;
 
 				float u0 = 0.0f;
 				float u1 = 1.0f;
@@ -10377,11 +10349,17 @@ void ofApp::drawGame() {
 				if (board[x][y].hasWall) {
 					ofPushMatrix();
 					ofTranslate(0, surfaceY - (TILE_SIZE * 0.4f), 0);
+
+					// Flip the static horizontal quad so textures aren't upside down for Player 1
+					if (shouldFlipCamera()) {
+						ofRotateYDeg(180.0f);
+					}
+
 					// Choose dark texture based on camera perspective
 					// Player 0 views from bottom-left (y increases away), Player 1 from top-right (y decreases away)
 					// Check if there's a wall "behind" this one from the viewer's perspective
 					bool wallBehind = false;
-					int checkY = (myLocalPlayerID == 1) ? y + 1 : y - 1;
+					int checkY = shouldFlipCamera() ? y + 1 : y - 1;
 					if (checkY >= 0 && checkY < BOARD_HEIGHT) wallBehind = board[x][checkY].hasWall;
 					ofTexture * tex = wallBehind ? &wallDarkTexture : &wallTexture;
 					tex->bind();
@@ -10829,13 +10807,14 @@ void ofApp::drawGame() {
 					previewLabelsToDraw.push_back({ glm::vec2(screen.x, screen.y - 14.0f), ofToString((int)round(chance * 100.0f)) + "%", ofColor::white });
 				}
 
-				ofDisableLighting(); // <--- CRITICAL FIX: Turn off 3D lighting before drawing 2D text!
+				ofDisableDepthTest(); // <--- CRITICAL FIX: Prevent 3D scene from occluding the 2D text, causing it to render black!
+				ofDisableLighting();
 				glDisable(GL_LIGHTING);
 				glDisable(GL_COLOR_MATERIAL);
 				ofEnableAlphaBlending();
 				for (const auto & label : previewLabelsToDraw) {
-					// Force white text with a black outline to override any corrupted GL colors
-					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, ofColor(255, 255, 255, 255), 2, ofColor(0, 0, 0, 255));
+					// Use 1.0f scale for a set size, and pure white/black colors
+					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 1.0f, ofColor::white, 2, ofColor::black);
 				}
 			}
 		}
@@ -13363,9 +13342,16 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// 3. Check for "Draggable" things (Cards in hand)
 	Player * handPlayer = nullptr;
-	int localPIdx = findPlayerIndexByID(myLocalPlayerID);
-	if (!players.empty() && localPIdx >= 0) {
-		handPlayer = &players[localPIdx];
+	if (isMultiplayer) {
+		int localPIdx = findPlayerIndexByID(myLocalPlayerID);
+		if (!players.empty() && localPIdx >= 0) {
+			handPlayer = &players[localPIdx];
+		}
+	} else {
+		// CRITICAL FIX: In Local PvP (Singleplayer), the active player's hand is the one on screen!
+		if (!players.empty() && currentPlayerIndex >= 0) {
+			handPlayer = &players[currentPlayerIndex];
+		}
 	}
 
 	if (handPlayer) {
@@ -13488,6 +13474,7 @@ cursor_check_done:;
 		if (isLocalDraftingPlayer(draftPlayerIndex)) {
 			float cardW, cardH, spacing, startX, startY;
 			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
+			(void)startY;
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
 				float cx = startX + i * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
@@ -16652,12 +16639,12 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
-					if (currentPlayer.health < currentPlayer.maxHealth || currentPlayer.inTortoiseForm) return true;
+					if (currentPlayer.health < currentPlayer.maxHealth) return true;
 					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
 					for (const auto & p : players) {
 						if (&p == &currentPlayer || p.health <= 0) continue;
 						TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-						if (info.reason == VALID || info.reason == INVALID_SELF) return true;
+						if (info.reason == VALID) return true;
 					}
 					return false;
 				}
@@ -16939,7 +16926,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
-					if (currentPlayer.health < currentPlayer.maxHealth || currentPlayer.inTortoiseForm) return true;
+					if (currentPlayer.health < currentPlayer.maxHealth) return true;
 					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
 					for (const auto & p : players) {
 						if (&p == &currentPlayer || p.health <= 0) continue;
@@ -18773,6 +18760,14 @@ void ofApp::resetCardInteraction() {
 	statusSelectButtons.clear();
 	statusSelectMenuRect.set(0, 0, 0, 0);
 	interactionDiceRoll = 0; // Prevent clicking before dice finish!
+
+	// CRITICAL FIX: Ensure opponent menu visualization is fully cleared so menus don't get stuck!
+	opponentInteraction.open = false;
+	opponentInteraction.type = 0;
+	opponentInteraction.targetIndex = -1;
+	opponentInteraction.hoveredChoice = -1;
+	opponentInteraction.cardIndex = -1;
+
 	// Keep legacy boolean flags untouched here — other code paths migrated to
 	// respect `cardInteractionState` and `processCardStateInput()` as authority.
 	clearHighlights();
@@ -18894,10 +18889,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 				cmd.params[1] = currentPlayerIndex; // self
 				cmd.params[2] = 1; // Barrier
 				cmd.params[3] = cardIndex;
-				if (isMultiplayer)
-					sendInputCommand(cmd, true);
-				else
-					queueInputCommand(cmd);
+				sendInputCommand(cmd, true);
 			}
 			draggedCardIndex = -1;
 			selectedCardIndex = -1;
@@ -18916,11 +18908,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.params[2] = (card.type == CARD_WISDOM_BOON) ? 2 : 1; // Block for wisdom, Barrier for dispel
 		cmd.params[3] = cardIndex; // <--- This carries the card index successfully!
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
-		if (isMultiplayer) {
-			sendInputCommand(cmd, true);
-		} else {
-			queueInputCommand(cmd);
-		}
+		sendInputCommand(cmd, true);
 		draggedCardIndex = -1;
 		selectedCardIndex = -1;
 		return;
@@ -18938,11 +18926,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.params[1] = caster.x;
 		cmd.params[2] = caster.y;
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
-		if (isMultiplayer) {
-			sendInputCommand(cmd, true);
-		} else {
-			queueInputCommand(cmd);
-		}
+		sendInputCommand(cmd, true);
 		draggedCardIndex = -1;
 		selectedCardIndex = -1;
 		return;
@@ -18993,6 +18977,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		if (!hasAnyTargetableTile()) {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
 			resetCardInteraction();
+			resetCardState(); // CRITICAL FIX: Unfreeze state machine
 			draggedCardIndex = -1;
 			selectedCardIndex = -1;
 			return;
@@ -19011,11 +18996,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.params[2] = caster.y;
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		if (isMultiplayer) {
-			sendInputCommand(cmd, true);
-		} else {
-			queueInputCommand(cmd);
-		}
+		sendInputCommand(cmd, true);
 	}
 
 	draggedCardIndex = -1;
@@ -19146,14 +19127,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = gx;
 					cmd.params[1] = gy;
+
 					strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
 					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-					if (isMultiplayer) {
-						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
-					} else {
-						queueInputCommand(cmd);
-					}
+					sendInputCommand(cmd, true);
 					return;
 				}
 			}
@@ -19179,11 +19157,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
 					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-					if (isMultiplayer) {
-						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Wolf placement send failed (no connection).";
-					} else {
-						queueInputCommand(cmd);
-					}
+					sendInputCommand(cmd, true);
 					return;
 				}
 			}
@@ -19247,15 +19221,12 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					cmd.params[1] = gy;
 					if (interactingCardType == CARD_CALL_FOR_KOBOLDS)
 						strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
+
 					else
 						strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
 					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-					if (isMultiplayer) {
-						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Summon placement send failed (no connection).";
-					} else {
-						queueInputCommand(cmd);
-					}
+					sendInputCommand(cmd, true);
 
 					resetCardInteraction();
 					return;
@@ -19289,11 +19260,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.params[1] = gridY;
 		strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		if (isMultiplayer) {
-			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Shell Spike send failed (no connection).";
-		} else {
-			queueInputCommand(cmd);
-		}
+		sendInputCommand(cmd, true);
 		resetCardInteraction();
 		resetCardState();
 		return;
@@ -19374,14 +19341,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 		// MUST reset interaction UI *before* executing the command, otherwise cards
 		// that open a menu (like Magic Blast) will be instantly closed!
+
 		resetCardInteraction();
 
-		if (isMultiplayer) {
-			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "PlayCard send failed (no connection).";
-		} else {
-			// Singleplayer should also route through the deterministic input queue
-			sendInputCommand(cmd, true);
-		}
+		sendInputCommand(cmd, true);
 		break;
 	}
 	}
@@ -19523,11 +19486,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 			strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			if (isMultiplayer) {
-				sendInputCommand(cmd, true);
-			} else {
-				queueInputCommand(cmd);
-			}
+			sendInputCommand(cmd, true);
 			resetCardInteraction();
 			return;
 		}
@@ -19710,20 +19669,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_BURST_OF_LIGHT: {
-		int safeTarget = interactionTargetIndex;
-		int safeCardIdx = interactingCardIndex; // Cache it!
-		std::string safeChoice = interactionMenuChoice;
-		if (safeTarget != -1) {
+		if (interactionTargetIndex != -1) {
 			resetCardState();
 			currentCardOutcome.cardType = CARD_BURST_OF_LIGHT;
-			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
-			if (safeChoice == "damage") {
+			// Use interactionMenuChoice instead of buttonId
+			if (interactionMenuChoice == "damage") {
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
-				dmgOp.data.damage.targetIndex = safeTarget;
+				dmgOp.data.damage.targetIndex = interactionTargetIndex;
 				dmgOp.data.damage.damageType = DAMAGE_HOLY;
 				dmgOp.data.damage.fixedDamage = 3;
 				dmgOp.data.damage.damageFromSlot = -1;
@@ -19731,7 +19688,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			} else {
 				EffectOp healOp = {};
 				healOp.type = EffectOpType::HEAL;
-				healOp.data.heal.targetIndex = safeTarget;
+				healOp.data.heal.targetIndex = interactionTargetIndex;
 				healOp.data.heal.amount = 3;
 				healOp.data.heal.amountFromSlot = -1;
 				queueEffect(healOp);
@@ -19933,14 +19890,10 @@ void ofApp::drawActiveCardInteractionUI() {
 			bool dmgEnabled = false;
 			Player & caster = players[currentPlayerIndex];
 
-			if (caster.inTortoiseForm) {
-				healEnabled = true;
-			}
-
 			glm::vec2 casterPos(caster.x, caster.y);
 
 			// Check if we can heal ourselves
-			if (!healEnabled && caster.health < caster.maxHealth) {
+			if (caster.health < caster.maxHealth) {
 				TargetInfo selfHealInfo = isLosTargetValid(casterPos, casterPos, 9999.0f, CARD_BURST_OF_LIGHT);
 				if (selfHealInfo.reason == VALID || selfHealInfo.reason == INVALID_SELF) {
 					healEnabled = true;
@@ -20251,8 +20204,11 @@ void ofApp::drawCard(bool sendPacket) {
 		ic.params[0] = currentPlayerIndex;
 		ic.params[1] = 1; // num cards
 		ic.clientActionID = ++watchdogClientActionCounter;
-		steamManager.sendPacket(&ic, sizeof(ic));
+
+		// Optimistically queue locally and send
+		sendInputCommand(ic, true);
 		ofLogNotice("Network") << "Local draw: sent CMD_DRAW_CARDS (lockstep) for playerIndex=" << ic.params[0] << " playerID=" << ic.playerID << " num=" << ic.params[1];
+		return; // CRITICAL FIX: Prevent local double-draw!
 	}
 	// --- CHANGE END ---
 
@@ -20996,12 +20952,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
 			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid currentPlayerIndex=" << currentPlayerIndex;
+			resetCardState(); // CRITICAL FIX
 			break;
 		}
 
 		Player & actor = players[currentPlayerIndex];
 		if (cardIndex < 0 || cardIndex >= (int)actor.hand.size()) {
 			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid cardIndex=" << cardIndex;
+			resetCardState(); // CRITICAL FIX
 			break;
 		}
 
@@ -21012,7 +20970,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// Deterministic lockstep: every peer executes the same play logic
 		CardPlayResult result = CARD_PLAY_RESULT_NOT_PLAYABLE;
 		result = playCard(cardIndex, targetX, targetY);
-		if (result != CARD_PLAY_RESULT_NOT_PLAYABLE && result != CARD_PLAY_RESULT_CANCELLED) {
+
+		if (result == CARD_PLAY_RESULT_NOT_PLAYABLE || result == CARD_PLAY_RESULT_CANCELLED) {
+			// CRITICAL FIX: Unfreeze state machine if the play was invalid or aborted!
+			resetCardState();
+		} else {
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
@@ -21688,14 +21650,48 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		selectedDraftIndices.clear();
 
+		selectedDraftIndices.clear();
+
 		addTimeBonusToTurn(cmdDraftPlayerIdx, 5);
 
-		if (isInGameDraft) {
-			isInGameDraft = false;
-			resumeTurnTimerIfPausedForOpponent(this->draftPlayerIndex); // Use member safely
+		if (initialDraftComplete) {
+			// In-game drafts (Key pickups, Constitution Boon, Demon death)
+			if (isInGameDraft && this->draftPlayerIndex == cmdDraftPlayerIdx) {
+				isInGameDraft = false;
+			} else {
+				// The client lagged and the draft hasn't visually popped up for them yet.
+				// We need to intercept and destroy the pending visual trigger so it doesn't pop up late!
+				bool intercepted = false;
+				for (auto it = pendingVisualKeyDraftQueue.begin(); it != pendingVisualKeyDraftQueue.end();) {
+					if (it->targetIndex == cmdDraftPlayerIdx) {
+						it = pendingVisualKeyDraftQueue.erase(it);
+						intercepted = true;
+						break; // Only erase the one matching the current accept
+					} else {
+						++it;
+					}
+				}
+				// If it wasn't a key pickup, intercept it from the logical chain queue
+				if (!intercepted) {
+					for (auto it = networkPending.draftQueue.begin(); it != networkPending.draftQueue.end();) {
+						int targetPlayerIdx = (*it >> 16) & 0xFFFF;
+						if (targetPlayerIdx == cmdDraftPlayerIdx) {
+							it = networkPending.draftQueue.erase(it);
+							intercepted = true;
+							break;
+						} else {
+							++it;
+						}
+					}
+				}
+			}
+
+			resumeTurnTimerIfPausedForOpponent(cmdDraftPlayerIdx);
 			currentState = STATE_GAMEPLAY;
+
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
-			break;
+
+			break; // <--- CRUCIAL: Stops it from falling through to the pre-game draft logic!
 		}
 
 		// Advance draft flow from authoritative classTier in the command.
@@ -26262,6 +26258,20 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	switch (playedCard.type) {
 
+	case CARD_HEAL:
+	case CARD_LESSER_HEAL: {
+		beginEffectSequence();
+		EffectOp healOp = {};
+		healOp.type = EffectOpType::HEAL;
+		healOp.data.heal.targetIndex = resolvedTargetIndex != -1 ? resolvedTargetIndex : currentPlayerIndex;
+		healOp.data.heal.amount = playedCard.baseHeal > 0 ? playedCard.baseHeal : playedCard.healAmount;
+		healOp.data.heal.amountFromSlot = -1;
+		queueEffect(healOp);
+		playedSuccessfully = true;
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
 	case CARD_SPRINT: {
 		beginEffectSequence();
 
@@ -26651,37 +26661,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
-	}
-
-	case CARD_BURST_OF_LIGHT: {
-		if (interactionTargetIndex != -1) {
-			resetCardState();
-			currentCardOutcome.cardType = CARD_BURST_OF_LIGHT;
-			currentCardOutcome.cardIndex = interactingCardIndex;
-			currentCardOutcome.casterIndex = currentPlayerIndex;
-			beginEffectSequence();
-
-			// Use interactionMenuChoice instead of buttonId
-			if (interactionMenuChoice == "damage") {
-				EffectOp dmgOp = {};
-				dmgOp.type = EffectOpType::DAMAGE;
-				dmgOp.data.damage.targetIndex = interactionTargetIndex;
-				dmgOp.data.damage.damageType = DAMAGE_HOLY;
-				dmgOp.data.damage.fixedDamage = 3;
-				dmgOp.data.damage.damageFromSlot = -1;
-				queueEffect(dmgOp);
-			} else {
-				EffectOp healOp = {};
-				healOp.type = EffectOpType::HEAL;
-				healOp.data.heal.targetIndex = interactionTargetIndex;
-				healOp.data.heal.amount = 3;
-				healOp.data.heal.amountFromSlot = -1;
-				queueEffect(healOp);
-			}
-
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		}
-		break;
 	}
 
 	case CARD_PSIONIC_WAVE: {
@@ -27103,7 +27082,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_CONSTITUTION_BOON: {
 		beginEffectSequence();
-		int mh = currentPlayer.maxHealth;
+
+		EffectOp maxHpOp = {};
+		maxHpOp.type = EffectOpType::MODIFY_STAT;
+		maxHpOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		maxHpOp.data.modifyStat.statType = 1; // MaxHP
+		maxHpOp.data.modifyStat.delta = playedCard.maxHealthGain > 0 ? playedCard.maxHealthGain : 5;
+		maxHpOp.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(maxHpOp);
+
+		int mh = currentPlayer.maxHealth + maxHpOp.data.modifyStat.delta;
 		int tier = 0;
 		if (mh >= 16 && mh <= 20)
 			tier = 1;
@@ -27228,7 +27216,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (resolvedTargetIndex != -1) {
 			beginEffectSequence();
 
-			int totalDamage = 0;
+			int totalDamage = playedCard.baseDamage;
 
 			// We can reuse the same list of hand-related cards we updated earlier
 			auto isHandRelated = [](CardType type) {
@@ -28929,12 +28917,12 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				else {
 					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
 						preview = true;
-					} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) && info.reason == INVALID_SELF) {
+					} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) && info.reason == INVALID_SELF) {
 						preview = true;
 					}
 
 					if (info.reason == VALID) {
-						if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
+						if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
 							if (info.isTargetable) valid = true;
 						} else if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							valid = true;
@@ -28986,6 +28974,23 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							valid = true;
 							preview = true;
 						}
+					}
+				}
+
+				// Filter Burst of Light targets based on menu choice
+				if (valid && card.type == CARD_BURST_OF_LIGHT) {
+					bool isSelf = (tx == (int)casterPos.x && ty == (int)casterPos.y);
+					bool isWounded = false;
+					for (const auto & p : players) {
+						if (p.x == tx && p.y == ty && p.health > 0 && p.health < p.maxHealth) {
+							isWounded = true;
+							break;
+						}
+					}
+					if (interactionMenuChoice == "damage") {
+						if (isSelf) valid = false; // Cannot damage self
+					} else if (interactionMenuChoice == "heal") {
+						if (!isWounded) valid = false; // Cannot heal full HP targets
 					}
 				}
 
@@ -29077,52 +29082,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	};
 
 	// --- ITERATE BOARD ---
-
-	// --- SPECIAL CASE: Burst of Light targeting (choose damage or heal via menu)
-	if (card.type == CARD_BURST_OF_LIGHT) {
-		// Show white previews for all tiles that are within line-of-sight from the caster.
-		// Also keep green outlines for valid unit targets (enemies for damage, allies/self for heal).
-		Player & caster = currentPlayer;
-		glm::vec2 casterPos(px, py);
-
-		// 1) Mark LOS tiles as preview (white outlines)
-		for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
-			for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-				TargetInfo info = isLosTargetValid(casterPos, glm::vec2(tx, ty), 9999.0f, CARD_BURST_OF_LIGHT);
-				// Treat VALID and INVALID_SELF as previewable (so caster tile shows preview)
-				if (info.reason == VALID || info.reason == INVALID_SELF) {
-					board[tx][ty].isTargetPreview = true;
-					board[tx][ty].hasTooltipInfo = true;
-				}
-			}
-		}
-
-		// 2) For unit tiles, apply green targetable outlines based on Burst menu choice
-		bool canTargetFullHp = false;
-		if (caster.inTortoiseForm) {
-			canTargetFullHp = true;
-		}
-
-		for (const auto & p : players) {
-			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-			// Allow valid unit targets to be outlined green. When DAMAGE is chosen
-			// do NOT mark the caster itself as a green target.
-			if (info.reason == VALID || info.reason == INVALID_SELF) {
-				if (interactionMenuChoice == "damage" && p.x == (int)caster.x && p.y == (int)caster.y) {
-					// Skip marking self as targetable when dealing damage
-					continue;
-				}
-				if (interactionMenuChoice == "heal" && p.health >= p.maxHealth && !canTargetFullHp) {
-					// Skip marking full HP targets if not tortoise + adjacent
-					continue;
-				}
-				board[p.x][p.y].isTargetable = true; // green outline
-				board[p.x][p.y].isTargetPreview = true;
-			}
-		}
-
-		return;
-	}
 
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -29456,7 +29415,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 
 			case TARGET_LINE_OF_SIGHT_TILE:
-
 			case TARGET_ANY_TILE: {
 				float maxRangeFeet;
 
@@ -29485,7 +29443,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// --- Determine Red Preview ---
 				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
 					isPreview = true;
+				} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) && info.reason == INVALID_SELF) {
+					isPreview = true;
+				}
 
+				if (isPreview) {
 					// --- Calculate Tooltip Data for Range-Based Cards ---
 					// Only calculate for cards with dice rolls (not infinite range cards)
 					auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
@@ -29509,7 +29471,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								hitChance = (float)successOutcomes / (float)rangeSides;
 							} else if (rangeNum == 2 || rangeNum == 3) {
 								int sides = rangeSides;
-								(void)sides;
 								int numDice = rangeNum;
 
 								// DP: dp[d][s] = number of ways to get sum s using d dice
@@ -29565,9 +29526,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						board[x][y].minRollRequired = minRoll;
 						board[x][y].hitChance = hitChance;
 					}
-				} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) && info.reason == INVALID_SELF) {
-					// Special case: Heal and Lesser Heal can target the caster's own tile
-					isPreview = true;
 				}
 
 				// --- Determine Green Outline (is it a valid final target?) ---
@@ -29606,21 +29564,38 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						}
 					}
 				}
-				// --- HEAL / LESSER HEAL / DEATH LOGIC ---
-				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
-					// Heal/Lesser Heal can target self or allies. Death only targets other units.
-					// Only allow clicking if the tile is also a red preview (LOS & not a wall)
+				// --- HEAL / LESSER HEAL / BURST / DEATH LOGIC ---
+				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_DEATH) {
 					bool isSelfTile = (x == (int)casterPos.x && y == (int)casterPos.y);
 					if (card.type == CARD_DEATH) {
-						// Death must target a different unit
-						if (isPreview && isOccupied && !isSelfTile) {
-							canBeClicked = true;
-						}
+						if (isPreview && isOccupied && !isSelfTile) canBeClicked = true;
 					} else {
-						bool canReceiveHeal = true; // Always allow click, heal logic will show "Full HP" visually if needed
-						if (isPreview && (isOccupied || isSelfTile) && canReceiveHeal) {
-							canBeClicked = true;
+						// Heal logic requires the target to actually be missing HP
+						bool isTargetWounded = false;
+						bool hasEnemy = false;
+						for (const auto & p : players) {
+							if (p.x == x && p.y == y && p.health > 0) {
+								if (p.health < p.maxHealth) isTargetWounded = true;
+								if ((&p - &players[0]) != currentPlayerIndex) hasEnemy = true;
+							}
 						}
+
+						if (card.type == CARD_BURST_OF_LIGHT) {
+							if (interactionMenuChoice == "damage") {
+								if (hasEnemy) canBeClicked = true;
+							} else if (interactionMenuChoice == "heal") {
+								if (isTargetWounded) canBeClicked = true;
+							} else {
+								// Dragging from hand: highlight both valid enemies and wounded units
+								if (hasEnemy || isTargetWounded) canBeClicked = true;
+							}
+						} else {
+							// Standard Heals
+							if (isTargetWounded) canBeClicked = true;
+						}
+
+						// Must also be a valid preview (LOS clear)
+						if (!isPreview) canBeClicked = false;
 					}
 				}
 				// --- DEFAULT LOGIC ---
@@ -30159,6 +30134,7 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << koboldPlacementSourceY
 	   << "\t" << wolfPlacementSourceX
 	   << "\t" << wolfPlacementSourceY
+	   << "\t" << (initialDraftComplete ? 1 : 0)
 	   << "\n";
 
 	ss << "DAMAGERMAP\t" << g_lastDamagerMap.size();
@@ -30450,6 +30426,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	int tmpInteractionTargetIndex = -1;
 	glm::vec2 tmpInteractionTargetTile(-1, -1);
 	glm::ivec2 tmpMagicHandTargetTile(-1, -1);
+	bool tmpInitialDraftComplete = false;
 	bool tmpOppOpen = false;
 	int tmpOppType = 0;
 	int tmpOppTarget = -1;
@@ -30537,6 +30514,9 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 					koboldPlacementSourceY = -1;
 					wolfPlacementSourceX = -1;
 					wolfPlacementSourceY = -1;
+				}
+				if (parts.size() > 25) {
+					tmpInitialDraftComplete = (std::stoi(parts[25]) != 0);
 				}
 			} else if (parts[0] == "DAMAGERMAP") {
 				g_lastDamagerMap.clear();
@@ -30891,6 +30871,22 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 		isMultiplayer = true;
 		hasReceivedHandshake = true;
 		gameplaySeededByHost = true;
+
+		// CRITICAL FIX: Restore local identity if we restarted the game (Alt-F4)
+		// Without this, a client who reconnects will default to myLocalPlayerID = 0
+		// and steal ownership of the Host's units, permanently locking the game!
+		if (steamManager.isConnected()) {
+			if (steamManager.isHost()) {
+				myLocalPlayerID = 0;
+			} else {
+				myLocalPlayerID = 1;
+			}
+			// Restore names so the Turn Indicator text is correct
+			std::string p0Name = steamManager.isHost() ? steamManager.getLocalPlayerName() : steamManager.getOpponentName();
+			std::string p1Name = steamManager.isHost() ? steamManager.getOpponentName() : steamManager.getLocalPlayerName();
+			player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
+			player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+		}
 	} else {
 		isMultiplayer = false;
 		hasReceivedHandshake = false;
@@ -30915,6 +30911,12 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	}
 
 	// Reset transient visuals and interaction state
+	// CRITICAL FIX: Clear lockstep queues so rewinds/reconnects don't process stale future commands!
+	commandQueue.clear();
+	provisionalCommands.clear();
+	provisionalSnapshots.clear();
+	queuedCommandKeys.clear();
+
 	// Clear all transient dice visuals when applying a full snapshot
 	// Only remove any lingering AP visuals — keep unrelated dice (e.g., summoned HP)
 	activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
@@ -30931,6 +30933,8 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	isPlayerAnimating = false;
 	animatingPlayerIndex = -1;
 	endTurnLocked = false;
+	draftAcceptLocked = false;
+	draftAcceptApplied = false;
 	// waitingForTurnStartTimer removed; no-op
 	networkPending.keyDraftAccept = false;
 	networkPending.keyDraftPlayer = -1;
@@ -30980,6 +30984,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	currentState = tmpCurrentState;
 	currentPlayerIndex = tmpCurrentPlayerIndex;
 	globalTurnCounter = tmpGlobalTurnCounter;
+	initialDraftComplete = tmpInitialDraftComplete;
 	isInGameDraft = tmpIsInGameDraft;
 	draftStage = tmpDraftStage;
 	draftPlayerIndex = tmpDraftPlayerIndex;
@@ -32815,7 +32820,8 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		// --- AI REWARD SHAPING (POINTS) ---
 		// If we are training the AI, give it points for dealing damage, and penalize it for taking damage!
 		if (headless && isAIvsAI && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
-			int aiID = 1; // The AI is Player 2
+			// The AI ID is the owner of the currently active unit (whose turn it is)
+			int aiID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 
 			// Figure out who the attacker and victim actually are (accounting for minions)
 			int attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
@@ -33399,11 +33405,9 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	if (casterTile == targetTile) {
 		if (cardType == CARD_HEAL || cardType == CARD_LESSER_HEAL || cardType == CARD_BURST_OF_LIGHT) {
 			if (casterIndexForSelfChecks >= 0 && players[casterIndexForSelfChecks].health >= players[casterIndexForSelfChecks].maxHealth) {
-				if (!players[casterIndexForSelfChecks].inTortoiseForm) {
-					result.reason = INVALID_SELF;
-					result.isTargetable = false;
-					return result;
-				}
+				result.reason = INVALID_SELF;
+				result.isTargetable = false;
+				return result;
 			}
 			result.reason = VALID;
 			result.isTargetable = true;
@@ -36610,6 +36614,41 @@ long long ofApp::calculateChecksum() {
 	mix((uint64_t)globalTurnCounter);
 	mix((uint64_t)currentPlayerIndex);
 	mix((uint64_t)currentAP);
+
+	// Game & Draft State
+	mix((uint64_t)currentState);
+	mix((uint64_t)(isInGameDraft ? 1 : 0));
+	mix((uint64_t)(initialDraftComplete ? 1 : 0)); // <--- Added!
+	mix((uint64_t)draftStage);
+	mix((uint64_t)draftPlayerIndex);
+	mix((uint64_t)draftPicksRemaining);
+	mix((uint64_t)currentDraftClassTier);
+
+	// Card Interaction & Effect Pipeline State
+	mix((uint64_t)cardInteractionState);
+	mix((uint64_t)interactingCardType);
+	mix((uint64_t)interactingCardIndex);
+	mix((uint64_t)interactionTargetIndex);
+	mix((uint64_t)cardPlayState);
+	mix((uint64_t)(isProcessingEffect ? 1 : 0));
+	mix((uint64_t)currentEffectSequence.currentOp);
+	mix((uint64_t)currentEffectSequence.ops.size());
+
+	// Keys
+	mix((uint64_t)floatingKeyInstances.size());
+	for (const auto & k : floatingKeyInstances) {
+		mix((uint64_t)k.pos.x);
+		mix((uint64_t)k.pos.y);
+		mix((uint64_t)k.set);
+	}
+
+	// Graveyard
+	mix((uint64_t)graveyard.size());
+	for (const auto & g : graveyard) {
+		mix((uint64_t)g.x);
+		mix((uint64_t)g.y);
+		mix((uint64_t)g.deck.size());
+	}
 
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
