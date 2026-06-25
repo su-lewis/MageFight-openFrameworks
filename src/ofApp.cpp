@@ -14625,10 +14625,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// --- DISCORD WEBHOOK PING ---
 			// Send a non-blocking HTTP POST request to Discord so everyone's phones buzz!
-			std::string webhookURL = "PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE";
+			std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
 
-			// Only ping if we actually put a URL in
-			if (webhookURL != "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP") {
+			if (!webhookURL.empty()) {
 				std::string playerName = steamManager.getLocalPlayerName();
 				if (playerName.empty()) playerName = "A Mage";
 
@@ -14636,7 +14635,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 				std::string jsonPayload = "{\"content\": \"@here 🧙‍♂️ **" + playerName + "** is hosting a match! Boot up Mage Fight!\"}";
 
 				// Use a detached C++ thread to send the request in the background
-				// This is 100% version-proof and guarantees the game won't freeze!
 				std::thread([webhookURL, jsonPayload]() {
 					ofHttpRequest req(webhookURL, "discord_ping");
 					req.method = ofHttpRequest::POST;
