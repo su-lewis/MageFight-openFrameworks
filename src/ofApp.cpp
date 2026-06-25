@@ -245,7 +245,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 	if (effCost == 0 && card.type != CARD_BLOCKING_BOON && card.type != CARD_SPRINT && card.type != CARD_CONSTITUTION_BOON) {
 		costColor = ofColor::green;
 	}
-	drawCenteredTextScaledOutlined(titleFont, ofToString(effCost), g_costRect, g_uniformAPCostScale, costColor, ofColor::black, 4);
+	drawCenteredTextScaledOutlined(titleFont, ofToString(effCost), g_costRect, g_uniformAPCostScale, costColor, ofColor::black, 2);
 
 	if (card.type == CARD_MASTER_FIST) {
 		int dmg = 0;
@@ -525,7 +525,7 @@ struct CardTemplateLayout {
 	ofRectangle summonAPRect = ofRectangle(384, 1328, 136, 80);
 	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
-	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
+	ofRectangle effectRect = ofRectangle(70, 890, 916, 440); // Expanded bounds
 	float nameScale = 13.75f;
 	float nameMinScale = 1.0f;
 	float nameCurveDropPx = 12.0f;
@@ -536,7 +536,7 @@ struct CardTemplateLayout {
 	float labelScale = 1.0f;
 	float effectScale = 3.8f; // max preferred scale; auto-fit may reduce per card
 	float effectMinScale = 1.25f; // floor for very long text
-	float effectLineSpacing = 0.82f;
+	float effectLineSpacing = 0.72f; // Tighter line spacing allows text to scale up more
 };
 
 static std::string trimCopy(const std::string & in) {
@@ -827,7 +827,7 @@ static void drawPixelTextBaseline(const ofTrueTypeFont & font,
 		ofSetColor(outlineColor);
 		int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
 		for (auto & off : offsets) {
-			font.drawString(text, (float)(off[0] * outlinePx) / s, (float)(off[1] * outlinePx) / s);
+			font.drawString(text, (float)(off[0] * outlinePx), (float)(off[1] * outlinePx));
 		}
 	}
 	ofSetColor(fillColor);
@@ -933,7 +933,8 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		for (auto & off : offsets) {
 			ofSetColor(outlineColor);
 			ofPushMatrix();
-			ofTranslate(txSnap + (float)(off[0] * r), tySnap + (float)(off[1] * r));
+			// Multiply outline radius by drawScale so outlines shrink with the card!
+			ofTranslate(txSnap + (float)(off[0] * r) * drawScale, tySnap + (float)(off[1] * r) * drawScale);
 			ofScale(drawScale, drawScale);
 			font.drawString(text, 0, 0);
 			ofPopMatrix();
@@ -1987,7 +1988,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 			}
 		}
-		g_uniformAPCostScale = bestCenteredTextScaleForSingle(renderTitleFont, trimCopy(rec.apCost), layout.costRect, 0.75f, costTargetChipMaxScale, 4);
+		g_uniformAPCostScale = bestCenteredTextScaleForSingle(renderTitleFont, trimCopy(rec.apCost), layout.costRect, 0.75f, costTargetChipMaxScale, 2);
 		g_costRect = layout.costRect;
 
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
@@ -3435,14 +3436,10 @@ void ofApp::setup() {
 	}
 
 	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
-	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 20); // Kept slightly larger
-	cardEffectSettings.antialiased = true; // Turn smoothing back ON for readability!
+	// Changing to 24 (a perfect multiple of 12) ensures perfectly even, slightly thicker pixel stems for m6x11!
+	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 24);
+	cardEffectSettings.antialiased = false; // Turn smoothing OFF for crisp pixel art text!
 	cardEffectFont.load(cardEffectSettings);
-	if (cardEffectFont.isLoaded()) {
-		// Linear filtering here allows the anti-aliasing to look smooth when scaled
-		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
-		const_cast<ofTexture &>(cardEffectFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-	}
 
 	// Bumped to 40px so titles are bold and prominent
 	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 40);
@@ -3467,8 +3464,10 @@ void ofApp::setup() {
 
 	cardBackImage.load("UI/card_back.png");
 	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
-	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	if (cardBackImage.isAllocated()) {
+		cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		cardBackImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 	if (cardSpriteSheet.isAllocated()) {
 		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
@@ -3497,6 +3496,23 @@ void ofApp::setup() {
 	// Initialize default key bindings if empty — simplified: only Chat (Enter)
 	if (settingsKeyBindings.empty()) {
 		settingsKeyBindings.push_back({ "Chat", OF_KEY_RETURN });
+	}
+
+	// --- SET DEFAULTS BEFORE LOADING ---
+	g_windowModeState = 1; // Default to Fullscreen
+	isFullscreen = true;
+
+	int monitorRefreshRate = 60;
+	GLFWmonitor * primary = glfwGetPrimaryMonitor();
+	if (primary) {
+		const GLFWvidmode * mode = glfwGetVideoMode(primary);
+		monitorRefreshRate = mode->refreshRate;
+	}
+	float fpsDefault = (float)monitorRefreshRate;
+	if (fpsDefault >= 300.0f) {
+		settingsFramerateSliderValue = 0.999f;
+	} else {
+		settingsFramerateSliderValue = std::min(0.998f, std::max(0.0f, (fpsDefault - 15.0f) / (300.0f - 15.0f)));
 	}
 
 	// Load persisted settings (overrides defaults)
@@ -4008,24 +4024,7 @@ void ofApp::setup() {
 		currentResolutionIndex = availableResolutions.size() - 1;
 	}
 
-	int monitorRefreshRate = 60;
-	GLFWmonitor * primary = glfwGetPrimaryMonitor();
-	if (primary) {
-		const GLFWvidmode * mode = glfwGetVideoMode(primary);
-		monitorRefreshRate = mode->refreshRate;
-	}
-
-	// Framerate slider: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
-	// Set default to the monitor's refresh rate (map refresh -> slider value)
-	{
-		float fpsDefault = (float)monitorRefreshRate;
-		if (fpsDefault >= 300.0f) {
-			// very high refresh -> treat near-unlimited
-			settingsFramerateSliderValue = 0.999f;
-		} else {
-			settingsFramerateSliderValue = std::min(0.998f, std::max(0.0f, (fpsDefault - 15.0f) / (300.0f - 15.0f)));
-		}
-	}
+	// (Monitor refresh rate defaults moved above loadSettings)
 
 	// --- GENERATE PIXEL ART FIRE TEXTURE ---
 	ofPixels firePix;
@@ -4082,8 +4081,6 @@ void ofApp::setup() {
 	modelFbo.allocate(fboSettings);
 
 	// --- FINAL APPLY SETTINGS ---
-	isFullscreen = true;
-	// Fullscreen is now set in main.cpp
 	applySettings();
 
 	// Load PNG cursors from UI folder
@@ -29880,8 +29877,6 @@ void ofApp::applyPixelArtSettings() {
 		setFilterIfAllocatedTex(ft, minFilter, magFilter);
 	// keyTextures are pixel art - don't modify (already commented out above)
 
-	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(minFilter, magFilter);
-	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 	if (shadowTexture.isAllocated()) shadowTexture.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 	if (fireTexture.isAllocated()) fireTexture.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 
@@ -34075,10 +34070,10 @@ void ofApp::saveSettings() {
 	json["invertCameraY"] = settingsInvertCameraY;
 	json["uiScale"] = settingsUIScale;
 	json["useVSync"] = settingsUseVSync;
-	json["windowModeState"] = g_windowModeState;
 	json["showHints"] = settingsShowHints;
-	json["currentFramerateIndex"] = currentFramerateIndex;
+	json["framerateSliderValue"] = settingsFramerateSliderValue;
 	json["currentResolutionIndex"] = currentResolutionIndex;
+	json["windowModeState"] = g_windowModeState;
 
 	// Key bindings
 	ofJson kb = ofJson::array();
@@ -34116,10 +34111,10 @@ void ofApp::loadSettings() {
 		settingsInvertCameraY = json.value("invertCameraY", settingsInvertCameraY);
 		settingsUIScale = json.value("uiScale", settingsUIScale);
 		settingsUseVSync = json.value("useVSync", settingsUseVSync);
-		g_windowModeState = json.value("windowModeState", g_windowModeState);
 		settingsShowHints = json.value("showHints", settingsShowHints);
-		currentFramerateIndex = json.value("currentFramerateIndex", currentFramerateIndex);
+		settingsFramerateSliderValue = json.value("framerateSliderValue", settingsFramerateSliderValue);
 		currentResolutionIndex = json.value("currentResolutionIndex", currentResolutionIndex);
+		g_windowModeState = json.value("windowModeState", g_windowModeState);
 
 		// Key bindings
 		if (json.contains("keyBindings") && json["keyBindings"].is_array()) {
@@ -34144,7 +34139,13 @@ void ofApp::loadSettings() {
 			ofSetVerticalSync(true);
 		else
 			ofSetVerticalSync(false);
-		ofSetFrameRate((currentFramerateIndex >= 0 && currentFramerateIndex < (int)availableFramerates.size()) ? availableFramerates[currentFramerateIndex] : 0);
+
+		if (settingsFramerateSliderValue >= 0.999f) {
+			ofSetFrameRate(0);
+		} else {
+			int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
+			ofSetFrameRate(std::min(targetFPS, 300));
+		}
 
 		ofLogNotice("Settings") << "Loaded settings from " << path;
 	} catch (...) {
@@ -34543,9 +34544,12 @@ void ofApp::drawMinionManagerUI() {
 		// Position natively inside the computed viewport rect
 		ofTranslate(modelX + modelW / 2.0f, modelY + modelW * 0.85f);
 		float uScale = (modelW / 512.0f) * 90.0f * 0.02f; // Scale relative to viewport
+
+		// Apply Z-flip FIRST to invert the 3D space, then tilt and spin
 		ofScale(uScale, uScale, uScale);
-		ofRotateXDeg(-15);
-		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+		ofRotateZDeg(180);
+		ofRotateXDeg(15);
+		ofRotateYDeg(180 + ofGetElapsedTimef() * -30);
 		ofRotateZDeg(180); // Flip model upright for 2D UI coordinates
 
 		glDisable(GL_CULL_FACE);
