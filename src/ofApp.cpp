@@ -41,6 +41,9 @@ static const int MENU_GHOST_RELOCATE = 5;
 // Global menu alpha multiplier for fade animations
 static float g_menuAlphaMult = 1.0f;
 
+// Window Mode State: 0=Windowed, 1=Fullscreen, 2=Borderless
+static int g_windowModeState = 1;
+
 // Tracks the playerID of whoever most recently damaged a unit (for Kill Credits)
 // FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
 static std::map<int, int> g_lastDamagerMap;
@@ -3037,21 +3040,8 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, i
 			}
 
 			if (targetIndex != -1) {
-
-				// Deterministic draft trigger: both host and client call this
-				// so that generateDraftOptions() is executed on the same tick
-				// with the same seed/context.
-				isInGameDraft = true;
-				inGameDraftTargetIdx = targetIndex;
-				draftPlayerIndex = targetIndex;
-				generateDraftOptions(classToDraft);
-				draftPicksRemaining = 1;
-				selectedDraftIndices.clear();
-				currentState = STATE_DRAFTING;
-				resetDraftPhaseTimerWindow();
-				draftDisplayStartTime = ofGetElapsedTimef();
-				draftDisplayInteractiveEnabled = false;
-				draftAutoSelectedIndex = -1;
+				// Queue the draft safely so it doesn't interrupt ongoing Effect Sequences (like Earthquakes/Spawns)
+				networkPending.draftQueue.push_back((targetIndex << 16) | classToDraft);
 
 				// Pause the active player's turn timer if this draft belongs to the opponent
 				pauseTurnTimerForOpponentDecision(targetIndex);
@@ -3461,6 +3451,18 @@ void ofApp::setup() {
 	if (titleFont.isLoaded()) {
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
+
+	// --- SET APP ICON ---
+	ofPixels iconPixels;
+	if (ofLoadImage(iconPixels, "UI/Cards/Art/0.png")) {
+		GLFWwindow * glfwWindow = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+		GLFWimage glfwIcon;
+		glfwIcon.width = iconPixels.getWidth();
+		glfwIcon.height = iconPixels.getHeight();
+		glfwIcon.pixels = iconPixels.getData();
+		glfwSetWindowIcon(glfwWindow, 1, &glfwIcon);
+		ofLogNotice("Setup") << "App icon loaded successfully.";
 	}
 
 	cardBackImage.load("UI/card_back.png");
@@ -5337,12 +5339,17 @@ void ofApp::drawSettingsMenu() {
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
 		ofSetColor(ofColor(35));
-		string fsText = isFullscreen ? "Fullscreen" : "Windowed";
+		string fsText = "Windowed";
+		if (g_windowModeState == 1)
+			fsText = "Fullscreen";
+		else if (g_windowModeState == 2)
+			fsText = "Borderless";
+
 		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
 		ofDrawRectangle(settingsFullscreenButton);
 		ofSetColor(ofColor::white);
 		ofRectangle fb = uiFont.getStringBoundingBox(fsText, 0, 0);
-		uiFont.drawString(fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30);
+		uiFont.drawString(fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
 	}
 
 	// AUDIO tab: simple slider + mute/loop toggles
@@ -5851,32 +5858,36 @@ void ofApp::drawMultiplayerMenu() {
 void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 
-	// Ensure requested resolution is applied whether fullscreen or windowed.
-	// Set the window shape first so the OS/windowing system applies the requested size,
-	// then toggle fullscreen if requested. This helps keep fullscreen at the chosen
-	// resolution on platforms that support it.
-	ofSetWindowShape(res.x, res.y);
-	if (isFullscreen) {
+	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+
+	if (g_windowModeState == 1) { // Standard Fullscreen
+		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE); // Restore borders just in case
 		if (ofGetWindowMode() != OF_FULLSCREEN) {
-			// Give the window the desired size first, then switch to fullscreen
-			int screenW = ofGetScreenWidth();
-			int screenH = ofGetScreenHeight();
-			ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
 			ofSetFullscreen(true);
 		}
-	} else {
+		isFullscreen = true; // Sync the old bool for game logic
+	} else if (g_windowModeState == 2) { // Borderless Windowed
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
 			ofSetFullscreen(false);
 		}
-		// Windowed: ensure requested shape and center on screen
-		ofSetWindowShape(res.x, res.y);
-		// Wait for the window to resize, then recenter robustly
+		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+
 		int screenW = ofGetScreenWidth();
 		int screenH = ofGetScreenHeight();
-		// Try to recenter multiple times to fight window manager race conditions
-		for (int i = 0; i < 3; ++i) {
-			ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
+		ofSetWindowPosition(0, 0);
+		ofSetWindowShape(screenW, screenH);
+		isFullscreen = true;
+	} else { // Standard Windowed
+		if (ofGetWindowMode() == OF_FULLSCREEN) {
+			ofSetFullscreen(false);
 		}
+		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
+		ofSetWindowShape(res.x, res.y);
+
+		int screenW = ofGetScreenWidth();
+		int screenH = ofGetScreenHeight();
+		ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
+		isFullscreen = false;
 	}
 
 	// Framerate: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
@@ -9135,6 +9146,9 @@ void ofApp::drawGame() {
 				aoeFeet = (card.aoeRadiusDiceNum > 0) ? (card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20;
 			}
 
+			long long aoeHalfTiles = ((long long)aoeFeet * 2LL) / 5LL;
+			long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
+
 			for (int cx = 0; cx < BOARD_WIDTH; ++cx) {
 				for (int cy = 0; cy < BOARD_HEIGHT; ++cy) {
 					if (!board[cx][cy].isTargetable) continue;
@@ -9156,10 +9170,9 @@ void ofApp::drawGame() {
 							if (!blocked) reaches = true;
 						}
 					} else {
-						// Standard AOE
-						float centerDistFeetToUnit = glm::distance(glm::vec2((float)cx + 0.5f, (float)cy + 0.5f), glm::vec2((float)unit.x + 0.5f, (float)unit.y + 0.5f)) * 5.0f;
-						float distToUnitFeet = std::max(0.0f, centerDistFeetToUnit - 2.5f);
-						if (distToUnitFeet <= (float)aoeFeet + 0.01f) {
+						// Standard AOE (Deterministic Math)
+						long long uDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)cx, (float)cy), glm::vec2((float)unit.x, (float)unit.y));
+						if (uDistSq <= aoeDistSq) {
 							auto losPath = getLineOfSightPath(glm::vec2((float)cx + 0.5f, (float)cy + 0.5f), glm::vec2((float)unit.x + 0.5f, (float)unit.y + 0.5f));
 							bool blocked = false;
 							for (const auto & step : losPath) {
@@ -14370,8 +14383,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveSettings();
 				return;
 			}
+
 			if (settingsFullscreenButton.inside(x, y)) {
-				isFullscreen = !isFullscreen;
+				g_windowModeState = (g_windowModeState + 1) % 3;
 				applySettings();
 				saveSettings();
 				return;
@@ -22794,17 +22808,20 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
 			std::vector<int> aoeTargets;
 
-			glm::vec2 impactCenter = glm::vec2((float)currentCardOutcome.primaryTarget.x + 0.5f, (float)currentCardOutcome.primaryTarget.y + 0.5f);
+			long long maxAoeHalfTiles = ((long long)aoeRadiusFeet * 2LL) / 5LL;
+			long long maxAoeDistSq = maxAoeHalfTiles * maxAoeHalfTiles;
+			glm::vec2 impactTileFloat((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y);
+			glm::vec2 impactCenter = impactTileFloat + 0.5f;
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
 				if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
 
-				float centerDistFeet = glm::distance(impactCenter, glm::vec2((float)p.x + 0.5f, (float)p.y + 0.5f)) * 5.0f;
-				float distToPlayerFeet = std::max(0.0f, centerDistFeet - 2.5f);
+				glm::vec2 targetTile((float)p.x, (float)p.y);
+				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, targetTile);
 
-				if (distToPlayerFeet <= (float)aoeRadiusFeet + 0.01f) {
+				if (distSq <= maxAoeDistSq) {
 					auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
 					bool blockedByWall = false;
 					for (const auto & stepP : losPath) {
@@ -26694,9 +26711,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Queue damage/destroy dice
 		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0), 2, 4, rawDest, destCount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
-		// 3. Find Targets
+		// 3. Find Targets (Using Deterministic Integer Math)
 		psionicWaveTargetIndices.clear();
-		glm::vec2 casterCenter = { (float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f };
+
+		long long maxRangeHalfTiles = ((long long)rangeFeet * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 
 		for (size_t i = 0; i < players.size(); ++i) {
 			if ((int)i == currentPlayerIndex) continue; // Do not affect self
@@ -26704,11 +26725,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if (p.health <= 0) continue;
 			if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
 
-			glm::vec2 targetCenter = { (float)p.x + 0.5f, (float)p.y + 0.5f };
-			float centerDistFeet = glm::distance(casterCenter, targetCenter) * 5.0f;
-			float distToFaceFeet = std::max(0.0f, centerDistFeet - 2.5f);
+			glm::vec2 targetTile = { (float)p.x, (float)p.y };
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 
-			if (distToFaceFeet <= (float)rangeFeet + 0.01f) {
+			if (distSq <= maxDistSq) {
 				// No LOS check - goes through walls!
 				psionicWaveTargetIndices.push_back((int)i);
 			}
@@ -27883,10 +27903,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
 		if (maxRangeFeet <= 0.0f) maxRangeFeet = 40.0f; // fallback
 		float maxAoeFeet = (playedCard.aoeRadiusDiceNum > 0 && playedCard.aoeRadiusDiceSides > 0) ? (float)(playedCard.aoeRadiusDiceNum * playedCard.aoeRadiusDiceSides) : 20.0f;
-		glm::vec2 cPos((float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f);
-		glm::vec2 tPos((float)targetX + 0.5f, (float)targetY + 0.5f);
-		float distFeet = getFaceToFaceDistance(cPos, tPos) * 5.0f;
-		if (distFeet > maxRangeFeet + maxAoeFeet + 0.1f) return true;
+
+		long long maxTotalHalfTiles = ((long long)(maxRangeFeet + maxAoeFeet) * 2LL) / 5LL;
+		long long maxDistSq = maxTotalHalfTiles * maxTotalHalfTiles;
+
+		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
+		glm::vec2 tPos((float)targetX, (float)targetY);
+
+		if (getFaceToFaceDistanceSquaredScaled(cPos, tPos) > maxDistSq) return true;
 		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
 			if (board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) return true;
 		}
@@ -28808,12 +28832,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool valid = false;
 
 				glm::vec2 targetPos((float)tx, (float)ty);
-				float distFeet = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
+				long long distSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
 
 				// --- UNCONDITIONAL TOOLTIP DATA CALCULATION ---
 				// Calculate and assign min roll/chance for EVERY tile on the board
 				if (maxRangeFeet < 9000.0f && rangeNum > 0 && rangeSides > 0) {
-					int minRoll = (int)ceil(distFeet);
+					// Safe visual tooltip conversion from squared distance back to feet
+					int minRoll = (int)ceil(sqrt((double)distSq) * 2.5);
 					int maxPossibleRoll = rangeNum * rangeSides;
 					if (minRoll < rangeNum) minRoll = rangeNum;
 
@@ -28873,7 +28898,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (card.type == CARD_MAGIC_BOLT) {
 					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue; // Skip empty walls for bolt target
 
-					if (distFeet <= maxRangeFeet + maxAoeFeet + 0.1f) {
+					long long maxTotalHalfTiles = ((long long)(maxRangeFeet + maxAoeFeet) * 2LL) / 5LL;
+					long long maxTotalDistSq = maxTotalHalfTiles * maxTotalHalfTiles;
+
+					if (distSq <= maxTotalDistSq) {
 						glm::ivec2 impactTile = { tx, ty };
 						long long maxRangeHalfTiles = ((long long)maxRangeFeet * 2LL) / 5LL;
 						long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
@@ -28901,12 +28929,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex) && !board[impactTile.x][impactTile.y].hasWall) {
 							hitsSomeone = true;
 						} else {
+							long long aoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
+							long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
+
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
 								if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
-								float centerDistFeetToPlayer = glm::distance(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
-								float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
-								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
+
+								long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y));
+
+								if (pDistSq <= aoeDistSq) {
 									auto los = getClearLosRay(glm::vec2(impactTile.x, impactTile.y), glm::vec2(players[i].x, players[i].y), card.type);
 									if (los.hasLos) {
 										hitsSomeone = true;
@@ -28962,12 +28994,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// MUST HAVE LOS TO THE TARGET TILE ITSELF!
 					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
 						bool hitsSomeone = false;
+						long long aoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
+						long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
+
 						for (size_t i = 0; i < players.size(); ++i) {
 							if ((int)i == currentPlayerIndex) continue;
 							if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
-							float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
-							float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
-							if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
+
+							long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y));
+
+							if (pDistSq <= aoeDistSq) {
 								auto los = getClearLosRay(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y), card.type);
 								if (los.hasLos) {
 									hitsSomeone = true;
@@ -34039,6 +34075,7 @@ void ofApp::saveSettings() {
 	json["invertCameraY"] = settingsInvertCameraY;
 	json["uiScale"] = settingsUIScale;
 	json["useVSync"] = settingsUseVSync;
+	json["windowModeState"] = g_windowModeState;
 	json["showHints"] = settingsShowHints;
 	json["currentFramerateIndex"] = currentFramerateIndex;
 	json["currentResolutionIndex"] = currentResolutionIndex;
@@ -34079,6 +34116,7 @@ void ofApp::loadSettings() {
 		settingsInvertCameraY = json.value("invertCameraY", settingsInvertCameraY);
 		settingsUIScale = json.value("uiScale", settingsUIScale);
 		settingsUseVSync = json.value("useVSync", settingsUseVSync);
+		g_windowModeState = json.value("windowModeState", g_windowModeState);
 		settingsShowHints = json.value("showHints", settingsShowHints);
 		currentFramerateIndex = json.value("currentFramerateIndex", currentFramerateIndex);
 		currentResolutionIndex = json.value("currentResolutionIndex", currentResolutionIndex);

@@ -1,26 +1,27 @@
 #include "ofApp.h"
 #include "ofMain.h"
 
-int main() {
-
-	// Check for checksum harness mode (no UI loop)
+int main(int argc, char * argv[]) {
+	// Check for checksum harness mode
 	bool checksumHarness = false;
 	const char * envHarness = getenv("MAGEFIGHT_CHECKSUM_HARNESS");
 	if (envHarness && std::string(envHarness) == "1") checksumHarness = true;
 
-	// Also support command-line flag
-	// (Note: argc/argv not available in this simplified main, use env var primarily)
+	// Support command-line flags
+	for (int i = 0; i < argc; ++i) {
+		if (std::string(argv[i]) == "--checksum-harness") checksumHarness = true;
+	}
 
 	ofGLFWWindowSettings settings;
-	// Request a programmable renderer / core profile for GLSL 150 shaders
-	// Try a slightly newer core version if available.
 	settings.setGLVersion(3, 3);
-	settings.windowMode = OF_GAME_MODE;
+	// Start windowed. ofApp::applySettings() will instantly snap it to the saved state (Fullscreen/Borderless/etc)
+	settings.windowMode = OF_WINDOW;
+	settings.setSize(1280, 720);
+	settings.title = "Mage Fight";
 
 	auto window = ofCreateWindow(settings);
 
 	if (checksumHarness) {
-		// In harness mode, instantiate the app, run setup, load autosave(s), print checksums, and exit.
 		ofApp * app = new ofApp();
 		app->setup();
 
@@ -32,10 +33,8 @@ int main() {
 			}
 		}
 
-		// Optional scripted harness: auto-advance a few turns to exercise gameplay
 		const char * envScript = getenv("MAGEFIGHT_CHECKSUM_HARNESS_SCRIPT");
 		if (envScript && std::string(envScript) == "1" && anyLoaded) {
-			// Default small script of 4 turns
 			app->harnessAutoAdvanceTurns(4);
 			long long chk = app->calculateChecksum();
 			std::cout << "After scripted advances checksum=" << chk << std::endl;
