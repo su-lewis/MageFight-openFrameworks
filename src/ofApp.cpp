@@ -4625,34 +4625,7 @@ void ofApp::update() {
 			opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
 		}
 	}
-	// --- Dragging hand loop fade handling ---
-	if (draggingHandLoop.isLoaded()) {
-		// Detect drag end transition and trigger a very fast fade if needed
-		bool currentlyDragging = (draggedCardIndex != -1);
-		if (draggingWasActive && !currentlyDragging) {
-			draggingHandTargetVolume = 0.0f;
-			draggingHandFadeSpeed = 48.0f; // very fast fade
-		}
-		draggingWasActive = currentlyDragging;
 
-		float dt = ofGetLastFrameTime();
-		float curVol = draggingHandLoop.getVolume();
-		float target = draggingHandTargetVolume;
-		if (fabs(curVol - target) > 0.0005f) {
-			float step = draggingHandFadeSpeed * dt;
-			float nextVol = curVol;
-			if (curVol < target)
-				nextVol = std::min(curVol + step, target);
-			else
-				nextVol = std::max(curVol - step, target);
-			draggingHandLoop.setVolume(nextVol);
-		} else {
-			// Vol at target: if target is zero and still playing, stop to free resources
-			if (target <= 0.0005f && draggingHandLoop.isPlaying()) {
-				draggingHandLoop.stop();
-			}
-		}
-	}
 	processNetworkPackets();
 
 	// Update active tracers: expire and clear highlights when done
@@ -18743,12 +18716,6 @@ void ofApp::resetCardInteraction() {
 		sendMenuState(0, -1, -1, -1);
 	}
 	// Clear centralized interaction helpers and transient UI lists only.
-	opponentInteraction.open = false;
-	opponentInteraction.type = 0;
-	opponentInteraction.targetIndex = -1;
-	opponentInteraction.hoveredChoice = -1;
-	opponentInteraction.cardIndex = -1;
-
 	interactionMenuChoice.clear();
 	interactionTargetIndex = -1;
 	interactionNeedsStatusSelect = false;
@@ -19271,17 +19238,30 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	case CARD_GIANT_MAGIC_HAND: {
 		// Menu-first flow: if a choice is already selected, resolve immediately with this target.
 		if (!interactionMenuChoice.empty()) {
-			if (interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_BURST_OF_LIGHT
-				|| interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL
-				|| interactingCardType == CARD_MAGIC_BLAST) {
-				interactionTargetIndex = targetIndex;
-				interactingCardIndex = cardIndex;
-			} else if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
-				magicHandTargetTile = { gridX, gridY };
+			int choice = 1;
+			if (interactionMenuChoice == "heal" || interactionMenuChoice == "block" || interactionMenuChoice == "x2 Hand Block" || interactionMenuChoice == "Purge" || interactionMenuChoice == "pull" || interactionMenuChoice == "PULL") {
+				choice = 2;
 			}
 
-			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, interactingCardType);
-			handleCardMenuClick(interactionMenuChoice);
+			// Send the final target choice over the network!
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = interactingCardType;
+			cmd.params[1] = targetIndex;
+			cmd.params[2] = choice;
+			cmd.params[3] = interactingCardIndex;
+			if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
+				cmd.params[4] = gridX;
+				cmd.params[5] = gridY;
+			}
+
+			sendInputCommand(cmd, true);
+			resetCardInteraction();
 			return;
 		}
 
@@ -20609,15 +20589,12 @@ void ofApp::simulationTick() {
 	if (!isProcessingEffect && !isEarthquakeActive) {
 		std::vector<int> removeIndices;
 		for (size_t i = 0; i < players.size(); ++i) {
-			// Consider played cards as well when deciding "no cards" for main players.
-			bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
 			bool shouldDie = (players[i].health <= 0);
 
-			// If a unit (player or minion) truly has no cards anywhere (deck,
-			// discard, hand, or played pile), they should be removed.
-			// EXCEPTION 1: Do not kill players during the initial draft.
-			// EXCEPTION 2: Do not kill units on the exact turn they are summoned
-			// (gives Golems/minions time to generate decks via EffectOps).
+			// Exhaustion: instantly kill any unit (player or minion) if they have NO cards anywhere
+			// (Deck, discard, hand, and played pile must all be completely empty).
+			bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
+
 			if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
 				shouldDie = true;
 			}
@@ -20631,7 +20608,7 @@ void ofApp::simulationTick() {
 				// Check orthogonally-adjacent tiles for an alive Faerie.
 				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
 					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-						if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
+						if (abs(dx) + abs(dy) == 1) { // orthogonal only
 							int nx = dying.x + dx, ny = dying.y + dy;
 							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 							for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
@@ -20651,6 +20628,9 @@ void ofApp::simulationTick() {
 									int pct = roll * 25;
 									std::string calcStr = "Roll: " + ofToString(roll) + " (" + ofToString(pct) + "%) -> " + ofToString(hp) + " HP";
 									queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
+
+									// NEW: Visual Tracer to show the magical link
+									queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
 
 									{
 										EffectOp wait = {};
@@ -21278,6 +21258,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			resetCardInteraction();
 
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
+
+			// CRITICAL FIX: Unfreeze the state machine so the effect sequence actually runs!
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			break;
 		}
 
@@ -22476,46 +22459,75 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_PSIONIC_WAVE: {
-		// Read authoritative cards-to-remove from blackboard[1]
-		int cardsToRemove = currentEffectSequence.blackboard[1];
-		ofLogNotice("Psionic") << "Removing " << cardsToRemove << " cards from " << psionicWaveTargetIndices.size() << " targets.";
+		int step = op.data.damage.fixedDamage;
+		if (step == 0) {
+			int rangeFeet = currentEffectSequence.blackboard[0];
+			ExpandingAOERing ring;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				ring.centerTile = { players[currentPlayerIndex].x, players[currentPlayerIndex].y };
+			} else {
+				ring.centerTile = { 0, 0 };
+			}
+			ring.maxRadiusFeet = rangeFeet;
+			ring.startTime = ofGetElapsedTimef();
+			ring.duration = 1.2f;
+			ring.cardType = CARD_PSIONIC_WAVE;
+			activeMagicBoltAOERings.push_back(ring);
 
-		for (int pIndex : psionicWaveTargetIndices) {
-			Player * target = getPlayer(pIndex);
-			if (!target) continue;
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 1; // wait 0.4s
+			queueEffect(wait);
 
-			int removedCount = 0;
-			for (int k = 0; k < cardsToRemove; ++k) {
-				if (!target->deck.empty()) {
-					Card c = target->deck.back();
-					target->deck.pop_back();
+			EffectOp next = {};
+			next.type = EffectOpType::APPLY_PSIONIC_WAVE;
+			next.data.damage.fixedDamage = 1;
+			queueEffect(next);
+			opComplete = true;
+			break;
+		} else if (step == 1) {
+			// Read authoritative cards-to-remove from blackboard[1]
+			int cardsToRemove = currentEffectSequence.blackboard[1];
+			ofLogNotice("Psionic") << "Removing " << cardsToRemove << " cards from " << psionicWaveTargetIndices.size() << " targets.";
 
-					if (isMultiplayer) {
-						RemovedCardAnimation anim;
-						anim.card = c;
-						anim.startPos = glm::vec2(ofGetWidth() / 2.0f + (removedCount * 40.0f - 80.0f), ofGetHeight() / 2.0f - 50.0f);
-						anim.startTime = ofGetElapsedTimef() + (removedCount * 0.15f);
-						anim.currentScale = 1.8f;
-						anim.currentAlpha = 255.0f;
-						activeRemovedCardAnimations.push_back(anim);
+			for (int pIndex : psionicWaveTargetIndices) {
+				Player * target = getPlayer(pIndex);
+				if (!target) continue;
+
+				int removedCount = 0;
+				for (int k = 0; k < cardsToRemove; ++k) {
+					if (!target->deck.empty()) {
+						Card c = target->deck.back();
+						target->deck.pop_back();
+
+						if (isMultiplayer) {
+							RemovedCardAnimation anim;
+							anim.card = c;
+							anim.startPos = glm::vec2(ofGetWidth() / 2.0f + (removedCount * 40.0f - 80.0f), ofGetHeight() / 2.0f - 50.0f);
+							anim.startTime = ofGetElapsedTimef() + (removedCount * 0.15f);
+							anim.currentScale = 1.8f;
+							anim.currentAlpha = 255.0f;
+							activeRemovedCardAnimations.push_back(anim);
+						}
+
+						removedCount++;
 					}
+				}
 
-					removedCount++;
+				if (removedCount > 0) {
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
+				} else {
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
 				}
 			}
-
-			if (removedCount > 0) {
-				queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
-			} else {
-				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
+			psionicWaveTargetIndices.clear();
+			if (cardPlayState != CARD_PLAY_STATE_IDLE) {
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			}
-		}
-		psionicWaveTargetIndices.clear();
-		if (cardPlayState != CARD_PLAY_STATE_IDLE) {
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		}
 
-		opComplete = true;
+			opComplete = true;
+			break;
+		}
 		break;
 	}
 
@@ -25672,9 +25684,11 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				sendInputCommand(cmd, true);
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();
-				resetCardState();
+				// FIX: Do not call resetCardState() here, it destroys the effect sequence!
 				return;
 			}
+
+			// Toggle cards
 
 			// Toggle cards
 			Player & p = players[currentPlayerIndex];
@@ -32832,6 +32846,9 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
 							queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
 
+							// NEW: Visual Tracer to show the magical link
+							queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
+
 							{
 								EffectOp wait = {};
 								wait.type = EffectOpType::WAIT_VISUAL;
@@ -32844,7 +32861,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								setHp.data.modifyStat.statType = 0; // HP
 								setHp.data.modifyStat.delta = hp - target.health;
 								setHp.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(setHp);
+								queueEffect(setHp); // FIXED: Prevent queue bypass!
 							}
 							resurrected = true;
 							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
@@ -34485,9 +34502,10 @@ void ofApp::drawMinionManagerUI() {
 		// Position natively inside the computed viewport rect
 		ofTranslate(modelX + modelW / 2.0f, modelY + modelW * 0.85f);
 		float uScale = (modelW / 512.0f) * 90.0f * 0.02f; // Scale relative to viewport
-		ofScale(uScale, -uScale, uScale);
+		ofScale(uScale, uScale, uScale);
 		ofRotateXDeg(-15);
 		ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+		ofRotateZDeg(180); // Flip model upright for 2D UI coordinates
 
 		glDisable(GL_CULL_FACE);
 		glEnable(GL_NORMALIZE);
