@@ -16794,10 +16794,13 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
 				return;
 			}
-			// If a card menu is open (must choose), ignore right-click cancels
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-				ofLogNotice("Input") << "Right-click ignored while menu open (must choose).";
-				return;
+			// Prevent cancelling menus that are actively resolving mid-effect over the network.
+			// (e.g., Amnesia or Magic Blast, where the dice have already rolled and AP is paid).
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+				if (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_MAGIC_BLAST) {
+					ofLogNotice("Input") << "Right-click ignored: this menu cannot be cancelled mid-resolution.";
+					return;
+				}
 			}
 
 			// If a committed card is currently in targeting mode, refund AP and restore the card on cancel.
