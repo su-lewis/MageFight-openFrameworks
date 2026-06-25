@@ -6016,6 +6016,7 @@ void ofApp::setupGame() {
 	g_isGameOver = false;
 	g_winnerID = -1;
 	initialDraftComplete = false;
+	isInGameDraft = false;
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
 
@@ -30515,6 +30516,11 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				}
 				if (parts.size() > 25) {
 					tmpInitialDraftComplete = (std::stoi(parts[25]) != 0);
+				} else {
+					// Backward compatibility: If the save file didn't have the flag, but we're in gameplay, it must be true!
+					if (tmpCurrentState == STATE_GAMEPLAY || tmpIsInGameDraft) {
+						tmpInitialDraftComplete = true;
+					}
 				}
 			} else if (parts[0] == "DAMAGERMAP") {
 				g_lastDamagerMap.clear();
@@ -33823,6 +33829,7 @@ void ofApp::debugSkipDraftRandomCards() {
 
 	// Clear draft state
 	draftOptions.clear();
+	initialDraftComplete = true;
 	isInGameDraft = false;
 	inGameDraftTargetIdx = -1;
 	networkPending.keyDraftKeyX = -1;
