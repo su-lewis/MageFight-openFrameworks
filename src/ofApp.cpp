@@ -18753,6 +18753,12 @@ void ofApp::resetCardInteraction() {
 		sendMenuState(0, -1, -1, -1);
 	}
 	// Clear centralized interaction helpers and transient UI lists only.
+	opponentInteraction.open = false;
+	opponentInteraction.type = 0;
+	opponentInteraction.targetIndex = -1;
+	opponentInteraction.hoveredChoice = -1;
+	opponentInteraction.cardIndex = -1;
+
 	interactionMenuChoice.clear();
 	interactionTargetIndex = -1;
 	interactionNeedsStatusSelect = false;
@@ -19498,7 +19504,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	case CARD_TRAIN: {
 		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice; // CACHE IT BEFORE RESET
-		resetCardState();
 		currentCardOutcome.cardType = CARD_TRAIN;
 		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19523,7 +19528,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
 		glm::ivec2 wallPos = magicHandTargetTile;
-		resetCardState();
 		currentCardOutcome.cardType = CARD_GIANT_MAGIC_HAND;
 		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19621,7 +19625,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	case CARD_AMNESIA: {
 		int safeCardIdx = interactingCardIndex; // Cache it!
-		resetCardState();
 		currentCardOutcome.cardType = CARD_AMNESIA;
 		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19635,7 +19638,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		std::string safeChoice = interactionMenuChoice;
 		int safeTarget = interactionTargetIndex; // Cache it before resetCardState clears it!
 		if (safeChoice == "Barrier") {
-			resetCardState();
 			currentCardOutcome.cardType = CARD_DISPEL;
 			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 			currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19670,7 +19672,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	case CARD_BURST_OF_LIGHT: {
 		if (interactionTargetIndex != -1) {
-			resetCardState();
 			currentCardOutcome.cardType = CARD_BURST_OF_LIGHT;
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19703,7 +19704,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		int safeTarget = interactionTargetIndex;
 		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
-		resetCardState();
 		currentCardOutcome.cardType = CARD_WISDOM_BOON;
 		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19737,7 +19737,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
 		if (safeTarget != -1) {
-			resetCardState();
 			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
 			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 			currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -19768,7 +19767,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		int safeTarget = interactionTargetIndex; // Cache target securely
 		int safeCardIdx = interactingCardIndex; // Cache it!
 		std::string safeChoice = interactionMenuChoice;
-		resetCardState();
 		currentCardOutcome.cardType = CARD_MAGIC_BLAST;
 		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
 		currentCardOutcome.casterIndex = currentPlayerIndex;
@@ -32451,7 +32449,7 @@ void ofApp::determineStatusOptions(Player * target) {
 		}
 		// Still consume the played Dispel card/AP so behavior matches other cards.
 		if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			resetCardState();
+			// Do NOT resetCardState() here, it wipes the state machine
 			currentCardOutcome.cardType = CARD_DISPEL;
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
