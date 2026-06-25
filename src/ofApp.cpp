@@ -5019,31 +5019,27 @@ void ofApp::scheduleGenerateDraftOptions(int classTier, float delaySeconds) {
 
 //--------------------------------------------------------------
 void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
-	// Draw a glowing outline around the tile at (gridX, gridY)
-	// Respect global flag to disable all glow effects
 	if (disableAllGlow) return;
 	ofVec3f worldPos = gridToWorld(gridX, gridY);
 
-	// Draw a quad outline at ground level around the tile edges
-	// Use TILE_SIZE/2 to cover the actual tile boundaries
 	float halfTile = TILE_SIZE / 2.0f;
-	float glowHeight = 0.02f; // Slightly above ground to avoid z-fighting
+	float glowHeight = 0.02f;
 
-	// Save render state
 	ofPushStyle();
+	ofFill(); // Force geometric fill for thick lines
 	ofSetColor(color);
-	ofSetLineWidth(thickness);
 
-	// Draw outline around tile
+	float t = std::max(0.1f, thickness * 0.02f); // Map to world units
+	float hThick = t * 0.5f;
+
 	ofPushMatrix();
-	ofTranslate(worldPos.x, 0.0f, worldPos.z);
-	ofTranslate(0, glowHeight, 0);
+	ofTranslate(worldPos.x, glowHeight, worldPos.z);
+	ofRotateXDeg(90);
 
-	// Draw four lines forming a square around the tile
-	ofDrawLine(-halfTile, 0, -halfTile, halfTile, 0, -halfTile); // Bottom edge
-	ofDrawLine(halfTile, 0, -halfTile, halfTile, 0, halfTile); // Right edge
-	ofDrawLine(halfTile, 0, halfTile, -halfTile, 0, halfTile); // Top edge
-	ofDrawLine(-halfTile, 0, halfTile, -halfTile, 0, -halfTile); // Left edge
+	ofDrawRectangle(-halfTile - hThick, -halfTile - hThick, TILE_SIZE + t, t);
+	ofDrawRectangle(-halfTile - hThick, halfTile - hThick, TILE_SIZE + t, t);
+	ofDrawRectangle(-halfTile - hThick, -halfTile - hThick, t, TILE_SIZE + t);
+	ofDrawRectangle(halfTile - hThick, -halfTile - hThick, t, TILE_SIZE + t);
 
 	ofPopMatrix();
 	ofPopStyle();
@@ -10471,9 +10467,17 @@ void ofApp::drawGame() {
 		// Draw active tracers (ranged spell visuals)
 		{
 			float now = ofGetElapsedTimef();
-			// Ensure lines are drawn without lighting so color is consistent
 			ofDisableLighting();
 			ofEnableDepthTest();
+
+			auto drawThickRect = [&](float size, float t) {
+				float hs = size * 0.5f;
+				ofDrawRectangle(-hs - t / 2, -hs - t / 2, size + t, t);
+				ofDrawRectangle(-hs - t / 2, hs - t / 2, size + t, t);
+				ofDrawRectangle(-hs - t / 2, -hs - t / 2, t, size + t);
+				ofDrawRectangle(hs - t / 2, -hs - t / 2, t, size + t);
+			};
+
 			for (const auto & tr : activeTracers) {
 				float life = (now - tr.startTime) / tr.duration;
 				if (life < 0.0f) life = 0.0f;
@@ -10482,25 +10486,36 @@ void ofApp::drawGame() {
 				ofColor col = tr.color;
 				col.a = (unsigned char)(ofClamp(alpha, 0.0f, 1.0f) * 255);
 				ofSetColor(col);
-				ofSetLineWidth(6.0f);
-				// Draw a flat tracer slightly above the board using XZ from stored start/end
-				const float tracerHeight = 0.12f; // small elevation above tile surface
-				ofDrawLine(tr.start.x, tracerHeight, tr.start.z, tr.end.x, tracerHeight, tr.end.z);
+				ofFill();
+
+				// Draw Beam Geometry
+				const float tracerHeight = 0.12f;
+				glm::vec2 p1(tr.start.x, tr.start.z);
+				glm::vec2 p2(tr.end.x, tr.end.z);
+				glm::vec2 dir = p2 - p1;
+				float len = glm::length(dir);
+				if (len > 0.001f) {
+					dir /= len;
+					float angle = atan2(dir.y, dir.x) * RAD_TO_DEG;
+					ofPushMatrix();
+					ofTranslate(p1.x, tracerHeight, p1.y);
+					ofRotateYDeg(-angle);
+					ofRotateXDeg(90);
+					float thick = TILE_SIZE * 0.15f;
+					ofDrawRectangle(0, -thick / 2.0f, len, thick);
+					ofPopMatrix();
+				}
 
 				// Draw impact tile outline
 				ofPushMatrix();
 				glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
 				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
 				ofRotateXDeg(90);
-				ofNoFill();
 				ofSetColor(255, 220, 0, col.a);
-				ofSetLineWidth(5.0f);
-				ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
-				ofSetLineWidth(1.0f);
-				ofFill();
+				drawThickRect(TILE_SIZE, TILE_SIZE * 0.08f);
 				ofPopMatrix();
 
-				// Impact glow on tile (slightly jittered/pulsed)
+				// Impact glow on tile
 				float pulse = 1.0f + 0.25f * sin((now - tr.startTime) * 16.0f);
 				ofPushMatrix();
 				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
@@ -10509,22 +10524,16 @@ void ofApp::drawGame() {
 				ofDrawCircle(0, 0, (TILE_SIZE * 0.18f) * pulse);
 				ofPopMatrix();
 
-				// Draw adjacent tile outlines (for AOE effects)
+				// Draw adjacent tile outlines
 				for (const auto & adjTile : tr.adjacentTiles) {
 					ofPushMatrix();
 					glm::vec3 adjTileCenter = gridToWorld(adjTile.x, adjTile.y);
 					ofTranslate(adjTileCenter.x, 0.08f + 0.02f, adjTileCenter.z);
 					ofRotateXDeg(90);
-					ofNoFill();
-					ofSetColor(255, 220, 0, (unsigned char)(col.a * 0.6f)); // Slightly dimmer for adjacent tiles
-					ofSetLineWidth(3.0f);
-					ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
-					ofSetLineWidth(1.0f);
-					ofFill();
+					ofSetColor(255, 220, 0, (unsigned char)(col.a * 0.6f));
+					drawThickRect(TILE_SIZE, TILE_SIZE * 0.06f);
 					ofPopMatrix();
 				}
-
-				ofSetLineWidth(1.0f);
 			}
 			ofEnableLighting();
 			ofDisableDepthTest();
@@ -10764,19 +10773,31 @@ void ofApp::drawGame() {
 					ofTranslate(worldTarget.x, worldTarget.y + 0.05f, worldTarget.z);
 					ofRotateXDeg(90);
 
-					// Black border
-					ofNoFill();
-					ofSetColor(0, 0, 0, arrowCol.a);
-					ofSetLineWidth(8.0f);
-					ofDrawCircle(0, 0, ringRadius);
-					ofDrawCircle(0, 0, TILE_SIZE * 0.1f);
+					auto drawThickRing = [](float radius, float thickness) {
+						ofMesh ring;
+						ring.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+						int res = 64;
+						for (int i = 0; i <= res; ++i) {
+							float angle = TWO_PI * i / res;
+							float cx = cos(angle);
+							float cy = sin(angle);
+							ring.addVertex(glm::vec3(cx * (radius - thickness / 2.0f), cy * (radius - thickness / 2.0f), 0));
+							ring.addVertex(glm::vec3(cx * (radius + thickness / 2.0f), cy * (radius + thickness / 2.0f), 0));
+						}
+						ring.draw();
+					};
 
-					// Colored inner ring
+					ofFill();
+					// Black border rings
+					ofSetColor(0, 0, 0, arrowCol.a);
+					drawThickRing(ringRadius, TILE_SIZE * 0.15f);
+					drawThickRing(TILE_SIZE * 0.1f, TILE_SIZE * 0.05f);
+
+					// Colored inner rings
 					ofSetColor(arrowCol);
-					ofSetLineWidth(4.0f);
-					ofDrawCircle(0, 0, ringRadius);
-					ofSetLineWidth(2.0f);
-					ofDrawCircle(0, 0, TILE_SIZE * 0.1f);
+					drawThickRing(ringRadius, TILE_SIZE * 0.08f);
+					drawThickRing(TILE_SIZE * 0.1f, TILE_SIZE * 0.03f);
+
 					ofPopMatrix();
 				}
 			}
@@ -12085,6 +12106,51 @@ void ofApp::drawGame() {
 				ofPopStyle();
 			}
 
+			// B. Draw Overlays as Solid Polygons BEFORE the card face
+			ofPushStyle();
+			ofFill();
+
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+				bool isSelected = false;
+				for (int sel : renewedSelectedHandIndices)
+					if (sel == index) isSelected = true;
+				if (isSelected) {
+					ofSetColor(ofColor::green);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
+			} else {
+				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
+					ofSetColor(ofColor::green);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
+
+				if (index == draggedCardIndex && handDragInValidPlayZone) {
+					ofSetColor(90, 220, 255, 230);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 8.0f);
+				}
+
+				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
+					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
+					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+
+					if (isDirectDamageCard && !isExcluded) {
+						ofSetColor(255, 140, 0);
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+					}
+				}
+			}
+
+			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
+				ofSetColor(255, 255, 255, 200);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+			}
+			if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
+				ofSetColor(255, 0, 0, 200);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+			}
+
+			ofPopStyle();
+
 			// A. Draw Sprite
 			// Ghostly tint for copied cards in Renewed Inspiration mode
 			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
@@ -12096,83 +12162,6 @@ void ofApp::drawGame() {
 			}
 
 			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
-
-			// Draw hover glow (white for local, red for opponent)
-			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
-				ofPushStyle();
-				ofNoFill();
-				const float lineW = 4.0f;
-				ofSetColor(255, 255, 255, 200); // White glow
-				ofSetLineWidth(lineW);
-				drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
-				ofPopStyle();
-			}
-			if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
-				ofPushStyle();
-				ofNoFill();
-				const float lineW = 4.0f;
-				ofSetColor(255, 0, 0, 200); // Red glow
-				ofSetLineWidth(lineW);
-				drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
-				ofPopStyle();
-			}
-
-			// B. Draw Overlays (Outlines/Dims) at the same depth as the card
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-				bool isSelected = false;
-				for (int sel : renewedSelectedHandIndices)
-					if (sel == index) isSelected = true;
-
-				if (isSelected) {
-					// MATCH NORMAL GAMEPLAY: Yellow Selection
-					ofPushStyle();
-					ofNoFill();
-					const float lineW = 4.0f;
-					ofSetColor(ofColor::green);
-					ofSetLineWidth(lineW);
-					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
-					ofPopStyle();
-				}
-			} else {
-				// Normal Gameplay Selection (Yellow)
-				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
-					ofPushStyle();
-					ofNoFill();
-					const float lineW = 4.0f;
-					ofSetColor(ofColor::green);
-					ofSetLineWidth(lineW);
-					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
-					ofPopStyle();
-				}
-
-				if (index == draggedCardIndex && handDragInValidPlayZone) {
-					ofPushStyle();
-					ofNoFill();
-					const float lineW = 5.0f;
-					ofSetColor(90, 220, 255, 230);
-					ofSetLineWidth(lineW);
-					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
-					ofPopStyle();
-				}
-
-				// If Add Poison is primed for this player, highlight only direct physical/piercing cards
-				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
-
-					// Exclude specific non-damaging / indirect cards from being highlighted
-					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
-
-					if (isDirectDamageCard && !isExcluded) {
-						ofPushStyle();
-						ofNoFill();
-						const float lineW = 4.0f;
-						ofSetColor(255, 140, 0); // Orange glow
-						ofSetLineWidth(lineW);
-						drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
-						ofPopStyle();
-					}
-				}
-			}
 
 			ofPopMatrix();
 		};
@@ -32534,92 +32523,52 @@ void ofApp::applyDispelEffect(int statusID) {
 //--------------------------------------------------------------
 // Helper function to draw white outlined tiles that join together when adjacent
 void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT], ofColor color, float surfaceY) {
-	// This function draws outlines around groups of adjacent highlighted tiles
-	// such that the outlines merge to form larger connected shapes
-
-	// Respect global flag to disable all glow/outline effects
 	if (disableAllGlow) return;
 
-	ofNoFill();
-	ofSetLineWidth(6); // Thicker lines
+	// Use solid geometric fills to guarantee thickness on Windows
+	ofFill();
 	ofSetColor(color);
-
-	// Enable depth test so outlines are occluded by walls
 	ofEnableDepthTest();
 
-	// For each tile, draw edges that are NOT adjacent to another highlighted tile
+	float thickness = TILE_SIZE * 0.08f;
+	float halfThick = thickness * 0.5f;
+	float halfSize = TILE_SIZE * 0.5f;
+
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			if (!highlightedTiles[x][y]) continue;
 
-			// Don't skip path tiles - they should keep their white outlines even when green circles are drawn
-
 			glm::vec3 worldPos = gridToWorld(x, y);
-
-			// Calculate height based on wall status - draw on top of walls
 			float height = surfaceY + 0.03f;
 			if (board[x][y].hasWall) {
-				// Draw on top of wall (wall is TILE_SIZE * 0.5 tall)
 				height = (TILE_SIZE * 0.5f) + 0.08f;
 			}
 
-			// Check each of the 4 edges: top, right, bottom, left
 			bool drawTop = (y == 0 || !highlightedTiles[x][y - 1]);
 			bool drawBottom = (y == BOARD_HEIGHT - 1 || !highlightedTiles[x][y + 1]);
 			bool drawLeft = (x == 0 || !highlightedTiles[x - 1][y]);
 			bool drawRight = (x == BOARD_WIDTH - 1 || !highlightedTiles[x + 1][y]);
 
-			// For walls, also check if adjacent tile is NOT a wall (to draw vertical edges)
-			bool drawTopVertical = false;
-			bool drawBottomVertical = false;
-			bool drawLeftVertical = false;
-			bool drawRightVertical = false;
-
-			if (board[x][y].hasWall) {
-				if (drawTop && y > 0 && !board[x][y - 1].hasWall) drawTopVertical = true;
-				if (drawBottom && y < BOARD_HEIGHT - 1 && !board[x][y + 1].hasWall) drawBottomVertical = true;
-				if (drawLeft && x > 0 && !board[x - 1][y].hasWall) drawLeftVertical = true;
-				if (drawRight && x < BOARD_WIDTH - 1 && !board[x + 1][y].hasWall) drawRightVertical = true;
-			}
-
-			// Silence unused-variable warnings when vertical flags are unused on some builds
-			(void)drawTopVertical;
-			(void)drawBottomVertical;
-			(void)drawLeftVertical;
-			(void)drawRightVertical;
-
 			ofPushMatrix();
 			ofTranslate(worldPos.x, height, worldPos.z);
 			ofRotateXDeg(90);
 
-			float halfSize = TILE_SIZE * 0.5f;
-
-			// Draw only the edges that border non-highlighted tiles
 			if (drawTop) {
-				ofDrawLine(-halfSize, -halfSize, halfSize, -halfSize);
+				ofDrawRectangle(-halfSize - halfThick, -halfSize - halfThick, TILE_SIZE + thickness, thickness);
 			}
 			if (drawBottom) {
-				ofDrawLine(-halfSize, halfSize, halfSize, halfSize);
+				ofDrawRectangle(-halfSize - halfThick, halfSize - halfThick, TILE_SIZE + thickness, thickness);
 			}
 			if (drawLeft) {
-				ofDrawLine(-halfSize, -halfSize, -halfSize, halfSize);
+				ofDrawRectangle(-halfSize - halfThick, -halfSize - halfThick, thickness, TILE_SIZE + thickness);
 			}
 			if (drawRight) {
-				ofDrawLine(halfSize, -halfSize, halfSize, halfSize);
+				ofDrawRectangle(halfSize - halfThick, -halfSize - halfThick, thickness, TILE_SIZE + thickness);
 			}
 
 			ofPopMatrix();
-
-			// Vertical wall-face outlines intentionally omitted so white outlines
-			// join vertically (like horizontal joins) and avoid z-fighting with wall geometry.
-			// Previously we drew vertical edges on wall faces when adjacent tiles
-			// were non-highlighted; removing them makes outlines appear continuous
-			// across wall tiles and prevents overlapping geometry issues.
 		}
 	}
-
-	ofFill();
-	ofSetLineWidth(1);
 }
 
 //--------------------------------------------------------------
@@ -35451,38 +35400,32 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 
-		// Selection Highlight (Yellow) around scaled rect
+		// Use solid fills rendered BEFORE the card graphic to ensure thick borders
 		if (isSelected) {
 			ofPushStyle();
-			ofNoFill();
-			// Soft outer fade glow
-			for (int g = 1; g <= 6; ++g) {
+			ofFill();
+			// Reverse loop so largest polygons are drawn first behind the smaller ones
+			for (int g = 6; g >= 1; --g) {
 				ofSetColor(255, 255, 0, 90 - (g * 14));
-				drawCardOutlineOutside(drawX, drawY, w, h, 2.0f, g * 1.5f);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 2.0f);
 			}
-			const float lineW = 4.0f;
 			ofSetColor(ofColor::yellow);
-			ofSetLineWidth(lineW);
-			drawCardOutlineOutside(drawX, drawY, w, h, lineW, 0.0f);
+			drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
 			ofPopStyle();
 		}
-		// Hover Highlight (White/Subtle) using unscaled hit area
-		// Only draw hover when the slot isn't hidden and the accept hasn't been applied
+
 		bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
 		bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == (int)i);
 
 		if (isLocallyHovered || isOpponentHovered) {
 			ofPushStyle();
-			ofNoFill();
-			// Soft outer fade glow
-			for (int g = 1; g <= 5; ++g) {
+			ofFill();
+			for (int g = 5; g >= 1; --g) {
 				ofSetColor(255, 255, 255, 60 - (g * 10));
-				drawCardOutlineOutside(drawX, drawY, w, h, 2.0f, g * 1.5f);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 1.0f);
 			}
-			const float lineW = 3.0f;
 			ofSetColor(ofColor::white);
-			ofSetLineWidth(lineW);
-			drawCardOutlineOutside(drawX, drawY, w, h, lineW, 0.0f);
+			drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
 			ofPopStyle();
 		}
 
