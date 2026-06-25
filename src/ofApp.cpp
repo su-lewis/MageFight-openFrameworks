@@ -4345,7 +4345,7 @@ void ofApp::updateStateMachine() {
 					ofLogNotice("Network") << "Connection lost. Entering reconnect wait state.";
 					waitingForReconnect = true;
 					reconnectForfeitStartTime = ofGetElapsedTimef();
-					currentState = STATE_WAITING_FOR_RECONNECT;
+					// Do not change currentState so gameplay remains visible!
 
 					if (turnTimerEnabled && !turnTimerPaused) {
 						reconnectTurnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
@@ -5125,35 +5125,6 @@ void ofApp::draw() {
 	case STATE_GAMEPLAY:
 		drawGame();
 		break;
-	case STATE_WAITING_FOR_RECONNECT:
-		drawGame();
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-		ofPushStyle();
-		ofSetColor(0, 0, 0, 170);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-		ofSetColor(255);
-		{
-			std::string line1 = "Connection Lost";
-			std::string line2 = "Waiting for Opponent to Reconnect...";
-			int secsLeft = 0;
-			if (reconnectForfeitStartTime > 0.0f) {
-				secsLeft = std::max(0, (int)std::ceil(reconnectForfeitDuration - (ofGetElapsedTimef() - reconnectForfeitStartTime)));
-			}
-			std::string line3 = "Forfeit in " + ofToString(secsLeft) + "s";
-			std::string line4 = "Press ESC to Save & Quit";
-			ofRectangle b1 = titleFont.getStringBoundingBox(line1, 0, 0);
-			ofRectangle b2 = uiFont.getStringBoundingBox(line2, 0, 0);
-			ofRectangle b3 = uiFont.getStringBoundingBox(line3, 0, 0);
-			ofRectangle b4 = uiFont.getStringBoundingBox(line4, 0, 0);
-			float cx = ofGetWidth() * 0.5f;
-			float cy = ofGetHeight() * 0.5f;
-			titleFont.drawString(line1, cx - b1.getWidth() * 0.5f, cy - 20.0f);
-			uiFont.drawString(line2, cx - b2.getWidth() * 0.5f, cy + 24.0f);
-			uiFont.drawString(line3, cx - b3.getWidth() * 0.5f, cy + 58.0f);
-			uiFont.drawString(line4, cx - b4.getWidth() * 0.5f, cy + 92.0f);
-		}
-		ofPopStyle();
-		break;
 	case STATE_SAVE_BROWSER:
 		drawSaveBrowser();
 		break;
@@ -5184,6 +5155,18 @@ void ofApp::draw() {
 	// on top of the draft screen and the normal HUD.
 	if (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0) {
 		this->drawActiveDraftPickedMoves();
+	}
+	if (waitingForReconnect && !g_isGameOver) {
+		ofPushStyle();
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(150, 0, 0, 220); // Dark red banner
+		ofDrawRectangle(0, 0, ofGetWidth(), 40);
+		ofSetColor(255);
+		int secsLeft = std::max(0, (int)std::ceil(reconnectForfeitDuration - (ofGetElapsedTimef() - reconnectForfeitStartTime)));
+		std::string msg = "Connection Lost. Waiting for Opponent... (Forfeit in " + ofToString(secsLeft) + "s) Press ESC to Save/Quit";
+		ofRectangle b = uiFont.getStringBoundingBox(msg, 0, 0);
+		uiFont.drawString(msg, ofGetWidth() / 2.0f - b.width / 2.0f, 26);
+		ofPopStyle();
 	}
 }
 
@@ -6576,7 +6559,8 @@ void ofApp::prepareGameVisualState() {
 	for (auto & anim : activePlayedCardAnimations) {
 		float elapsed = time - anim.startTime;
 		anim.currentScale = 1.2f;
-		anim.pos = glm::vec2(ofGetWidth() - ((kCardPixelWidth * 0.55f * anim.currentScale) / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+		float uiScale = getUIScaleFromHeight(ofGetHeight());
+		anim.pos = glm::vec2(ofGetWidth() - (kCardPixelWidth * 0.55f * anim.currentScale * uiScale) - (40.0f * uiScale), ofGetHeight() / 2.0f);
 		anim.currentAlpha = (elapsed < 2.5f) ? 255.0f : ofLerp(255.0f, 0.0f, ofMap(elapsed, 2.5f, 3.0f, 0.0f, 1.0f, true));
 	}
 	activePlayedCardAnimations.erase(std::remove_if(activePlayedCardAnimations.begin(), activePlayedCardAnimations.end(), [time](const PlayedCardAnimation & a) { return (time - a.startTime) >= 3.0f; }), activePlayedCardAnimations.end());
@@ -6780,7 +6764,7 @@ void ofApp::prepareGameVisualState() {
 					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
 					bool isRenewedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
-					if ((isLocallyHovered || isOpponentHovered) && draggedCardIndex == -1 && !isActivelyTargeting && !isRenewedMenu) {
+					if (isLocallyHovered && draggedCardIndex == -1 && !isActivelyTargeting && !isRenewedMenu) {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
 						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
 						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
@@ -6790,7 +6774,7 @@ void ofApp::prepareGameVisualState() {
 					float targetScaleVal = 1.0f;
 					if (isRenewedMenu) {
 						targetScaleVal = 1.0f;
-					} else if ((isLocallyHovered || isOpponentHovered) && !isActivelyTargeting) {
+					} else if (isLocallyHovered && !isActivelyTargeting) {
 						targetScaleVal = kHandHoverScale;
 					}
 					if (isCurrentPlayerLocal() && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
@@ -7574,8 +7558,13 @@ void ofApp::updateGameLogic() {
 	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn() || isHost());
 	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex) || isHost());
 
-	// FIX: If it's an in-game draft, timer ownership belongs to the gameplay turn owner
-	bool localShouldRunTimerHere = (timerState == STATE_DRAFTING && !isInGameDraft) ? handlesDraftTimerHere : handlesGameplayTimerHere;
+	// FIX: Prevent active player from hijacking opponent's in-game drafts (Demon deaths/pushes)
+	bool localShouldRunTimerHere = false;
+	if (timerState == STATE_DRAFTING) {
+		localShouldRunTimerHere = handlesDraftTimerHere;
+	} else {
+		localShouldRunTimerHere = handlesGameplayTimerHere;
+	}
 
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
@@ -8187,14 +8176,19 @@ void ofApp::updateGameLogic() {
 	// ================== PASTE YOUR NEW CODE HERE ==================
 	// Check if we need to start a chained draft
 	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && !networkPending.draftQueue.empty()) {
-		// Start drafts from lower class to higher class.
-		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end());
+		// Start drafts from lower class to higher class by extracting the lower 16 bits
+		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end(), [](int a, int b) {
+			return (a & 0xFFFF) < (b & 0xFFFF);
+		});
 
-		int nextClass = networkPending.draftQueue.front();
+		int packed = networkPending.draftQueue.front();
 		networkPending.draftQueue.erase(networkPending.draftQueue.begin());
 
+		int nextClass = packed & 0xFFFF;
+		int targetPlayerIdx = (packed >> 16) & 0xFFFF;
+
 		isInGameDraft = true;
-		draftPlayerIndex = currentPlayerIndex;
+		draftPlayerIndex = targetPlayerIdx; // <--- FIX: Correctly assigns to the player who earned it!
 		generateDraftOptions(nextClass);
 		draftPicksRemaining = 1;
 		// No pending draft toggles tracking — clear selections on start
@@ -8208,7 +8202,7 @@ void ofApp::updateGameLogic() {
 		draftDisplayInteractiveEnabled = false;
 		draftAutoSelectedIndex = -1;
 
-		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
+		ofLogNotice("Draft") << "Starting chained draft for Class " << nextClass << " for playerIdx " << targetPlayerIdx << ". Remaining in queue: " << networkPending.draftQueue.size();
 	}
 
 	// ==============================================================
@@ -9340,26 +9334,25 @@ void ofApp::drawGame() {
 				if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
 				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
 				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
-				float pitch = atan2f(forward.y, forwardLenXZ);
-
-				float maxTilt = glm::radians(60.0f);
-				float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
-				glm::quat tiltQ = glm::angleAxis(-tilt, right);
-
-				glm::vec3 upVec(0, 1, 0);
-				glm::vec3 upTilt = tiltQ * upVec;
-				glm::vec3 rightTilt = tiltQ * right;
+				float yaw = atan2f(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 
 				float u0 = 0.0f;
 				float u1 = 1.0f;
 
-				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
-				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
-				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
-				glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
+				glm::vec3 p0(-halfW, -halfH, 0);
+				glm::vec3 p1(halfW, -halfH, 0);
+				glm::vec3 p2(halfW, halfH, 0);
+				glm::vec3 p3(-halfW, halfH, 0);
 
 				ofMesh quad;
 				quad.setMode(OF_PRIMITIVE_TRIANGLES);
+
+				// Transform the quad via matrix so it dynamically billboards
+				ofPushMatrix();
+				ofTranslate(pos.x, pos.y, pos.z);
+				ofRotateYDeg(yaw); // Face camera horizontally
+				ofRotateXDeg(-15.0f); // Slight backward tilt
+
 				quad.addVertex(p0);
 				quad.addTexCoord(glm::vec2(u0, 1));
 				quad.addVertex(p1);
@@ -9393,6 +9386,7 @@ void ofApp::drawGame() {
 				(*setTex)[curIdx].bind();
 				quad.draw();
 				(*setTex)[curIdx].unbind();
+				ofPopMatrix(); // Revert billboard translation
 				ofEnableLighting();
 				glDepthMask(GL_TRUE);
 				glDisable(GL_ALPHA_TEST);
@@ -10592,7 +10586,7 @@ void ofApp::drawGame() {
 
 			if (isCurrentPlayerLocal()) {
 				// Arrow strictly follows the 3D mouse intersection!
-				if ((cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) && isOverBoard) {
+				if ((cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) && draggedCardIndex == -1 && isOverBoard) {
 					worldTarget = mouseWorldIntersect;
 					hasValidTarget = true;
 				}
@@ -10630,13 +10624,16 @@ void ofApp::drawGame() {
 				// Emit from the center of the unit's tile at the bottom
 				startPos.y += 0.05f;
 
-				ofColor arrowCol = isCurrentPlayerLocal() ? ofColor(220, 30, 30, 230) : ofColor(50, 150, 255, 200);
+				int arrowOwner = 0;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					arrowOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+				}
+				ofColor arrowCol = (arrowOwner == 0) ? ofColor(255, 60, 60, 230) : ofColor(60, 255, 60, 230);
 
 				// Use Gold for placement actions
 				if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-					arrowCol = isCurrentPlayerLocal() ? ofColor(255, 215, 0, 230) : ofColor(50, 150, 255, 200);
+					arrowCol = ofColor(255, 215, 0, 230);
 				}
-
 				float dist = glm::distance(startPos, worldTarget);
 				if (dist > 0.1f) {
 					glm::vec3 mid = (startPos + worldTarget) * 0.5f;
@@ -13366,12 +13363,9 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// 3. Check for "Draggable" things (Cards in hand)
 	Player * handPlayer = nullptr;
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & activeP = players[currentPlayerIndex];
-		int activeOwner = activeP.isMinion ? activeP.ownerID : activeP.playerID;
-		if (!isMultiplayer || activeOwner == myLocalPlayerID) {
-			handPlayer = &activeP;
-		}
+	int localPIdx = findPlayerIndexByID(myLocalPlayerID);
+	if (!players.empty() && localPIdx >= 0) {
+		handPlayer = &players[localPIdx];
 	}
 
 	if (handPlayer) {
@@ -13497,8 +13491,7 @@ cursor_check_done:;
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
 				float cx = startX + i * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
-					newHoverType = HOVER_HAND_CARD;
-					newHoverCardIndex = (int)i;
+					// We do not set HOVER_HAND_CARD here. Draft uses mouse position directly.
 					break;
 				}
 			}
@@ -18769,6 +18762,9 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 
 void ofApp::resetCardInteraction() {
 	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+	if (isMultiplayer && isCurrentPlayerLocal()) {
+		sendMenuState(0, -1, -1, -1);
+	}
 	// Clear centralized interaction helpers and transient UI lists only.
 	interactionMenuChoice.clear();
 	interactionTargetIndex = -1;
@@ -19550,7 +19546,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		beginEffectSequence();
 
 		if (safeChoice == "draft") {
-			networkPending.draftQueue.push_back(1); // Queue Class 1 draft
+			networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 1); // Queue Class 1 draft for caster
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C1", ofColor::cyan);
 		} else { // "ap"
 			EffectOp apOp = {};
@@ -22565,30 +22561,30 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			glm::ivec2 impactTile = targetTile;
+			glm::ivec2 impactTile = casterTile;
 
 			// Use the new clear ray to perfectly draw the physical path!
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
 			glm::vec2 endPoint = clearRay.end;
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
-				impactTile = casterTile;
-				if (path.size() > 1) {
-					for (size_t i = 1; i < path.size(); ++i) {
-						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (i > 1 && stepDistSq > maxDistSq) {
-							endPoint = path[i - 1] + 0.5f;
-							break;
-						}
 
-						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						if (isTileBlocked(impactTile.x, impactTile.y)) {
-							endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-							break;
-						}
+			if (path.size() > 1) {
+				for (size_t i = 1; i < path.size(); ++i) {
+					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
+					if (stepDistSq > maxDistSq) {
+						endPoint = path[i - 1] + 0.5f;
+						break;
+					}
+
+					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (isTileBlocked(impactTile.x, impactTile.y)) {
+						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+						break;
 					}
 				}
+			} else {
+				impactTile = targetTile;
 			}
 
 			glm::vec3 worldStart, worldEnd;
@@ -23182,39 +23178,42 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			glm::ivec2 impactTile = targetTile;
+			glm::ivec2 impactTile = casterTile;
 
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
-			glm::vec2 endPoint = clearRay.end; // Ethereal Jolt ignores walls!
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
-				impactTile = casterTile;
-				if (path.size() > 1) {
-					for (size_t i = 1; i < path.size(); ++i) {
-						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (stepDistSq > maxDistSq) {
-							endPoint = path[i > 0 ? i - 1 : 0] + 0.5f;
-							break;
-						}
+			glm::vec2 endPoint = clearRay.end;
 
-						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						// Ethereal Jolt passes through walls!
+			if (path.size() > 1) {
+				for (size_t i = 1; i < path.size(); ++i) {
+					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
+					if (stepDistSq > maxDistSq) {
+						endPoint = path[i - 1] + 0.5f;
+						break;
+					}
+
+					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (isTileBlocked(impactTile.x, impactTile.y)) {
+						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+						break;
 					}
 				}
+			} else {
+				impactTile = targetTile;
 			}
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(200, 180, 100), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
-			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
+			if (isTileWall(impactTile.x, impactTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
 
-			// --- FIX: Update the true target to where the jolt actually landed! ---
+			// --- FIX: Update the true target to where the arrow actually landed! ---
 			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
@@ -23223,7 +23222,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			wait.data.damage.fixedDamage = 1;
 			queueEffect(wait);
 			EffectOp next = {};
-			next.type = EffectOpType::APPLY_ETHEREAL_JOLT;
+			next.type = EffectOpType::APPLY_SHOOT_ARROW;
 			next.data.damage.fixedDamage = 2;
 			queueEffect(next);
 			opComplete = true;
@@ -23828,13 +23827,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		Player & caster = players[casterIdx];
 
 		if (total >= 20) {
-			networkPending.draftQueue.push_back(3);
+			networkPending.draftQueue.push_back((casterIdx << 16) | 3);
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 3", ofColor::cyan);
 		} else if (total >= 16) {
-			networkPending.draftQueue.push_back(2);
+			networkPending.draftQueue.push_back((casterIdx << 16) | 2);
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 2", ofColor::cyan);
 		} else if (total >= 10) {
-			networkPending.draftQueue.push_back(1);
+			networkPending.draftQueue.push_back((casterIdx << 16) | 1);
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 1", ofColor::cyan);
 		} else {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No Draft", ofColor::gray);
@@ -27124,7 +27123,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		if (tier > 0) {
-			networkPending.draftQueue.push_back(tier);
+			networkPending.draftQueue.push_back((currentPlayerIndex << 16) | tier);
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Draft Class " + ofToString(tier), ofColor::cyan);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " queued draft Class " << tier;
 		} else {
@@ -28967,23 +28966,26 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 				// Check AOE valid centers
 				if (card.isAoe) {
-					bool hitsSomeone = false;
-					for (size_t i = 0; i < players.size(); ++i) {
-						if ((int)i == currentPlayerIndex) continue;
-						if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
-						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
-						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
-						if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
-							auto los = getClearLosRay(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y), card.type);
-							if (los.hasLos) {
-								hitsSomeone = true;
-								break;
+					// MUST HAVE LOS TO THE TARGET TILE ITSELF!
+					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
+						bool hitsSomeone = false;
+						for (size_t i = 0; i < players.size(); ++i) {
+							if ((int)i == currentPlayerIndex) continue;
+							if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
+							float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
+							float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
+							if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
+								auto los = getClearLosRay(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y), card.type);
+								if (los.hasLos) {
+									hitsSomeone = true;
+									break;
+								}
 							}
 						}
-					}
-					if (hitsSomeone) {
-						valid = true;
-						preview = true;
+						if (hitsSomeone) {
+							valid = true;
+							preview = true;
+						}
 					}
 				}
 
@@ -33881,6 +33883,8 @@ void ofApp::cleanupGame() {
 	currentTurnTimeoutProcessed = false;
 	afkStrikeCounts = { 0, 0 };
 	reconnectForfeitStartTime = -1.0f;
+	g_isGameOver = false;
+	waitingForReconnect = false;
 	playerAction = NONE;
 	g_playerDefenses.clear();
 	selectedCardIndex = -1;
@@ -35962,17 +35966,21 @@ void ofApp::updateAndSendHover(HoverType type, int gridX, int gridY, int cardInd
 
 		// Send hover packet to opponent if in multiplayer
 		if (isMultiplayer && steamManager.isConnected()) {
-			HoverPacket pkt = {};
-			pkt.type = PKT_HOVER;
-			pkt.playerID = myLocalPlayerID;
-			pkt.hoverType = static_cast<uint8_t>(type);
-			pkt.gridX = static_cast<int8_t>(gridX);
-			pkt.gridY = static_cast<int8_t>(gridY);
-			pkt.cardIndex = static_cast<int8_t>(cardIndex);
-			steamManager.sendPacket(&pkt, sizeof(pkt));
+			// Only broadcast our active hover if it's our turn!
+			if (isMyTurn() || type == HOVER_NONE) {
+				HoverPacket pkt = {};
+				pkt.type = PKT_HOVER;
+				pkt.playerID = myLocalPlayerID;
+				pkt.hoverType = static_cast<uint8_t>(type);
+				pkt.gridX = static_cast<int8_t>(gridX);
+				pkt.gridY = static_cast<int8_t>(gridY);
+				pkt.cardIndex = static_cast<int8_t>(cardIndex);
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+			}
 		}
 	}
 }
+
 // Networking / player helpers
 int ofApp::getLocalPlayerIndex() const {
 	for (int i = 0; i < (int)players.size(); ++i) {
@@ -35994,6 +36002,7 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	}
 	return false;
 }
+
 // --------------------------------------------------------------
 void ofApp::processNetworkPackets() {
 	// Diagnostic: report incoming queue size so we can see if packets are piling up
