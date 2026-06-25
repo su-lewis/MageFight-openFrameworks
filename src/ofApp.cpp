@@ -3452,7 +3452,15 @@ void ofApp::setup() {
 
 	// --- SET APP ICON ---
 	ofPixels iconPixels;
-	if (ofLoadImage(iconPixels, "UI/Cards/Art/0.png")) {
+	if (ofLoadImage(iconPixels, "UI/icon.png")) {
+		// FIX: Force RGBA formatting, as Linux X11/Wayland strictly rejects RGB icons
+		iconPixels.setImageType(OF_IMAGE_COLOR_ALPHA);
+
+		// FIX: Resize if massively oversized (Linux safely handles up to 256x256 max)
+		if (iconPixels.getWidth() > 256 || iconPixels.getHeight() > 256) {
+			iconPixels.resize(256, 256);
+		}
+
 		GLFWwindow * glfwWindow = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 		GLFWimage glfwIcon;
 		glfwIcon.width = iconPixels.getWidth();
@@ -5857,22 +5865,37 @@ void ofApp::applySettings() {
 
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 
+	// FIX: Allow the window to minimize and prevent it from forcing itself always-on-top!
+	if (win) {
+		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
+		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
+	}
+
 	if (g_windowModeState == 1) { // Standard Fullscreen
-		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE); // Restore borders just in case
 		if (ofGetWindowMode() != OF_FULLSCREEN) {
+			// FIX: Strip borders BEFORE going fullscreen so Windows doesn't leave a gap for the taskbar!
+			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+
+			GLFWmonitor * monitor = glfwGetPrimaryMonitor();
+			if (monitor) {
+				const GLFWvidmode * mode = glfwGetVideoMode(monitor);
+				ofSetWindowShape(mode->width, mode->height);
+			}
 			ofSetFullscreen(true);
 		}
-		isFullscreen = true; // Sync the old bool for game logic
+		isFullscreen = true;
 	} else if (g_windowModeState == 2) { // Borderless Windowed
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
 			ofSetFullscreen(false);
 		}
 		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
 
-		int screenW = ofGetScreenWidth();
-		int screenH = ofGetScreenHeight();
-		ofSetWindowPosition(0, 0);
-		ofSetWindowShape(screenW, screenH);
+		GLFWmonitor * monitor = glfwGetPrimaryMonitor();
+		if (monitor) {
+			const GLFWvidmode * mode = glfwGetVideoMode(monitor);
+			ofSetWindowPosition(0, 0);
+			ofSetWindowShape(mode->width, mode->height);
+		}
 		isFullscreen = true;
 	} else { // Standard Windowed
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
