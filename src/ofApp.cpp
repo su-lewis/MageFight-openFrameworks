@@ -3436,8 +3436,8 @@ void ofApp::setup() {
 	}
 
 	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
-	// Changing to 24 (a perfect multiple of 12) ensures perfectly even, slightly thicker pixel stems for m6x11!
-	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 24);
+	// Size 22 offers a perfect middle-ground: thicker than 20, but not as bulky as 24.
+	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 22);
 	cardEffectSettings.antialiased = false; // Turn smoothing OFF for crisp pixel art text!
 	cardEffectFont.load(cardEffectSettings);
 
@@ -19701,6 +19701,15 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					createWall.data.createWall.isMagic = wasMagic;
 					queueEffect(createWall);
 				}
+
+				// Move Caster back 1 tile
+				EffectOp mvCaster = {};
+				mvCaster.type = EffectOpType::MOVE_UNIT;
+				mvCaster.data.moveUnit.unitIndex = currentPlayerIndex;
+				mvCaster.data.moveUnit.toX = newCasterPos.x;
+				mvCaster.data.moveUnit.toY = newCasterPos.y;
+				queueEffect(mvCaster);
+
 			} else {
 				queueFloatingTextVisual(gridToWorld(casterPos.x, casterPos.y), "Blocked!", ofColor::red);
 			}
@@ -20530,6 +20539,9 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 
 // Send an input command: optionally apply locally (optimistic) and send over network
 bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
+	if (cmd.commandType == CMD_END_TURN) {
+		cmd.params[0] = currentPlayerIndex; // Tag the command so duplicates can be ignored
+	}
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.playerID = myLocalPlayerID;
 
@@ -20687,16 +20699,11 @@ void ofApp::simulationTick() {
 				// Only update if changed
 				if (p.maxHealth != newMax) {
 					p.maxHealth = newMax;
-					// If health is now higher than max, clamp it down. Do NOT heal up if max increases.
+					// If health is now higher than max, clamp it down deterministically.
+					// We do this directly instead of through the effect queue so it applies
+					// instantly across all peers without getting stuck behind spell animations!
 					if (p.health > p.maxHealth) {
-						int idx = (int)(&p - &players[0]);
-						EffectOp op = {};
-						op.type = EffectOpType::MODIFY_STAT;
-						op.data.modifyStat.targetIndex = idx;
-						op.data.modifyStat.statType = 0; // HP
-						op.data.modifyStat.delta = p.maxHealth - p.health;
-						op.data.modifyStat.deltaFromSlot = -1;
-						processEffectOp(op);
+						p.health = p.maxHealth;
 					}
 				}
 			}
@@ -21850,6 +21857,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		break;
 	}
 	case CMD_END_TURN: {
+		// If the network delivers a duplicate End Turn for an actor who already ended their turn, drop it!
+		if (cmd.params[0] != currentPlayerIndex) {
+			ofLogNotice("Lockstep") << "Dropped stale CMD_END_TURN: expected actor " << currentPlayerIndex << ", got " << cmd.params[0];
+			break;
+		}
+
 		// Execute turn end logic
 		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
 		// Host: trigger authoritative turn start sequence
@@ -27211,15 +27224,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_CONSTITUTION_BOON: {
 		beginEffectSequence();
 
-		EffectOp maxHpOp = {};
-		maxHpOp.type = EffectOpType::MODIFY_STAT;
-		maxHpOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		maxHpOp.data.modifyStat.statType = 1; // MaxHP
-		maxHpOp.data.modifyStat.delta = playedCard.maxHealthGain > 0 ? playedCard.maxHealthGain : 5;
-		maxHpOp.data.modifyStat.deltaFromSlot = -1;
-		queueEffect(maxHpOp);
-
-		int mh = currentPlayer.maxHealth + maxHpOp.data.modifyStat.delta;
+		int mh = currentPlayer.maxHealth;
 		int tier = 0;
 		if (mh >= 16 && mh <= 20)
 			tier = 1;
@@ -27228,7 +27233,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		else if (mh >= 26 && mh <= 30)
 			tier = 3;
 
-		if (mh > 30) {
+		if (mh >= 31) {
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
 			g_isGameOver = true;
@@ -33358,26 +33363,18 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	}
 
 	// Point-blank / Self-cast
-	if (casterTile == targetTile) {
-		return { true, casterCenter, targetCenter };
-	}
+	if (casterTile == targetTile) return { true, casterCenter, targetCenter };
 
 	// Immediate Adjacency Bypass
-	// "you should be able to play a los card if you're directly adjacent...
-	// also always allow directly diagnoal as line of sight, as long as there's a path to it."
 	int dxDist = std::abs((int)targetTile.x - (int)casterTile.x);
 	int dyDist = std::abs((int)targetTile.y - (int)casterTile.y);
 	if (dxDist <= 1 && dyDist <= 1) {
-		if (dxDist + dyDist == 1) {
-			// Orthogonally adjacent is always a clear point-blank shot
-			return { true, casterCenter, targetCenter };
-		}
+		if (dxDist + dyDist == 1) return { true, casterCenter, targetCenter };
 		if (dxDist == 1 && dyDist == 1) {
-			// Diagonally adjacent is clear UNLESS hard-pinched by two corner walls
 			int stepX = (int)targetTile.x - (int)casterTile.x;
 			int stepY = (int)targetTile.y - (int)casterTile.y;
 			if (isTileWall(casterTile.x + stepX, casterTile.y) && isTileWall(casterTile.x, casterTile.y + stepY)) {
-				return { false, casterCenter, targetCenter }; // Hard pinched / blocked
+				return { false, casterCenter, targetCenter }; // Hard pinched
 			}
 			return { true, casterCenter, targetCenter };
 		}
@@ -33387,7 +33384,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) return true;
 		if (board[cx][cy].hasWall) return true;
 		if (board[cx][cy].hasPlayer) {
-			// Do not count the caster or target tiles themselves as cover blocking their own faces
+			// Do not count the caster or target tiles themselves as cover
 			if (cx == (int)casterTile.x && cy == (int)casterTile.y) return false;
 			if (cx == (int)targetTile.x && cy == (int)targetTile.y) return false;
 			return true;
@@ -33395,110 +33392,39 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return false;
 	};
 
-	// --- Orthogonal (Same Row / Column) Bypass & Block ---
-	if (dxDist == 0 || dyDist == 0) {
-		bool pathClear = true;
-		int stepX = (targetTile.x > casterTile.x) ? 1 : ((targetTile.x < casterTile.x) ? -1 : 0);
-		int stepY = (targetTile.y > casterTile.y) ? 1 : ((targetTile.y < casterTile.y) ? -1 : 0);
+	// --- CORNER PEEKING RULE ---
+	// A unit can shoot from the center of their own tile, OR they can "lean"
+	// into the center of any adjacent non-blocked tile.
+	std::vector<glm::vec2> startCandidates;
+	startCandidates.push_back(casterCenter);
 
-		int cx = (int)casterTile.x + stepX;
-		int cy = (int)casterTile.y + stepY;
-
-		while (cx != (int)targetTile.x || cy != (int)targetTile.y) {
-			if (isCoverAt(cx, cy)) {
-				pathClear = false;
-				break;
-			}
-			cx += stepX;
-			cy += stepY;
-		}
-
-		if (pathClear) {
-			return { true, casterCenter, targetCenter };
-		} else {
-			// IMPORTANT: If orthogonal path is blocked, you cannot hit them.
-			// No "leaning" allowed for targets strictly on the same row or column behind a wall!
-			return { false, casterCenter, targetCenter };
+	glm::vec2 dirs[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	for (auto d : dirs) {
+		if (!isCoverAt((int)casterTile.x + (int)d.x, (int)casterTile.y + (int)d.y)) {
+			startCandidates.push_back(casterCenter + d);
 		}
 	}
 
-	// Determine face directions for CASTER (leaning out)
-	auto getCasterFaceDirs = [](glm::vec2 source, glm::vec2 dest) {
-		std::vector<glm::vec2> dirs;
-		if (dest.x > source.x)
-			dirs.push_back({ 1, 0 });
-		else if (dest.x < source.x)
-			dirs.push_back({ -1, 0 });
-
-		if (dest.y > source.y)
-			dirs.push_back({ 0, 1 });
-		else if (dest.y < source.y)
-			dirs.push_back({ 0, -1 });
-
-		return dirs;
-	};
-
-	std::vector<glm::vec2> casterFaceDirs = getCasterFaceDirs(casterTile, targetTile);
-
-	// 1. Gather valid Caster Faces
-	std::vector<glm::vec2> validCasterPoints;
-	for (auto dir : casterFaceDirs) {
-		if (!isCoverAt((int)casterTile.x + (int)dir.x, (int)casterTile.y + (int)dir.y)) {
-			// EXACT CENTERS: Use exactly 0.5f offset from the tile center
-			validCasterPoints.push_back(casterCenter + dir * 0.5f);
+	// The target is also exposed if any of its adjacent open tiles are visible!
+	std::vector<glm::vec2> endCandidates;
+	endCandidates.push_back(targetCenter);
+	for (auto d : dirs) {
+		if (!isCoverAt((int)targetTile.x + (int)d.x, (int)targetTile.y + (int)d.y)) {
+			endCandidates.push_back(targetCenter + d);
 		}
 	}
 
-	if (validCasterPoints.empty()) {
-		return { false, casterCenter, targetCenter };
-	}
-
-	// 2. Identify the 2 closest faces of the Target to the Caster using distance
-	glm::vec2 allFaces[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-	std::vector<std::pair<float, glm::vec2>> targetFacesByDist;
-
-	for (int i = 0; i < 4; ++i) {
-		glm::vec2 facePos = targetCenter + allFaces[i] * 0.5f;
-		float dx = casterCenter.x - facePos.x;
-		float dy = casterCenter.y - facePos.y;
-		float distSq = dx * dx + dy * dy;
-		targetFacesByDist.push_back({ distSq, allFaces[i] });
-	}
-
-	// Sort faces by distance to the caster's center
-	std::sort(targetFacesByDist.begin(), targetFacesByDist.end(),
-		[](const std::pair<float, glm::vec2> & a, const std::pair<float, glm::vec2> & b) {
-			return a.first < b.first;
-		});
-
-	// Take exactly the 2 closest faces
-	std::vector<glm::vec2> targetFaceDirs = { targetFacesByDist[0].second, targetFacesByDist[1].second };
-
-	std::vector<glm::vec2> validTargetPoints;
-	for (auto dir : targetFaceDirs) {
-		// As long as ONE of their 2 closest faces is empty, they are exposed!
-		if (!isCoverAt((int)targetTile.x + (int)dir.x, (int)targetTile.y + (int)dir.y)) {
-			// EXACT CENTERS: Use exactly 0.5f offset from the tile center
-			validTargetPoints.push_back(targetCenter + dir * 0.5f);
-		}
-	}
-
-	// If BOTH closest faces are completely blocked, they are fully in cover from that angle.
-	if (validTargetPoints.empty()) {
-		return { false, casterCenter, targetCenter };
-	}
-
-	// 3. Check if ANY valid face-to-face line is clear
-	for (size_t c = 0; c < validCasterPoints.size(); ++c) {
-		for (size_t t = 0; t < validTargetPoints.size(); ++t) {
-			if (checkRayPhysics(validCasterPoints[c], validTargetPoints[t])) {
-				// Both physics and visuals now share these exact points
-				return { true, validCasterPoints[c], validTargetPoints[t] };
+	// Test all possible lines of sight
+	for (auto sc : startCandidates) {
+		for (auto ec : endCandidates) {
+			if (checkRayPhysics(sc, ec)) {
+				// If clear, return true! We'll use the specific leaned points for the visual tracer
+				// so the player can actually see how the shot curved around the corner!
+				return { true, sc, ec };
 			}
 		}
 	}
 
-	// If no combinations work, it's blocked.
 	return { false, casterCenter, targetCenter };
 }
 
