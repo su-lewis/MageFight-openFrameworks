@@ -41,33 +41,51 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
 	if (url.empty()) return;
 
-	std::thread([url, content]() {
-		// Create a unique temp file name
-		std::string tempFile = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+	// Resolve absolute path on the main thread so curl can find it from any working directory
+	std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+	std::string absPath = ofToDataPath(fileName, true);
 
+	std::thread([url, content, absPath]() {
 		// Strip double quotes so JSON stays valid
 		std::string safeContent = content;
 		std::replace(safeContent.begin(), safeContent.end(), '\"', '\'');
 
-		// Write the JSON to the file to avoid command-line quoting nightmares
+		// Write the JSON to the file
 		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
 		ofBuffer buffer;
 		buffer.set(jsonStr.c_str(), jsonStr.length());
-		ofBufferToFile(tempFile, buffer);
+		ofBufferToFile(absPath, buffer);
 
-		// Run the command silently
 #ifdef _WIN32
-		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @" + tempFile + " \"" + url + "\"";
-		WinExec(cmd.c_str(), 0); // 0 is SW_HIDE (No black cmd window flash)
+		// Use absolute path wrapped in quotes to prevent spaces from breaking the command
+		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+
+		// Use CreateProcess to run completely hidden AND block until finished
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+		ZeroMemory(&si, sizeof(si));
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE; // No black cmd window flash
+		ZeroMemory(&pi, sizeof(pi));
+
+		// CreateProcess requires a mutable string buffer
+		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
+		cmdBuffer.push_back('\0');
+
+		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+			WaitForSingleObject(pi.hProcess, 10000); // Wait up to 10 seconds for it to send
+			CloseHandle(pi.hProcess);
+			CloseHandle(pi.hThread);
+		}
 #else
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @" + tempFile + " \"" + url + "\"";
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
 #endif
 
-		// Wait a few seconds for the request to fire, then delete the temp file
-		ofSleepMillis(3000);
-		ofFile::removeFile(tempFile);
+		// Clean up the payload file safely now that we know curl is done
+		ofFile::removeFile(absPath);
 	}).detach();
 }
 
