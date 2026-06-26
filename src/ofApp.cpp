@@ -6234,12 +6234,14 @@ void ofApp::setupGame() {
 		lastTurnStartSentPlayer = -1;
 		lastTurnStartSentCounter = -1;
 
-		// Apply the XOR'd seed generated during the Handshake (BOTH HOST AND CLIENT DO THIS)
+		// ENFORCE the EXACT seed we generated in the Handshake
 		gameplayRNG.seed(currentMapSeed);
 		gameplayRngAdvanceCount = 0;
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = true;
 		eloCalculated = false;
+
+		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
 
 		if (isHost()) {
 			std::string p0Name = steamManager.getLocalPlayerName();
@@ -36156,22 +36158,27 @@ void ofApp::processNetworkPackets() {
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
 				// 1. HOST RECEIVES CLIENT REPLY
-				// Use steamManager.isHost() here because isMultiplayer might not be set yet!
 				if (steamManager.isHost() && pkt->playerID == 1) {
-					// Prevent Host from calling setupGame() multiple times if client sends duplicate ACKs
 					if (!hasReceivedHandshake) {
 						opponentElo = pkt->elo;
-						currentMapSeed = localSeedComponent ^ pkt->seed; // XOR COMBINATION!
+						// FIX: Host natively uses the EXACT seed provided by the Client to ensure zero drift
+						currentMapSeed = localSeedComponent ^ pkt->seed;
 
-						ofLogNotice("Network") << "Host received Client XOR Handshake. Final Seed: " << currentMapSeed;
+						ofLogNotice("Network") << "Host received Client Handshake. Final Seed: " << currentMapSeed;
 
 						isMultiplayer = true;
 						myLocalPlayerID = 0;
 						waitingForClientHandshake = false;
-						hasReceivedHandshake = true; // Flag it!
+						hasReceivedHandshake = true;
 
 						lastReceivedSeqByPlayer[0] = 0;
 						lastReceivedSeqByPlayer[1] = 0;
+
+						// Ensure RNG is seeded BEFORE setupGame runs!
+						gameplayRNG.seed(currentMapSeed);
+						gameplayRngAdvanceCount = 0;
+						seedVisualRng(visualRNG, currentMapSeed);
+
 						setupGame();
 					}
 				}
@@ -36179,26 +36186,13 @@ void ofApp::processNetworkPackets() {
 				else if (!steamManager.isHost() && pkt->playerID == 0) {
 					opponentElo = pkt->elo;
 
-					// --- FIX: Always reply to the host so they know we are here! ---
-					HandshakePacket ack = {};
-					ack.type = PKT_HANDSHAKE;
-					ack.playerID = 1; // I am Client
-					ack.seq = 0;
-					ack.seed = localSeedComponent; // If we already generated a seed, reuse it
-					ack.elo = myElo;
-
-					// Only run the setup logic ONCE
 					if (!hasReceivedHandshake) {
 						std::random_device rd;
 						localSeedComponent = rd();
 						myElo = steamManager.getLocalElo();
 
-						currentMapSeed = pkt->seed ^ localSeedComponent; // XOR COMBINATION!
-						ofLogNotice("Network") << "Client received Host XOR Handshake. Final Seed: " << currentMapSeed;
-
-						// Update ack with newly generated seed and elo
-						ack.seed = localSeedComponent;
-						ack.elo = myElo;
+						currentMapSeed = pkt->seed ^ localSeedComponent;
+						ofLogNotice("Network") << "Client received Host Handshake. Final Seed: " << currentMapSeed;
 
 						isMultiplayer = true;
 						myLocalPlayerID = 1;
@@ -36210,15 +36204,26 @@ void ofApp::processNetworkPackets() {
 						player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
 						player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 
+						// Ensure RNG is seeded BEFORE setupGame runs!
+						gameplayRNG.seed(currentMapSeed);
+						gameplayRngAdvanceCount = 0;
+						seedVisualRng(visualRNG, currentMapSeed);
+
 						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
 							setupGame();
 						}
 					}
 
 					// Send the Handshake ACK back to the Host
+					HandshakePacket ack = {};
+					ack.type = PKT_HANDSHAKE;
+					ack.playerID = 1;
+					ack.seq = 0;
+					ack.seed = localSeedComponent;
+					ack.elo = myElo;
 					steamManager.sendPacket(&ack, sizeof(ack));
 
-					// --- FIX: Always resend the READY packet if the Host is still asking for handshakes! ---
+					// Always resend the READY packet if the Host is still asking for handshakes!
 					if (currentState == STATE_GAMEPLAY || currentState == STATE_INITIATIVE_ROLL || clientSentReady) {
 						ClientReadyPacket r = {};
 						r.type = PKT_CLIENT_READY;
@@ -36332,7 +36337,7 @@ void ofApp::processNetworkPackets() {
 				long long mySum = calculateChecksum();
 
 				if (mySum != pkt->checksum) {
-					ofLogError("Net") << "DESYNC DETECTED! Rewinding to start of turn...";
+					ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " vs Remote: " << pkt->checksum << ". Rewinding to start of turn...";
 
 					if (isHost()) {
 						// 1. Host rewinds ITSELF to the start of the turn
@@ -36614,21 +36619,28 @@ long long ofApp::calculateChecksum() {
 		h *= FNV_PRIME;
 	};
 
-	// Global counters
+	// 1. GLOBAL & RNG
 	mix((uint64_t)globalTurnCounter);
 	mix((uint64_t)currentPlayerIndex);
 	mix((uint64_t)currentAP);
+	mix((uint64_t)gameplayRngAdvanceCount);
+	mix((uint64_t)currentMapSeed);
+	mix((uint64_t)nextSummonOrder);
 
-	// Game & Draft State
+	// 2. GAME & DRAFT STATE
 	mix((uint64_t)currentState);
 	mix((uint64_t)(isInGameDraft ? 1 : 0));
-	mix((uint64_t)(initialDraftComplete ? 1 : 0)); // <--- Added!
+	mix((uint64_t)(initialDraftComplete ? 1 : 0));
 	mix((uint64_t)draftStage);
 	mix((uint64_t)draftPlayerIndex);
 	mix((uint64_t)draftPicksRemaining);
 	mix((uint64_t)currentDraftClassTier);
 
-	// Card Interaction & Effect Pipeline State
+	mix((uint64_t)networkPending.draftQueue.size());
+	for (int v : networkPending.draftQueue)
+		mix((uint64_t)v);
+
+	// 3. CARD INTERACTION & EFFECT PIPELINE
 	mix((uint64_t)cardInteractionState);
 	mix((uint64_t)interactingCardType);
 	mix((uint64_t)interactingCardIndex);
@@ -36638,7 +36650,25 @@ long long ofApp::calculateChecksum() {
 	mix((uint64_t)currentEffectSequence.currentOp);
 	mix((uint64_t)currentEffectSequence.ops.size());
 
-	// Keys
+	// Hash Effect Blackboard
+	for (int i = 0; i < 16; i++) {
+		mix((uint64_t)currentEffectSequence.blackboard[i]);
+	}
+
+	// Hash Effect Ops
+	for (const auto & op : currentEffectSequence.ops) {
+		mix((uint64_t)op.type);
+		mix((uint64_t)op.data.damage.targetIndex); // Quick representation of the union data
+	}
+
+	// 4. TRANSIENT SPELL STATES
+	mix((uint64_t)magicBlastChoicesRemaining);
+	mix((uint64_t)koboldsRemainingToPlace);
+	mix((uint64_t)wolfSummonStage);
+	mix((uint64_t)numCardsToRemove);
+	mix((uint64_t)blockingBoonPendingCasterIndex);
+
+	// 5. KEYS & GRAVEYARD
 	mix((uint64_t)floatingKeyInstances.size());
 	for (const auto & k : floatingKeyInstances) {
 		mix((uint64_t)k.pos.x);
@@ -36646,7 +36676,6 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)k.set);
 	}
 
-	// Graveyard
 	mix((uint64_t)graveyard.size());
 	for (const auto & g : graveyard) {
 		mix((uint64_t)g.x);
@@ -36654,16 +36683,21 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)g.deck.size());
 	}
 
+	// 6. BOARD STATE
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
 			mix((uint64_t)(board[x][y].hasWall ? 1 : 0));
 			mix((uint64_t)(board[x][y].isMagicWall ? 1 : 0));
+			mix((uint64_t)(board[x][y].hasPlayer ? 1 : 0));
 		}
 	}
 
-	// Player state (only shared state - decks differ per player)
+	// 7. PLAYER STATE
 	for (const auto & p : players) {
 		mix((uint64_t)p.playerID);
+		mix((uint64_t)p.ownerID);
+		mix((uint64_t)p.isMinion);
+		mix((uint64_t)p.summonOrder);
 		mix((uint64_t)p.x);
 		mix((uint64_t)p.y);
 		mix((uint64_t)p.health);
@@ -36696,28 +36730,35 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.inGhostForm);
 		mix((uint64_t)p.ghostDamageTaken);
 		mix((uint64_t)p.freeKickTurns);
+		mix((uint64_t)p.defenseCycle);
 
-		// FIX: Include Deck, Hand, and Discard in the deterministic checksum.
-		// Now that mid-turn periodic checksums are removed, optimistic prediction
-		// won't trigger false positives, making it safe to verify full card state at turn boundaries.
+		// Hash card costs as well as types to catch discount-based desyncs
+		auto mixCard = [&](const Card & c) {
+			mix((uint64_t)c.type);
+			mix((uint64_t)c.cost);
+			mix((uint64_t)c.value);
+		};
+
 		mix((uint64_t)p.deck.size());
 		for (const auto & c : p.deck)
-			mix((uint64_t)c.type);
+			mixCard(c);
 
 		mix((uint64_t)p.hand.size());
 		for (const auto & c : p.hand)
-			mix((uint64_t)c.type);
+			mixCard(c);
 
 		mix((uint64_t)p.discardPile.size());
 		for (const auto & c : p.discardPile)
-			mix((uint64_t)c.type);
-	}
+			mixCard(c);
 
-	// NOTE: Do NOT include visual/timing-dependent arrays (like activeDiceRolls)
-	// in the deterministic checksum. Dice are removed based on real-world
-	// elapsed time and would cause non-deterministic checksum mismatches.
-	// The authoritative game state is represented by `players`, `board`, and
-	// `currentAP`, which are already included above.
+		mix((uint64_t)p.playedCardsPile.size());
+		for (const auto & c : p.playedCardsPile)
+			mixCard(c);
+
+		mix((uint64_t)p.cardsPlayedThisTurn.size());
+		for (auto t : p.cardsPlayedThisTurn)
+			mix((uint64_t)t);
+	}
 
 	return (long long)h;
 }
