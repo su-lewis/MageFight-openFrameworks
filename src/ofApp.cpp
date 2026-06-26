@@ -6592,9 +6592,8 @@ void ofApp::prepareGameVisualState() {
 
 		float life = quakeMoving ? 1.0f : ((cameraShakeDuration > 0.0f) ? (cameraShakeTimer / cameraShakeDuration) : 0.0f);
 		if (life > 0.0f) {
-			// Even, smooth rumble across all axes, not dependent on camera world position
 			float t = ofGetElapsedTimef() * 45.0f;
-			float intensity = std::max(0.15f, cameraShakeIntensity); // Enforce a minimum floor so it's always felt
+			float intensity = std::max(0.15f, cameraShakeIntensity);
 			cameraShakeOffset = glm::vec3(sin(t), sin(t * 1.3f) * 0.6f, cos(t * 1.1f)) * intensity * life;
 		} else {
 			cameraShakeOffset = glm::vec3(0.0f);
@@ -6620,7 +6619,7 @@ void ofApp::prepareGameVisualState() {
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
-	float btnWidth = 260 * uiScale; // CHANGED: Increased from 250
+	float btnWidth = 260 * uiScale;
 	float visibleY = 92.0f * uiScale;
 
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
@@ -6638,11 +6637,125 @@ void ofApp::prepareGameVisualState() {
 	// --- FIX: Guaranteed Visual Dice Cleanup (ALL DICE) ---
 	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 		it->currentRotation += diceSpinSpeed * deltaTime;
-
 		float elapsedTime = time - it->startTime;
 
+		// Build dice text immediately when they finish spinning
+		if (elapsedTime > 0.8f && !it->isFinishedVisual) {
+			it->isFinishedVisual = true;
+
+			bool allGroupFinished = true;
+			std::vector<DiceRoll *> groupRolls;
+			DicePurpose checkPurpose = it->purpose;
+			for (auto & r : activeDiceRolls) {
+				if (r.associatedUnit == it->associatedUnit) {
+					if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
+						groupRolls.push_back(&r);
+						if (!r.isFinishedVisual && &r != &(*it)) allGroupFinished = false;
+					}
+				}
+			}
+
+			if (allGroupFinished && !groupRolls.empty()) {
+				std::string resultText = "";
+				int headsCount = 0;
+				int tailsCount = 0;
+				bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
+
+				if (isCoins) {
+					for (auto * r : groupRolls) {
+						if (r->result == 2)
+							headsCount++;
+						else if (r->result == 1)
+							tailsCount++;
+					}
+					if (groupRolls.size() == 1) {
+						resultText = (it->result == 2) ? "Heads" : "Tails";
+					} else {
+						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
+					}
+				} else {
+					if (groupRolls.size() == 1) {
+						int rawRoll = it->rawResult;
+						int finalRoll = it->result;
+						int luckApplied = finalRoll - rawRoll;
+						if (luckApplied > 0) {
+							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
+						} else {
+							resultText = "Rolled " + ofToString(finalRoll);
+						}
+					} else {
+						if (currentState == STATE_INITIATIVE_ROLL || checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+							resultText = "";
+						} else {
+							int rawTotal = 0;
+							int finalTotal = 0;
+							resultText = "Rolled ";
+							for (size_t i = 0; i < groupRolls.size(); i++) {
+								resultText += ofToString(groupRolls[i]->result);
+								finalTotal += groupRolls[i]->result;
+								rawTotal += groupRolls[i]->rawResult;
+								if (i < groupRolls.size() - 1) resultText += " + ";
+							}
+							int luckApplied = finalTotal - rawTotal;
+							if (luckApplied > 0) {
+								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
+							} else {
+								resultText += " = " + ofToString(finalTotal);
+							}
+						}
+					}
+				}
+
+				if (!resultText.empty()) {
+					diceRollResultText = resultText;
+					diceRollResultStartTime = ofGetElapsedTimef();
+				}
+			}
+
+			// KOBOLD PLACEMENT TRIGGER
+			if (it->purpose == PURPOSE_SUMMON_KOBOLDS) {
+				int count = currentEffectSequence.blackboard[0];
+				if (count <= 0) {
+					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+					resetCardState();
+				} else {
+					int avail = 0;
+					glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+					for (auto & d : adj) {
+						int nx = koboldPlacementSourceX + (int)d.x;
+						int ny = koboldPlacementSourceY + (int)d.y;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+						}
+					}
+					int allowed = std::min<int>(count, std::min(avail, 4));
+					if (allowed <= 0) {
+						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+						resetCardState();
+					} else {
+						if (isCurrentPlayerLocal()) {
+							koboldsRemainingToPlace = allowed;
+							koboldSummonCount = 0;
+							updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+							tooltipText = "Place Kobold: click an adjacent empty tile";
+							isShowingTooltip = true;
+							queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+							invalidateTargetCache();
+						}
+					}
+				}
+			}
+		}
+
 		// Remove ALL dice (including AP) after they finish spinning + 2.5s linger
-		if (it->isFinishedVisual) {
+		if (it->isFinishedVisual && it->purpose != PURPOSE_AP && it->purpose != PURPOSE_BONUS_AP) {
+			if (elapsedTime > 0.8f + 2.5f) { // 0.8s spin + 2.5s linger
+				it = activeDiceRolls.erase(it);
+				continue;
+			}
+		} else if (it->isFinishedVisual) {
 			if (elapsedTime > 0.8f + 2.5f) { // 0.8s spin + 2.5s linger
 				it = activeDiceRolls.erase(it);
 				continue;
@@ -6797,6 +6910,7 @@ void ofApp::prepareGameVisualState() {
 			}
 		}
 		activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [now](const DrawCardAnimation & anim) { return (now - anim.startTime) >= anim.duration; }), activeDrawCardAnimations.end());
+
 		for (auto & anim : activeDiscardCardAnimations) {
 			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
 			if (owner >= 0 && owner < (int)players.size()) {
@@ -7012,34 +7126,23 @@ void ofApp::prepareGameVisualState() {
 		}
 	}
 
-	// =========================================================================
-
-	// Card state machine now runs in the fixed-step simulation tick for determinism
-
-	// Local helpers/state for Minion UI rebuild
-	std::vector<int> p0_minionIndices;
-	std::vector<int> p1_minionIndices;
-	// Defaults for minion UI (reduced size to avoid clipping)
-	float standardEntryHeight = 135.0f; // Increased by ~20%
-	float panelWidth = 510.0f; // Increased by ~20%
+	// --- MINION UI REBUILD ---
+	// Defaults for minion UI
+	float standardEntryHeight = 135.0f;
+	float panelWidth = 510.0f;
 	float scale = getUIScaleFromHeight(ofGetHeight());
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
-	float gap = layoutSpacing.minionEntryGapUnscaled; // unscaled baseline (centralized)
+	float gap = layoutSpacing.minionEntryGapUnscaled;
 	float panelWidthScaled = panelWidth * scale;
 	const float handBaseCardWidth = kCardPixelWidth;
 	const float handCardAspectRatio = kCardAspectRatio;
 	const float pileCardScale = 0.35f;
 	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * pileCardScale) * scale;
-	// Deck bottom gap on screen after stack offset is applied in drawGame().
 	const float deckBottomGap = effectiveBottomGap(layoutSpacing);
 	const float sideInset = deckBottomGap;
-	// Mirror drawGame() deck/discard anchoring math so minion panels can align to it.
 	const float deckY = ofGetHeight() - staticUICardHeight - layoutSpacing.edgeInset + layoutSpacing.stackYOffset;
 	const float discardY = deckY - staticUICardHeight - layoutSpacing.stackVerticalGap;
-	// Reserve space above AP counters so minion panels don't overlap AP UI.
 
-	// Spawn any pending turn-start visuals requested by deterministic logic
-	// (Safely removed - animations are now spawned securely inside startNewTurn)
 	pendingTurnStartVisuals = -1;
 
 	float fontScale = scale * 1.0f;
@@ -7048,40 +7151,32 @@ void ofApp::prepareGameVisualState() {
 	const float apTopY = discardY - (10.0f * scale) - apRectHeight;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
-	// Fit minion UI cleanly between the top HUD band and the AP counter top.
+
 	float p0_topLimitY = std::max(0.0f, layoutSpacing.timerBarHeight);
 	const float minionBottomSafetyPad = 24.0f * scale;
 	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
 	float p1_topLimitY = p0_topLimitY;
 	float p1_bottomLimitY = p0_bottomLimitY;
 
-	// Use the same visual spacing as the deck-to-screen bottom gap.
 	gap = (scale > 0.0f) ? (deckBottomGap / scale) : gap;
 
-	// --- REBUILD MINION UI EVERY FRAME ---
 	activeMinionUIs.clear();
-	p0_minionIndices.clear();
-	p1_minionIndices.clear();
-	// (IMMEDIATE DEATH / NO-CARDS CHECK moved to simulationTick for determinism)
-	// Each player sees their own minions on the LEFT (p0) and opponent minions on the RIGHT (p1)
-	// This works for both host (player 0) and client (player 1)
+	std::vector<int> p0_minionIndices;
+	std::vector<int> p1_minionIndices;
+
 	for (int i = 0; i < (int)players.size(); ++i) {
 		if (!players[i].isMinion) continue;
 		int ownerID = players[i].ownerID;
-		bool isLocalPlayerMinion = (ownerID == myLocalPlayerID);
-
-		if (isLocalPlayerMinion) {
-			p0_minionIndices.push_back(i); // My minions on LEFT
-		} else {
-			p1_minionIndices.push_back(i); // Opponent minions on RIGHT
-		}
+		if (ownerID == myLocalPlayerID)
+			p0_minionIndices.push_back(i);
+		else
+			p1_minionIndices.push_back(i);
 	}
 
-	// 3. HELPER LAMBDA TO BUILD UI LIST (now handles scroll state)
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 		float localAvailableHeight = bottomLimit - topLimit;
 		float actualEntryHeight = standardEntryHeight * scale;
-		actualEntryHeight *= (1.15f * 0.80f); // reduce current row length by 20%
+		actualEntryHeight *= (1.15f * 0.80f);
 		float actualGap = gap * scale;
 		const int maxVisibleEntriesBeforeScroll = 5;
 		const float maxVisibleHeight = (maxVisibleEntriesBeforeScroll * actualEntryHeight) + ((maxVisibleEntriesBeforeScroll - 1) * actualGap);
@@ -7109,7 +7204,6 @@ void ofApp::prepareGameVisualState() {
 		}
 		minionPanelW = panelWidthScaled;
 
-		// Auto-scroll check for active unit
 		if (currentPlayerIndex != lastAutoScrollTurnUnit && currentPlayerIndex >= 0) {
 			for (size_t i = 0; i < indices.size(); ++i) {
 				if (indices[i] == currentPlayerIndex) {
@@ -7124,7 +7218,6 @@ void ofApp::prepareGameVisualState() {
 			}
 		}
 
-		// Auto-scroll check for hovered unit
 		if (this->hoveredUnitIndex != lastHoveredUnit && this->hoveredUnitIndex >= 0) {
 			for (size_t i = 0; i < indices.size(); ++i) {
 				if (indices[i] == this->hoveredUnitIndex) {
@@ -7139,7 +7232,6 @@ void ofApp::prepareGameVisualState() {
 			}
 		}
 
-		// B. Create UIs
 		for (size_t i = 0; i < indices.size(); ++i) {
 			int pIndex = indices[i];
 			MinionUI ui;
@@ -7168,23 +7260,17 @@ void ofApp::prepareGameVisualState() {
 				ui.displayNumber = ++faerieCount;
 
 			float currentY = topLimit - scrollRef + (i * (actualEntryHeight + actualGap));
-
 			ui.bounds.set(startX, currentY, panelWidthScaled, actualEntryHeight);
 
-			// Pre-calculate deck and discard rects for hover detection
-			// These will be refined during the draw phase, but we need them now for mouseMoved checks
-			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
+			float cardAspectRatio = 585.0f / 409.0f;
 			float iconMargin = layoutSpacing.minionIconGap;
-			// Make icons proportionally large relative to entry height
 			float iconHeight = ui.bounds.height * 0.80f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			if (listSide == 0) {
 				ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-				// Place deck icon immediately to the left of discard with standard iconMargin (no extra gap)
 				ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2), iconsY, iconWidth, iconHeight);
 			} else {
-				// Opponent side: deck on the left, discard on the right.
 				ui.deckRect.set(ui.bounds.x + iconMargin, iconsY, iconWidth, iconHeight);
 				ui.discardRect.set(ui.deckRect.getRight() + iconMargin, iconsY, iconWidth, iconHeight);
 			}
@@ -7193,23 +7279,17 @@ void ofApp::prepareGameVisualState() {
 		}
 	};
 
-	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
-	// Align local minion panel to the left side (top-left start) and go down.
 	float p0_startX = sideInset;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
-	// Mirror on enemy side: flush to the right edge inset.
 	float p1_startX = ofGetWidth() - sideInset - panelWidthScaled;
 	p1_startX = std::max(sideInset, p1_startX);
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
 
-	// Renumber displayNumber so that for each owner and species the numbering
-	// is contiguous (e.g., Kobold 1..N). This guarantees that if Kobold 3 dies,
-	// Kobold 4 becomes Kobold 3 on the next frame.
 	{
-		std::map<std::pair<int, int>, int> speciesCounters; // (ownerID, speciesId) -> count
+		std::map<std::pair<int, int>, int> speciesCounters;
 		auto speciesIdFor = [&](const Player & m) -> int {
 			if (m.isSkeleton) return 1;
 			if (m.isGolem) return 2;
@@ -7224,7 +7304,6 @@ void ofApp::prepareGameVisualState() {
 			return 0;
 		};
 
-		// activeMinionUIs is already ordered top->bottom for each side as built above
 		for (auto & ui : activeMinionUIs) {
 			int pidx = ui.playerIndex;
 			if (pidx < 0 || pidx >= (int)players.size()) continue;
@@ -7243,9 +7322,7 @@ void ofApp::prepareGameVisualState() {
 	if (this->hoveredUnitIndex != lastHoveredUnit) {
 		lastHoveredUnit = this->hoveredUnitIndex;
 	}
-	// --- END MINION UI REBUILD ---
 
-	// In-game draft intro: temporarily non-interactive, then enable selection.
 	if (currentState == STATE_DRAFTING && isInGameDraft && !draftDisplayInteractiveEnabled) {
 		if (draftDisplayStartTime <= 0.0f || (ofGetElapsedTimef() - draftDisplayStartTime) >= draftDisplayDuration) {
 			draftDisplayInteractiveEnabled = true;
@@ -7253,9 +7330,20 @@ void ofApp::prepareGameVisualState() {
 		}
 	}
 
-	// 1. UPDATE UI POSITIONS
+	// --- Pile View Hover Logic ---
+	if (isHoveringPile && !isShowingPileView) {
+		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) {
+			isShowingPileView = true;
+			currentPileView = hoveredPileType;
+			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+		}
+	}
+
 	updateDebugRects();
+
+	if (hasUnlimitedAP) currentAP = 99;
 }
+
 #define CHECK_NEEDS_RELOCATE_INLINE(playerIdx, outNeeds)                                                                          \
 	do {                                                                                                                          \
 		outNeeds = false;                                                                                                         \
@@ -7324,10 +7412,256 @@ void ofApp::prepareGameVisualState() {
 
 void ofApp::updateGameLogic() {
 
+	// --- FIX 2 & 3: DETERMINISTIC TIMERS ---
+	// Evaluating timers inside simulationTick guarantees perfect sync without needing packets or grace frames.
+	bool isMagicBlastActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) || (opponentInteraction.open && opponentInteraction.type == 4);
+	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
+	bool isOpponentDraftActive = (currentState == STATE_DRAFTING && isInGameDraft);
+
+	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isOpponentDraftActive)) {
+		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
+
+		// ONLY the Host or Singleplayer evaluates the timeout to prevent duplicate/racing commands
+		if ((!isMultiplayer || isHost()) && elapsedDecisionFrames >= opponentDecisionDurationFrames) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MENU_CHOICE;
+
+			bool issuedChoice = false;
+			if (isMagicBlastActive) {
+				std::vector<int> raw;
+				int roll = resolveDiceRollDetailed(1, 2, raw);
+				cmd.params[0] = CARD_MAGIC_BLAST;
+				cmd.params[1] = opponentDecisionPlayerIndex;
+				cmd.params[2] = (roll <= 1) ? 1 : 2;
+				cmd.params[3] = -1;
+				issuedChoice = true;
+			} else if (isGhostRelocActive) {
+				int maxChoices = std::max(0, std::min((int)ghostRelocateChoices.size(), 4));
+				if (maxChoices > 0) {
+					std::vector<int> raw;
+					int roll = resolveDiceRollDetailed(1, maxChoices, raw);
+					int choiceIdx = std::clamp(roll - 1, 0, maxChoices - 1);
+					cmd.params[0] = MENU_GHOST_RELOCATE;
+					cmd.params[1] = opponentDecisionPlayerIndex;
+					cmd.params[2] = choiceIdx;
+					cmd.params[3] = -1;
+					cmd.params[4] = ghostRelocateChoices[choiceIdx].x;
+					cmd.params[5] = ghostRelocateChoices[choiceIdx].y;
+					issuedChoice = true;
+				}
+			} else if (isOpponentDraftActive) {
+				if (!draftAcceptLocked) {
+					int requiredPicks = 1;
+					while ((int)selectedDraftIndices.size() < requiredPicks) {
+						std::vector<int> candidates;
+						for (int poolIdx : currentDraftOptionPoolIndices) {
+							if (poolIdx < 0) continue;
+							bool alreadySelected = false;
+							for (int sel : selectedDraftIndices) {
+								if (sel == poolIdx) {
+									alreadySelected = true;
+									break;
+								}
+							}
+							if (!alreadySelected) candidates.push_back(poolIdx);
+						}
+						if (candidates.empty()) break;
+						std::vector<int> rawRoll;
+						int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
+						int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
+						selectedDraftIndices.push_back(candidates[pickIdx]);
+					}
+
+					if ((int)selectedDraftIndices.size() > 0) {
+						draftAcceptLocked = true;
+						cmd.commandType = CMD_ACCEPT_DRAFT;
+						cmd.params[0] = draftPlayerIndex;
+						cmd.params[1] = currentDraftClassTier;
+						cmd.params[2] = 1; // copiesPerCard
+						cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
+						for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
+							cmd.params[3 + i] = selectedDraftIndices[i];
+						}
+						issuedChoice = true;
+					}
+				}
+			}
+
+			if (issuedChoice) {
+				ofLogNotice("Timer") << "Opponent decision timer expired. Host auto-selecting menu choice.";
+				sendInputCommand(cmd, true);
+				opponentDecisionStartFrame = simulationFrame;
+				opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
+			}
+		}
+	}
+
+	GameState timerState = currentState;
+	if (isMultiplayer && currentState == STATE_PAUSED) {
+		timerState = pausedFromState;
+	}
+
+	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
+			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
+
+			// ONLY Host or Singleplayer evaluates the timeout to prevent duplicate/racing commands
+			if ((!isMultiplayer || isHost()) && elapsedFrames >= turnDurationFrames) {
+
+				if (timerState == STATE_GAMEPLAY) {
+					registerAfkTimeoutForCurrentOwner();
+					if (currentState == STATE_MAIN_MENU) return;
+				}
+
+				if (timerState == STATE_DRAFTING) {
+					if (!draftAcceptLocked) {
+						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+						while ((int)selectedDraftIndices.size() < requiredPicks) {
+							std::vector<int> candidates;
+							for (int poolIdx : currentDraftOptionPoolIndices) {
+								if (poolIdx < 0) continue;
+								bool alreadySelected = false;
+								for (int sel : selectedDraftIndices) {
+									if (sel == poolIdx) {
+										alreadySelected = true;
+										break;
+									}
+								}
+								if (!alreadySelected) candidates.push_back(poolIdx);
+							}
+							if (candidates.empty()) break;
+
+							std::vector<int> rawRoll;
+							int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
+							int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
+							selectedDraftIndices.push_back(candidates[pickIdx]);
+						}
+
+						if ((int)selectedDraftIndices.size() > 0) {
+							draftAcceptLocked = true;
+
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_ACCEPT_DRAFT;
+							cmd.params[0] = draftPlayerIndex;
+							cmd.params[1] = currentDraftClassTier;
+							cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+							cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
+							for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
+								cmd.params[3 + i] = selectedDraftIndices[i];
+							}
+							sendInputCommand(cmd, true);
+
+							if (isInGameDraft) {
+								InputCommandPacket endCmd = {};
+								endCmd.type = PKT_INPUT_COMMAND;
+								endCmd.playerID = myLocalPlayerID;
+								endCmd.commandId = nextCommandId++;
+								endCmd.turnNumber = globalTurnCounter;
+								endCmd.commandType = CMD_END_TURN;
+								sendInputCommand(endCmd, true);
+							}
+							ofLogNotice("Timer") << "Host: Draft timeout processed.";
+						} else {
+							turnStartFrame = (int)simulationFrame;
+						}
+					}
+				} else {
+					// Auto-end-turn during gameplay
+					if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0 && koboldPlacementSourceX >= 0) {
+						struct Tile {
+							int x;
+							int y;
+						};
+						std::vector<Tile> candidates;
+						const Tile dirs[4] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+						for (const auto & d : dirs) {
+							int nx = koboldPlacementSourceX + d.x;
+							int ny = koboldPlacementSourceY + d.y;
+							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+							if (board[nx][ny].hasWall || board[nx][ny].hasPlayer) continue;
+							candidates.push_back({ nx, ny });
+						}
+						int toPlace = std::min<int>(koboldsRemainingToPlace, (int)candidates.size());
+						for (int i = 0; i < toPlace; ++i) {
+							InputCommandPacket place = {};
+							place.type = PKT_INPUT_COMMAND;
+							place.playerID = myLocalPlayerID;
+							place.commandId = nextCommandId++;
+							place.turnNumber = globalTurnCounter;
+							place.commandType = CMD_PSEUDO_ACTION;
+							place.params[0] = candidates[i].x;
+							place.params[1] = candidates[i].y;
+							strncpy(place.stringData, "PlaceKobold", sizeof(place.stringData) - 1);
+							sendInputCommand(place, true);
+						}
+					}
+
+					if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+						int choice = 1;
+						if (interactingCardType == CARD_DISPEL)
+							choice = 2; // Purge
+						else if (interactingCardType == CARD_BURST_OF_LIGHT)
+							choice = 1; // Dmg
+
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_MENU_CHOICE;
+						cmd.params[0] = interactingCardType;
+						cmd.params[1] = interactionTargetIndex;
+						cmd.params[2] = choice;
+						cmd.params[3] = interactingCardIndex;
+
+						if (interactingCardType == CARD_AMNESIA) {
+							cmd.params[2] = 3;
+							cmd.params[4] = 0;
+						} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+							cmd.commandType = CMD_RENEWED_INSPIRATION;
+							cmd.params[0] = currentPlayerIndex;
+							cmd.params[1] = 0;
+							cmd.params[2] = interactingCardIndex;
+						}
+						sendInputCommand(cmd, true);
+					} else if (cardInteractionState == CARD_INTERACTION_STATE_STATUS || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+						cancelAllTargeting();
+					}
+
+					if (!endTurnLocked) {
+						endTurnLocked = true;
+						bool needsReloc = false;
+						CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
+						if (needsReloc) {
+							EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+						} else {
+							ofLogNotice("Timer") << "Host: Timeout. Auto-ending turn.";
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_END_TURN;
+							sendInputCommand(cmd, true);
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// --- EARTHQUAKE LOGICAL UPDATE ---
 	if (isEarthquakeActive) {
-		bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
-		if (isEarthquakeAnimatingStep && !pausedForDraft) {
+		if (isEarthquakeAnimatingStep) {
 			float earthquakeSpeedScale = 0.2f;
 			float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
 			float prevT = earthquakeT;
@@ -7583,749 +7917,8 @@ void ofApp::updateGameLogic() {
 		}
 	}
 
-	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
-	bool isMagicBlastActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) || (opponentInteraction.open && opponentInteraction.type == 4);
-	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
-	bool isOpponentDraftActive = (currentState == STATE_DRAFTING && isInGameDraft);
-
-	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isOpponentDraftActive)) {
-		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
-
-		bool localOwnsDecision = true;
-		if (isMultiplayer && opponentDecisionPlayerIndex >= 0 && opponentDecisionPlayerIndex < (int)players.size()) {
-			const Player & decider = players[opponentDecisionPlayerIndex];
-			int deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
-			localOwnsDecision = (deciderOwner == myLocalPlayerID);
-		}
-
-		// Host gives a 3-second grace period to the client to avoid generating duplicate commands on the exact same frame
-		int graceFrames = (isHost() && !localOwnsDecision) ? (3 * turnTimerFramesPerSecond) : 0;
-
-		if (elapsedDecisionFrames >= opponentDecisionDurationFrames + graceFrames) {
-			if (localOwnsDecision || isHost()) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-
-				bool issuedChoice = false;
-				if (isMagicBlastActive) {
-					std::vector<int> raw;
-					int roll = resolveDiceRollDetailed(1, 2, raw);
-					cmd.params[0] = CARD_MAGIC_BLAST;
-					cmd.params[1] = opponentDecisionPlayerIndex;
-					cmd.params[2] = (roll <= 1) ? 1 : 2;
-					cmd.params[3] = -1;
-					issuedChoice = true;
-				} else if (isGhostRelocActive) {
-					int maxChoices = std::max(0, std::min((int)ghostRelocateChoices.size(), 4));
-					if (maxChoices > 0) {
-						std::vector<int> raw;
-						int roll = resolveDiceRollDetailed(1, maxChoices, raw);
-						int choiceIdx = std::clamp(roll - 1, 0, maxChoices - 1);
-						cmd.params[0] = MENU_GHOST_RELOCATE;
-						cmd.params[1] = opponentDecisionPlayerIndex;
-						cmd.params[2] = choiceIdx;
-						cmd.params[3] = -1;
-						// FIX: Pass the fallback X and Y coordinates
-						cmd.params[4] = ghostRelocateChoices[choiceIdx].x;
-						cmd.params[5] = ghostRelocateChoices[choiceIdx].y;
-						issuedChoice = true;
-					}
-				} else if (isOpponentDraftActive) {
-					if (!draftAcceptLocked) {
-						int requiredPicks = 1;
-						while ((int)selectedDraftIndices.size() < requiredPicks) {
-							std::vector<int> candidates;
-							for (int poolIdx : currentDraftOptionPoolIndices) {
-								if (poolIdx < 0) continue;
-								bool alreadySelected = false;
-								for (int sel : selectedDraftIndices) {
-									if (sel == poolIdx) {
-										alreadySelected = true;
-										break;
-									}
-								}
-								if (!alreadySelected) candidates.push_back(poolIdx);
-							}
-							if (candidates.empty()) break;
-							std::vector<int> rawRoll;
-							int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
-							int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
-							selectedDraftIndices.push_back(candidates[pickIdx]);
-						}
-
-						if ((int)selectedDraftIndices.size() > 0) {
-							draftAcceptLocked = true;
-							cmd.commandType = CMD_ACCEPT_DRAFT;
-							cmd.params[0] = draftPlayerIndex;
-							cmd.params[1] = currentDraftClassTier;
-							cmd.params[2] = 1; // copiesPerCard
-							cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
-							for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
-								cmd.params[3 + i] = selectedDraftIndices[i];
-							}
-							issuedChoice = true;
-						}
-					}
-				}
-
-				if (issuedChoice && localOwnsDecision) {
-					ofLogNotice("Timer") << "Opponent decision timer expired. Auto-selecting menu choice.";
-					sendInputCommand(cmd, true);
-					opponentDecisionStartFrame = simulationFrame;
-					opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
-				} else if (issuedChoice && isHost()) {
-					ofLogNotice("Timer") << "Host forcing decision for timed-out client.";
-					sendInputCommand(cmd, true);
-					opponentDecisionStartFrame = simulationFrame;
-					opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
-				}
-			}
-		}
-	}
-
-	// --- TURN TIMER CHECK (run early so it continues during gameplay/drafting) ---
-	GameState timerState = currentState;
-	if (isMultiplayer && currentState == STATE_PAUSED) {
-		timerState = pausedFromState;
-	}
-	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn() || isHost());
-	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex) || isHost());
-
-	// FIX: Prevent active player from hijacking opponent's in-game drafts (Demon deaths/pushes)
-	bool localShouldRunTimerHere = false;
-	if (timerState == STATE_DRAFTING) {
-		localShouldRunTimerHere = handlesDraftTimerHere;
-	} else {
-		localShouldRunTimerHere = handlesGameplayTimerHere;
-	}
-
-	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
-		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
-		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
-			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
-
-			// Host grace period to prevent double-execution desyncs on timeouts
-			int graceFrames = 0;
-			if (isHost()) {
-				bool isLocalTurn = false;
-				if (timerState == STATE_DRAFTING) {
-					isLocalTurn = isLocalDraftingPlayer(draftPlayerIndex);
-				} else {
-					int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-					isLocalTurn = (activeOwner == myLocalPlayerID);
-				}
-				if (!isLocalTurn) graceFrames = 3 * turnTimerFramesPerSecond;
-			}
-
-			if (elapsedFrames >= turnDurationFrames + graceFrames) {
-				if (timerState == STATE_GAMEPLAY) {
-					registerAfkTimeoutForCurrentOwner();
-					if (currentState == STATE_MAIN_MENU) {
-						return;
-					}
-				}
-				if (timerState == STATE_DRAFTING) {
-					if (!draftAcceptLocked) {
-						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-
-						// Timeout fill: use gameplay RNG to pick remaining draft cards.
-						// For initial draft stage 0, we auto-accept Class 1 and continue to Class 2 with remaining time.
-						while ((int)selectedDraftIndices.size() < requiredPicks) {
-							std::vector<int> candidates;
-							for (int poolIdx : currentDraftOptionPoolIndices) {
-								if (poolIdx < 0) continue;
-								bool alreadySelected = false;
-								for (int sel : selectedDraftIndices) {
-									if (sel == poolIdx) {
-										alreadySelected = true;
-										break;
-									}
-								}
-								if (!alreadySelected) candidates.push_back(poolIdx);
-							}
-							if (candidates.empty()) break;
-
-							std::vector<int> rawRoll;
-							int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
-							int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
-							selectedDraftIndices.push_back(candidates[pickIdx]);
-						}
-
-						if ((int)selectedDraftIndices.size() > 0) {
-							// For initial draft stage 0, we'll auto-fill stage 0 picks and continue the timer to stage 1
-							bool isInitialDraftStage0 = (!isInGameDraft && draftStage == 0);
-
-							ofLogNotice("Timer") << "Draft timer expired. Auto-accepting " << selectedDraftIndices.size() << " picks." << (isInitialDraftStage0 ? " (Initial draft stage 0, continuing to stage 1)" : "");
-							draftAcceptLocked = true;
-
-							InputCommandPacket cmd = {};
-							cmd.type = PKT_INPUT_COMMAND;
-							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
-							cmd.turnNumber = globalTurnCounter;
-							cmd.commandType = CMD_ACCEPT_DRAFT;
-							cmd.params[0] = draftPlayerIndex;
-							cmd.params[1] = currentDraftClassTier;
-							cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-							cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
-							for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
-								cmd.params[3 + i] = selectedDraftIndices[i];
-							}
-							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
-
-							// For in-game/key drafts, timeout auto-pick should also end the turn.
-							// For initial draft stage 0, do NOT unlock draft yet; continue timer for stage 1.
-							if (isInGameDraft) {
-								// If movement was paused at a key tile while drafting, complete the
-								// visual move immediately so turn handoff is clean on timeout.
-								if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-									playerVisualPos = gridToWorld(players[animatingPlayerIndex].x, players[animatingPlayerIndex].y);
-									isPlayerAnimating = false;
-									animatingPlayerIndex = -1;
-									animationPath.clear();
-									currentPathIndex = 0;
-								}
-
-								InputCommandPacket endCmd = {};
-								endCmd.type = PKT_INPUT_COMMAND;
-								endCmd.playerID = myLocalPlayerID;
-								endCmd.commandId = nextCommandId++;
-								endCmd.turnNumber = globalTurnCounter;
-								endCmd.commandType = CMD_END_TURN;
-								if (!sendInputCommand(endCmd, true)) ofLogWarning("Network") << "Auto-end-turn after draft timeout send failed (no connection).";
-							}
-							// Note: For initial draft stage 0, draftAcceptLocked remains true until stage 1 options
-							// are generated, preventing re-triggering during the animation delay.
-							ofLogNotice("Timer") << "Draft timeout processed. draftStage=" << draftStage << " isInitialDraftStage0=" << (isInitialDraftStage0 ? 1 : 0);
-						} else {
-							// Avoid timeout log spam while waiting for draft options to populate.
-							turnStartFrame = (int)simulationFrame;
-						}
-					}
-				} else {
-					// Auto-end-turn during gameplay
-					auto autoPlaceRemainingKoboldsOnTimeout = [&]() {
-						if (cardInteractionState != CARD_INTERACTION_STATE_PLACING || interactingCardType != CARD_CALL_FOR_KOBOLDS) return;
-						if (koboldsRemainingToPlace <= 0) return;
-						if (koboldPlacementSourceX < 0 || koboldPlacementSourceX >= BOARD_WIDTH || koboldPlacementSourceY < 0 || koboldPlacementSourceY >= BOARD_HEIGHT) return;
-
-						struct Tile {
-							int x;
-							int y;
-						};
-						std::vector<Tile> candidates;
-						const Tile dirs[4] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } }; // N, E, S, W
-						for (const auto & d : dirs) {
-							int nx = koboldPlacementSourceX + d.x;
-							int ny = koboldPlacementSourceY + d.y;
-							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-							if (board[nx][ny].hasWall || board[nx][ny].hasPlayer) continue;
-							candidates.push_back({ nx, ny });
-						}
-
-						int toPlace = std::min<int>(koboldsRemainingToPlace, (int)candidates.size());
-						if (toPlace <= 0) {
-							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-							isShowingTooltip = false;
-							resetCardState();
-							return;
-						}
-
-						for (int i = 0; i < toPlace; ++i) {
-							InputCommandPacket place = {};
-							place.type = PKT_INPUT_COMMAND;
-							place.playerID = myLocalPlayerID;
-							place.seq = 0;
-							place.commandId = nextCommandId++;
-							place.turnNumber = globalTurnCounter;
-							place.commandType = CMD_PSEUDO_ACTION;
-							place.params[0] = candidates[i].x;
-							place.params[1] = candidates[i].y;
-							strncpy(place.stringData, "PlaceKobold", sizeof(place.stringData) - 1);
-							place.stringData[sizeof(place.stringData) - 1] = '\0';
-							sendInputCommand(place, true);
-						}
-
-						ofLogNotice("Timer") << "Auto-placed " << toPlace << " Kobold(s) on timeout.";
-					};
-
-					auto forceResolvePendingInteractionsOnTimeout = [&]() {
-						if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-							int choice = 1;
-							if (interactingCardType == CARD_DISPEL)
-								choice = 2; // Purge
-							else if (interactingCardType == CARD_BURST_OF_LIGHT)
-								choice = 1; // Dmg
-
-							InputCommandPacket cmd = {};
-							cmd.type = PKT_INPUT_COMMAND;
-							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
-							cmd.turnNumber = globalTurnCounter;
-							cmd.commandType = CMD_MENU_CHOICE;
-							cmd.params[0] = interactingCardType;
-							cmd.params[1] = interactionTargetIndex;
-							cmd.params[2] = choice;
-							cmd.params[3] = interactingCardIndex;
-
-							if (interactingCardType == CARD_AMNESIA) {
-								cmd.params[2] = 3;
-								cmd.params[4] = 0; // Select nothing
-							} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
-								cmd.commandType = CMD_RENEWED_INSPIRATION;
-								cmd.params[0] = currentPlayerIndex;
-								cmd.params[1] = 0;
-								cmd.params[2] = interactingCardIndex;
-							}
-							sendInputCommand(cmd, true);
-						} else if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-							// Assume target has no statuses, or just cancel the spell
-							cancelAllTargeting();
-						} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
-							// Just cancel the targeting to end the turn
-							cancelAllTargeting();
-						} else if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-							cancelAllTargeting();
-						}
-					};
-
-					// INSTANTLY lock inputs when timer hits zero
-					if ((!isMultiplayer || isMyTurn()) && !endTurnLocked) {
-						ofLogNotice("Timer") << "Turn timer hit zero. Locking inputs instantly.";
-						autoPlaceRemainingKoboldsOnTimeout();
-						forceResolvePendingInteractionsOnTimeout();
-						endTurnLocked = true;
-					}
-
-					bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartFrame > 0);
-					bool cardCurrentlyResolving = (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE);
-
-					if (draftRewardVisualsActive || cardCurrentlyResolving) {
-						// If draft just resolved or a card is still resolving, let visuals finish before sending end turn command.
-						return;
-					}
-
-					// If I'm the active local player, submit a deterministic CMD_END_TURN.
-					if (!isMultiplayer || isMyTurn()) {
-						bool hasEndTurnInQueue = false;
-						for (const auto & c : commandQueue) {
-							if (c.commandType == CMD_END_TURN) hasEndTurnInQueue = true;
-						}
-						if (!hasEndTurnInQueue) {
-							bool needsReloc = false;
-							CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
-							if (needsReloc) {
-								EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
-							} else {
-								ofLogNotice("Timer") << "Visuals clear. Auto-ending turn.";
-								InputCommandPacket cmd = {};
-								cmd.type = PKT_INPUT_COMMAND;
-								cmd.playerID = myLocalPlayerID;
-								cmd.seq = 0;
-								cmd.commandId = nextCommandId++;
-								cmd.turnNumber = globalTurnCounter;
-								cmd.commandType = CMD_END_TURN;
-								// Queue locally and send to peers so lockstep advances identically
-								sendInputCommand(cmd, true);
-							}
-						}
-						// If I'm the Host waiting for a remote player, allow a small grace period
-						else if (isHost()) {
-							int graceFrames = 3 * turnTimerFramesPerSecond;
-							if (elapsedFrames >= turnDurationFrames + graceFrames) {
-								bool hasEndTurnInQueue = false;
-								for (const auto & c : commandQueue) {
-									if (c.commandType == CMD_END_TURN) hasEndTurnInQueue = true;
-								}
-								if (!hasEndTurnInQueue) {
-									if (!endTurnLocked) {
-										autoPlaceRemainingKoboldsOnTimeout();
-										endTurnLocked = true;
-									}
-									InputCommandPacket cmd = {};
-									cmd.type = PKT_INPUT_COMMAND;
-									cmd.playerID = myLocalPlayerID;
-									cmd.seq = 0;
-									cmd.commandId = nextCommandId++;
-									cmd.turnNumber = globalTurnCounter;
-									cmd.commandType = CMD_END_TURN;
-									sendInputCommand(cmd, true);
-									ofLogNotice("Timer") << "Host: forcing end-turn due to client timeout.";
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
-		// NOTE: removed automatic early-return here so visual dice and simulation
-		// continue updating while menus are open (prevents modal deadlocks).
-
-		// --- Pile View Hover Logic ---
-		if (isHoveringPile && !isShowingPileView) {
-			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
-				isShowingPileView = true;
-				currentPileView = hoveredPileType;
-				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
-			}
-		}
-
-		updateEffectSequence();
-
-#if 0
-	// --- DELTA TIME CLAMP FIX ---
-	float deltaTime = ofGetLastFrameTime();
-	// If we lagged more than 100ms (e.g. Alt-Tab), pretend it was just 16ms
-	if (deltaTime > 0.1f) deltaTime = 0.016f;
-
-	// --- Camera & Skybox Logic ---
-	if (ofGetWidth() != lastWindowWidth || ofGetHeight() != lastWindowHeight) {
-		cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
-		cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
-		lastWindowWidth = ofGetWidth();
-		lastWindowHeight = ofGetHeight();
-	}
-
-	float frame_independent_smoothing = 1.0 - pow(0.6, deltaTime * 60.0);
-	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
-	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
-
-	// Camera 2 mirrors Camera 1: same X and Y pan, but opposite Z pan
-	glm::vec3 cameraCurrentPan2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
-
-	glm::vec3 targetPos;
-	glm::vec3 targetPos2; // Second camera position (opposite side)
-	glm::vec3 targetLookAt = cameraCurrentPan;
-	glm::vec3 targetLookAt2 = cameraCurrentPan2; // Camera 2 looks at mirrored point
-
-	if (isTopDownView) {
-		// Top-down should be more zoomed-in: lower the camera height multiplier.
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 0.6f, cameraCurrentPan2.z);
-	} else {
-		// Use updated multipliers at runtime target: raise Y a bit to look more
-		// top-down while keeping the same Z back offset.
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.05f, cameraCurrentPan.z + cameraCurrentZoom * 0.75f);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.05f, cameraCurrentPan2.z - cameraCurrentZoom * 0.75f); // Opposite Z
-	}
-	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
-	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
-	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
-	cameraCurrentLookAt2 = glm::mix(cameraCurrentLookAt2, targetLookAt2, frame_independent_smoothing);
-
-	// Apply camera shake (visual only)
-	{
-		float dt = ofGetLastFrameTime();
-		// Determine if any earthquake unit is still moving
-		bool quakeMoving = false;
-		for (const auto & eu : earthquakeUnits) {
-			if (eu.isMoving && eu.tilesToMove > 0) {
-				quakeMoving = true;
-				break;
-			}
-		}
-
-		if (!quakeMoving && cameraShakeTimer > 0.0f) {
-			cameraShakeTimer = std::max(0.0f, cameraShakeTimer - dt);
-		}
-
-		float life = 0.0f;
-		if (quakeMoving) {
-			// keep full shake while units are moving
-			life = 1.0f;
-		} else {
-			life = (cameraShakeDuration > 0.0f) ? (cameraShakeTimer / cameraShakeDuration) : 0.0f;
-		}
-		float falloff = life; // linear falloff
-		if (life > 0.0f) {
-			std::uniform_real_distribution<float> off(-1.0f, 1.0f);
-			float rx = off(visualRNG);
-			float ry = off(visualRNG);
-			float rz = off(visualRNG);
-			cameraShakeOffset = glm::vec3(rx, ry * 0.5f, rz) * cameraShakeIntensity * falloff;
-		} else {
-			cameraShakeOffset = glm::vec3(0.0f);
-		}
-	}
-
-	// Update both cameras (apply shake offset)
-	cam.setPosition(cameraCurrentPos + cameraShakeOffset);
-	cam.lookAt(cameraCurrentLookAt + cameraShakeOffset * 0.5f);
-	cam2.setPosition(cameraCurrentPos2 + cameraShakeOffset);
-	cam2.lookAt(cameraCurrentLookAt2 + cameraShakeOffset * 0.5f);
-
-	// --- TORCH FLICKER LOGIC (SLOWER) ---
-	float time = ofGetElapsedTimef();
-	// Lower the noise frequency so flicker is slower and less frantic
-	float flicker = ofNoise(time * 0.6f); // Slower speed
-
-	// 2. Intensity Mapping
-	// Map noise to a safe range (0.8 to 1.3)
-	float intensity = ofMap(flicker, 0, 1, 0.8f, 1.3f);
-
-	// 3. Position Wiggle (Slow sway)
-	float wiggleX = ofNoise(time * 0.4f, 0) * 15.0f - 7.5f;
-	float wiggleY = ofNoise(time * 0.4f, 100) * 10.0f - 5.0f;
-
-	// 4. Apply Color
-	// Base color is a warm orange/yellow.
-	// We multiply by intensity, then clamp with std::min to prevent color wrapping.
-	headlight.setDiffuseColor(ofColor(
-		std::min(255.0f, 220.0f * intensity),
-		std::min(255.0f, 160.0f * intensity),
-		std::min(255.0f, 100.0f * intensity)));
-
-	headlight.setSpecularColor(ofColor(255, 255, 255));
-
-	headlight.setPosition(cam.getPosition() + glm::vec3(wiggleX, wiggleY, 0));
-
-	// Ensure long range
-	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
-
-	// --- UI Button Interpolation ---
-	float uiScale = getUIScaleFromHeight(ofGetHeight());
-	float btnWidth = 250 * uiScale;
-	float visibleY = 20 * uiScale;
-	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * uiScale)
-	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
-	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
-	float hiddenY = -100 * uiScale;
-	// Show end turn button / turn indicator
-	// In multiplayer: always show (either button or indicator)
-	// In singleplayer: always show button
-	bool myTurn = isMyTurn();
-
-	// In multiplayer, always keep it visible (shows either button or turn indicator)
-	// In singleplayer, always show button
-	if (isMultiplayer || myTurn) {
-		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
-	} else {
-		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
-	}
-	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 0.2f);
-
-	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
 	updateEffectSequence();
 
-	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
-	// All dice/state resolution for cards is dispatched through the EffectOp pipeline.
-	// Fireball resolution handled by EffectOpType::APPLY_FIREBALL
-	// Summon health handled by queued EffectOps (SPAWN_UNIT)
-	// Amnesia resolution now handled via EffectOpType::APPLY_AMNESIA
-	// resolveHealDice migrated to effect/op pipeline (HEAL processed from EffectOps)
-	// resolveTimeVortexDice migrated to effect/op pipeline (APPLY_TIME_VORTEX handled from EffectOps)
-	// Magic Bolt is handled by EffectOpType::APPLY_MAGIC_BOLT; primary and AOE rolls
-	// are resolved at decision-time and written into `currentEffectSequence.blackboard`.
-	// resolveShootArrowDice migrated to APPLY_SHOOT_ARROW in the effect/op pipeline
-	// Chain Lightning handled by effect-ops (APPLY_CHAIN_LIGHTNING); damage rolls are
-	// resolved at decision-time and stored in the effect sequence blackboard.
-	// Flail, Spark of Genius, and Barrier resolution migrated to effect/op pipeline (APPLY_* handlers)
-	// Status resolution is handled by EffectOp handlers; no per-frame resolve calls here.
-
-	// --- MAGIC BLAST RESOLUTION ---
-	// NOTE: Magic Blast range/target resolution is now centralized
-	// in resolveMagicBlastDice() helper called above.
-
-	// --- DEATH RESOLUTION ---
-	// NOTE: Death dice resolution is now centralized in resolveDeathDice() helper
-
-	// NOTE: Ethereal Jolt range resolution is now centralized in resolveJoltRangeDice() helper
-
-	// NOTE: Heal dice resolution migrated to HEAL EffectOp (effect/op pipeline)
-
-	// NOTE: Magic Bolt 3-stage resolution is now centralized
-	// in resolveMagicBoltRangeDice(), resolveMagicBoltPrimaryDice(), resolveMagicBoltAoeDice() helpers
-
-	// NOTE: Shoot Arrow range resolution is now centralized in APPLY_SHOOT_ARROW effect op
-
-	// NOTE: Chain Lightning, Flail, Spark, Barrier, Teleport, OnFire, Poison Status, and Summon HP
-	// resolution (Hellhound/Demon) are now centralized in their respective helpers
-
-#endif
-
-		// --- EARTHQUAKE LOGIC (VISUALS ONLY) ---
-		if (isEarthquakeActive) {
-			bool pausedForDraft = (currentState == STATE_DRAFTING && isInGameDraft);
-			if (isEarthquakeAnimatingStep && !pausedForDraft) {
-				for (auto & unit : earthquakeUnits) {
-					if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) continue;
-					glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
-					glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
-
-					if (unit.crashed) {
-						float t = earthquakeT;
-						if (t < 0.5f) {
-							glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
-							unit.visualPos = pStart + dir3 * (t * 0.8f * TILE_SIZE);
-						} else {
-							glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
-							unit.visualPos = pStart + dir3 * ((1.0f - t) * 0.8f * TILE_SIZE);
-						}
-					} else {
-						unit.visualPos = glm::mix(pStart, pEnd, earthquakeT);
-					}
-				}
-
-				if (currentPlayerIndex >= 0) {
-					for (auto & u : earthquakeUnits) {
-						if (u.playerIndex == currentPlayerIndex) {
-							playerVisualPos = u.visualPos;
-							break;
-						}
-					}
-				}
-			}
-		}
-
-		// --- FLAIL RESOLUTION ---
-	}
-
-	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
-		DiceRoll & roll = *it;
-		float elapsedTime = ofGetElapsedTimef() - roll.startTime;
-		float spinDuration = 0.8f;
-
-		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
-			roll.isFinishedVisual = true;
-
-			// --- BUILD DICE TEXT IMMEDIATELY ---
-			bool allGroupFinished = true;
-			std::vector<DiceRoll *> groupRolls;
-			DicePurpose checkPurpose = roll.purpose;
-			for (auto & r : activeDiceRolls) {
-				if (r.associatedUnit == roll.associatedUnit) {
-					if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
-						groupRolls.push_back(&r);
-						if (!r.isFinishedVisual && &r != &roll) allGroupFinished = false;
-					}
-				}
-			}
-
-			if (allGroupFinished && !groupRolls.empty()) {
-				std::string resultText = "";
-				int headsCount = 0;
-				int tailsCount = 0;
-				bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
-
-				if (isCoins) {
-					for (auto * r : groupRolls) {
-						if (r->result == 2)
-							headsCount++;
-						else if (r->result == 1)
-							tailsCount++;
-					}
-					if (groupRolls.size() == 1) {
-						resultText = (roll.result == 2) ? "Heads" : "Tails";
-					} else {
-						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
-					}
-				} else {
-					if (groupRolls.size() == 1) {
-						int rawRoll = roll.rawResult;
-						int finalRoll = roll.result;
-						int luckApplied = finalRoll - rawRoll;
-						if (luckApplied > 0) {
-							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
-						} else {
-							resultText = "Rolled " + ofToString(finalRoll);
-						}
-					} else {
-						if (currentState == STATE_INITIATIVE_ROLL) {
-							resultText = "";
-						} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-							resultText = "";
-						} else {
-							int rawTotal = 0;
-							int finalTotal = 0;
-							resultText = "Rolled ";
-							for (size_t i = 0; i < groupRolls.size(); i++) {
-								resultText += ofToString(groupRolls[i]->result);
-								finalTotal += groupRolls[i]->result;
-								rawTotal += groupRolls[i]->rawResult;
-								if (i < groupRolls.size() - 1) {
-									resultText += " + ";
-								}
-							}
-							int luckApplied = finalTotal - rawTotal;
-							if (luckApplied > 0) {
-								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
-							} else {
-								resultText += " = " + ofToString(finalTotal);
-							}
-						}
-					}
-				}
-
-				if (!resultText.empty()) {
-					diceRollResultText = resultText;
-					diceRollResultStartTime = ofGetElapsedTimef();
-				}
-			}
-
-			// --- RESTORED KOBOLD PLACEMENT TRIGGER ---
-			// Bound explicitly to Kobolds so it doesn't accidentally fire on other spells!
-			if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
-				int count = currentEffectSequence.blackboard[0];
-				if (count <= 0) {
-					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-					resetCardState();
-				} else {
-					int avail = 0;
-					glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-					for (auto & d : adj) {
-						int nx = koboldPlacementSourceX + (int)d.x;
-						int ny = koboldPlacementSourceY + (int)d.y;
-						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-						}
-					}
-					int allowed = std::min<int>(count, std::min(avail, 4));
-					if (allowed <= 0) {
-						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-						resetCardState();
-					} else {
-						if (isCurrentPlayerLocal()) {
-							koboldsRemainingToPlace = allowed;
-							koboldSummonCount = 0;
-							updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-							ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
-							tooltipText = "Place Kobold: click an adjacent empty tile";
-							isShowingTooltip = true;
-							queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-							invalidateTargetCache();
-						} else {
-							ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
-						}
-					}
-				}
-			}
-		}
-
-		// --- NEW: Remove Damage, Range, and generic dice after 2.5 seconds ---
-		if (roll.isFinishedVisual && roll.purpose != PURPOSE_AP && roll.purpose != PURPOSE_BONUS_AP) {
-			float lingerTime = 2.5f; // Stay on screen for 2.5 seconds after finishing
-			if (elapsedTime > spinDuration + lingerTime) {
-				it = activeDiceRolls.erase(it);
-				continue;
-			}
-		}
-		// ---------------------------------------------------------------------
-
-		++it;
-	}
-
-	// Blocking Boon sequencing is now handled by APPLY_BLOCKING_BOON_* ops
-
-	// ================== PASTE YOUR NEW CODE HERE ==================
 	// Check if we need to start a chained draft
 	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && !networkPending.draftQueue.empty()) {
 		// Start drafts from lower class to higher class by extracting the lower 16 bits
@@ -8340,396 +7933,20 @@ void ofApp::updateGameLogic() {
 		int targetPlayerIdx = (packed >> 16) & 0xFFFF;
 
 		isInGameDraft = true;
-		draftPlayerIndex = targetPlayerIdx; // <--- FIX: Correctly assigns to the player who earned it!
+		draftPlayerIndex = targetPlayerIdx;
 		generateDraftOptions(nextClass);
 		draftPicksRemaining = 1;
-		// No pending draft toggles tracking — clear selections on start
 		selectedDraftIndices.clear();
 		draftStage = 0;
 		currentState = STATE_DRAFTING;
 		resetDraftPhaseTimerWindow();
 
-		// Reset draft display state for new draft screen
 		draftDisplayStartTime = ofGetElapsedTimef();
 		draftDisplayInteractiveEnabled = false;
 		draftAutoSelectedIndex = -1;
 
 		ofLogNotice("Draft") << "Starting chained draft for Class " << nextClass << " for playerIdx " << targetPlayerIdx << ". Remaining in queue: " << networkPending.draftQueue.size();
 	}
-
-	// ==============================================================
-
-	// Update Floating Text
-	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
-
-		float dt = ofGetLastFrameTime();
-		it->worldPos += it->velocity * dt;
-		it->velocity.y *= 0.95f; // Slow down upward movement (gravity drag)
-
-		if (ofGetElapsedTimef() - it->startTime > it->duration) {
-			it = activeFloatingTexts.erase(it);
-		} else {
-			++it;
-		}
-	}
-
-	// Recompute horizontal offsets for grouped floating texts so that when older
-	// texts expire, remaining texts slide left into their place.
-	{
-		float spacing = 0.8f;
-		// Group texts by anchor position (within small epsilon)
-		for (size_t i = 0; i < activeFloatingTexts.size(); ++i) {
-			// Find all texts with same anchor and sort by startTime
-			std::vector<size_t> groupIdx;
-			for (size_t j = 0; j < activeFloatingTexts.size(); ++j) {
-				if (glm::length(activeFloatingTexts[j].anchorPos - activeFloatingTexts[i].anchorPos) < 0.01f) {
-					groupIdx.push_back(j);
-				}
-			}
-			if (groupIdx.size() <= 1) continue;
-			std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) {
-				return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime;
-			});
-			// Center the group around the anchor so items expand left/right
-			// symmetrically as more texts appear.
-			for (size_t k = 0; k < groupIdx.size(); ++k) {
-				float centered = ((float)k - ((float)groupIdx.size() - 1.0f) * 0.5f) * spacing;
-				activeFloatingTexts[groupIdx[k]].xOffset = centered;
-				// Update worldPos.x to match new offset (do not override worldPos.y so
-				// upward drift remains smooth)
-				activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
-			}
-		}
-	}
-
-	// --- Draw Card Animation Update ---
-	for (auto & anim : activeDrawCardAnimations) {
-		float elapsed = ofGetElapsedTimef() - anim.startTime;
-		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
-		// Smooth the approach so the card doesn't appear to "snap" at the end.
-		float tSmooth = t * t * (3.0f - 2.0f * t); // smoothstep
-		// Use a separate scale curve that changes earlier during the flight so
-		// size transition is visible while moving (instead of mostly at landing).
-		float tScale = 1.0f - (1.0f - t) * (1.0f - t); // ease-out quad
-
-		// Visual-only draws are already in-hand; keep their animation target synced
-		// to the real slot so each card flies directly to its own destination.
-		if (!anim.commitOnFinish && anim.pendingHandIndex >= 0) {
-			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
-			if (owner >= 0 && owner < (int)players.size()) {
-				Player & p = players[owner];
-				if (anim.pendingHandIndex < (int)p.hand.size()) {
-					anim.targetPos = p.hand[anim.pendingHandIndex].targetPos;
-				}
-			}
-		}
-
-		// Project 3D start into 2D (or use screen-space start) and clamp so it doesn't start off-screen
-		glm::vec2 start2D;
-		if (anim.startIsScreenSpace) {
-			// startPos already contains screen coordinates
-			start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
-		} else {
-			ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
-			start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
-		}
-		// Prevent start point from being below the bottom of the window (keeps flight arc on-screen)
-		float minY = 40.0f;
-		float maxY = ofGetHeight() - 80.0f;
-		start2D.y = ofClamp(start2D.y, minY, maxY);
-
-		// Build an elevated control point for a nice arc (Hearthstone-like)
-		glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
-		// Reduce arc slightly: smaller lift multiplier and lower minimum
-		float lift = std::max(80.0f, glm::distance(start2D, anim.targetPos) * 0.35f);
-		glm::vec2 control = mid - glm::vec2(0.0f, lift); // negative y = up on screen
-
-		// Quadratic Bezier interpolation (gives a smooth arc)
-		float u = 1.0f - tSmooth;
-		anim.currentPos = (u * u) * start2D + (2.0f * u * tSmooth) * control + (tSmooth * tSmooth) * anim.targetPos;
-
-		// Animate scale from deck size up to normal in-hand multiplier.
-		// NOTE: Draw code already bakes `kHandCardVisualScale` into base width/height,
-		// so in-hand cards should use multiplier 1.0f (not `kHandCardVisualScale` again).
-		anim.currentScale = ofLerp(anim.startScale, anim.endScale, tScale);
-
-		// Keep fully opaque for clarity
-		anim.currentAlpha = 255.0f;
-	}
-	// Commit finished draw animations into players' hands, then remove them
-	{
-		float now = ofGetElapsedTimef();
-		// First, add finished animations' cards to the appropriate player's hand
-		for (const auto & anim : activeDrawCardAnimations) {
-			if ((now - anim.startTime) >= anim.duration) {
-				int owner = -1;
-				// Prefer resolving by stable playerID (handles reordering/resizing)
-				if (anim.ownerPlayerID != -1) {
-					owner = findPlayerIndexByID(anim.ownerPlayerID);
-				} else {
-					owner = anim.ownerIndex;
-				}
-				if (owner >= 0 && owner < (int)players.size()) {
-					Player & p = players[owner];
-					if (anim.commitOnFinish) {
-						// Initialize visual state from the finished animation so the
-						// committed card appears at the correct screen position.
-						// Note: do not skip based on name+drawnThisTurn, as legitimate
-						// duplicate-name cards should both be allowed in hand.
-						Card c = anim.card;
-						// Place the card at the animation's final screen pos.
-						// For player hands (non-minion), immediately set to the normal
-						// hand display scale so it doesn't lerp up from a smaller size.
-						c.currentPos = anim.targetPos;
-						c.targetPos = anim.targetPos;
-						// Set to hand display scale immediately for all draws
-						c.currentScale = 1.0f;
-						c.targetScale = 1.0f;
-						// Only mark as drawn if it's not a copied card
-						if (!c.isCopied) {
-							c.drawnThisTurn = true;
-						}
-						ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
-						p.hand.push_back(c);
-						ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
-					} else {
-						// Visual-only animation: reveal the already-added hand card by clearing its animating flag
-						for (auto & hc : p.hand) {
-							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
-								hc.currentPos = anim.targetPos;
-								hc.targetPos = anim.targetPos;
-								hc.currentScale = 1.0f;
-								hc.targetScale = 1.0f;
-								hc.isAnimating = false;
-								break;
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Then remove finished animations from the active list
-		activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [now](const DrawCardAnimation & anim) {
-			return (now - anim.startTime) >= anim.duration;
-		}),
-			activeDrawCardAnimations.end());
-
-		// --- Discard Animation Update (hand -> discard visual-only) ---
-		for (auto & anim : activeDiscardCardAnimations) {
-			// Keep discard target synced to the unit's actual discard UI location.
-			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
-			if (owner >= 0 && owner < (int)players.size()) {
-				Player & p = players[owner];
-				ofRectangle targetRect;
-				bool foundTarget = false;
-
-				if (p.isMinion) {
-					for (const auto & ui : activeMinionUIs) {
-						if (ui.playerIndex == owner) {
-							targetRect = ui.discardRect;
-							foundTarget = true;
-							break;
-						}
-					}
-				}
-
-				if (!foundTarget) {
-					int ownerSide = p.isMinion ? p.ownerID : p.playerID;
-					bool localSide = isMultiplayer ? (ownerSide == myLocalPlayerID) : (ownerSide == 0);
-					targetRect = localSide ? p0_discardRect : p1_discardRect;
-				}
-
-				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
-				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
-				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
-
-				float animBaseW = kCardPixelWidth * kHandCardVisualScale;
-				float animBaseH = kCardPixelHeight * kHandCardVisualScale;
-				anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
-			}
-
-			float elapsed = ofGetElapsedTimef() - anim.startTime;
-			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
-			glm::vec2 start2D;
-			if (anim.startIsScreenSpace) {
-				start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
-			} else {
-				ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
-				start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
-			}
-			float minY = 40.0f;
-			float maxY = ofGetHeight() - 80.0f;
-			start2D.y = ofClamp(start2D.y, minY, maxY);
-
-			glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
-			float lift = std::max(40.0f, glm::distance(start2D, anim.targetPos) * 0.25f);
-			glm::vec2 control = mid - glm::vec2(0.0f, lift);
-
-			float u = 1.0f - t;
-			anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
-
-			// Scale from in-hand size to actual discard UI size.
-			anim.currentScale = ofLerp(anim.startScale, anim.endScale, t);
-			anim.currentAlpha = ofLerp(255.0f, 180.0f, t);
-		}
-
-		// Remove discard animations once finished
-		float now2 = ofGetElapsedTimef();
-		activeDiscardCardAnimations.erase(std::remove_if(activeDiscardCardAnimations.begin(), activeDiscardCardAnimations.end(), [now2](const DrawCardAnimation & anim) {
-			return (now2 - anim.startTime) >= (anim.duration + 0.25f);
-		}),
-			activeDiscardCardAnimations.end());
-
-		// --- Shuffle Animation Update ---
-		for (auto & s : activeShuffleAnimations) {
-			float elapsed = ofGetElapsedTimef() - s.startTime;
-			float t = ofClamp(elapsed / s.duration, 0.0f, 1.0f);
-			// simple pulsing and rotation
-			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
-			s.rotation = t * 720.0f; // degrees
-			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
-		}
-
-		// Remove finished shuffle animations
-		activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) {
-			return (ofGetElapsedTimef() - s.startTime) >= s.duration;
-		}),
-			activeShuffleAnimations.end());
-	}
-
-	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-		// In-game key drafts pause movement visuals at the current tile. Movement
-		// resumes automatically once the draft closes (state returns to gameplay).
-		if (currentState == STATE_DRAFTING && isInGameDraft) {
-			animationSegmentStartTime = ofGetElapsedTimef();
-		} else {
-			// Per-segment eased movement with hop for nicer motion
-			auto easeInOutCubic = [](float t) {
-				if (t < 0.5f) return 4.0f * t * t * t;
-				float f = ((2.0f * t) - 2.0f);
-				return 0.5f * f * f * f + 1.0f;
-			};
-
-			// Ensure we have at least two points (start + next) for a valid segment
-			if (currentPathIndex < 0) currentPathIndex = 0;
-			if (currentPathIndex + 1 >= (int)animationPath.size()) {
-				// Nothing to move to: finish animation
-				isPlayerAnimating = false;
-				animatingPlayerIndex = -1;
-			} else {
-				glm::vec3 startPos = animationPath[currentPathIndex];
-				glm::vec3 targetPos = animationPath[currentPathIndex + 1];
-
-				float segmentDuration = 0.20f; // seconds per tile (slower movement)
-				float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
-				float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
-				float easeT = easeInOutCubic(t);
-
-				// Facing based on movement direction (horizontal X/Z plane)
-				glm::vec3 dir = targetPos - startPos;
-				if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
-					playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
-					players[animatingPlayerIndex].facingAngle = playerFacingAngle;
-				}
-
-				// Interpolate with easing
-				playerVisualPos = glm::mix(startPos, targetPos, easeT);
-
-				// Add a small vertical hop for visual weight
-				float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
-				playerVisualPos.y += hop;
-
-				// Arrival
-				if (t >= 0.999f) {
-					// Snap to exact tile
-					playerVisualPos = targetPos;
-
-					// Key pickup: trigger when the unit visually reaches this tile,
-					// not immediately when movement command is applied.
-					{
-						glm::vec2 arrivedGridF = worldToGrid(targetPos);
-						int arrivedX = (int)std::round(arrivedGridF.x);
-						int arrivedY = (int)std::round(arrivedGridF.y);
-						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
-							&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-							if (!pendingVisualKeyDraftQueue.empty()
-								&& pendingVisualKeyDraftQueue.front().tileX == arrivedX
-								&& pendingVisualKeyDraftQueue.front().tileY == arrivedY
-								&& pendingVisualKeyDraftQueue.front().targetIndex >= 0
-								&& pendingVisualKeyDraftQueue.front().targetIndex < (int)players.size()) {
-								const PendingVisualKeyDraft draft = pendingVisualKeyDraftQueue.front();
-								pendingVisualKeyDraftQueue.erase(pendingVisualKeyDraftQueue.begin());
-
-								isInGameDraft = true;
-								inGameDraftTargetIdx = draft.targetIndex;
-								draftPlayerIndex = draft.targetIndex;
-								std::vector<int> forcedIndices;
-								for (int idx : draft.poolIndices) {
-									if (idx >= 0) forcedIndices.push_back(idx);
-								}
-								generateDraftOptions(draft.classTier, forcedIndices.empty() ? nullptr : &forcedIndices);
-								draftPicksRemaining = 1;
-								selectedDraftIndices.clear();
-								currentState = STATE_DRAFTING;
-								resetDraftPhaseTimerWindow();
-								draftDisplayStartTime = ofGetElapsedTimef();
-								draftDisplayInteractiveEnabled = false;
-								draftAutoSelectedIndex = -1;
-
-								ofColor keyCol = ofColor::gold;
-								if (draft.classTier == 2)
-									keyCol = ofColor(192, 192, 192);
-								else if (draft.classTier == 1)
-									keyCol = ofColor(205, 127, 50);
-								queueFloatingTextVisual(gridToWorld(arrivedX, arrivedY), "Key Found!", keyCol);
-							}
-						}
-					}
-
-					// Advance to next segment
-					currentPathIndex++;
-					animationSegmentStartTime = ofGetElapsedTimef();
-
-					// If reaching this tile triggered an in-game draft, pause movement here
-					// until the draft is resolved. Do not continue to next segment yet.
-					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
-					if (!pausedForKeyDraft) {
-						// Play Footstep Sound when starting next segment
-						if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
-							std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-							int idx = footIdx(visualRNG);
-							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-							footstepSounds[idx].setVolume(std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f));
-							footstepSounds[idx].play();
-						}
-
-						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
-							// Finished all segments
-							isPlayerAnimating = false;
-							animatingPlayerIndex = -1;
-							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-								playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
-							}
-
-							// Key pickup: trigger draft after movement animation completes visually
-							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-								// Key pickup/draft trigger is resolved in lockstep command processing
-								// (CMD_MOVE_UNIT / effect ops). Do not trigger from visual animation.
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Secondary timer handling: gameplay-only movement pause/resume.
-	// Draft timer logic is handled earlier in this frame and must not be duplicated,
-	// otherwise draft clicks can lock and timer state can desync/freeze.
-
-	if (hasUnlimitedAP) currentAP = 99;
 }
 //----------------------------------------------------
 void ofApp::buildLevelMesh() {
@@ -20557,7 +19774,8 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 
 			if (applyLocally) {
 				// Optimistic Execution: Execute locally to make UI snappy
-				uint32_t predictedId = nextCommandId++;
+				// FIX 1: Use a fake temporary ID so we don't desync the authoritative nextCommandId counter
+				uint32_t predictedId = 0xFFFFFFFF - cmd.clientActionID;
 				cmd.commandId = predictedId;
 
 				std::string snap = buildSnapshotString();
@@ -29244,16 +28462,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// Max roll on 2d20 is 40 feet (no flat bonus).
 					float maxRadiusFeet = 40.0f;
 
-					// 2. Center-origin rule: center-to-center minus half tile (2.5ft), rounded down.
-					// Use caster/tile CENTER for Psionic Wave distance calculations
-					glm::vec2 casterCenter = glm::vec2((float)px + 0.5f, (float)py + 0.5f);
-					glm::vec2 targetCenter = glm::vec2((float)x + 0.5f, (float)y + 0.5f);
-					float centerDistFeet = glm::distance(casterCenter, targetCenter) * 5.0f;
-					float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-					int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
+					// FIX 4: Use pure deterministic integer math instead of floats!
+					long long maxRangeHalfTiles = ((long long)maxRadiusFeet * 2LL) / 5LL;
+					long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+					long long distSq = getFaceToFaceDistanceSquaredScaled(glm::vec2(px, py), glm::vec2(x, y));
 
 					// 3. Highlight Logic
-					if (neededFeet <= (int)maxRadiusFeet) {
+					if (distSq <= maxDistSq) {
 						isPreview = true; // Red Square (Potential Range)
 
 						// Compute Hit Chance Tooltip
@@ -29261,7 +28476,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						int sides = 20;
 						(void)diceNum;
 						(void)sides;
-						int minRoll = neededFeet;
+						int minRoll = (int)ceil(sqrt((double)distSq) * 2.5); // Safe visual conversion
 						if (minRoll < diceNum) minRoll = diceNum;
 						std::vector<glm::ivec2> affectedTiles;
 						if (minRoll > maxRadiusFeet) minRoll = maxRadiusFeet;
@@ -36300,6 +35515,10 @@ void ofApp::processNetworkPackets() {
 							if (cmd->commandId >= nextCommandId) {
 								nextCommandId = cmd->commandId + 1;
 							}
+							// FIX 5: Clean up the fake command key from the executed set so it doesn't pollute memory
+							uint64_t fakeKey = (uint64_t(cmd->playerID) << 32) | uint64_t(0xFFFFFFFF - cmd->clientActionID);
+							executedCommandKeys.erase(fakeKey);
+
 							continue; // We already executed this locally, do not queue it again!
 						}
 					}
