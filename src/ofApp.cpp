@@ -41,49 +41,68 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
 	if (url.empty()) return;
 
-	// Resolve absolute path on the main thread so curl can find it from any working directory
-	std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
-	std::string absPath = ofToDataPath(fileName, true);
-
-#ifdef _WIN32
-	// Ensure Windows path formatting for cURL
-	std::replace(absPath.begin(), absPath.end(), '/', '\\');
-#endif
-
-	std::thread([url, content, absPath]() {
-		// Bulletproof JSON Sanitizer (Fixes crashes if Steam names contain slashes or quotes)
+	std::thread([url, content]() {
+		// 1. Bulletproof JSON Sanitizer
 		std::string safeContent = "";
 		for (char c : content) {
 			if (c == '\"')
 				safeContent += "'";
 			else if (c == '\\')
-				safeContent += "\\\\"; // Escape slashes
+				safeContent += "\\\\";
 			else if (c == '\n')
-				safeContent += "\\n"; // Convert real newlines to JSON newlines
+				safeContent += "\\n";
 			else if (c == '\r')
 				continue;
 			else
 				safeContent += c;
 		}
 
-		// Write the JSON to the file
 		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+		std::string absPath = "";
+
+#ifdef _WIN32
+		// 2. Write to the official Windows TEMP folder to guarantee write permissions
+		char tempPath[MAX_PATH];
+		GetTempPathA(MAX_PATH, tempPath);
+		absPath = std::string(tempPath) + fileName;
+#else
+		absPath = ofToDataPath(fileName, true);
+#endif
+
+		// Write payload to disk
 		ofBuffer buffer;
 		buffer.set(jsonStr.c_str(), jsonStr.length());
 		ofBufferToFile(absPath, buffer);
 
 #ifdef _WIN32
-		// Use cmd.exe to guarantee curl.exe is found in the system PATH
-		std::string cmd = "cmd.exe /c curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
-		WinExec(cmd.c_str(), 0); // 0 is SW_HIDE
+		// 3. Use CreateProcess to call curl directly (bypassing cmd.exe quote-stripping bugs)
+		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+		ZeroMemory(&si, sizeof(si));
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE; // Hidden window
+		ZeroMemory(&pi, sizeof(pi));
+
+		// CreateProcess needs a mutable string buffer
+		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
+		cmdBuffer.push_back('\0');
+
+		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+			WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s for upload to finish
+			CloseHandle(pi.hProcess);
+			CloseHandle(pi.hThread);
+		}
 #else
 		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
 #endif
 
-		// Wait enough time for curl to finish uploading before deleting
-		ofSleepMillis(5000);
+		// Clean up the file
 		ofFile::removeFile(absPath);
 	}).detach();
 }
