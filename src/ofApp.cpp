@@ -33,9 +33,9 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 	std::string timeStr = ofGetTimestampString("%H:%M:%S");
 	std::string logLine = "[" + timeStr + "] T:" + std::to_string(turn) + " | " + eventStr + "\n";
 
-	ofBuffer buf;
-	buf.set(logLine.c_str(), logLine.size());
-	ofBufferToFile(filename, buf, true); // true = append mode
+	// FIX: Use ofFile::Append so it actually builds a history instead of overwriting line 1!
+	ofFile file(filename, ofFile::Append);
+	file << logLine;
 }
 
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
@@ -45,10 +45,26 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 	std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
 	std::string absPath = ofToDataPath(fileName, true);
 
+#ifdef _WIN32
+	// Ensure Windows path formatting for cURL
+	std::replace(absPath.begin(), absPath.end(), '/', '\\');
+#endif
+
 	std::thread([url, content, absPath]() {
-		// Strip double quotes so JSON stays valid
-		std::string safeContent = content;
-		std::replace(safeContent.begin(), safeContent.end(), '\"', '\'');
+		// Bulletproof JSON Sanitizer (Fixes crashes if Steam names contain slashes or quotes)
+		std::string safeContent = "";
+		for (char c : content) {
+			if (c == '\"')
+				safeContent += "'";
+			else if (c == '\\')
+				safeContent += "\\\\"; // Escape slashes
+			else if (c == '\n')
+				safeContent += "\\n"; // Convert real newlines to JSON newlines
+			else if (c == '\r')
+				continue;
+			else
+				safeContent += c;
+		}
 
 		// Write the JSON to the file
 		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
@@ -57,34 +73,17 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		ofBufferToFile(absPath, buffer);
 
 #ifdef _WIN32
-		// Use absolute path wrapped in quotes to prevent spaces from breaking the command
-		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
-
-		// Use CreateProcess to run completely hidden AND block until finished
-		STARTUPINFOA si;
-		PROCESS_INFORMATION pi;
-		ZeroMemory(&si, sizeof(si));
-		si.cb = sizeof(si);
-		si.dwFlags = STARTF_USESHOWWINDOW;
-		si.wShowWindow = SW_HIDE; // No black cmd window flash
-		ZeroMemory(&pi, sizeof(pi));
-
-		// CreateProcess requires a mutable string buffer
-		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
-		cmdBuffer.push_back('\0');
-
-		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-			WaitForSingleObject(pi.hProcess, 10000); // Wait up to 10 seconds for it to send
-			CloseHandle(pi.hProcess);
-			CloseHandle(pi.hThread);
-		}
+		// Use cmd.exe to guarantee curl.exe is found in the system PATH
+		std::string cmd = "cmd.exe /c curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+		WinExec(cmd.c_str(), 0); // 0 is SW_HIDE
 #else
 		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
 #endif
 
-		// Clean up the payload file safely now that we know curl is done
+		// Wait enough time for curl to finish uploading before deleting
+		ofSleepMillis(5000);
 		ofFile::removeFile(absPath);
 	}).detach();
 }
@@ -4657,10 +4656,10 @@ void ofApp::update() {
 			std::string signMe = (eloChange >= 0) ? "+" : "";
 			std::string signOpp = (oppEloChange >= 0) ? "+" : "";
 
-			// Using literal \n since our new helper constructs the JSON directly
-			std::string msg = "⚔️ **MATCH FINISHED** ⚔️\\n";
+			// Using normal \n now because our sanitizer handles it!
+			std::string msg = "⚔️ **MATCH FINISHED** ⚔️\n";
 			msg += "**" + myName + "** (" + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
-			msg += "**" + oppName + "** (" + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\\n";
+			msg += "**" + oppName + "** (" + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
 			msg += "🏆 **Winner:** " + winnerName;
 
 			sendDiscordWebhook(historyWebhook, msg);
@@ -4916,7 +4915,7 @@ void ofApp::update() {
 					HandshakePacket pkt = {};
 					pkt.type = PKT_HANDSHAKE;
 					pkt.playerID = 0; // I am Host
-					pkt.seq = 0;
+					pkt.seq = 1002; // <--- GAME VERSION ID! 1002
 					pkt.seed = localSeedComponent;
 					pkt.elo = myElo;
 					steamManager.sendPacket(&pkt, sizeof(pkt));
@@ -33156,8 +33155,15 @@ void ofApp::cleanupGame() {
 	animatingPlayerIndex = -1;
 	isLoadingGame = false;
 	hasReceivedHandshake = false;
-	clientSentReady = false; // Ensure consecutive multiplayer matches don't hang!
-	// waitingForTurnStartTimer removed; no-op
+	clientSentReady = false;
+
+	// --- FIX: Reset all Lobby and Connection flags to prevent getting stuck ---
+	g_isHostingLobby = false;
+	g_isConnectingToLobby = false;
+	waitingForClientHandshake = false;
+	hostWaitingForClientsReadyStartTime = 0.0f; // <--- This caused the "Endless Dice" bug!
+	isInGameDraft = false;
+	initialDraftComplete = false;
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
@@ -35400,6 +35406,16 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_HANDSHAKE) {
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
+				// --- VERSION CONTROL: Reject outdated players! ---
+				if (pkt->seq != 1002) {
+					ofLogError("Network") << "VERSION MISMATCH! Expected 1002, got " << pkt->seq;
+					addGameLog("ERROR: Version mismatch! You or your opponent must update the game.");
+					steamManager.leaveLobby();
+					cleanupGame();
+					currentState = STATE_MAIN_MENU;
+					continue;
+				}
+
 				// 1. HOST RECEIVES CLIENT REPLY
 				if (steamManager.isHost() && pkt->playerID == 1) {
 					if (!hasReceivedHandshake) {
@@ -35461,7 +35477,7 @@ void ofApp::processNetworkPackets() {
 					HandshakePacket ack = {};
 					ack.type = PKT_HANDSHAKE;
 					ack.playerID = 1;
-					ack.seq = 0;
+					ack.seq = 1002; // <--- GAME VERSION ID! 1002
 					ack.seed = localSeedComponent;
 					ack.elo = myElo;
 					steamManager.sendPacket(&ack, sizeof(ack));
