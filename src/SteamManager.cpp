@@ -686,3 +686,24 @@ void SteamManager::setLocalElo(int elo) {
 		SteamAPI_ISteamUserStats_UploadLeaderboardScore((intptr_t)SteamUserStats(), currentLeaderboardHandle, 2, elo, nullptr, 0);
 	}
 }
+
+void SteamManager::armLeaverBuster(int oppElo) {
+	if (!SteamUserStats()) return;
+	// Store the opponent's Elo so we can accurately calculate the penalty later
+	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", oppElo);
+	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
+}
+
+void SteamManager::disarmLeaverBuster() {
+	if (!SteamUserStats()) return;
+	// Reset to 0 meaning no match was abandoned
+	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", 0);
+	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
+}
+
+int SteamManager::checkLeaverBuster() {
+	if (!SteamUserStats()) return 0;
+	int32_t oppElo = 0;
+	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", &oppElo);
+	return (int)oppElo;
+}

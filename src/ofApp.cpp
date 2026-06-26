@@ -27,6 +27,17 @@
 	#include <windows.h>
 #endif
 
+static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
+	std::string role = isHost ? "host" : "client";
+	std::string filename = "lockstep_trace_" + role + ".log";
+	std::string timeStr = ofGetTimestampString("%H:%M:%S");
+	std::string logLine = "[" + timeStr + "] T:" + std::to_string(turn) + " | " + eventStr + "\n";
+
+	ofBuffer buf;
+	buf.set(logLine.c_str(), logLine.size());
+	ofBufferToFile(filename, buf, true); // true = append mode
+}
+
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
 	if (url.empty()) return;
 
@@ -83,6 +94,7 @@ static float g_menuAlphaMult = 1.0f;
 static int g_windowModeState = 1;
 
 // Tracks the playerID of whoever most recently damaged a unit (for Kill Credits)
+
 // FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
 static std::map<int, int> g_lastDamagerMap;
 
@@ -3096,8 +3108,9 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, i
 				// Queue the draft safely so it doesn't interrupt ongoing Effect Sequences (like Earthquakes/Spawns)
 				networkPending.draftQueue.push_back((targetIndex << 16) | classToDraft);
 
-				// Pause the active player's turn timer if this draft belongs to the opponent
-				pauseTurnTimerForOpponentDecision(targetIndex);
+				// FIX: Do NOT pause the timer instantly! The timer will automatically pause
+				// when the draft queue actually opens the draft screen later. Pausing here
+				// freezes the timer while the spell animations are still playing!
 
 				ofColor keyCol = ofColor::gold;
 				if (keySet == 2)
@@ -3175,6 +3188,9 @@ void ofApp::markMeaningfulActionOnCurrentTurn() {
 }
 
 void ofApp::handleOwnerForfeit(int loserOwnerId, const std::string & reason) {
+	// FIX: Never award a forfeit if the game has already mathematically ended!
+	if (g_isGameOver) return;
+
 	if (loserOwnerId < 0 || loserOwnerId > 1) return;
 	int winnerOwnerId = (loserOwnerId == 0) ? 1 : 0;
 
@@ -3578,11 +3594,30 @@ void ofApp::setup() {
 	// Load persisted settings (overrides defaults)
 	loadSettings();
 
-	// Don't play music here - let update() handle it when window is actually focused
-	// This prevents music playing during loading if window is minimized
+	// --- SPRING THE SECURE STEAM LEAVERBUSTER TRAP ---
+	// If they Alt+F4'd or pulled the plug in their last match, punish them instantly.
+	// We read from the secure Steam Backend so they cannot edit settings.json to escape!
+	int abandonOppElo = steamManager.checkLeaverBuster();
+	if (abandonOppElo > 0 && steamManager.isConnected()) {
+		int currentElo = steamManager.getLocalElo();
+
+		// Calculate the Elo they *would* have lost against that opponent
+		float expected = 1.0f / (1.0f + pow(10.0f, (abandonOppElo - currentElo) / 400.0f));
+		float kFactor = (currentElo < 1200) ? 40.0f : ((currentElo > 2000) ? 16.0f : 24.0f);
+		int penalty = (int)round(kFactor * (0.0f - expected)); // 0.0f because they abandoned (loss)
+
+		currentElo += penalty;
+		if (currentElo < 300) currentElo = 300;
+
+		steamManager.setLocalElo(currentElo);
+
+		// Disarm so it doesn't punish them twice
+		steamManager.disarmLeaverBuster();
+
+		ofLogNotice("Elo") << "LEAVERBUSTER: Deducted " << penalty << " Elo for abandoning previous match. New Elo: " << currentElo;
+	}
 
 	// --- LOAD NEW STANDARDIZED MODELS ---
-	// All models are pre-scaled to 2.0 Units, centered at origin, with embedded textures.
 
 	auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
 		model.setScaleNormalization(false);
@@ -4405,58 +4440,60 @@ void ofApp::updateStateMachine() {
 	// Disconnection / reconnection handling (multiplayer)
 	if (isMultiplayer) {
 		if (!steamManager.hasOpponent()) {
+			// FIX: If the game has already concluded, we don't care if the opponent leaves the lobby!
+			if (g_isGameOver) return;
+
 			bool inMatchState = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED || currentState == STATE_WAITING_FOR_RECONNECT);
 			if (inMatchState) {
 				if (!waitingForReconnect) {
-					ofLogNotice("Network") << "Connection lost. Entering reconnect wait state.";
+					ofLogNotice("Network") << "Connection lost. Invisible forfeit timer armed.";
 					waitingForReconnect = true;
-					reconnectForfeitStartTime = ofGetElapsedTimef();
-					// Do not change currentState so gameplay remains visible!
-
-					if (turnTimerEnabled && !turnTimerPaused) {
-						reconnectTurnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
-						turnTimerPaused = true;
-						turnTimerPausedRemainingFrames = reconnectTurnTimerPausedRemainingFrames;
-						reconnectTurnTimerPausedByDisconnect = true;
-					}
-
-					bool saved = saveGameStateToFile("autosave_disconnect.json");
-					ofLogNotice("Save") << (saved ? "Saved autosave_disconnect.json" : "Failed to save autosave_disconnect.json");
+					reconnectForfeitStartTime = 0.0f; // Use as an accumulator for the 45s timer
 
 					ChatMessage msg;
 					msg.playerName = "[SERVER]";
-					msg.message = "Connection lost. Waiting for opponent to reconnect...";
+					msg.message = "Opponent disconnected. They have 45s on their turn to return.";
 					msg.timestamp = ofGetElapsedTimef();
 					chatHistory.push_back(msg);
-					if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
-						chatHistory.erase(chatHistory.begin());
-					}
+					if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) chatHistory.erase(chatHistory.begin());
 					lastChatInteractionTime = ofGetElapsedTimef();
 				}
 
-				if (waitingForReconnect && reconnectForfeitStartTime > 0.0f) {
-					float elapsed = ofGetElapsedTimef() - reconnectForfeitStartTime;
-					if (elapsed >= reconnectForfeitDuration) {
-						int loserOwner = (myLocalPlayerID == 0) ? 1 : 0;
-						handleOwnerForfeit(loserOwner, "disconnect timeout");
-						return;
+				// Invisible 45-second timer that ONLY runs during the opponent's turn/draft
+				int disconnectedOwner = (myLocalPlayerID == 0) ? 1 : 0;
+				bool isOpponentsTurn = false;
+
+				if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+					if (getOwnerIdForActorIndex(opponentDecisionPlayerIndex) == disconnectedOwner) isOpponentsTurn = true;
+				} else if (currentState == STATE_DRAFTING) {
+					if (!isLocalDraftingPlayer(draftPlayerIndex)) isOpponentsTurn = true;
+				} else if (currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					if (getOwnerIdForActorIndex(currentPlayerIndex) == disconnectedOwner) isOpponentsTurn = true;
+				}
+
+				if (isOpponentsTurn && !g_isGameOver) {
+					reconnectForfeitStartTime += ofGetLastFrameTime(); // Accumulate time
+					if (reconnectForfeitStartTime >= 45.0f) {
+						handleOwnerForfeit(disconnectedOwner, "disconnected for 45s during their turn");
 					}
 				}
+
+				// WE NO LONGER RETURN HERE!
+				// This allows the local player to keep playing the game, animations to finish, and simulationTick to run!
+			} else {
+				ofLogNotice("Network") << "Opponent left before/during lobby setup. Returning to main menu.";
+				isMultiplayer = false;
+				hasReceivedHandshake = false;
+				initialDraftComplete = false;
+				draftAcceptLocked = false;
+				draftAcceptApplied = false;
+				gameplaySeededByHost = false;
+				handshakeRequestInterval = 1.0f;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+				lastChatInteractionTime = ofGetElapsedTimef();
 				return;
 			}
-
-			ofLogNotice("Network") << "Opponent left before/during lobby setup. Returning to main menu.";
-			isMultiplayer = false;
-			hasReceivedHandshake = false;
-			initialDraftComplete = false;
-			draftAcceptLocked = false;
-			draftAcceptApplied = false;
-			gameplaySeededByHost = false;
-			handshakeRequestInterval = 1.0f;
-			cleanupGame();
-			currentState = STATE_MAIN_MENU;
-			lastChatInteractionTime = ofGetElapsedTimef();
-			return;
 		}
 
 		if (steamManager.checkAndClearDisconnectFlag()) {
@@ -4578,6 +4615,10 @@ void ofApp::update() {
 		}
 
 		steamManager.setLocalElo(myElo);
+
+		// DISARM THE LEAVERBUSTER TRAP (Match concluded legally)
+		steamManager.disarmLeaverBuster();
+
 		ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected << ", Change: " << eloChange << ", New Rating: " << myElo;
 
 		// --- DISCORD GAME HISTORY WEBHOOK ---
@@ -4938,16 +4979,7 @@ void ofApp::update() {
 	case STATE_SINGLEPLAYER_MENU:
 		break;
 	case STATE_WAITING_FOR_RECONNECT:
-		// Intentionally do not advance simulation while waiting for network recovery.
-		if (waitingForReconnect && reconnectForfeitStartTime > 0.0f) {
-			float elapsed = ofGetElapsedTimef() - reconnectForfeitStartTime;
-			if (elapsed >= reconnectForfeitDuration) {
-				int loserOwner = (myLocalPlayerID == 0) ? 1 : 0;
-				handleOwnerForfeit(loserOwner, "disconnect timeout");
-				return;
-			}
-		}
-		break;
+		break; // Deprecated, game no longer pauses here!
 
 	case STATE_INITIATIVE_ROLL:
 		// Initiative handling moved to updateStateMachine()
@@ -5225,18 +5257,6 @@ void ofApp::draw() {
 	// on top of the draft screen and the normal HUD.
 	if (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0) {
 		this->drawActiveDraftPickedMoves();
-	}
-	if (waitingForReconnect && !g_isGameOver) {
-		ofPushStyle();
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-		ofSetColor(150, 0, 0, 220); // Dark red banner
-		ofDrawRectangle(0, 0, ofGetWidth(), 40);
-		ofSetColor(255);
-		int secsLeft = std::max(0, (int)std::ceil(reconnectForfeitDuration - (ofGetElapsedTimef() - reconnectForfeitStartTime)));
-		std::string msg = "Connection Lost. Waiting for Opponent... (Forfeit in " + ofToString(secsLeft) + "s) Press ESC to Save/Quit";
-		ofRectangle b = uiFont.getStringBoundingBox(msg, 0, 0);
-		uiFont.drawString(msg, ofGetWidth() / 2.0f - b.width / 2.0f, 26);
-		ofPopStyle();
 	}
 }
 
@@ -6240,6 +6260,14 @@ void ofApp::setupGame() {
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = true;
 		eloCalculated = false;
+
+		// --- LOCKSTEP TRACING: Reset log for new match ---
+		std::string filename = "lockstep_trace_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
+		ofFile::removeFile(filename);
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "MATCH STARTED. Seed: " + std::to_string(currentMapSeed));
+
+		// ARM THE LEAVERBUSTER TRAP (SECURE STEAM BACKEND)
+		steamManager.armLeaverBuster(opponentElo);
 
 		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
 
@@ -17812,6 +17840,10 @@ void ofApp::startNewTurn() {
 	isHandlingTurnStartEffects = true;
 	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
 
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "START NEW TURN. Starting Checksum: " + std::to_string(calculateChecksum()));
+	}
+
 	// Autosave full game state at the start of every new turn so host/clients
 	// can recover if someone crashes. Also useful for singleplayer saves.
 	// Primary autosave path (overwritten each turn)
@@ -20822,18 +20854,9 @@ void ofApp::simulationTick() {
 					if (killerID != -1) {
 						int killerIdx = findPlayerIndexByID(killerID);
 						if (killerIdx != -1) {
-							isInGameDraft = true;
-							draftPlayerIndex = killerIdx;
-							generateDraftOptions(3); // Class 3
-							draftPicksRemaining = 1;
-							selectedDraftIndices.clear();
-							draftStage = 0;
-							currentState = STATE_DRAFTING;
-							resetDraftPhaseTimerWindow();
-							draftDisplayStartTime = ofGetElapsedTimef();
-							draftDisplayInteractiveEnabled = false;
-							draftAutoSelectedIndex = -1;
-							pauseTurnTimerForOpponentDecision(killerIdx);
+							// Safely queue the draft so it happens cleanly!
+							networkPending.draftQueue.push_back((killerIdx << 16) | 3); // Class 3
+							queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Demon Slain! (Draft C3)", ofColor::gold);
 						}
 					}
 				}
@@ -20941,6 +20964,11 @@ void ofApp::simulationTick() {
 }
 
 void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
+	if (isMultiplayer) {
+		std::string logMsg = "EXEC CMD id=" + std::to_string(cmd.commandId) + " type=" + std::to_string(cmd.commandType) + " player=" + std::to_string(cmd.playerID) + " p0=" + std::to_string(cmd.params[0]) + " p1=" + std::to_string(cmd.params[1]) + " p2=" + std::to_string(cmd.params[2]) + " p3=" + std::to_string(cmd.params[3]) + " str=" + std::string(cmd.stringData) + " | PRE-SUM: " + std::to_string(calculateChecksum());
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, logMsg);
+	}
+
 	// Log into replay system (if we aren't currently watching a replay)
 	if (!isReplayMode) {
 		ReplayCommand rc;
@@ -22198,6 +22226,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	default:
 		ofLogWarning("Lockstep") << "Unknown command type: " << (int)cmd.commandType;
 		break;
+	}
+
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "POST-EXEC CHECKSUM: " + std::to_string(calculateChecksum()));
 	}
 }
 
@@ -27233,14 +27265,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
 
-		isInGameDraft = true;
-		draftPlayerIndex = currentPlayerIndex;
-		generateDraftOptions(2);
-		draftPicksRemaining = 1;
-		selectedDraftIndices.clear();
-		draftStage = 0;
-		currentState = STATE_DRAFTING;
-		resetDraftPhaseTimerWindow();
+		// Safely queue the draft so it happens AFTER the spell finishes!
+		networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 2); // Class 2
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -34107,6 +34133,7 @@ void ofApp::loadSettings() {
 		settingsUIScale = json.value("uiScale", settingsUIScale);
 		settingsUseVSync = json.value("useVSync", settingsUseVSync);
 		settingsShowHints = json.value("showHints", settingsShowHints);
+
 		settingsFramerateSliderValue = json.value("framerateSliderValue", settingsFramerateSliderValue);
 		currentResolutionIndex = json.value("currentResolutionIndex", currentResolutionIndex);
 		g_windowModeState = json.value("windowModeState", g_windowModeState);
@@ -35931,23 +35958,6 @@ void ofApp::drawTrainMenuUI() {
 }
 //--------------------------------------------------------------
 void ofApp::exit() {
-	// Treat mid-match Alt-F4/terminations as a forfeit loss
-	if (isMultiplayer && !g_isGameOver && !eloCalculated) {
-		eloCalculated = true;
-		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-		float myActual = 0.0f; // Loss
-		float kFactor = 24.0f;
-		if (myElo < 1200)
-			kFactor = 40.0f;
-		else if (myElo > 2000)
-			kFactor = 16.0f;
-		int change = (int)round(kFactor * (myActual - myExpected));
-		myElo += change;
-		if (myElo < 300) myElo = 300;
-		steamManager.setLocalElo(myElo);
-		ofLogNotice("Elo") << "Forfeit on Exit. Rating change: " << change << ". New Rating: " << myElo;
-	}
-
 	// 1. Close network sockets first
 	if (zmqSocket) {
 		zmqSocket->close();
@@ -36336,8 +36346,19 @@ void ofApp::processNetworkPackets() {
 
 				long long mySum = calculateChecksum();
 
+				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "CHECKSUM_CHECK Recv. Local: " + std::to_string(mySum) + " Remote: " + std::to_string(pkt->checksum));
+
 				if (mySum != pkt->checksum) {
 					ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " vs Remote: " << pkt->checksum << ". Rewinding to start of turn...";
+					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "*** DESYNC DETECTED! Local: " + std::to_string(mySum) + " vs Remote: " + std::to_string(pkt->checksum) + " ***");
+
+					// Auto State-Dump for Diffing!
+					std::string dumpName = "desync_dump_turn" + std::to_string(globalTurnCounter) + "_" + (steamManager.isHost() ? "host" : "client") + ".txt";
+					std::string dumpStr = buildSnapshotString();
+					ofBuffer dumpBuf;
+					dumpBuf.set(dumpStr.c_str(), dumpStr.size());
+					ofBufferToFile(dumpName, dumpBuf);
+					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
 
 					if (isHost()) {
 						// 1. Host rewinds ITSELF to the start of the turn

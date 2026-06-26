@@ -79,6 +79,11 @@ public:
 	int getLocalElo();
 	void setLocalElo(int elo);
 
+	// Secure LeaverBuster
+	void armLeaverBuster(int oppElo);
+	void disarmLeaverBuster();
+	int checkLeaverBuster();
+
 private:
 	CSteamID m_OpponentID;
 	uint32_t m_nextSeq = 1;
