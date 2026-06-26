@@ -23,7 +23,45 @@
 #include <sstream>
 #include <unordered_map>
 
+#ifdef _WIN32
+	#include <windows.h>
+#endif
+
+static void sendDiscordWebhook(const std::string & url, const std::string & content) {
+	if (url.empty()) return;
+
+	std::thread([url, content]() {
+		// Create a unique temp file name
+		std::string tempFile = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+
+		// Strip double quotes so JSON stays valid
+		std::string safeContent = content;
+		std::replace(safeContent.begin(), safeContent.end(), '\"', '\'');
+
+		// Write the JSON to the file to avoid command-line quoting nightmares
+		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+		ofBuffer buffer;
+		buffer.set(jsonStr.c_str(), jsonStr.length());
+		ofBufferToFile(tempFile, buffer);
+
+		// Run the command silently
+#ifdef _WIN32
+		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @" + tempFile + " \"" + url + "\"";
+		WinExec(cmd.c_str(), 0); // 0 is SW_HIDE (No black cmd window flash)
+#else
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @" + tempFile + " \"" + url + "\"";
+		int r = system(cmd.c_str());
+		(void)r;
+#endif
+
+		// Wait a few seconds for the request to fire, then delete the temp file
+		ofSleepMillis(3000);
+		ofFile::removeFile(tempFile);
+	}).detach();
+}
+
 // Visual-only active previews (do not affect gameplay state)
+
 std::vector<glm::ivec2> activeYellowPreviewTiles;
 // Combined 2x1 target areas for stab (visual-only)
 std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
@@ -524,8 +562,9 @@ struct CardTemplateLayout {
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
 	ofRectangle summonAPRect = ofRectangle(384, 1328, 136, 80);
 	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
+
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
-	ofRectangle effectRect = ofRectangle(70, 890, 916, 440); // Expanded bounds
+	ofRectangle effectRect = ofRectangle(96, 928, 864, 384); // Restored strictly to original visual bounds
 	float nameScale = 13.75f;
 	float nameMinScale = 1.0f;
 	float nameCurveDropPx = 12.0f;
@@ -534,9 +573,9 @@ struct CardTemplateLayout {
 	float nameMiddleBottomMaxY = 864.0f;
 	float costScale = 3.0f;
 	float labelScale = 1.0f;
-	float effectScale = 3.8f; // max preferred scale; auto-fit may reduce per card
-	float effectMinScale = 1.25f; // floor for very long text
-	float effectLineSpacing = 0.72f; // Tighter line spacing allows text to scale up more
+	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
+	float effectMinScale = 1.0f; // floor for very long text
+	float effectLineSpacing = 0.75f; // Keep tight line spacing so text can still scale up within bounds
 };
 
 static std::string trimCopy(const std::string & in) {
@@ -1041,13 +1080,13 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 	const std::vector<std::string> & texts,
-	const ofRectangle & rect,
+	const std::vector<ofRectangle> & rects,
 	float minScale,
 	float maxScale,
 	float lineSpacing) {
 	if (maxScale < minScale) std::swap(maxScale, minScale);
 
-	auto fitsTextAtScale = [&](const std::string & text, float s) {
+	auto fitsTextAtScale = [&](const std::string & text, const ofRectangle & rect, float s) {
 		if (text.empty()) return true;
 		auto lines = wrapTextScaled(font, text, rect.width, s);
 		if (lines.empty()) return true;
@@ -1057,8 +1096,8 @@ static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 	};
 
 	auto fitsAllAtScale = [&](float s) {
-		for (const auto & text : texts) {
-			if (!fitsTextAtScale(text, s)) return false;
+		for (size_t i = 0; i < texts.size(); ++i) {
+			if (!fitsTextAtScale(texts[i], rects[i], s)) return false;
 		}
 		return true;
 	};
@@ -1248,9 +1287,11 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofRectangle effectTextRect = layout.effectRect;
 
 	std::vector<std::string> allEffectTexts;
+	std::vector<ofRectangle> allEffectRects;
 	std::vector<std::string> allCardNames;
 	std::vector<std::string> allAPCosts;
 	allEffectTexts.reserve(allCards.size());
+	allEffectRects.reserve(allCards.size());
 	allCardNames.reserve(allCards.size());
 	allAPCosts.reserve(allCards.size());
 	std::string longestTargetingText;
@@ -1261,6 +1302,13 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (it != records.end()) {
 			allEffectTexts.push_back(stripBoldTags(it->second.effectText)); // <--- UPDATED
 			allAPCosts.push_back(it->second.apCost);
+
+			ofRectangle r = layout.effectRect;
+			if (it->second.summonAP.empty() && it->second.summonHP.empty()) {
+				r.height += 90.0f; // Expand downwards if no AP/HP chip is present!
+			}
+			allEffectRects.push_back(r);
+
 			if (it->second.targeting.size() > longestTargetingText.size()) {
 				longestTargetingText = it->second.targeting;
 				longestTargetingCardName = card.name;
@@ -1268,6 +1316,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		} else {
 			allEffectTexts.push_back("");
 			allAPCosts.push_back("");
+			allEffectRects.push_back(layout.effectRect);
 		}
 	}
 
@@ -1428,14 +1477,17 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	const float uniformEffectScale = bestUniformWrappedTextScale(renderEffectFont,
 		allEffectTexts,
-		effectTextRect,
+		allEffectRects,
 		layout.effectMinScale,
 		layout.effectScale,
 		layout.effectLineSpacing);
 
 	g_uniformEffectScale = uniformEffectScale;
 	g_effectLineSpacing = layout.effectLineSpacing;
-	g_effectTextRect = effectTextRect;
+
+	// Master Fist uses the global rect at runtime. Since it's an attack, it has the expanded box!
+	g_effectTextRect = layout.effectRect;
+	g_effectTextRect.height += 90.0f;
 
 	auto bestCenteredTextScaleForSingle = [&](const ofTrueTypeFont & font,
 											  const std::string & text,
@@ -5192,11 +5244,13 @@ void ofApp::drawMainMenu() {
 		ofFill();
 		ofDrawRectRounded(rect, 15);
 
-		ofSetColor(ofColor::black);
-		ofNoFill();
-		ofSetLineWidth(2);
-		ofDrawRectRounded(rect, 15);
-		ofFill();
+		ofPath p;
+		p.rectRounded(rect, 15);
+		p.setFilled(false);
+		p.setStrokeWidth(2.0f);
+		p.setStrokeColor(ofColor::black);
+		p.draw();
+
 		ofSetColor(ofColor::black); // Text color
 		ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
 		float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
@@ -5546,11 +5600,14 @@ void ofApp::drawSingleplayerMenu() {
 		else
 			ofSetColor(ofColor::white);
 		ofDrawRectRounded(r, 12);
-		ofSetColor(ofColor::black);
-		ofNoFill();
-		ofSetLineWidth(2);
-		ofDrawRectRounded(r, 12);
-		ofFill();
+
+		ofPath p;
+		p.rectRounded(r, 12);
+		p.setFilled(false);
+		p.setStrokeWidth(2.0f);
+		p.setStrokeColor(ofColor::black);
+		p.draw();
+
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
 		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
@@ -5644,19 +5701,21 @@ void ofApp::drawSaveBrowser() {
 		if (pending) {
 			ofSetColor(ofColor(240, 240, 240));
 			ofDrawRectRounded(r, 10);
-			ofSetColor(ofColor::white);
-			ofNoFill();
-			ofSetLineWidth(3);
-			ofDrawRectRounded(r, 10);
-			ofFill();
+			ofPath p;
+			p.rectRounded(r, 10);
+			p.setFilled(false);
+			p.setStrokeWidth(3.0f);
+			p.setStrokeColor(ofColor::white);
+			p.draw();
 		} else {
 			ofSetColor(hovered ? ofColor::lightGray : ofColor::white);
 			ofDrawRectRounded(r, 10);
-			ofSetColor(ofColor::black);
-			ofNoFill();
-			ofSetLineWidth(2);
-			ofDrawRectRounded(r, 10);
-			ofFill();
+			ofPath p;
+			p.rectRounded(r, 10);
+			p.setFilled(false);
+			p.setStrokeWidth(2.0f);
+			p.setStrokeColor(ofColor::black);
+			p.draw();
 		}
 
 		// Compose display text with timestamp (show filename only)
@@ -5703,11 +5762,12 @@ void ofApp::drawSaveBrowser() {
 		highlight.scaleFromCenter(1.05);
 		ofSetColor(255);
 		ofDrawRectRounded(highlight, 12);
-		ofNoFill();
-		ofSetColor(ofColor::white);
-		ofSetLineWidth(4);
-		ofDrawRectRounded(highlight, 12);
-		ofFill();
+		ofPath p;
+		p.rectRounded(highlight, 12);
+		p.setFilled(false);
+		p.setStrokeWidth(4.0f);
+		p.setStrokeColor(ofColor::white);
+		p.draw();
 
 		// Confirmation box
 		namespace fs = std::filesystem;
@@ -9536,13 +9596,26 @@ void ofApp::drawGame() {
 			// --- DRAW TEAM INDICATOR RING ---
 			// This explicitly shows which team the unit is on without ruining the model's texture.
 			ofPushStyle();
-			ofNoFill();
-			ofSetLineWidth(6.0f);
+			ofFill();
 			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 200);
 			ofPushMatrix();
 			ofTranslate(pos.x, 0.05f, pos.z);
 			ofRotateXDeg(90);
-			ofDrawCircle(0, 0, TILE_SIZE * 0.32f); // Made smaller to hug the unit tightly
+
+			// Use a triangle strip mesh for Windows-proof thickness
+			ofMesh teamRing;
+			teamRing.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+			float ringRad = TILE_SIZE * 0.32f;
+			float ringThick = TILE_SIZE * 0.03f;
+			for (int i = 0; i <= 32; ++i) {
+				float angle = TWO_PI * i / 32.0f;
+				float cx = cos(angle);
+				float cy = sin(angle);
+				teamRing.addVertex(glm::vec3(cx * (ringRad - ringThick), cy * (ringRad - ringThick), 0));
+				teamRing.addVertex(glm::vec3(cx * (ringRad + ringThick), cy * (ringRad + ringThick), 0));
+			}
+			teamRing.draw();
+
 			ofPopMatrix();
 			ofPopStyle();
 
@@ -9989,21 +10062,22 @@ void ofApp::drawGame() {
 			if (player.isParalyzed) {
 				ofPushMatrix();
 				ofTranslate(pos.x, 0.1f, pos.z); // Start near feet
-				ofPolyline swirl;
+				ofMesh swirlMesh;
+				swirlMesh.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
 				float time = ofGetElapsedTimef();
 				float swirlSpeed = time * 3.0f;
+				float swirlThick = 0.05f; // Vertical ribbon thickness
 				for (int i = 0; i < 40; i++) {
 					float t = i / 40.0f;
 					float angle = (t * TWO_PI * 2.0f) + swirlSpeed;
-					// Bulge in the middle of the unit
 					float radius = 0.5f + sin(t * PI) * 0.3f;
 					float swirlH = t * headHeight;
-					swirl.addVertex(cos(angle) * radius, swirlH, sin(angle) * radius);
+					glm::vec3 center(cos(angle) * radius, swirlH, sin(angle) * radius);
+					swirlMesh.addVertex(center - glm::vec3(0, swirlThick, 0));
+					swirlMesh.addVertex(center + glm::vec3(0, swirlThick, 0));
 				}
 				ofSetColor(255, 255, 0);
-				ofSetLineWidth(2);
-				swirl.draw();
-				ofSetLineWidth(1);
+				swirlMesh.draw();
 				ofPopMatrix();
 			}
 
@@ -10788,18 +10862,18 @@ void ofApp::drawGame() {
 					headFill.addVertex(pIndent);
 					headFill.addVertex(pRight);
 
-					headLine.addVertex(pTip);
-					headLine.addVertex(pLeft);
-					headLine.addVertex(pIndent);
-					headLine.addVertex(pRight);
+					// We no longer need the 1-pixel line mesh.
+					// Draw a slightly larger dark head behind the colored one for a true geometric outline!
+					ofPushMatrix();
+					ofScale(1.15f, 1.0f, 1.15f);
+					ofTranslate(0, -0.05f, 0);
+					ofSetColor(0, 0, 0, arrowCol.a + 50);
+					headFill.draw();
+					ofPopMatrix();
 
+					// Draw the actual colored arrow head on top
 					ofSetColor(arrowCol);
 					headFill.draw();
-
-					// Thinner Outline for Head
-					ofSetColor(0, 0, 0, arrowCol.a + 50);
-					ofSetLineWidth(2.5f);
-					headLine.draw();
 					ofPopMatrix();
 
 					// --- 3. LARGE STATIC TARGET RING ---
@@ -11936,11 +12010,14 @@ void ofApp::drawGame() {
 			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
 			(10 * uiScaleBtn) + glow);
 
-		// Thin crisp border on top using a modest line width
-		ofNoFill();
-		ofSetColor(ofColor::green);
-		ofSetLineWidth(3 * uiScaleBtn);
-		ofDrawRectRounded(endTurnButtonRect, 10 * uiScaleBtn);
+		// Thin crisp border using ofPath to guarantee thickness
+		ofPath p;
+		p.rectRounded(endTurnButtonRect, 10 * uiScaleBtn);
+		p.setFilled(false);
+		p.setStrokeWidth(3 * uiScaleBtn);
+		p.setStrokeColor(ofColor::green);
+		p.draw();
+
 		ofPopStyle();
 	}
 
@@ -12023,12 +12100,12 @@ void ofApp::drawGame() {
 				ofDrawRectRounded(rerollButtonRect, 8);
 
 				// Yellow outline to indicate availability
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(ofColor::green);
-				ofSetLineWidth(3 * scale);
-				ofDrawRectRounded(rerollButtonRect, 8);
-				ofPopStyle();
+				ofPath p;
+				p.rectRounded(rerollButtonRect, 8);
+				p.setFilled(false);
+				p.setStrokeWidth(3 * scale);
+				p.setStrokeColor(ofColor::green);
+				p.draw();
 
 				string txt = "Reroll AP";
 				drawStatText(uiFont, txt, btnX, btnY, btnW, btnH, ofColor::cyan, 1.0f);
@@ -14270,42 +14347,6 @@ cursor_check_done:;
 
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
-#ifdef _WIN32
-	#include <windows.h>
-#endif
-
-void sendDiscordWebhook(const std::string & url, const std::string & content) {
-	if (url.empty()) return;
-
-	std::thread([url, content]() {
-		// Create a unique temp file name
-		std::string tempFile = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
-
-		// Strip double quotes so JSON stays valid
-		std::string safeContent = content;
-		std::replace(safeContent.begin(), safeContent.end(), '\"', '\'');
-
-		// Write the JSON to the file to avoid command-line quoting nightmares
-		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
-		ofBuffer buffer;
-		buffer.set(jsonStr.c_str(), jsonStr.length());
-		ofBufferToFile(tempFile, buffer);
-
-		// Run the command silently
-#ifdef _WIN32
-		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @" + tempFile + " \"" + url + "\"";
-		WinExec(cmd.c_str(), 0); // 0 is SW_HIDE (No black cmd window flash)
-#else
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @" + tempFile + " \"" + url + "\"";
-		int r = system(cmd.c_str());
-		(void)r;
-#endif
-
-		// Wait a few seconds for the request to fire, then delete the temp file
-		ofSleepMillis(3000);
-		ofFile::removeFile(tempFile);
-	}).detach();
-}
 
 void ofApp::mousePressed(int x, int y, int button) {
 	if (g_isGameOver) {
@@ -16264,8 +16305,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 			bool needsReloc = false;
 			CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
 			if (needsReloc) {
-				EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
-				return;
+				bool canEscape = false;
+				int effAP = currentAP;
+				for (const auto & c : players[currentPlayerIndex].hand) {
+					int cCost = getEffectiveCardCostForPlayer(players[currentPlayerIndex], c);
+					if (cCost <= effAP) {
+						if (c.type == CARD_SPRINT)
+							effAP += 2;
+						else if (c.apGain > cCost)
+							effAP += (c.apGain - cCost);
+					}
+				}
+				if (effAP > 0) canEscape = true;
+
+				if (canEscape) {
+					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Move out of wall/unit!", ofColor::red);
+					return;
+				} else {
+					EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+					return;
+				}
 			}
 			// -----------------------------------------------
 
@@ -16445,10 +16504,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 									}
 								}
 
+								int effectiveAPForEscape = remainingAP;
+								for (const auto & c : players[controlledPlayerIndex].hand) {
+									int cCost = getEffectiveCardCostForPlayer(players[controlledPlayerIndex], c);
+									if (cCost <= effectiveAPForEscape) {
+										if (c.type == CARD_SPRINT)
+											effectiveAPForEscape += 2;
+										else if (c.apGain > cCost)
+											effectiveAPForEscape += (c.apGain - cCost);
+									}
+								}
+
 								// If can't escape (no empty tiles found), block the move
-								if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
+								if (escapeAPCost == INT_MAX || effectiveAPForEscape < escapeAPCost) {
 									queueFloatingTextVisual(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
-									ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
+									ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have effective " << effectiveAPForEscape;
 									playerAction = NONE;
 									clearHighlights();
 									return;
@@ -17529,8 +17599,26 @@ void ofApp::keyPressed(int key) {
 		bool needsReloc = false;
 		CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
 		if (needsReloc) {
-			EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
-			return;
+			bool canEscape = false;
+			int effAP = currentAP;
+			for (const auto & c : players[currentPlayerIndex].hand) {
+				int cCost = getEffectiveCardCostForPlayer(players[currentPlayerIndex], c);
+				if (cCost <= effAP) {
+					if (c.type == CARD_SPRINT)
+						effAP += 2;
+					else if (c.apGain > cCost)
+						effAP += (c.apGain - cCost);
+				}
+			}
+			if (effAP > 0) canEscape = true;
+
+			if (canEscape) {
+				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Move out of wall/unit!", ofColor::red);
+				return;
+			} else {
+				EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+				return;
+			}
 		}
 		endTurnLocked = true;
 		if (isMultiplayer) {
@@ -19946,7 +20034,7 @@ void ofApp::drawActiveCardInteractionUI() {
 		g_menuAlphaMult = t;
 
 		// Draw overlay unscaled BEFORE matrix push
-		if (interactingCardType != CARD_RENEWED_INSPIRATION) {
+		if (interactingCardType != CARD_RENEWED_INSPIRATION && interactingCardType != PSEUDO_CARD_GHOST_RELOCATE) {
 			drawMenuOverlay();
 		}
 
@@ -33055,8 +33143,6 @@ void ofApp::drawGhostRelocateUI() {
 		isLocalTarget = (targetPlayer->playerID == myLocalPlayerID);
 	}
 
-	drawMenuOverlay();
-
 	string title = "Materialized in Wall";
 	string desc = isLocalTarget ? "Choose a nearby empty tile to teleport to:" : ("Waiting for Player " + ofToString(targetPlayer->playerID + 1) + "...");
 
@@ -34451,22 +34537,22 @@ void ofApp::drawMinionManagerUI() {
 		bool isHovered = (hoveredUnitIndex == ui.playerIndex);
 
 		if (isActive) {
-			ofPushStyle();
 			ofColor outlineColor = players[ui.playerIndex].isMinion ? ofColor::yellow : ofColor::white;
-			ofNoFill();
-			ofSetColor(outlineColor);
-			ofSetLineWidth(3 * scale);
-			ofDrawRectRounded(ui.bounds, 10 * scale);
-			ofPopStyle();
+			ofPath p;
+			p.rectRounded(ui.bounds, 10 * scale);
+			p.setFilled(false);
+			p.setStrokeWidth(3 * scale);
+			p.setStrokeColor(outlineColor);
+			p.draw();
 		}
 
 		if (isHovered && !isActive) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(ofColor::white);
-			ofSetLineWidth(3 * scale);
-			ofDrawRectRounded(ui.bounds, 10 * scale);
-			ofPopStyle();
+			ofPath p;
+			p.rectRounded(ui.bounds, 10 * scale);
+			p.setFilled(false);
+			p.setStrokeWidth(3 * scale);
+			p.setStrokeColor(ofColor::white);
+			p.draw();
 		}
 
 		// --- DETERMINE NAME ---
@@ -35686,12 +35772,12 @@ void ofApp::drawActiveDraftPickedMoves() {
 			ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
 			if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
 			float a = (1.0f - t) * 200.0f;
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(255, 220, 120, (int)a);
-			ofSetLineWidth(6);
-			ofDrawRectRounded(deckRect.x - 4, deckRect.y - 4, deckRect.width + 8, deckRect.height + 8, 8);
-			ofPopStyle();
+			ofPath p;
+			p.rectRounded(deckRect.x - 4, deckRect.y - 4, deckRect.width + 8, deckRect.height + 8, 8);
+			p.setFilled(false);
+			p.setStrokeWidth(6.0f);
+			p.setStrokeColor(ofColor(255, 220, 120, (int)a));
+			p.draw();
 		} else {
 			deckFlashStartFrame = 0;
 			deckFlashOwnerIndex = -1;
