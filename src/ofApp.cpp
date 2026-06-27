@@ -32563,39 +32563,71 @@ glm::vec2 ofApp::worldToGrid(glm::vec3 worldPos) {
 //--------------------------------------------------------------
 // Returns true if the ray is clear, false if blocked
 bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
-	auto path = getLineOfSightPath(rayStart, rayEnd);
-	if (path.empty()) return true;
-
-	int startX = (int)floor(rayStart.x);
-	int startY = (int)floor(rayStart.y);
+	int x = (int)floor(rayStart.x);
+	int y = (int)floor(rayStart.y);
 	int endX = (int)floor(rayEnd.x);
 	int endY = (int)floor(rayEnd.y);
 
-	for (size_t i = 0; i < path.size(); ++i) {
-		glm::vec2 current = path[i];
-		int cx = (int)current.x;
-		int cy = (int)current.y;
+	if (x == endX && y == endY) return true;
 
-		bool isStart = (cx == startX && cy == startY);
-		bool isEnd = (cx == endX && cy == endY);
+	float dx = rayEnd.x - rayStart.x;
+	float dy = rayEnd.y - rayStart.y;
+	int stepX = (dx > 0) ? 1 : ((dx < 0) ? -1 : 0);
+	int stepY = (dy > 0) ? 1 : ((dy < 0) ? -1 : 0);
 
-		// --- DIAGONAL PINCH RULE ---
-		// If we moved diagonally, check if the two corners we squeezed between are both walls.
-		if (i > 0) {
-			glm::vec2 prev = path[i - 1];
-			int px = (int)prev.x;
-			int py = (int)prev.y;
+	// DDA Math: Perfectly tracks which tile borders we cross
+	float tMaxX = (stepX != 0) ? (floor(rayStart.x) + (stepX > 0 ? 1.0f : 0.0f) - rayStart.x) / std::abs(dx) : FLT_MAX;
+	float tMaxY = (stepY != 0) ? (floor(rayStart.y) + (stepY > 0 ? 1.0f : 0.0f) - rayStart.y) / std::abs(dy) : FLT_MAX;
 
-			if (cx != px && cy != py) {
-				if (isTileBlocked(cx, py) && isTileBlocked(px, cy)) {
-					return false; // Hard blocked by a corner pinch!
-				}
+	float tDeltaX = (stepX != 0) ? 1.0f / std::abs(dx) : FLT_MAX;
+	float tDeltaY = (stepY != 0) ? 1.0f / std::abs(dy) : FLT_MAX;
+
+	auto isObstacle = [&](int qx, int qy) {
+		if (qx < 0 || qx >= BOARD_WIDTH || qy < 0 || qy >= BOARD_HEIGHT) return true;
+		return (board[qx][qy].hasWall || board[qx][qy].hasPlayer);
+	};
+
+	int startX = x;
+	int startY = y;
+	int steps = 0;
+
+	while ((x != endX || y != endY) && steps < 1000) {
+		steps++;
+
+		if (std::abs(tMaxX - tMaxY) < 0.0001f) {
+			// Perfect Diagonal crossing
+			if (isObstacle(x + stepX, y) && isObstacle(x, y + stepY)) {
+				return false; // Diagonal pinch!
 			}
+			x += stepX;
+			y += stepY;
+			tMaxX += tDeltaX;
+			tMaxY += tDeltaY;
+		} else if (tMaxX < tMaxY) {
+			x += stepX;
+			tMaxX += tDeltaX;
+		} else {
+			y += stepY;
+			tMaxY += tDeltaY;
 		}
 
-		// --- DIRECT BLOCKING ---
-		if (!isStart && !isEnd) {
-			if (isTileBlocked(cx, cy)) return false;
+		if (x == endX && y == endY) break;
+
+		// The ray cannot hit anything in the middle
+		if (isObstacle(x, y)) return false;
+
+		// THE GAP RULE
+		// If the tile is blocked on BOTH sides, the ray must be perfectly straight
+		bool blockLeft = isObstacle(x - 1, y);
+		bool blockRight = isObstacle(x + 1, y);
+		bool blockUp = isObstacle(x, y - 1);
+		bool blockDown = isObstacle(x, y + 1);
+
+		if (blockLeft && blockRight) {
+			if (std::abs(dx) > 0.001f) return false; // Squeezing horizontally through a vertical gap
+		}
+		if (blockUp && blockDown) {
+			if (std::abs(dy) > 0.001f) return false; // Squeezing vertically through a horizontal gap
 		}
 	}
 	return true;
@@ -32613,78 +32645,171 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	// Point-blank / Self-cast
 	if (casterTile == targetTile) return { true, casterCenter, targetCenter };
 
-	// Immediate Adjacency Bypass
-	int dxDist = std::abs((int)targetTile.x - (int)casterTile.x);
-	int dyDist = std::abs((int)targetTile.y - (int)casterTile.y);
+	int cx = (int)casterTile.x;
+	int cy = (int)casterTile.y;
+	int tx = (int)targetTile.x;
+	int ty = (int)targetTile.y;
+
+	// Helper to check if a tile is an obstacle (Wall, Unit, or Edge of Board)
+	auto isObstacle = [&](int x, int y) {
+		if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true; // Edge of board
+		if (x == cx && y == cy) return false; // Ignore caster tile body
+		if (x == tx && y == ty) return false; // Ignore target tile body
+		if (board[x][y].hasWall) return true;
+		if (board[x][y].hasPlayer) return true;
+		return false;
+	};
+
+	// Immediate Adjacency Bypass (Handles Single-Step Diagonals perfectly)
+	int dxDist = std::abs(tx - cx);
+	int dyDist = std::abs(ty - cy);
 	if (dxDist <= 1 && dyDist <= 1) {
 		if (dxDist + dyDist == 1) return { true, casterCenter, targetCenter };
 		if (dxDist == 1 && dyDist == 1) {
-			int stepX = (int)targetTile.x - (int)casterTile.x;
-			int stepY = (int)targetTile.y - (int)casterTile.y;
-			if (isTileWall(casterTile.x + stepX, casterTile.y) && isTileWall(casterTile.x, casterTile.y + stepY)) {
-				return { false, casterCenter, targetCenter }; // Hard pinched
+			int stepX = tx - cx;
+			int stepY = ty - cy;
+			// Hard pinched corner check
+			if (isTileBlocked(cx + stepX, cy) && isTileBlocked(cx, cy + stepY)) {
+				return { false, casterCenter, targetCenter };
 			}
 			return { true, casterCenter, targetCenter };
 		}
 	}
 
-	// --- STRICT TARGET COVER RULE ---
-	// If the target is > 1 tile away, check its immediate faces nearest to the caster.
-	// If any of those faces is adjacent to a wall, the shot is strictly blocked.
-	if (dxDist > 1 || dyDist > 1) {
-		int signX = (targetTile.x > casterTile.x) ? 1 : ((targetTile.x < casterTile.x) ? -1 : 0);
-		int signY = (targetTile.y > casterTile.y) ? 1 : ((targetTile.y < casterTile.y) ? -1 : 0);
-
-		if (signX != 0 && isTileWall((int)targetTile.x - signX, (int)targetTile.y)) {
-			return { false, casterCenter, targetCenter };
-		}
-		if (signY != 0 && isTileWall((int)targetTile.x, (int)targetTile.y - signY)) {
-			return { false, casterCenter, targetCenter };
-		}
-	}
-
-	auto isCoverAt = [&](int cx, int cy) {
-		if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) return true;
-		if (board[cx][cy].hasWall) return true;
-		if (board[cx][cy].hasPlayer) {
-			// Do not count the caster or target tiles themselves as cover
-			if (cx == (int)casterTile.x && cy == (int)casterTile.y) return false;
-			if (cx == (int)targetTile.x && cy == (int)targetTile.y) return false;
-			return true;
-		}
-		return false;
+	struct TileFace {
+		glm::vec2 center;
+		int nx, ny;
 	};
 
-	// --- CORNER PEEKING RULE (1 Tile Gap) ---
-	// A unit can shoot from the center of their own tile, OR they can "lean"
-	// into the center of any adjacent non-blocked tile.
-	std::vector<glm::vec2> startCandidates;
-	startCandidates.push_back(casterCenter);
+	// The 4 faces of the Target Tile
+	TileFace tFaces[4] = {
+		{ glm::vec2(tx + 0.5f, ty), 0, -1 }, // North
+		{ glm::vec2(tx + 0.5f, ty + 1.0f), 0, 1 }, // South
+		{ glm::vec2(tx, ty + 0.5f), -1, 0 }, // West
+		{ glm::vec2(tx + 1.0f, ty + 0.5f), 1, 0 } // East
+	};
 
-	glm::vec2 dirs[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-	for (auto d : dirs) {
-		if (!isCoverAt((int)casterTile.x + (int)d.x, (int)casterTile.y + (int)d.y)) {
-			startCandidates.push_back(casterCenter + d);
+	// 1. Find the target's closest face(s) to the caster's center
+	float minDist = FLT_MAX;
+	for (int i = 0; i < 4; i++) {
+		minDist = std::min(minDist, glm::distance(tFaces[i].center, casterCenter));
+	}
+
+	std::vector<TileFace> validTargetFaces;
+	for (int i = 0; i < 4; i++) {
+		// Allow faces that share the minimum distance (Crucial for perfect diagonals!)
+		if (glm::distance(tFaces[i].center, casterCenter) <= minDist + 0.001f) {
+			// Is this target face wall/unit/edge protected?
+			if (!isObstacle(tx + tFaces[i].nx, ty + tFaces[i].ny)) {
+				validTargetFaces.push_back(tFaces[i]);
+			}
 		}
 	}
 
-	// Target cannot lean. Only the exact center of the target tile is tested.
-	std::vector<glm::vec2> endCandidates;
-	endCandidates.push_back(targetCenter);
+	// Target Cover Rule: If ALL closest faces are protected, the shot is blocked.
+	if (validTargetFaces.empty()) {
+		return { false, casterCenter, targetCenter };
+	}
 
-	// Test all possible lines of sight
-	for (auto sc : startCandidates) {
-		for (auto ec : endCandidates) {
-			if (checkRayPhysics(sc, ec)) {
-				// If clear, return true! We'll use the specific leaned points for the visual tracer
-				// so the player can actually see how the shot curved around the corner!
-				return { true, sc, ec };
+	// The 4 faces of the Caster Tile
+	TileFace cFaces[4] = {
+		{ glm::vec2(cx + 0.5f, cy), 0, -1 },
+		{ glm::vec2(cx + 0.5f, cy + 1.0f), 0, 1 },
+		{ glm::vec2(cx, cy + 0.5f), -1, 0 },
+		{ glm::vec2(cx + 1.0f, cy + 0.5f), 1, 0 }
+	};
+
+	// 2. For each valid target face, find valid caster faces and cast rays
+	for (const auto & tFace : validTargetFaces) {
+		std::vector<TileFace> validCasterFaces;
+
+		for (int i = 0; i < 4; i++) {
+			if (!isObstacle(cx + cFaces[i].nx, cy + cFaces[i].ny)) {
+				// AMENDMENT 1: Ray cannot pass backwards through the caster tile.
+				// The direction from the Caster Face to the Target Face must point OUTWARD.
+				glm::vec2 dir = tFace.center - cFaces[i].center;
+				if (glm::length(dir) > 0.0001f) {
+					dir = glm::normalize(dir);
+					float dot = dir.x * cFaces[i].nx + dir.y * cFaces[i].ny;
+
+					// If Dot Product is >= 0, the ray is moving Outward or Parallel to the face
+					if (dot >= -0.001f) {
+						validCasterFaces.push_back(cFaces[i]);
+					}
+				}
+			}
+		}
+
+		// Sort valid caster faces by distance to the chosen Target face
+		std::sort(validCasterFaces.begin(), validCasterFaces.end(), [&](const TileFace & a, const TileFace & b) {
+			return glm::distance(a.center, tFace.center) < glm::distance(b.center, tFace.center);
+		});
+
+		// Test the top 2 closest valid caster faces
+		int facesToTest = std::min(2, (int)validCasterFaces.size());
+		for (int i = 0; i < facesToTest; i++) {
+			glm::vec2 rayStart = validCasterFaces[i].center;
+			glm::vec2 rayEnd = tFace.center;
+
+			float castDist = glm::distance(rayStart, rayEnd);
+			if (castDist < 0.01f) return { true, rayStart, rayEnd };
+
+			glm::vec2 rayDir = (rayEnd - rayStart) / castDist;
+
+			// Nudge slightly inwards to avoid boundary floating point math issues
+			glm::vec2 p0 = rayStart + rayDir * 0.001f;
+			glm::vec2 p1 = rayEnd - rayDir * 0.001f;
+
+			// Heavy sampler ensures we check every tile the beam touches
+			int numSamples = (int)std::ceil(castDist * 50.0f);
+			glm::vec2 step = (p1 - p0) / (float)std::max(1, numSamples);
+
+			bool blocked = false;
+			int lastX = -1, lastY = -1;
+
+			for (int s = 0; s <= numSamples; s++) {
+				glm::vec2 p = p0 + step * (float)s;
+				int gx = (int)floor(p.x);
+				int gy = (int)floor(p.y);
+
+				if (gx == lastX && gy == lastY) continue; // Still in same tile
+				lastX = gx;
+				lastY = gy;
+
+				if (gx == cx && gy == cy) continue; // Ignore caster tile body
+				if (gx == tx && gy == ty) continue; // Ignore target tile body
+
+				// Hit a direct obstacle
+				if (isObstacle(gx, gy)) {
+					blocked = true;
+					break;
+				}
+
+				// --- THE GAP RULE ---
+				bool horizGap = isObstacle(gx, gy - 1) && isObstacle(gx, gy + 1);
+				bool vertGap = isObstacle(gx - 1, gy) && isObstacle(gx + 1, gy);
+
+				// If passing through a Gap, the ray MUST be traveling straight along that axis!
+				if (horizGap && ty != gy) {
+					blocked = true;
+					break;
+				}
+				if (vertGap && tx != gx) {
+					blocked = true;
+					break;
+				}
+			}
+
+			if (!blocked) {
+				// We found a completely clear path between the valid faces!
+				return { true, rayStart, rayEnd };
 			}
 		}
 	}
 
 	return { false, casterCenter, targetCenter };
 }
+
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
 	TargetInfo result;
 	result.reason = VALID;
@@ -32827,79 +32952,35 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2 endPoint) {
 	std::vector<glm::vec2> path;
 
-	glm::vec2 startTile = { floor(startPoint.x), floor(startPoint.y) };
-	glm::vec2 endTile = { floor(endPoint.x), floor(endPoint.y) };
+	glm::vec2 rayDir = endPoint - startPoint;
+	float totalDist = glm::length(rayDir);
 
-	path.push_back(startTile);
-
-	if (startTile.x == endTile.x && startTile.y == endTile.y) {
+	// Point blank
+	if (totalDist < 0.0001f) {
+		path.push_back(glm::vec2((int)floor(startPoint.x), (int)floor(startPoint.y)));
 		return path;
 	}
+	rayDir /= totalDist;
 
-	int currentX = (int)startTile.x;
-	int currentY = (int)startTile.y;
-	int targetX = (int)endTile.x;
-	int targetY = (int)endTile.y;
-	int stepX = (targetX >= currentX) ? 1 : -1;
-	int stepY = (targetY >= currentY) ? 1 : -1;
+	// High precision sampler to record every single tile the line touches
+	glm::vec2 p0 = startPoint + rayDir * 0.001f;
+	glm::vec2 p1 = endPoint - rayDir * 0.001f;
+	float castDist = glm::distance(p0, p1);
 
-	int deltaX = targetX - currentX;
-	int deltaY = targetY - currentY;
-	int absDeltaXScaled = std::abs(deltaX) * 2;
-	int absDeltaYScaled = std::abs(deltaY) * 2;
+	int numSamples = (int)std::ceil(castDist * 50.0f);
+	glm::vec2 step = (p1 - p0) / (float)std::max(1, numSamples);
 
-	bool hasXStep = (deltaX != 0);
-	bool hasYStep = (deltaY != 0);
-	long long tMaxXNum = hasXStep ? 1LL : std::numeric_limits<long long>::max();
-	long long tMaxYNum = hasYStep ? 1LL : std::numeric_limits<long long>::max();
-	const long long tDeltaNum = 2LL;
+	int lastX = -1, lastY = -1;
+	for (int s = 0; s <= numSamples; s++) {
+		glm::vec2 p = p0 + step * (float)s;
+		int gx = (int)floor(p.x);
+		int gy = (int)floor(p.y);
 
-	while (true) {
-		bool doXStep = false;
-
-		if (hasXStep && !hasYStep) {
-			doXStep = true;
-		} else if (!hasXStep && hasYStep) {
-			doXStep = false;
-		} else if (hasXStep && hasYStep) {
-			long long leftSide = tMaxXNum * (long long)absDeltaYScaled;
-			long long rightSide = tMaxYNum * (long long)absDeltaXScaled;
-
-			if (leftSide < rightSide) {
-				doXStep = true;
-			} else if (leftSide > rightSide) {
-				doXStep = false;
-			} else {
-				// Tie-breaker: ray passes exactly through the corner.
-				// Prefer the step that goes into an unblocked tile to resolve diagonal biases.
-				bool blockX = isTileBlocked(currentX + stepX, currentY);
-				bool blockY = isTileBlocked(currentX, currentY + stepY);
-				if (blockY && !blockX) {
-					doXStep = true;
-				} else if (blockX && !blockY) {
-					doXStep = false;
-				} else {
-					// Both blocked (pinch) or both open. Default to X.
-					doXStep = true;
-				}
-			}
+		if (gx != lastX || gy != lastY) {
+			path.push_back(glm::vec2((float)gx, (float)gy));
+			lastX = gx;
+			lastY = gy;
 		}
-
-		if (doXStep) {
-			currentX += stepX;
-			tMaxXNum += tDeltaNum;
-		} else {
-			currentY += stepY;
-			tMaxYNum += tDeltaNum;
-		}
-
-		path.push_back(glm::vec2((float)currentX, (float)currentY));
-
-		if (currentX == targetX && currentY == targetY) {
-			break;
-		}
-
-		if (path.size() > (BOARD_WIDTH + BOARD_HEIGHT)) break;
 	}
 	return path;
 }
