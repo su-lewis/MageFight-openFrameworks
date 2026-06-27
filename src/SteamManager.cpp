@@ -715,5 +715,6 @@ void SteamManager::updateRichPresence(const std::string & status) {
 	if (!m_bInitialized || !SteamFriends()) return;
 
 	// Sets the text that appears under "Mage Fight" in the Steam Friends List
-	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "status", status.c_str());
+	// The key MUST be "#status" for the Steam client to display it.
+	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "#status", status.c_str());
 }

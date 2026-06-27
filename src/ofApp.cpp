@@ -48,7 +48,7 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 	if (url.empty()) return;
 
 	std::thread([url, content]() {
-		// 1. JSON Sanitizer
+		// 1. Bulletproof JSON Sanitizer
 		std::string safeContent = "";
 		for (char c : content) {
 			if (c == '\"')
@@ -63,22 +63,57 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 				safeContent += c;
 		}
 
-		std::string jsonPayload = "{\"content\": \"" + safeContent + "\"}";
+		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+		std::string absPath = "";
 
-		// 2. Shell Sanitizer (crucial for Linux/Proton)
-		std::string shellSafePayload = "";
-		for (char c : jsonPayload) {
-			if (c == '\'')
-				shellSafePayload += "'\\''"; // escape single quotes
-			else
-				shellSafePayload += c;
+#ifdef _WIN32
+		// 2. Get the official Windows TEMP folder. Proton correctly maps this to a
+		//    writable directory inside its virtual file system on Linux (~/.steam/steam/...).
+		char tempPath[MAX_PATH];
+		GetTempPathA(MAX_PATH, tempPath);
+		absPath = std::string(tempPath) + fileName;
+#else
+		// Fallback for native Linux/macOS builds
+		absPath = ofToDataPath(fileName, true);
+#endif
+
+		// Write payload to disk
+		ofFile file(absPath, ofFile::WriteOnly, true);
+		file << jsonStr;
+		file.close();
+
+#ifdef _WIN32
+		// 3. Use CreateProcess to call curl directly, bypassing cmd.exe's quote-stripping bugs.
+		//    This is the most robust method for both native Windows and Proton.
+		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+		ZeroMemory(&si, sizeof(si));
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE; // Hidden window
+		ZeroMemory(&pi, sizeof(pi));
+
+		// CreateProcess needs a mutable string buffer
+		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
+		cmdBuffer.push_back('\0');
+
+		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+			WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s for upload to finish
+			CloseHandle(pi.hProcess);
+			CloseHandle(pi.hThread);
 		}
-
-		// 3. Pass sanitized JSON directly into the command line via a single-quoted string
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d '" + shellSafePayload + "' \"" + url + "\"";
-
+#else
+		// Native Linux/macOS uses system()
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
+#endif
+
+		// 4. Clean up the file
+		ofFile::removeFile(absPath, false);
 	}).detach();
 }
 
