@@ -554,7 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. While adjacent, if you die, resurrect with 25% of your **Max Health** multiplied by 1d4 and clear all status effects.
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. While adjacent, non-Faerie units resurrect with 25% of their **Max Health** multiplied by 1d4 and clear all status effects.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5

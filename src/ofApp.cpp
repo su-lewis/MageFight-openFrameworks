@@ -20243,13 +20243,56 @@ void ofApp::simulationTick() {
 											}
 										}
 
-										EffectOp spawn = {};
-										spawn.type = EffectOpType::SPAWN_PLAYER;
-										spawn.data.spawnPlayer.x = dying.x;
-										spawn.data.spawnPlayer.y = dying.y;
-										spawn.data.spawnPlayer.playerID = dying.playerID;
-										spawn.data.spawnPlayer.deckChoice = 0;
-										queueEffect(spawn);
+										// FIX: Resurrect Minions as Minions, and Players as Players!
+										if (dying.isMinion) {
+											// Find the summonKind by looking at the flags
+											int sKind = 10; // Default Wall
+											if (dying.isKobold)
+												sKind = 1;
+											else if (dying.isWolf)
+												sKind = 2;
+											else if (dying.isHellhound)
+												sKind = 3;
+											else if (dying.isDemon)
+												sKind = 4;
+											else if (dying.isKoboldKing)
+												sKind = 5;
+											else if (dying.isAssistant)
+												sKind = 6;
+											else if (dying.isFaerie)
+												sKind = 7;
+											else if (dying.isGolem)
+												sKind = 8;
+											else if (dying.isSkeleton)
+												sKind = 9;
+											else if (dying.isWallUnit && !dying.isMagicWallUnit)
+												sKind = 10;
+											else if (dying.isMagicWallUnit)
+												sKind = 11;
+
+											EffectOp spawnM = {};
+											spawnM.type = EffectOpType::SPAWN_UNIT;
+											spawnM.data.spawnUnit.toX = dying.x;
+											spawnM.data.spawnUnit.toY = dying.y;
+											spawnM.data.spawnUnit.summonKind = sKind;
+											spawnM.data.spawnUnit.ownerPlayerID = dying.ownerID;
+											spawnM.data.spawnUnit.summonerPlayerID = dying.directSummonerID;
+											spawnM.data.spawnUnit.maxHealth = hp; // Use the rolled HP
+											spawnM.data.spawnUnit.maxHealthFromSlot = -1;
+											spawnM.data.spawnUnit.ap = dying.ap; // Keep their AP
+
+											// Hack: Pass the original playerID through variant to force-restore it
+											spawnM.data.spawnUnit.variant = dying.playerID;
+											queueEffect(spawnM);
+										} else {
+											EffectOp spawn = {};
+											spawn.type = EffectOpType::SPAWN_PLAYER;
+											spawn.data.spawnPlayer.x = dying.x;
+											spawn.data.spawnPlayer.y = dying.y;
+											spawn.data.spawnPlayer.playerID = dying.playerID;
+											spawn.data.spawnPlayer.deckChoice = 0;
+											queueEffect(spawn);
+										}
 
 										if (!isProcessingEffect) beginEffectSequence();
 									}
@@ -20264,6 +20307,7 @@ void ofApp::simulationTick() {
 			}
 
 			if (!resurrected) {
+				// Demon Death: If a Demon dies, its killer gets to draft a Class 3 card!
 				if (dying.isDemon) {
 					int killerID = -1;
 					auto it = g_lastDamagerMap.find(dying.playerID);
@@ -20272,13 +20316,14 @@ void ofApp::simulationTick() {
 					if (killerID != -1) {
 						int killerIdx = findPlayerIndexByID(killerID);
 						if (killerIdx != -1) {
-							// Safely queue the draft so it happens cleanly!
+							// Queue the draft so it happens cleanly after all other effects resolve
 							networkPending.draftQueue.push_back((killerIdx << 16) | 3); // Class 3
 							queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Demon Slain! (Draft C3)", ofColor::gold);
 						}
 					}
 				}
 
+				// Mark this unit for removal from the board
 				removeIndices.push_back((int)i);
 
 				// --- GAME OVER CHECK ---
@@ -24069,6 +24114,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int summonerID = op.data.spawnUnit.summonerPlayerID;
 				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
 				if (spawned) {
+					// FIX: If variant > 100, it's a forced Faerie Resurrection ID!
+					if (op.data.spawnUnit.variant > 100) {
+						spawned->playerID = op.data.spawnUnit.variant;
+					}
+
 					// TRACK STATS: Minions Spawned
 					int owner = op.data.spawnUnit.ownerPlayerID;
 					if (owner == 0 || owner == 1) matchStats[owner].minionsSpawned++;
