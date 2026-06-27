@@ -22220,7 +22220,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
 				impactTile = casterTile;
 				auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-				std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
+				// FIX: Use tile centers to generate the path array to avoid Face-coordinate flooring bugs
+				std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 
 				if (path.size() > 1) {
 					for (size_t i = 1; i < path.size(); ++i) {
@@ -22392,7 +22393,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			glm::ivec2 impactTile = casterTile;
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
+			// FIX: Use tile centers to generate the path array to avoid Face-coordinate flooring bugs
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 
 			glm::vec2 endPoint = los.end;
 			if (path.size() > 1) {
@@ -22842,7 +22844,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			glm::ivec2 impactTile = casterTile;
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
+			// FIX: Use tile centers to generate the path array to avoid Face-coordinate flooring bugs
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 
 			if (path.size() > 1) {
 				for (size_t i = 1; i < path.size(); ++i) {
@@ -28310,7 +28313,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// FIX: Health Flagon and pure self-buffs do not need Line of Sight / AOE previews drawn on the whole board
-	if (card.targeting == TARGET_SELF && !card.isAoe) {
+	if ((card.targeting == TARGET_SELF || card.targeting == TARGET_NONE) && !card.isAoe) {
 		shouldShowRangedPreview = false;
 	}
 
