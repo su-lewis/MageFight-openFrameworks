@@ -35894,8 +35894,11 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	// 1. Check if it's my turn or my minion's turn
 	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 	const Player & currentPlayer = players[currentPlayerIndex];
+
+	// FIX: Explicitly check ownership for both Minions and Main Players!
 	int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-	if (controlledPlayerID != myLocalPlayerID) {
+
+	if (isMultiplayer && controlledPlayerID != myLocalPlayerID) {
 		ofLogNotice("Network") << "sendActionPacket: abort - not controlling this player (controlledPlayerID=" << controlledPlayerID << " myLocalPlayerID=" << myLocalPlayerID << ")";
 		return;
 	}
