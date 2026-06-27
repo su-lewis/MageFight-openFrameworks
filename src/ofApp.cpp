@@ -57,27 +57,15 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 				safeContent += c;
 		}
 
-		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
-		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
-		std::string absPath = "";
+		// We bypass file I/O entirely because Proton/Wine fails to translate Windows temp
+		// paths (C:\...) to Linux paths for the native Linux curl executable.
+		// By passing the JSON directly in the command line, it works flawlessly on both!
+		std::string cmdStr = "curl -s -H \"Content-Type: application/json\" -X POST -d \"{\\\"content\\\": \\\"" + safeContent + "\\\"}\" \"" + url + "\"";
 
 #ifdef _WIN32
-		// 2. Write to the official Windows TEMP folder to guarantee write permissions
-		char tempPath[MAX_PATH];
-		GetTempPathA(MAX_PATH, tempPath);
-		absPath = std::string(tempPath) + fileName;
-#else
-		absPath = ofToDataPath(fileName, true);
-#endif
-
-		// Write payload to disk
-		ofBuffer buffer;
-		buffer.set(jsonStr.c_str(), jsonStr.length());
-		ofBufferToFile(absPath, buffer);
-
-#ifdef _WIN32
-		// 3. Use CreateProcess to call curl directly (bypassing cmd.exe quote-stripping bugs)
-		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+		// Use cmd.exe to invoke curl. This allows Windows 10/11 to find curl.exe in System32,
+		// AND allows Proton on Linux to intercept 'curl' and forward it to the native Linux host!
+		std::string cmd = "cmd.exe /c " + cmdStr;
 
 		STARTUPINFOA si;
 		PROCESS_INFORMATION pi;
@@ -97,13 +85,9 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			CloseHandle(pi.hThread);
 		}
 #else
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
-		int r = system(cmd.c_str());
+		int r = system(cmdStr.c_str());
 		(void)r;
 #endif
-
-		// Clean up the file
-		ofFile::removeFile(absPath);
 	}).detach();
 }
 
