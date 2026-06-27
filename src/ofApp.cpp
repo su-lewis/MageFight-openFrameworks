@@ -13098,7 +13098,7 @@ cursor_check_done:;
 					if (totalLuck > 0) unitStatusLines.push_back(std::string("+") + ofToString(totalLuck) + " Luck");
 
 					// Sprint: Kick free indicator
-					if (up->freeKickTurns > 0) unitStatusLines.push_back(std::string("Kick: Free (") + ofToString(up->freeKickTurns) + ")");
+					if (up->freeKickTurns > 0) unitStatusLines.push_back(std::string("Kick: Free"));
 
 					// Minion/Unit AP roll hints
 					if (up->isAssistant) {
@@ -15955,7 +15955,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 					}
 					return false;
 				}
-				if (candidate.targeting == TARGET_SELF && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
+				if ((candidate.targeting == TARGET_SELF || candidate.targeting == TARGET_NONE) && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
 				if (candidate.type == CARD_TELEPORT) return true;
 				if (candidate.type == CARD_BLOCKING_BOON) {
 					int phys = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
@@ -17213,7 +17213,7 @@ void ofApp::startNewTurn() {
 			// Use effect op to reshuffle discard into deck deterministically
 			EffectOp rs = {};
 			rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
-			rs.data.reshuffle.targetIndex = currentPlayerIndex;
+			rs.data.reshuffle.targetIndex = endingPlayer.playerID; // Use playerID to survive the array sort!
 			queueEffect(rs);
 			if (!isProcessingEffect) beginEffectSequence();
 		}
@@ -18291,7 +18291,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	else if (!wisdomAutoBlockNoAdjacent && !dhAutoPlayNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW)) {
+	else if (!wisdomAutoBlockNoAdjacent && !dhAutoPlayNoAdjacent && ((card.targeting != TARGET_SELF && card.targeting != TARGET_NONE) || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW)) {
 
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
@@ -21977,7 +21977,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
 
-			// --- FIX: Update the true target to where the fireball actually landed! ---
+			// --- FIX: Update the true target to where the arrow actually landed! ---
 			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
@@ -21986,35 +21986,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			wait.data.damage.fixedDamage = 1;
 			queueEffect(wait);
 			EffectOp next = {};
-			next.type = EffectOpType::APPLY_FIREBALL;
+			next.type = EffectOpType::APPLY_SHOOT_ARROW;
 			next.data.damage.fixedDamage = 2;
 			queueEffect(next);
 			opComplete = true;
 			break;
 		} else if (step == 2) {
 			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
-			if (isTileWall(impactTile.x, impactTile.y)) {
+			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
 				opComplete = true;
-				break; // Fizzles on wall
+				break;
 			}
 
-			int dmg = currentEffectSequence.blackboard[1];
-			std::vector<int> rawResults = { currentEffectSequence.blackboard[2] };
-			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
-
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
-			queueEffect(wait);
-			EffectOp next = {};
-			next.type = EffectOpType::APPLY_FIREBALL;
-			next.data.damage.fixedDamage = 3;
-			queueEffect(next);
-			opComplete = true;
-			break;
-		} else if (step == 3) {
-			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
-			int dmg = currentEffectSequence.blackboard[1];
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
@@ -22022,22 +22005,46 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					break;
 				}
 			}
-			if (targetIdx != -1) {
-				currentEffectSequence.blackboard[15] = players[targetIdx].health;
-				EffectOp applyDmg = {};
-				applyDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
-				applyDmg.data.damage.targetIndex = targetIdx;
-				applyDmg.data.damage.damageType = DAMAGE_FIRE;
-				applyDmg.data.damage.fixedDamage = dmg;
-				applyDmg.data.damage.damageFromSlot = -1;
-				queueEffect(applyDmg);
 
-				EffectOp resolveFire = {};
-				resolveFire.type = EffectOpType::APPLY_FIRE_HIT_RESOLVE;
-				resolveFire.data.damage.targetIndex = targetIdx;
-				resolveFire.data.damage.damageFromSlot = 15;
-				resolveFire.data.damage.fixedDamage = players[targetIdx].playerID;
-				queueEffect(resolveFire);
+			if (targetIdx >= 0) {
+				Player * target = &players[targetIdx];
+				int baseDamage = 7;
+				for (const auto & c : allCards) {
+					if (c.type == CARD_ETHEREAL_JOLT) {
+						if (c.baseDamage > 0)
+							baseDamage = c.baseDamage;
+						else if (c.value > 0)
+							baseDamage = c.value;
+						break;
+					}
+				}
+
+				int outSlot = 10;
+				applyDamageWithMitigationsQueued(*target, baseDamage, DAMAGE_MAGIC, currentPlayerIndex, outSlot);
+
+				EffectOp res = {};
+				res.type = EffectOpType::APPLY_GENERIC_DAMAGE;
+				res.data.damage.targetIndex = targetIdx;
+				res.data.damage.damageType = DAMAGE_MAGIC;
+				res.data.damage.fixedDamage = 0;
+				res.data.damage.damageFromSlot = outSlot;
+				queueEffect(res);
+
+				EffectOp ap = {};
+				ap.type = EffectOpType::APPLY_STATUS;
+				ap.data.status.targetIndex = targetIdx;
+				ap.data.status.statusType = STATUS_PARALYZED;
+				ap.data.status.duration = 0;
+				queueEffect(ap);
+				queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+
+				if (!target->deck.empty()) {
+					EffectOp rmDeck = {};
+					rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+					rmDeck.data.removeTopCard.targetIndex = targetIdx;
+					queueEffect(rmDeck);
+					queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 1.2f, 0), "Destroyed top card", ofColor::purple);
+				}
 			}
 			opComplete = true;
 			break;
@@ -22638,15 +22645,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 				}
 
-				int outSlot = 10;
-				applyDamageWithMitigationsQueued(*target, baseDamage, DAMAGE_MAGIC, currentPlayerIndex, outSlot);
+				currentEffectSequence.blackboard[10] = baseDamage;
 
 				EffectOp res = {};
 				res.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				res.data.damage.targetIndex = targetIdx;
 				res.data.damage.damageType = DAMAGE_MAGIC;
 				res.data.damage.fixedDamage = 0;
-				res.data.damage.damageFromSlot = outSlot;
+				res.data.damage.damageFromSlot = 10;
 				queueEffect(res);
 
 				EffectOp ap = {};
@@ -23679,7 +23685,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 	case EffectOpType::RESHUFFLE_DISCARD_TO_DECK: {
 		{
-			int tidx = op.data.reshuffle.targetIndex;
+			int pid = op.data.reshuffle.targetIndex;
+			int tidx = findPlayerIndexByID(pid);
 			if (tidx >= 0 && tidx < (int)players.size()) {
 				Player & target = players[tidx];
 				// Rule: reshuffle only when deck is empty and discard has cards.
@@ -24180,6 +24187,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				break;
 			case 15: // FreeKickTurns
 				target.freeKickTurns += delta;
+				if (target.freeKickTurns > 2) target.freeKickTurns = 2; // Cap it so it doesn't stack infinitely
 				break;
 			case 11: // Next-turn AP bonus
 				target.nextTurnAPBonus += delta;
@@ -32620,6 +32628,21 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 	}
 
+	// --- STRICT TARGET COVER RULE ---
+	// If the target is > 1 tile away, check its immediate faces nearest to the caster.
+	// If any of those faces is adjacent to a wall, the shot is strictly blocked.
+	if (dxDist > 1 || dyDist > 1) {
+		int signX = (targetTile.x > casterTile.x) ? 1 : ((targetTile.x < casterTile.x) ? -1 : 0);
+		int signY = (targetTile.y > casterTile.y) ? 1 : ((targetTile.y < casterTile.y) ? -1 : 0);
+
+		if (signX != 0 && isTileWall((int)targetTile.x - signX, (int)targetTile.y)) {
+			return { false, casterCenter, targetCenter };
+		}
+		if (signY != 0 && isTileWall((int)targetTile.x, (int)targetTile.y - signY)) {
+			return { false, casterCenter, targetCenter };
+		}
+	}
+
 	auto isCoverAt = [&](int cx, int cy) {
 		if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) return true;
 		if (board[cx][cy].hasWall) return true;
@@ -32632,7 +32655,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		return false;
 	};
 
-	// --- CORNER PEEKING RULE ---
+	// --- CORNER PEEKING RULE (1 Tile Gap) ---
 	// A unit can shoot from the center of their own tile, OR they can "lean"
 	// into the center of any adjacent non-blocked tile.
 	std::vector<glm::vec2> startCandidates;
@@ -32645,14 +32668,9 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 	}
 
-	// The target is also exposed if any of its adjacent open tiles are visible!
+	// Target cannot lean. Only the exact center of the target tile is tested.
 	std::vector<glm::vec2> endCandidates;
 	endCandidates.push_back(targetCenter);
-	for (auto d : dirs) {
-		if (!isCoverAt((int)targetTile.x + (int)d.x, (int)targetTile.y + (int)d.y)) {
-			endCandidates.push_back(targetCenter + d);
-		}
-	}
 
 	// Test all possible lines of sight
 	for (auto sc : startCandidates) {
@@ -32667,7 +32685,6 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 
 	return { false, casterCenter, targetCenter };
 }
-
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
 	TargetInfo result;
 	result.reason = VALID;
