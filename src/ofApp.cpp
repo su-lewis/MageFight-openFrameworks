@@ -29097,25 +29097,25 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool canBeClicked = false;
 				bool isOccupied = board[x][y].hasPlayer;
 
-				// --- MAGIC BLAST LOGIC ---
-				if (card.type == CARD_MAGIC_BLAST) {
+				// --- CHAIN LIGHTNING / MAGIC BLAST LOGIC ---
+				if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
 					if (isPreview) {
 						if (isOccupied) {
 							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
 						} else {
-							// Check 8 neighbors to see if we can hit an enemy from an empty tile
 							for (int dx = -1; dx <= 1; dx++) {
 								for (int dy = -1; dy <= 1; dy++) {
 									if (dx == 0 && dy == 0) continue;
 
 									// Magic Blast cannot splash diagonally!
-									if (card.type == CARD_MAGIC_BLAST && abs(dx) == 1 && abs(dy) == 1) continue;
+									if (card.type == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
 
 									int nx = x + dx;
 									int ny = y + dy;
 									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
 										bool blocked = false;
-										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check (Chain Lightning only)
+										// Chain Lightning diagonal pinch block
+										if (card.type == CARD_CHAIN_LIGHTNING && std::abs(dx) == 1 && std::abs(dy) == 1) {
 											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
 										}
 										if (!blocked) {
@@ -33069,7 +33069,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 	if (isGroundTargetAoe) {
 		// Even if ground-targeting, the tile still must catch someone in the splash!
-		if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST) {
+		if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST || cardType == CARD_CHAIN_LIGHTNING) {
 			bool hasTargetInAoe = false;
 
 			if (cardType == CARD_MAGIC_BOLT) {
@@ -33088,21 +33088,31 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 						}
 					}
 				}
-			} else if (cardType == CARD_MAGIC_BLAST) {
-				// 3x3 Grid (Adjacent)
+			} else if (cardType == CARD_MAGIC_BLAST || cardType == CARD_CHAIN_LIGHTNING) {
 				for (int dx = -1; dx <= 1; ++dx) {
 					for (int dy = -1; dy <= 1; ++dy) {
 						if (dx == 0 && dy == 0) continue;
-						// Magic Blast cannot splash diagonally!
-						if (std::abs(dx) == 1 && std::abs(dy) == 1) continue;
+
+						// Magic Blast is strictly orthogonal
+						if (cardType == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
+
 						int nx = (int)targetTile.x + dx;
 						int ny = (int)targetTile.y + dy;
 						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
 							auto occs = getTileOccupants(nx, ny);
 							for (int o : occs) {
 								if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
-									hasTargetInAoe = true;
-									break;
+									bool blocked = false;
+									// Chain Lightning diagonal pinch block
+									if (cardType == CARD_CHAIN_LIGHTNING && std::abs(dx) == 1 && std::abs(dy) == 1) {
+										if (isTileBlocked((int)targetTile.x + dx, (int)targetTile.y) && isTileBlocked((int)targetTile.x, (int)targetTile.y + dy)) {
+											blocked = true;
+										}
+									}
+									if (!blocked) {
+										hasTargetInAoe = true;
+										break;
+									}
 								}
 							}
 						}
@@ -33113,7 +33123,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			}
 			result.isTargetable = hasTargetInAoe;
 		} else {
-			// Fireball / Chain Lightning / Psionic Wave
+			// Fireball / Psionic Wave
 			result.isTargetable = true;
 		}
 	} else {
