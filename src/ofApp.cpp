@@ -46,7 +46,7 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		std::string safeContent = "";
 		for (char c : content) {
 			if (c == '\"')
-				safeContent += "'";
+				safeContent += "\\\""; // We can safely use double quotes now!
 			else if (c == '\\')
 				safeContent += "\\\\";
 			else if (c == '\n')
@@ -57,15 +57,20 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 				safeContent += c;
 		}
 
-		// We bypass file I/O entirely because Proton/Wine fails to translate Windows temp
-		// paths (C:\...) to Linux paths for the native Linux curl executable.
-		// By passing the JSON directly in the command line, it works flawlessly on both!
-		std::string cmdStr = "curl -s -H \"Content-Type: application/json\" -X POST -d \"{\\\"content\\\": \\\"" + safeContent + "\\\"}\" \"" + url + "\"";
+		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+
+		// 2. Write to a relative file path (Works natively on Windows, Linux, and Proton!)
+		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+
+		std::ofstream outFile(fileName, std::ios::binary);
+		if (outFile.is_open()) {
+			outFile << jsonStr;
+			outFile.close();
+		}
 
 #ifdef _WIN32
-		// Use cmd.exe to invoke curl. This allows Windows 10/11 to find curl.exe in System32,
-		// AND allows Proton on Linux to intercept 'curl' and forward it to the native Linux host!
-		std::string cmd = "cmd.exe /c " + cmdStr;
+		// 3. Use CreateProcess to call curl directly (bypassing cmd.exe entirely)
+		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @" + fileName + " \"" + url + "\"";
 
 		STARTUPINFOA si;
 		PROCESS_INFORMATION pi;
@@ -85,9 +90,13 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			CloseHandle(pi.hThread);
 		}
 #else
-		int r = system(cmdStr.c_str());
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @" + fileName + " \"" + url + "\"";
+		int r = system(cmd.c_str());
 		(void)r;
 #endif
+
+		// 4. Clean up the file
+		std::remove(fileName.c_str());
 	}).detach();
 }
 
@@ -109,6 +118,7 @@ static const int MENU_GHOST_RELOCATE = 5;
 
 // Global menu alpha multiplier for fade animations
 static float g_menuAlphaMult = 1.0f;
+static uint32_t s_opponentRiMask = 0; // Tracks which cards the opponent selected
 
 // Window Mode State: 0=Windowed, 1=Fullscreen, 2=Borderless
 static int g_windowModeState = 1;
@@ -3614,29 +3624,6 @@ void ofApp::setup() {
 	// Load persisted settings (overrides defaults)
 	loadSettings();
 
-	// --- SPRING THE SECURE STEAM LEAVERBUSTER TRAP ---
-	// If they Alt+F4'd or pulled the plug in their last match, punish them instantly.
-	// We read from the secure Steam Backend so they cannot edit settings.json to escape!
-	int abandonOppElo = steamManager.checkLeaverBuster();
-	if (abandonOppElo > 0 && steamManager.isConnected()) {
-		int currentElo = steamManager.getLocalElo();
-
-		// Calculate the Elo they *would* have lost against that opponent
-		float expected = 1.0f / (1.0f + pow(10.0f, (abandonOppElo - currentElo) / 400.0f));
-		float kFactor = (currentElo < 1200) ? 40.0f : ((currentElo > 2000) ? 16.0f : 24.0f);
-		int penalty = (int)round(kFactor * (0.0f - expected)); // 0.0f because they abandoned (loss)
-
-		currentElo += penalty;
-		if (currentElo < 300) currentElo = 300;
-
-		steamManager.setLocalElo(currentElo);
-
-		// Disarm so it doesn't punish them twice
-		steamManager.disarmLeaverBuster();
-
-		ofLogNotice("Elo") << "LEAVERBUSTER: Deducted " << penalty << " Elo for abandoning previous match. New Elo: " << currentElo;
-	}
-
 	// --- LOAD NEW STANDARDIZED MODELS ---
 
 	auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
@@ -4586,6 +4573,29 @@ void ofApp::updateStateMachine() {
 }
 
 void ofApp::update() {
+	// --- SAFE ASYNC LEAVERBUSTER ---
+	static bool leaverBusterChecked = false;
+	if (!leaverBusterChecked && steamManager.isConnected()) {
+		int currentElo = steamManager.getLocalElo();
+
+		// Wait until Steam cloud stats actually finish downloading!
+		if (currentElo != -1) {
+			leaverBusterChecked = true;
+			int abandonOppElo = steamManager.checkLeaverBuster();
+			if (abandonOppElo > 0) {
+				float expected = 1.0f / (1.0f + pow(10.0f, (abandonOppElo - currentElo) / 400.0f));
+				float kFactor = (currentElo < 1200) ? 40.0f : ((currentElo > 2000) ? 16.0f : 24.0f);
+				int penalty = (int)round(kFactor * (0.0f - expected));
+
+				currentElo += penalty;
+				if (currentElo < 300) currentElo = 300;
+
+				steamManager.setLocalElo(currentElo);
+				steamManager.disarmLeaverBuster();
+				ofLogNotice("Elo") << "LEAVERBUSTER: Deducted " << penalty << " Elo. New Elo: " << currentElo;
+			}
+		}
+	}
 	// Fallback to catch un-minimize events where the OS drops the resize callback
 	if (ofGetWidth() > 0 && ofGetHeight() > 0 && (ofGetWidth() != lastWindowWidth || ofGetHeight() != lastWindowHeight)) {
 		recalculateUI(ofGetWidth(), ofGetHeight());
@@ -6737,25 +6747,28 @@ void ofApp::prepareGameVisualState() {
 				int count = currentEffectSequence.blackboard[0];
 				if (count <= 0) {
 					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-					resetCardState();
-				} else {
-					int avail = 0;
-					glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-					for (auto & d : adj) {
-						int nx = koboldPlacementSourceX + (int)d.x;
-						int ny = koboldPlacementSourceY + (int)d.y;
-						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-						}
-					}
-					int allowed = std::min<int>(count, std::min(avail, 4));
-					if (allowed <= 0) {
-						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+					if (isCurrentPlayerLocal()) {
 						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 						resetCardState();
-					} else {
-						if (isCurrentPlayerLocal()) {
+					}
+				} else {
+					// Only the local player calculates space and opens their placement UI
+					if (isCurrentPlayerLocal()) {
+						int avail = 0;
+						glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+						for (auto & d : adj) {
+							int nx = koboldPlacementSourceX + (int)d.x;
+							int ny = koboldPlacementSourceY + (int)d.y;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+							}
+						}
+						int allowed = std::min<int>(count, std::min(avail, 4));
+						if (allowed <= 0) {
+							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+							resetCardState();
+						} else {
 							koboldsRemainingToPlace = allowed;
 							koboldSummonCount = 0;
 							updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
@@ -8370,7 +8383,7 @@ void ofApp::drawGame() {
 		glDisable(GL_CULL_FACE); // Force culling OFF globally so the board meshes never vanish
 
 		// --- SHADOW DEPTH PASS (simple footprint quads) ---
-		if (shadowDepthShaderLoaded && shadowFbo.isAllocated()) {
+		if (false && shadowDepthShaderLoaded && shadowFbo.isAllocated()) { // <--- Added "false &&" here
 			// Directional light direction in world space
 			glm::vec3 lightDir = glm::normalize(glm::vec3(-0.4f, -1.0f, -0.6f));
 			// Center the light around the board
@@ -8786,8 +8799,8 @@ void ofApp::drawGame() {
 					p = gridToWorld(player.x, player.y);
 				}
 			}
-			// Draw blob shadow sprites only when we don't have any shadow-depth maps available
-			if (!shadowDepthShaderLoaded) {
+			// Draw blob shadow sprites always (since we disabled the heavy shadow map)
+			if (true) { // <--- Changed from (!shadowDepthShaderLoaded)
 				// Draw shadow quad on ground slightly above to avoid z-fighting
 				float halfSize = (TILE_SIZE * 0.5f) * blobShadowSize;
 				glm::vec3 p0 = glm::vec3(p.x - halfSize, 0.01f, p.z - halfSize);
@@ -11510,15 +11523,15 @@ void ofApp::drawGame() {
 					ofSetColor(ofColor::green);
 					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 				}
+			} else if (opponentInteraction.open && opponentInteraction.type == 6) { // <--- ADD THIS BLOCK
+				if (s_opponentRiMask & (1U << index)) {
+					ofSetColor(ofColor::green);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
 			} else {
 				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
 					ofSetColor(ofColor::green);
 					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-				}
-
-				if (index == draggedCardIndex && handDragInValidPlayZone) {
-					ofSetColor(90, 220, 255, 230);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 8.0f);
 				}
 
 				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
@@ -11802,11 +11815,6 @@ void ofApp::drawGame() {
 	// (elideStringToWidth removed — unused helper)
 	// === PHASE 2-3: NEW UNIFIED CARD INTERACTION UI ===
 	drawActiveCardInteractionUI();
-
-	// --- DRAW OPPONENT MENU (if they have one open) ---
-	if (opponentInteraction.open && opponentInteraction.type > 0) {
-		drawOpponentMenu();
-	}
 
 	// --- Chat System ---
 	{
@@ -18087,6 +18095,7 @@ void ofApp::resetCardInteraction() {
 	opponentInteraction.targetIndex = -1;
 	opponentInteraction.hoveredChoice = -1;
 	opponentInteraction.cardIndex = -1;
+	s_opponentRiMask = 0; // Clear the network selection mask
 
 	// Keep legacy boolean flags untouched here — other code paths migrated to
 	// respect `cardInteractionState` and `processCardStateInput()` as authority.
@@ -18262,7 +18271,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		}
 		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, card.type);
 
-		// Keep remote menu visuals in sync for cards that already use menu-state replication.
+		// Keep remote menu visuals in sync for ALL menu cards!
 		if (isMultiplayer) {
 			int menuType = 0;
 			if (card.type == CARD_WISDOM_BOON)
@@ -18271,8 +18280,21 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 				menuType = 2;
 			else if (card.type == CARD_DOUBLE_HANDED)
 				menuType = 3;
+			else if (card.type == CARD_MAGIC_BLAST)
+				menuType = 4;
+			else if (card.type == CARD_RENEWED_INSPIRATION)
+				menuType = 6;
+			else if (card.type == CARD_TRAIN)
+				menuType = 7;
+			else if (card.type == CARD_DISPEL)
+				menuType = 8;
+			else if (card.type == CARD_GIANT_MAGIC_HAND)
+				menuType = 9;
+			else if (card.type == CARD_AMNESIA)
+				menuType = 10;
+
 			if (menuType != 0) {
-				sendMenuState(menuType, -1, -1, cardIndex);
+				sendMenuState(menuType, interactionTargetIndex, -1, cardIndex);
 			}
 		}
 	}
@@ -18581,8 +18603,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 		sendInputCommand(cmd, true);
-		resetCardInteraction();
-		resetCardState();
+		// FIX: Do NOT reset state here! Wait for the network command to execute it!
 		return;
 	}
 
@@ -18637,7 +18658,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			interactionMenuChoice.clear(); // FIX: Clear choice so menu correctly appears
 		}
 
-		// Notify opponents for supported choice-menus (wisdom, burst, double-handed)
+		// Notify opponents for ALL choice-menus
 		if (isMultiplayer) {
 			int menuType = 0;
 			if (interactingCardType == CARD_WISDOM_BOON)
@@ -18646,9 +18667,17 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				menuType = 2;
 			else if (interactingCardType == CARD_DOUBLE_HANDED)
 				menuType = 3;
+			else if (interactingCardType == CARD_MAGIC_BLAST)
+				menuType = 4;
+			else if (interactingCardType == CARD_DISPEL)
+				menuType = 8;
+			else if (interactingCardType == CARD_GIANT_MAGIC_HAND)
+				menuType = 9;
+			else if (interactingCardType == CARD_AMNESIA)
+				menuType = 10;
+
 			if (menuType != 0) {
 				int tgt = interactionTargetIndex;
-				// Giant Magic Hand targets tiles, not players — skip mapping
 				sendMenuState(menuType, tgt, -1, cardIndex);
 			}
 		}
@@ -19203,6 +19232,26 @@ void ofApp::drawActiveCardInteractionUI() {
 	}
 
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+		// Determine who is allowed to click the menu (The Decider)
+		bool isLocalDecider = false;
+		if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+			int deciderOwner = players[opponentDecisionPlayerIndex].isMinion ? players[opponentDecisionPlayerIndex].ownerID : players[opponentDecisionPlayerIndex].playerID;
+			isLocalDecider = (!isMultiplayer) || (deciderOwner == myLocalPlayerID);
+		} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			isLocalDecider = (!isMultiplayer) || (activeOwner == myLocalPlayerID);
+		}
+
+		// Helper to draw the opponent hover glow!
+		auto drawHoverGlow = [&](const ofRectangle & rect) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 255, 255, 220); // Bright white glow
+			ofSetLineWidth(5.0f);
+			ofDrawRectRounded(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4, 12);
+			ofPopStyle();
+		};
+
 		// STANDARD MENU MATH FOR ALL CARDS
 		float w = 720.0f, h = 360.0f;
 		float mx = ofGetWidth() / 2.0f - w / 2.0f;
@@ -19254,24 +19303,33 @@ void ofApp::drawActiveCardInteractionUI() {
 				if (dmgEnabled && healEnabled) break; // Optimization: Both buttons are active, stop scanning
 			}
 
-			drawCardChoicePanel(menuRect, "Burst of Light", "Choose an effect:", btn1, btn2,
+			drawCardChoicePanel(menuRect, "Burst of Light", isLocalDecider ? "Choose an effect:" : "Waiting for player to choose...", btn1, btn2,
 				dmgEnabled ? "Deal 3 Holy" : "No LOS Targets", healEnabled ? "Heal 3 HP" : "No Wounded Targets",
-				ofColor(255, 213, 79), ofColor(144, 238, 144), dmgEnabled, healEnabled);
+				ofColor(255, 213, 79), ofColor(144, 238, 144), isLocalDecider && dmgEnabled, isLocalDecider && healEnabled);
+
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			break;
 		}
 
 		case CARD_WISDOM_BOON: {
 			int deckSize = players[currentPlayerIndex].deck.size();
-			drawCardChoicePanel(menuRect, "Wisdom Boon", "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)",
+			drawCardChoicePanel(menuRect, "Wisdom Boon", isLocalDecider ? ("Effect Strength: " + ofToString(deckSize) + " (Deck Size)") : "Waiting for player to choose...",
 				btn1, btn2, "Deal Magic Dmg", "Gain Block",
-				ofColor(180, 140, 230), ofColor(120, 120, 120), true, true);
+				ofColor(180, 140, 230), ofColor(120, 120, 120), isLocalDecider, isLocalDecider);
+
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			break;
 		}
 
 		case CARD_DOUBLE_HANDED: {
-			drawCardChoicePanel(menuRect, "Double-Handed", "Choose ability:",
+			drawCardChoicePanel(menuRect, "Double-Handed", isLocalDecider ? "Choose ability:" : "Waiting for player to choose...",
 				btn1, btn2, "x2 Punch", "x2 Hand Block",
-				ofColor(200, 100, 100), ofColor(100, 150, 200), true, true);
+				ofColor(200, 100, 100), ofColor(100, 150, 200), isLocalDecider, isLocalDecider);
+
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			break;
 		}
 
@@ -19286,16 +19344,22 @@ void ofApp::drawActiveCardInteractionUI() {
 					break;
 				}
 			}
-			drawCardChoicePanel(menuRect, "Dispel", "Choose effect type:",
+			drawCardChoicePanel(menuRect, "Dispel", isLocalDecider ? "Choose effect type:" : "Waiting for player to choose...",
 				btn1, btn2, "Roll 1d20 Barrier", anyStatus ? "Purge" : "No Targets With Status",
-				ofColor(150, 100, 200), ofColor(200, 100, 150), true, anyStatus);
+				ofColor(150, 100, 200), ofColor(200, 100, 150), isLocalDecider, isLocalDecider && anyStatus);
+
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			break;
 		}
 
 		case CARD_TRAIN: {
-			drawCardChoicePanel(menuRect, "Train", "Choose improvement:",
+			drawCardChoicePanel(menuRect, "Train", isLocalDecider ? "Choose improvement:" : "Waiting for player to choose...",
 				btn1, btn2, "AP Boost", "Draft Card",
-				ofColor(255, 200, 100), ofColor(150, 100, 200), true, true);
+				ofColor(255, 200, 100), ofColor(150, 100, 200), isLocalDecider, isLocalDecider);
+
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			break;
 		}
 
@@ -19310,9 +19374,12 @@ void ofApp::drawActiveCardInteractionUI() {
 			bool canPush = (pushPos.x >= 0 && pushPos.x < BOARD_WIDTH && pushPos.y >= 0 && pushPos.y < BOARD_HEIGHT && !board[pushPos.x][pushPos.y].hasWall);
 			bool canPull = (pullPos.x >= 0 && pullPos.x < BOARD_WIDTH && pullPos.y >= 0 && pullPos.y < BOARD_HEIGHT && !board[pullPos.x][pullPos.y].hasWall && !board[pullPos.x][pullPos.y].hasPlayer);
 
-			drawCardChoicePanel(menuRect, "Giant Magic Hand", "Choose force direction:",
+			drawCardChoicePanel(menuRect, "Giant Magic Hand", isLocalDecider ? "Choose force direction:" : "Waiting for player to choose...",
 				btn1, btn2, canPush ? "PUSH" : "Blocked", canPull ? "PULL" : "Blocked",
-				ofColor::indianRed, ofColor::royalBlue, canPush, canPull);
+				ofColor::indianRed, ofColor::royalBlue, isLocalDecider && canPush, isLocalDecider && canPull);
+
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+			if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			break;
 		}
 
@@ -19326,11 +19393,14 @@ void ofApp::drawActiveCardInteractionUI() {
 					if (bd > 0) dmgAmount = bd;
 				}
 
-				string prompt = "Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":";
+				string prompt = isLocalDecider ? ("Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":") : "Waiting for player to choose...";
 				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
-				drawCardChoicePanel(menuRect, prompt, choicesLeft,
+				drawCardChoicePanel(menuRect, "Magic Blast", prompt + "\n" + choicesLeft,
 					btn1, btn2, "Take " + ofToString(dmgAmount) + " Magic Damage", "Remove Top Card",
-					ofColor::indianRed, ofColor::darkSlateBlue, true, true);
+					ofColor::indianRed, ofColor::darkSlateBlue, isLocalDecider, isLocalDecider);
+
+				if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
+				if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
 			}
 			break;
 		}
@@ -19338,8 +19408,9 @@ void ofApp::drawActiveCardInteractionUI() {
 		case CARD_AMNESIA: {
 			if (amnesiaDeckCopy.empty()) {
 				ofRectangle dummyRect;
-				drawCardChoicePanel(menuRect, "Amnesia", "Force target to forget one card:",
-					btnSingle, dummyRect, "Target", "", ofColor(200, 200, 255), ofColor(200, 200, 255), true, false);
+				drawCardChoicePanel(menuRect, "Amnesia", isLocalDecider ? "Force target to forget one card:" : "Waiting for player...",
+					btnSingle, dummyRect, "Target", "", ofColor(200, 200, 255), ofColor(200, 200, 255), isLocalDecider, false);
+				if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btnSingle);
 			} else {
 				// Restored Custom Grid Rendering for Amnesia Deck Inspection
 				float panelWidth = ofGetWidth() * 0.85f;
@@ -19352,7 +19423,7 @@ void ofApp::drawActiveCardInteractionUI() {
 				ofDrawRectRounded(amnesiaRect, 15);
 				ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 
-				string title = "Amnesia - Select " + ofToString(numCardsToRemove) + " card(s) to remove";
+				string title = isLocalDecider ? ("Amnesia - Select " + ofToString(numCardsToRemove) + " card(s) to remove") : "Amnesia - Waiting for opponent...";
 				ofRectangle titleBox2 = uiFont.getStringBoundingBox(title, 0, 0);
 				uiFont.drawString(title, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
@@ -19385,7 +19456,7 @@ void ofApp::drawActiveCardInteractionUI() {
 						ofSetColor(255, 255, 0, 255 * g_menuAlphaMult);
 						ofDrawRectangle(cRect);
 						ofFill();
-					} else if (cRect.inside(ofGetMouseX(), ofGetMouseY())) {
+					} else if (isLocalDecider && cRect.inside(ofGetMouseX(), ofGetMouseY())) {
 						ofNoFill();
 						ofSetLineWidth(3.0f);
 						ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
@@ -19394,14 +19465,16 @@ void ofApp::drawActiveCardInteractionUI() {
 					}
 				}
 
-				// Accept button
-				bool canAccept = (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) || (amnesiaSelectedIndices.size() == amnesiaDeckCopy.size());
-				draftAcceptButtonRect.set(panelX + panelWidth / 2 - 110, panelY + panelHeight - 60, 220, 50);
-				ofSetColor(canAccept ? ofColor(70, 160, 255, 255 * g_menuAlphaMult) : ofColor(100, 100, 100, 255 * g_menuAlphaMult));
-				ofDrawRectRounded(draftAcceptButtonRect, 10);
-				ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
-				ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-				uiFont.drawString("Accept", draftAcceptButtonRect.getCenter().x - aBox.width / 2, draftAcceptButtonRect.getCenter().y + aBox.height / 2 - 4);
+				if (isLocalDecider) {
+					// Accept button
+					bool canAccept = (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) || (amnesiaSelectedIndices.size() == amnesiaDeckCopy.size());
+					draftAcceptButtonRect.set(panelX + panelWidth / 2 - 110, panelY + panelHeight - 60, 220, 50);
+					ofSetColor(canAccept ? ofColor(70, 160, 255, 255 * g_menuAlphaMult) : ofColor(100, 100, 100, 255 * g_menuAlphaMult));
+					ofDrawRectRounded(draftAcceptButtonRect, 10);
+					ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
+					ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+					uiFont.drawString("Accept", draftAcceptButtonRect.getCenter().x - aBox.width / 2, draftAcceptButtonRect.getCenter().y + aBox.height / 2 - 4);
+				}
 			}
 			break;
 		}
@@ -21148,6 +21221,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
+		if (actionName == "SyncRI") {
+			// Apply the mask received from the opponent
+			if (cmd.playerID != myLocalPlayerID) {
+				s_opponentRiMask = cmd.params[0];
+			}
+			break;
+		}
+
 		if (actionName == "ToggleUnlimitedAP") {
 			hasUnlimitedAP = !hasUnlimitedAP;
 			if (hasUnlimitedAP) currentAP = 99;
@@ -21174,7 +21255,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (actionName == "PlaceKobold") {
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
-			if (koboldsRemainingToPlace <= 0) break;
+			// UI Check Removed: We trust the lockstep command!
 			int dist = abs(targetX - koboldPlacementSourceX) + abs(targetY - koboldPlacementSourceY);
 			if (dist != 1) break;
 			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
@@ -21214,9 +21295,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				isShowingTooltip = false;
 				resetCardState();
-			} else if (isCurrentPlayerLocal()) {
+			} else {
+				// FIX: Force opponent to enter PLACING mode too!
 				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-				calculateTargetHighlights();
+				if (isCurrentPlayerLocal()) calculateTargetHighlights();
 			}
 			break;
 		}
@@ -21307,6 +21389,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				dmgOp.data.damage.damageFromSlot = -1;
 				queueEffect(dmgOp);
 			}
+
+			// FIX: Both peers cleanly reset state together
+			resetCardInteraction();
+			resetCardState();
 			break;
 		}
 
@@ -21554,9 +21640,7 @@ void ofApp::updateEffectSequence() {
 		// ONLY if we are idling (e.g. from regeneration). If a card was played, applyCardOutcomeEffects handles it!
 		if (g_pendingShellSpike && cardPlayState == CARD_PLAY_STATE_IDLE) {
 			g_pendingShellSpike = false;
-			if (isCurrentPlayerLocal()) {
-				tryTriggerShellSpike();
-			}
+			tryTriggerShellSpike(); // FIX: Let both peers trigger it so their states match!
 		}
 		return;
 	}
@@ -22974,8 +23058,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 				}
 
+				// FIX: Both peers must update interaction state
+				updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, CARD_AMNESIA);
+				advanceCardState(CARD_PLAY_STATE_MENU);
+
 				if (chooserIsLocal) {
-					updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, CARD_AMNESIA);
 					amnesiaDeckCopy = amnesiaTarget->deck;
 					amnesiaSelectedIndices.clear();
 				} else {
@@ -22983,7 +23070,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					opponentInteraction.open = true;
 					opponentInteraction.type = 99; // Represents "Waiting for Opponent"
 				}
-				advanceCardState(CARD_PLAY_STATE_MENU);
 				opComplete = true;
 				break;
 			} else {
@@ -23034,18 +23120,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			if (hasSpace) {
-				// SUCCESS - Prompt for 2nd placement if LOCAL player
+				// FIX: Set the stage for BOTH players so the opponent doesn't re-roll the coin!
+				wolfSummonStage = 2;
+
 				if (isCurrentPlayerLocal()) {
 					ofLogNotice("Wolves") << "Heads! You can place another wolf.";
 					queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
-					wolfSummonStage = 2; // Advance stage to Wolf 2
-					// interaction remains CARD_INTERACTION_STATE_PLACING
 				} else {
 					queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
-					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-					wolfSummonStage = 0;
-					resetCardState();
 				}
+				// FIX: Opponent remains in CARD_INTERACTION_STATE_PLACING so Checksum matches!
 			} else {
 				// HEADS BUT BLOCKED
 				ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
@@ -23164,11 +23248,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				} else {
 					// Enter targeting mode and HALT the sequence!
 					bool isLocal = (!isMultiplayer) || (caster.playerID == myLocalPlayerID || (caster.isMinion && caster.ownerID == myLocalPlayerID));
+
+					// FIX: Both peers sync their state machines!
+					updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_BLOCKING_BOON);
+					advanceCardState(CARD_PLAY_STATE_TARGETING);
+
 					if (isLocal) {
-						updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_BLOCKING_BOON);
 						calculateTargetHighlights(-1);
 						queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Tails! Select Target.", ofColor::red);
-						advanceCardState(CARD_PLAY_STATE_TARGETING);
 					} else {
 						opponentInteraction.open = true;
 						opponentInteraction.type = 99; // Waiting for opponent
@@ -23403,23 +23490,22 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			// --- FIX: Restore the card index so the UI knows how much damage to display! ---
 			int activeCardIdx = currentCardOutcome.cardIndex;
 
+			// FIX: Both peers MUST sync their state machines!
+			interactionTargetIndex = actualTargetIdx;
+			interactingCardIndex = activeCardIdx;
+			cardInteractionState = CARD_INTERACTION_STATE_MENU;
+			interactingCardType = CARD_MAGIC_BLAST;
+			cardPlayState = CARD_PLAY_STATE_MENU;
+
 			if (isLocal) {
-				interactionTargetIndex = actualTargetIdx;
-				interactingCardIndex = activeCardIdx; // <--- Restored here
 				opponentInteraction.open = false;
-				cardInteractionState = CARD_INTERACTION_STATE_MENU;
-				interactingCardType = CARD_MAGIC_BLAST;
-				cardPlayState = CARD_PLAY_STATE_MENU;
 				menuOpenStartTime = ofGetElapsedTimef();
 				menuOpenScale = 0.6f;
 			} else {
-				cardInteractionState = CARD_INTERACTION_STATE_IDLE;
-				interactingCardType = CARD_NONE;
-				cardPlayState = CARD_PLAY_STATE_IDLE;
 				opponentInteraction.open = true;
 				opponentInteraction.type = 4;
 				opponentInteraction.targetIndex = actualTargetIdx;
-				opponentInteraction.cardIndex = activeCardIdx; // <--- Restored here
+				opponentInteraction.cardIndex = activeCardIdx;
 			}
 		} else {
 			// All choices complete!
@@ -25100,6 +25186,23 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						renewedSelectedHandIndices.erase(it);
 					else
 						renewedSelectedHandIndices.push_back(i);
+
+					// --- SYNC RENEWED INSPIRATION HIGHLIGHTS TO OPPONENT ---
+					if (isMultiplayer) {
+						InputCommandPacket syncCmd = {};
+						syncCmd.type = PKT_INPUT_COMMAND;
+						syncCmd.playerID = myLocalPlayerID;
+						syncCmd.commandId = nextCommandId++;
+						syncCmd.turnNumber = globalTurnCounter;
+						syncCmd.commandType = CMD_PSEUDO_ACTION;
+						strncpy(syncCmd.stringData, "SyncRI", sizeof(syncCmd.stringData) - 1);
+						uint32_t mask = 0;
+						for (int idx : renewedSelectedHandIndices)
+							mask |= (1U << idx);
+						syncCmd.params[0] = mask;
+						sendInputCommand(syncCmd, true);
+					}
+
 					return;
 				}
 			}
@@ -31294,7 +31397,8 @@ void ofApp::tryTriggerShellSpike() {
 	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
-	if (!currentPlayer.inTortoiseForm || !isCurrentPlayerLocal()) return;
+	// FIX: Both peers must enter Targeting state to pass Checksum
+	if (!currentPlayer.inTortoiseForm) return;
 
 	// Check if there are any adjacent units (ANY unit, including allies)
 	bool hasAdjacentUnit = false;
@@ -32134,6 +32238,19 @@ void ofApp::drawOpponentMenu() {
 		uiFont.drawString(title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
 		ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
 		uiFont.drawString(desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
+	} else if (opponentInteraction.type == 6) { // <--- ADD THIS BLOCK
+		string title = "Renewed Inspiration";
+		string desc = "Waiting for player to select cards...";
+		float fw = 520, fh = 200;
+		float fx = ofGetWidth() / 2 - fw / 2, fy = ofGetHeight() / 2 - fh / 2;
+		ofRectangle mRect(fx, fy, fw, fh);
+		ofSetColor(30, 30, 40, 240);
+		ofDrawRectRounded(mRect, 12);
+		ofSetColor(ofColor::white);
+		ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
+		uiFont.drawString(title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
+		ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
+		uiFont.drawString(desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
 	}
 }
 // Helper: member equivalent of the local applyDamage lambda used in playCard
@@ -32630,15 +32747,13 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 }
 
 ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTile, CardType cardType) {
+	// Return floats for the visualizer, but use 100% deterministic integers for logic
 	glm::vec2 casterCenter = casterTile + 0.5f;
 	glm::vec2 targetCenter = targetTile + 0.5f;
 
-	// Spells that ignore physics completely
 	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT || cardType == CARD_TELEPORT) {
 		return { true, casterCenter, targetCenter };
 	}
-
-	// Point-blank / Self-cast
 	if (casterTile == targetTile) return { true, casterCenter, targetCenter };
 
 	int cx = (int)casterTile.x;
@@ -32646,146 +32761,149 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	int tx = (int)targetTile.x;
 	int ty = (int)targetTile.y;
 
-	// Helper to check if a tile is an obstacle (Wall, Unit, or Edge of Board)
 	auto isObstacle = [&](int x, int y) {
-		if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true; // Edge of board
-		if (x == cx && y == cy) return false; // Ignore caster tile body
-		if (x == tx && y == ty) return false; // Ignore target tile body
-		if (board[x][y].hasWall) return true;
-		if (board[x][y].hasPlayer) return true;
+		if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
+		if (x == cx && y == cy) return false;
+		if (x == tx && y == ty) return false;
+		if (board[x][y].hasWall || board[x][y].hasPlayer) return true;
 		return false;
 	};
 
-	// Immediate Adjacency Bypass (Handles Single-Step Diagonals perfectly)
+	// Immediate Adjacency Bypass
 	int dxDist = std::abs(tx - cx);
 	int dyDist = std::abs(ty - cy);
 	if (dxDist <= 1 && dyDist <= 1) {
 		if (dxDist + dyDist == 1) return { true, casterCenter, targetCenter };
 		if (dxDist == 1 && dyDist == 1) {
-			int stepX = tx - cx;
-			int stepY = ty - cy;
-			// Hard pinched corner check
-			if (isTileBlocked(cx + stepX, cy) && isTileBlocked(cx, cy + stepY)) {
+			if (isTileBlocked(cx + (tx - cx), cy) && isTileBlocked(cx, cy + (ty - cy))) {
 				return { false, casterCenter, targetCenter };
 			}
 			return { true, casterCenter, targetCenter };
 		}
 	}
 
-	struct TileFace {
-		glm::vec2 center;
+	// --- INTEGER MATH GRID (Multiply by 1000) ---
+	struct TileFaceInt {
+		long long x, y;
 		int nx, ny;
 	};
 
-	// The 4 faces of the Target Tile
-	TileFace tFaces[4] = {
-		{ glm::vec2(tx + 0.5f, ty), 0, -1 }, // North
-		{ glm::vec2(tx + 0.5f, ty + 1.0f), 0, 1 }, // South
-		{ glm::vec2(tx, ty + 0.5f), -1, 0 }, // West
-		{ glm::vec2(tx + 1.0f, ty + 0.5f), 1, 0 } // East
+	TileFaceInt tFaces[4] = {
+		{ tx * 1000LL + 500LL, ty * 1000LL, 0, -1 }, // North
+		{ tx * 1000LL + 500LL, ty * 1000LL + 1000LL, 0, 1 }, // South
+		{ tx * 1000LL, ty * 1000LL + 500LL, -1, 0 }, // West
+		{ tx * 1000LL + 1000LL, ty * 1000LL + 500LL, 1, 0 } // East
 	};
 
-	// 1. Find the target's closest face(s) to the caster's center
-	float minDist = FLT_MAX;
+	long long cCenterX = cx * 1000LL + 500LL;
+	long long cCenterY = cy * 1000LL + 500LL;
+
+	// 1. Find Target's closest face
+	long long minDistSq = LLONG_MAX;
 	for (int i = 0; i < 4; i++) {
-		minDist = std::min(minDist, glm::distance(tFaces[i].center, casterCenter));
+		long long dx = tFaces[i].x - cCenterX;
+		long long dy = tFaces[i].y - cCenterY;
+		long long dSq = dx * dx + dy * dy;
+		if (dSq < minDistSq) minDistSq = dSq;
 	}
 
-	std::vector<TileFace> validTargetFaces;
+	std::vector<TileFaceInt> validTargetFaces;
 	for (int i = 0; i < 4; i++) {
-		// Allow faces that share the minimum distance (Crucial for perfect diagonals!)
-		if (glm::distance(tFaces[i].center, casterCenter) <= minDist + 0.001f) {
-			// Is this target face wall/unit/edge protected?
+		long long dx = tFaces[i].x - cCenterX;
+		long long dy = tFaces[i].y - cCenterY;
+		long long dSq = dx * dx + dy * dy;
+
+		// Exact integer match guarantees platforms never disagree on ties!
+		if (dSq == minDistSq) {
 			if (!isObstacle(tx + tFaces[i].nx, ty + tFaces[i].ny)) {
 				validTargetFaces.push_back(tFaces[i]);
 			}
 		}
 	}
 
-	// Target Cover Rule: If ALL closest faces are protected, the shot is blocked.
 	if (validTargetFaces.empty()) {
 		return { false, casterCenter, targetCenter };
 	}
 
-	// The 4 faces of the Caster Tile
-	TileFace cFaces[4] = {
-		{ glm::vec2(cx + 0.5f, cy), 0, -1 },
-		{ glm::vec2(cx + 0.5f, cy + 1.0f), 0, 1 },
-		{ glm::vec2(cx, cy + 0.5f), -1, 0 },
-		{ glm::vec2(cx + 1.0f, cy + 0.5f), 1, 0 }
+	TileFaceInt cFaces[4] = {
+		{ cx * 1000LL + 500LL, cy * 1000LL, 0, -1 },
+		{ cx * 1000LL + 500LL, cy * 1000LL + 1000LL, 0, 1 },
+		{ cx * 1000LL, cy * 1000LL + 500LL, -1, 0 },
+		{ cx * 1000LL + 1000LL, cy * 1000LL + 500LL, 1, 0 }
 	};
 
-	// 2. For each valid target face, find valid caster faces and cast rays
+	// 2. Test valid caster faces against valid target faces
 	for (const auto & tFace : validTargetFaces) {
-		std::vector<TileFace> validCasterFaces;
+		std::vector<TileFaceInt> validCasterFaces;
 
 		for (int i = 0; i < 4; i++) {
 			if (!isObstacle(cx + cFaces[i].nx, cy + cFaces[i].ny)) {
-				// AMENDMENT 1: Ray cannot pass backwards through the caster tile.
-				// The direction from the Caster Face to the Target Face must point OUTWARD.
-				glm::vec2 dir = tFace.center - cFaces[i].center;
-				if (glm::length(dir) > 0.0001f) {
-					dir = glm::normalize(dir);
-					float dot = dir.x * cFaces[i].nx + dir.y * cFaces[i].ny;
+				long long dirX = tFace.x - cFaces[i].x;
+				long long dirY = tFace.y - cFaces[i].y;
 
-					// If Dot Product is >= 0, the ray is moving Outward or Parallel to the face
-					if (dot >= -0.001f) {
+				if (dirX != 0 || dirY != 0) {
+					long long dot = dirX * cFaces[i].nx + dirY * cFaces[i].ny;
+					if (dot >= 0) {
 						validCasterFaces.push_back(cFaces[i]);
 					}
 				}
 			}
 		}
 
-		// Sort valid caster faces by distance to the chosen Target face
-		std::sort(validCasterFaces.begin(), validCasterFaces.end(), [&](const TileFace & a, const TileFace & b) {
-			return glm::distance(a.center, tFace.center) < glm::distance(b.center, tFace.center);
+		// Deterministic sort: use distance squared, tie-break with absolute coordinates
+		std::sort(validCasterFaces.begin(), validCasterFaces.end(), [&](const TileFaceInt & a, const TileFaceInt & b) {
+			long long dxa = a.x - tFace.x;
+			long long dya = a.y - tFace.y;
+			long long dxb = b.x - tFace.x;
+			long long dyb = b.y - tFace.y;
+			long long distA = dxa * dxa + dya * dya;
+			long long distB = dxb * dxb + dyb * dyb;
+			if (distA != distB) return distA < distB;
+			if (a.x != b.x) return a.x < b.x;
+			return a.y < b.y;
 		});
 
-		// Test the top 2 closest valid caster faces
 		int facesToTest = std::min(2, (int)validCasterFaces.size());
 		for (int i = 0; i < facesToTest; i++) {
-			glm::vec2 rayStart = validCasterFaces[i].center;
-			glm::vec2 rayEnd = tFace.center;
+			long long startX = validCasterFaces[i].x;
+			long long startY = validCasterFaces[i].y;
+			long long endX = tFace.x;
+			long long endY = tFace.y;
 
-			float castDist = glm::distance(rayStart, rayEnd);
-			if (castDist < 0.01f) return { true, rayStart, rayEnd };
+			if (startX == endX && startY == endY) {
+				return { true, glm::vec2(startX / 1000.0f, startY / 1000.0f), glm::vec2(endX / 1000.0f, endY / 1000.0f) };
+			}
 
-			glm::vec2 rayDir = (rayEnd - rayStart) / castDist;
-
-			// Nudge slightly inwards to avoid boundary floating point math issues
-			glm::vec2 p0 = rayStart + rayDir * 0.001f;
-			glm::vec2 p1 = rayEnd - rayDir * 0.001f;
-
-			// Heavy sampler ensures we check every tile the beam touches
-			int numSamples = (int)std::ceil(castDist * 50.0f);
-			glm::vec2 step = (p1 - p0) / (float)std::max(1, numSamples);
+			long long rayDx = endX - startX;
+			long long rayDy = endY - startY;
 
 			bool blocked = false;
 			int lastX = -1, lastY = -1;
 
-			for (int s = 0; s <= numSamples; s++) {
-				glm::vec2 p = p0 + step * (float)s;
-				int gx = (int)floor(p.x);
-				int gy = (int)floor(p.y);
+			// Raycast using pure integer division. (Avoid s=0 and s=50 to slightly nudge inward)
+			for (long long s = 1; s < 50; s++) {
+				long long curX = startX + (rayDx * s) / 50LL;
+				long long curY = startY + (rayDy * s) / 50LL;
 
-				if (gx == lastX && gy == lastY) continue; // Still in same tile
+				// Positive integer division securely acts as floor()
+				int gx = (int)(curX / 1000LL);
+				int gy = (int)(curY / 1000LL);
+
+				if (gx == lastX && gy == lastY) continue;
 				lastX = gx;
 				lastY = gy;
 
-				if (gx == cx && gy == cy) continue; // Ignore caster tile body
-				if (gx == tx && gy == ty) continue; // Ignore target tile body
+				if (gx == cx && gy == cy) continue;
+				if (gx == tx && gy == ty) continue;
 
-				// Hit a direct obstacle
 				if (isObstacle(gx, gy)) {
 					blocked = true;
 					break;
 				}
 
-				// --- THE GAP RULE ---
 				bool horizGap = isObstacle(gx, gy - 1) && isObstacle(gx, gy + 1);
 				bool vertGap = isObstacle(gx - 1, gy) && isObstacle(gx + 1, gy);
 
-				// If passing through a Gap, the ray MUST be traveling straight along that axis!
 				if (horizGap && ty != gy) {
 					blocked = true;
 					break;
@@ -32797,12 +32915,13 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 			}
 
 			if (!blocked) {
-				// We found a completely clear path between the valid faces!
-				return { true, rayStart, rayEnd };
+				// Success! Convert back to floats exclusively for the Visual Tracer to draw it.
+				return { true, glm::vec2(startX / 1000.0f, startY / 1000.0f), glm::vec2(endX / 1000.0f, endY / 1000.0f) };
 			}
 		}
 	}
 
+	// Fallback response for visualizer if all shots are blocked
 	return { false, casterCenter, targetCenter };
 }
 
@@ -35679,7 +35798,6 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_MENU_STATE) {
 				if (buffer.size() < sizeof(MenuStatePacket)) continue;
 				MenuStatePacket * msp = (MenuStatePacket *)header;
-				// Map incoming playerID to local player index
 				int mappedIdx = -1;
 				for (int i = 0; i < (int)players.size(); ++i) {
 					if (players[i].playerID == (int)msp->playerID) {
@@ -35690,17 +35808,49 @@ void ofApp::processNetworkPackets() {
 				// Only update visualization for remote players
 				if (mappedIdx >= 0 && mappedIdx != getLocalPlayerIndex()) {
 					if (msp->menuType == 0) {
-						opponentInteraction.open = false;
-						opponentInteraction.type = 0;
-						opponentInteraction.targetIndex = -1;
-						opponentInteraction.hoveredChoice = -1;
-						opponentInteraction.cardIndex = -1;
+						resetCardInteraction(); // FIX: Sync closure exactly!
 					} else {
-						opponentInteraction.open = true;
-						opponentInteraction.type = msp->menuType;
-						opponentInteraction.targetIndex = msp->targetIndex;
-						opponentInteraction.hoveredChoice = msp->hoveredChoice;
-						opponentInteraction.cardIndex = msp->cardIndex;
+						// Map MenuType back to standard CardType
+						CardType cType = CARD_NONE;
+						switch (msp->menuType) {
+						case 1:
+							cType = CARD_WISDOM_BOON;
+							break;
+						case 2:
+							cType = CARD_BURST_OF_LIGHT;
+							break;
+						case 3:
+							cType = CARD_DOUBLE_HANDED;
+							break;
+						case 4:
+							cType = CARD_MAGIC_BLAST;
+							break;
+						case 5:
+							cType = PSEUDO_CARD_GHOST_RELOCATE;
+							break;
+						case 6:
+							cType = CARD_RENEWED_INSPIRATION;
+							break;
+						case 7:
+							cType = CARD_TRAIN;
+							break;
+						case 8:
+							cType = CARD_DISPEL;
+							break;
+						case 9:
+							cType = CARD_GIANT_MAGIC_HAND;
+							break;
+						case 10:
+							cType = CARD_AMNESIA;
+							break;
+						}
+
+						if (cType != CARD_NONE) {
+							// FIX: Both computers are now in the EXACT SAME state machine state!
+							updateCardInteractionState(CARD_INTERACTION_STATE_MENU, msp->cardIndex, cType);
+							interactionTargetIndex = msp->targetIndex;
+							opponentInteraction.hoveredChoice = msp->hoveredChoice; // We reuse this variable JUST for the visual glow!
+						}
 					}
 					ofLogNotice("Network") << "Received MenuState from playerID=" << msp->playerID << " type=" << msp->menuType << " hover=" << msp->hoveredChoice;
 				}

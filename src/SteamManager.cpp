@@ -669,7 +669,10 @@ std::vector<SteamManager::LeaderboardEntry> SteamManager::getLeaderboardEntries(
 int SteamManager::getLocalElo() {
 	if (!SteamUserStats()) return 1000;
 	int32_t elo = 1000;
-	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "elo_rating", &elo);
+	// If GetStatInt32 returns false, the async stats haven't downloaded from Steam yet!
+	if (!SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "elo_rating", &elo)) {
+		return -1;
+	}
 	return (int)elo;
 }
 
