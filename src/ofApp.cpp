@@ -48,7 +48,7 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 	if (url.empty()) return;
 
 	std::thread([url, content]() {
-		// 1. Bulletproof JSON Sanitizer
+		// 1. JSON Sanitizer
 		std::string safeContent = "";
 		for (char c : content) {
 			if (c == '\"')
@@ -63,24 +63,22 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 				safeContent += c;
 		}
 
-		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+		std::string jsonPayload = "{\"content\": \"" + safeContent + "\"}";
 
-		// 2. Write to a relative file path
-		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
-
-		std::ofstream outFile(fileName, std::ios::binary);
-		if (outFile.is_open()) {
-			outFile << jsonStr;
-			outFile.close();
+		// 2. Shell Sanitizer (crucial for Linux/Proton)
+		std::string shellSafePayload = "";
+		for (char c : jsonPayload) {
+			if (c == '\'')
+				shellSafePayload += "'\\''"; // escape single quotes
+			else
+				shellSafePayload += c;
 		}
 
-		// 3. Use system(). Windows runs it via cmd, Proton seamlessly runs it via the Linux Terminal!
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @" + fileName + " \"" + url + "\"";
+		// 3. Pass sanitized JSON directly into the command line via a single-quoted string
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d '" + shellSafePayload + "' \"" + url + "\"";
+
 		int r = system(cmd.c_str());
 		(void)r;
-
-		// 4. Clean up the file
-		std::remove(fileName.c_str());
 	}).detach();
 }
 
@@ -4661,7 +4659,7 @@ void ofApp::update() {
 			std::string signOpp = (oppEloChange >= 0) ? "+" : "";
 
 			// Using normal \n now because our sanitizer handles it!
-			std::string msg = "⚔️ **MATCH FINISHED** ⚔️\n";
+			std::string msg = "⚔️ **DUEL FINISHED** ⚔️\n";
 			msg += "**" + myName + "** (" + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
 			msg += "**" + oppName + "** (" + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
 			msg += "🏆 **Winner:** " + winnerName;
@@ -6167,24 +6165,22 @@ void ofApp::recalculateUI(int w, int h) {
 	// When not multiplayer we show Resume, Save, Load, Settings, Quit (5 buttons)
 	// When multiplayer we show Resume, Settings, Quit (3 buttons)
 	if (!isMultiplayer) {
-		pauseMenuResumeButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 0, pBtnWidth, pBtnHeight);
-		pauseMenuSaveButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
-		pauseMenuLoadButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
-		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 3, pBtnWidth, pBtnHeight);
-		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 4, pBtnWidth, pBtnHeight);
+		float spStartY = h / 2.0f - (pBtnHeight * 5 + pGap * 4) / 2.0f;
+		pauseMenuResumeButton.set(centerX - pBtnWidth / 2, spStartY + (pBtnHeight + pGap) * 0, pBtnWidth, pBtnHeight);
+		pauseMenuSaveButton.set(centerX - pBtnWidth / 2, spStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
+		pauseMenuLoadButton.set(centerX - pBtnWidth / 2, spStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
+		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, spStartY + (pBtnHeight + pGap) * 3, pBtnWidth, pBtnHeight);
+		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, spStartY + (pBtnHeight + pGap) * 4, pBtnWidth, pBtnHeight);
 	} else {
-		// compact 4-button layout for multiplayer (Added Draw Offer)
 		float mpStartY = h / 2.0f - (pBtnHeight * 4 + pGap * 3) / 2.0f;
 		pauseMenuResumeButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 0, pBtnWidth, pBtnHeight);
 		g_pauseMenuDrawButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
 		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
 		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 3, pBtnWidth, pBtnHeight);
 
-		// Setup the split Yes/No buttons that overlay the Draw Button
 		g_pauseMenuDrawYesButton.set(g_pauseMenuDrawButton.x, g_pauseMenuDrawButton.y, pBtnWidth * 0.48f, pBtnHeight);
 		g_pauseMenuDrawNoButton.set(g_pauseMenuDrawButton.x + pBtnWidth * 0.52f, g_pauseMenuDrawButton.y, pBtnWidth * 0.48f, pBtnHeight);
 
-		// ensure Save/Load rects are set to offscreen so they don't intercept hits
 		pauseMenuSaveButton.set(-9999, -9999, 0, 0);
 		pauseMenuLoadButton.set(-9999, -9999, 0, 0);
 	}
@@ -8804,10 +8800,12 @@ void ofApp::drawGame() {
 		}
 
 		// Draw simple blob shadows under players (so units appear grounded without full shadow-mapping)
-		int opaquePlayerIdx = 0;
-		for (const auto & player : players) {
+		for (int opaquePlayerIdx = 0; opaquePlayerIdx < players.size(); ++opaquePlayerIdx) {
+			const auto & player = players[opaquePlayerIdx];
+
 			// compute world position for shadow (ground plane y=0)
-			glm::vec3 p;
+			glm::vec3 p = player.visualPos; // Start with the player's own visual position
+
 			bool foundEq = false;
 			if (isEarthquakeActive) {
 				for (const auto & eq : earthquakeUnits) {
@@ -8819,16 +8817,12 @@ void ofApp::drawGame() {
 				}
 			}
 			if (!foundEq) {
-				if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
+				if (isPlayerAnimating && animatingPlayerIndex == opaquePlayerIdx) {
 					p = playerVisualPos;
-				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
-					p = playerVisualPos;
-				} else {
-					p = gridToWorld(player.x, player.y);
 				}
 			}
 			// Draw blob shadow sprites always (since we disabled the heavy shadow map)
-			if (true) { // <--- Changed from (!shadowDepthShaderLoaded)
+			if (true) {
 				// Draw shadow quad on ground slightly above to avoid z-fighting
 				float halfSize = (TILE_SIZE * 0.5f) * blobShadowSize;
 				glm::vec3 p0 = glm::vec3(p.x - halfSize, 0.01f, p.z - halfSize);
@@ -8869,7 +8863,8 @@ void ofApp::drawGame() {
 
 			// continue to draw the player model below (existing code)
 			// 1. Determine Position
-			glm::vec3 pos;
+			glm::vec3 pos = player.visualPos; // Use player's own visual position
+
 			bool foundEq2 = false;
 			if (isEarthquakeActive) {
 				for (const auto & eq : earthquakeUnits) {
@@ -8881,12 +8876,8 @@ void ofApp::drawGame() {
 				}
 			}
 			if (!foundEq2) {
-				if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
+				if (isPlayerAnimating && animatingPlayerIndex == opaquePlayerIdx) {
 					pos = playerVisualPos;
-				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
-					pos = playerVisualPos;
-				} else {
-					pos = gridToWorld(player.x, player.y);
 				}
 			}
 
@@ -13922,7 +13913,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
 			std::string playerName = steamManager.getLocalPlayerName();
 			if (playerName.empty()) playerName = "A Mage";
-			sendDiscordWebhook(webhookURL, "@here 🧙‍♂️ **" + playerName + "** is hosting a match! Join now!");
+			sendDiscordWebhook(webhookURL, "@here 🧙‍♂️ **" + playerName + "** challenges you to a duel! Accept now!");
 			// ----------------------------
 
 			return;
@@ -14336,7 +14327,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// Save/Load HUD removed; pause menu now provides Save/Load
 
-	// Allow pile view interactions even during draft
+	// If we are in an in-game key draft, intercept clicks
 	if (isShowingPileView && button == OF_MOUSE_BUTTON_LEFT && pileViewRect.inside(x, y)) {
 		// If pile view is showing and we clicked inside it, allow ESC to close it or handle any interactions
 		// For now, just consume the click to prevent draft card selection interference
@@ -16983,10 +16974,13 @@ void ofApp::keyReleased(int key) {
 
 	// 3. Escape Key Logic
 	if (key == OF_KEY_ESC) {
-		// If chat is open (not minimized), only close it, don't open pause menu
 		if (isChatOpen && !isChatMinimized && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
-			// Already handled in keyPressed chat input section above
-			// (chat input handler returns early)
+			return;
+		}
+
+		if (currentState == STATE_DRAFTING && !isInGameDraft) {
+			pausedFromState = STATE_DRAFTING;
+			currentState = STATE_PAUSED;
 			return;
 		}
 
@@ -22194,88 +22188,32 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_FIREBALL: {
-		Player & currentPlayer = players[currentPlayerIndex];
 		int step = op.data.damage.fixedDamage;
-		if (step == 0) {
-			int rangeTotal = currentEffectSequence.blackboard[0];
-			std::vector<int> rawRange = { currentEffectSequence.blackboard[3], currentEffectSequence.blackboard[4] };
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 2, 6, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
-
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
-			queueEffect(wait);
-			EffectOp next = {};
-			next.type = EffectOpType::APPLY_FIREBALL;
-			next.data.damage.fixedDamage = 1;
-			queueEffect(next);
-			opComplete = true;
-			break;
-		} else if (step == 1) {
-			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
-			int rangeRoll = currentEffectSequence.blackboard[0];
-
-			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-
-			glm::ivec2 impactTile = casterTile;
-
-			// Use the new clear ray to perfectly draw the physical path!
-			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
-
-			glm::vec2 endPoint = clearRay.end;
-
-			if (path.size() > 1) {
-				for (size_t i = 1; i < path.size(); ++i) {
-					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (stepDistSq > maxDistSq) {
-						endPoint = path[i - 1] + 0.5f;
-						break;
-					}
-
-					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileBlocked(impactTile.x, impactTile.y)) {
-						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-						break;
-					}
-				}
-			} else {
-				impactTile = targetTile;
-			}
-
-			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f);
-
-			if (isTileWall(impactTile.x, impactTile.y)) {
-				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
-			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
-				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
-			}
-
-			// --- FIX: Update the true target to where the arrow actually landed! ---
-			currentCardOutcome.primaryTarget = impactTile;
-
-			queueVisualDelay(0.4f);
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
-			queueEffect(wait);
-			EffectOp next = {};
-			next.type = EffectOpType::APPLY_SHOOT_ARROW;
-			next.data.damage.fixedDamage = 2;
-			queueEffect(next);
-			opComplete = true;
-			break;
-		} else if (step == 2) {
+		if (step == 2) {
+			// Step 2: Roll Damage
 			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
-			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
+			if (isTileWall(impactTile.x, impactTile.y)) {
 				opComplete = true;
 				break;
 			}
 
+			std::vector<int> rawDmg;
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			int dmgRoll = resolveDiceRollDetailed(1, 6, rawDmg) + luckBonus;
+			currentEffectSequence.blackboard[1] = dmgRoll;
+			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+
+			queueVisualDelay(1.2f); // Wait for dice
+			EffectOp next = {};
+			next.type = EffectOpType::APPLY_FIREBALL;
+			next.data.damage.fixedDamage = 3;
+			queueEffect(next);
+			opComplete = true;
+			break;
+		} else if (step == 3) {
+			// Step 3: Apply Damage
+			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
+			int dmg = currentEffectSequence.blackboard[1];
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
@@ -22283,45 +22221,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					break;
 				}
 			}
-
-			if (targetIdx >= 0) {
-				Player * target = &players[targetIdx];
-				int baseDamage = 7;
-				for (const auto & c : allCards) {
-					if (c.type == CARD_ETHEREAL_JOLT) {
-						if (c.baseDamage > 0)
-							baseDamage = c.baseDamage;
-						else if (c.value > 0)
-							baseDamage = c.value;
-						break;
-					}
-				}
-
-				int outSlot = 10;
-				applyDamageWithMitigationsQueued(*target, baseDamage, DAMAGE_MAGIC, currentPlayerIndex, outSlot);
-
-				EffectOp res = {};
-				res.type = EffectOpType::APPLY_GENERIC_DAMAGE;
-				res.data.damage.targetIndex = targetIdx;
-				res.data.damage.damageType = DAMAGE_MAGIC;
-				res.data.damage.fixedDamage = 0;
-				res.data.damage.damageFromSlot = outSlot;
-				queueEffect(res);
-
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_STATUS;
-				ap.data.status.targetIndex = targetIdx;
-				ap.data.status.statusType = STATUS_PARALYZED;
-				ap.data.status.duration = 0;
-				queueEffect(ap);
-				queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
-
-				if (!target->deck.empty()) {
-					EffectOp rmDeck = {};
-					rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
-					rmDeck.data.removeTopCard.targetIndex = targetIdx;
-					queueEffect(rmDeck);
-					queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 1.2f, 0), "Destroyed top card", ofColor::purple);
+			if (targetIdx != -1) {
+				int preHP = players[targetIdx].health;
+				applyDamageTo(players[targetIdx], dmg, DAMAGE_FIRE, currentPlayerIndex);
+				// If HP actually went down, apply Burning
+				if (players[targetIdx].health < preHP) {
+					EffectOp fireStatus = {};
+					fireStatus.type = EffectOpType::APPLY_STATUS;
+					fireStatus.data.status.targetIndex = targetIdx;
+					fireStatus.data.status.statusType = STATUS_ON_FIRE;
+					queueEffect(fireStatus);
 				}
 			}
 			opComplete = true;
@@ -25581,10 +25490,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY) return false;
-
-	// Complex cards that have generic stats but require custom C++ logic
 	if (playedCard.type == CARD_FIREBALL || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY) return false;
+
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
