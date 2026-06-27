@@ -104,6 +104,12 @@ static const int MENU_GHOST_RELOCATE = 5;
 static float g_menuAlphaMult = 1.0f;
 static uint32_t s_opponentRiMask = 0; // Tracks which cards the opponent selected
 
+// --- DRAW SYSTEM VARIABLES ---
+static int g_drawOfferPlayerID = -1; // -1 = None, 0 = Player 1 offered, 1 = Player 2 offered
+static ofRectangle g_pauseMenuDrawButton;
+static ofRectangle g_pauseMenuDrawYesButton;
+static ofRectangle g_pauseMenuDrawNoButton;
+
 // Window Mode State: 0=Windowed, 1=Fullscreen, 2=Borderless
 static int g_windowModeState = 1;
 
@@ -4610,7 +4616,8 @@ void ofApp::update() {
 		eloCalculated = true;
 
 		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-		float myActual = (g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f;
+		// ELO DRAW MATH: If g_winnerID == 2, give 0.5 points to both!
+		float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
 
 		// Dynamic K-Factor based on current rating
 		float kFactor = 24.0f; // Standard bracket
@@ -4641,11 +4648,11 @@ void ofApp::update() {
 
 			std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
 			std::string oppName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
-			std::string winnerName = (g_winnerID == myLocalPlayerID) ? myName : oppName;
+			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : ((g_winnerID == myLocalPlayerID) ? myName : oppName);
 
 			int myPreGameElo = myElo - eloChange;
 			float oppExpected = 1.0f / (1.0f + pow(10.0f, (myPreGameElo - opponentElo) / 400.0f));
-			float oppActual = (g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f;
+			float oppActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f);
 			float oppK = (opponentElo < 1200) ? 40.0f : (opponentElo > 2000 ? 16.0f : 24.0f);
 			int oppEloChange = (int)round(oppK * (oppActual - oppExpected));
 			int newOppElo = std::max(300, opponentElo + oppEloChange);
@@ -6166,11 +6173,17 @@ void ofApp::recalculateUI(int w, int h) {
 		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 3, pBtnWidth, pBtnHeight);
 		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 4, pBtnWidth, pBtnHeight);
 	} else {
-		// compact 3-button layout for multiplayer
-		float mpStartY = h / 2.0f - (pBtnHeight * 3 + pGap * 2) / 2.0f;
+		// compact 4-button layout for multiplayer (Added Draw Offer)
+		float mpStartY = h / 2.0f - (pBtnHeight * 4 + pGap * 3) / 2.0f;
 		pauseMenuResumeButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 0, pBtnWidth, pBtnHeight);
-		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
-		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
+		g_pauseMenuDrawButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
+		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
+		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 3, pBtnWidth, pBtnHeight);
+
+		// Setup the split Yes/No buttons that overlay the Draw Button
+		g_pauseMenuDrawYesButton.set(g_pauseMenuDrawButton.x, g_pauseMenuDrawButton.y, pBtnWidth * 0.48f, pBtnHeight);
+		g_pauseMenuDrawNoButton.set(g_pauseMenuDrawButton.x + pBtnWidth * 0.52f, g_pauseMenuDrawButton.y, pBtnWidth * 0.48f, pBtnHeight);
+
 		// ensure Save/Load rects are set to offscreen so they don't intercept hits
 		pauseMenuSaveButton.set(-9999, -9999, 0, 0);
 		pauseMenuLoadButton.set(-9999, -9999, 0, 0);
@@ -6181,6 +6194,7 @@ void ofApp::setupGame() {
 	// Reset lockstep runtime state for a fresh match.
 	g_isGameOver = false;
 	g_winnerID = -1;
+	g_drawOfferPlayerID = -1; // <--- ADDED THIS
 	initialDraftComplete = false;
 	isInGameDraft = false;
 	g_isHostingLobby = false;
@@ -12432,8 +12446,10 @@ void ofApp::drawGame() {
 		// Winner Text
 		std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY" : "DEFEAT";
 		if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
+		if (g_winnerID == 2) text = "MATCH DRAWN";
 
 		ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
+		if (g_winnerID == 2) titleColor = ofColor::white;
 		drawPixelTextCentered(titleFont, text, cx, cy - 200.0f, 2.5f, titleColor);
 
 		if (isMultiplayer) {
@@ -13376,6 +13392,13 @@ cursor_check_done:;
 				pauseMenuHoveredIndex = 1;
 			else if (pauseMenuQuitButton.inside(x, y))
 				pauseMenuHoveredIndex = 2;
+			// Draw Button Hover States
+			else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID && g_pauseMenuDrawYesButton.inside(x, y))
+				pauseMenuHoveredIndex = 6;
+			else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID && g_pauseMenuDrawNoButton.inside(x, y))
+				pauseMenuHoveredIndex = 7;
+			else if (g_pauseMenuDrawButton.inside(x, y))
+				pauseMenuHoveredIndex = 5;
 		}
 		break;
 	}
@@ -14706,6 +14729,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = pausedFromState;
 			return;
 		}
+
+		// --- DRAW SYSTEM CLICKS ---
+		if (isMultiplayer) {
+			auto sendDrawAction = [&](const std::string & actionStr) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_PSEUDO_ACTION;
+				strncpy(cmd.stringData, actionStr.c_str(), sizeof(cmd.stringData) - 1);
+				sendInputCommand(cmd, true);
+			};
+
+			if (g_drawOfferPlayerID == -1 && g_pauseMenuDrawButton.inside(x, y)) {
+				sendDrawAction("OfferDraw");
+				return;
+			} else if (g_drawOfferPlayerID == myLocalPlayerID && g_pauseMenuDrawButton.inside(x, y)) {
+				sendDrawAction("CancelDraw");
+				return;
+			} else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID) {
+				if (g_pauseMenuDrawYesButton.inside(x, y)) {
+					sendDrawAction("AcceptDraw");
+					return;
+				} else if (g_pauseMenuDrawNoButton.inside(x, y)) {
+					sendDrawAction("DeclineDraw");
+					return;
+				}
+			}
+		}
+
 		if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
 			// Manual save (user-initiated) — keep separate name from autosaves
 			bool ok = saveGameStateToFile("manual_save.json");
@@ -21307,6 +21361,48 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (actionName == "Forfeit") {
 			ofLogNotice("Lockstep") << "Player " << cmd.playerID << " conceded.";
 			handleOwnerForfeit(cmd.playerID, "conceded");
+			break;
+		}
+
+		// --- DRAW SYSTEM EXECUTION ---
+		auto pushSysChat = [&](const std::string & msgStr) {
+			ChatMessage m;
+			m.playerName = "[SYSTEM]";
+			m.message = msgStr;
+			m.timestamp = ofGetElapsedTimef();
+			chatHistory.push_back(m);
+			if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) chatHistory.erase(chatHistory.begin());
+			isChatOpen = true; // Auto-open chat so they see it
+			isChatMinimized = false;
+			lastChatInteractionTime = ofGetElapsedTimef();
+		};
+
+		if (actionName == "OfferDraw") {
+			g_drawOfferPlayerID = cmd.playerID;
+			pushSysChat(getPlayerSteamName(cmd.playerID) + " has offered a draw.");
+			break;
+		}
+		if (actionName == "CancelDraw") {
+			g_drawOfferPlayerID = -1;
+			pushSysChat(getPlayerSteamName(cmd.playerID) + " cancelled their draw offer.");
+			break;
+		}
+		if (actionName == "DeclineDraw") {
+			g_drawOfferPlayerID = -1;
+			pushSysChat(getPlayerSteamName(cmd.playerID) + " declined the draw.");
+			break;
+		}
+		if (actionName == "AcceptDraw") {
+			g_drawOfferPlayerID = -1;
+			pushSysChat(getPlayerSteamName(cmd.playerID) + " accepted the draw.");
+
+			// We use 2 to represent a Draw (since 0 and 1 are players)
+			g_isGameOver = true;
+			g_winnerID = 2;
+
+			if (currentState == STATE_PAUSED) {
+				currentState = STATE_GAMEPLAY; // Close menu to show Game Over
+			}
 			break;
 		}
 
@@ -33450,6 +33546,7 @@ void ofApp::cleanupGame() {
 	afkStrikeCounts = { 0, 0 };
 	reconnectForfeitStartTime = -1.0f;
 	g_isGameOver = false;
+	g_drawOfferPlayerID = -1; // <--- ADDED THIS
 	waitingForReconnect = false;
 	playerAction = NONE;
 	g_playerDefenses.clear();
@@ -35465,6 +35562,28 @@ void ofApp::drawPauseMenu() {
 		drawBtn(pauseMenuQuitButton, "Quit to Menu", 4);
 	} else {
 		drawBtn(pauseMenuResumeButton, "Resume", 0);
+
+		// --- DRAW SYSTEM UI ---
+		if (g_drawOfferPlayerID == -1) {
+			drawBtn(g_pauseMenuDrawButton, "Offer Draw", 5);
+		} else if (g_drawOfferPlayerID == myLocalPlayerID) {
+			drawBtn(g_pauseMenuDrawButton, "Cancel", 5);
+			ofSetColor(200);
+			drawPixelTextCentered(uiFont, "Awaiting answer...", g_pauseMenuDrawButton.getCenter().x, g_pauseMenuDrawButton.y - 10, 0.7f, ofColor::white);
+		} else {
+			// Opponent offered, draw the Accept/Decline UI
+			ofSetColor(200);
+			drawPixelTextCentered(uiFont, "Accept Draw?", g_pauseMenuDrawButton.getCenter().x, g_pauseMenuDrawButton.y - 10, 0.7f, ofColor::white);
+
+			ofSetColor(pauseMenuHoveredIndex == 6 ? ofColor(100, 255, 100) : ofColor(50, 200, 50));
+			ofDrawRectRounded(g_pauseMenuDrawYesButton, 12.0f);
+			drawPixelTextCentered(uiFont, "Yes", g_pauseMenuDrawYesButton.getCenter().x, g_pauseMenuDrawYesButton.getCenter().y, 1.0f, ofColor::black);
+
+			ofSetColor(pauseMenuHoveredIndex == 7 ? ofColor(255, 100, 100) : ofColor(200, 50, 50));
+			ofDrawRectRounded(g_pauseMenuDrawNoButton, 12.0f);
+			drawPixelTextCentered(uiFont, "No", g_pauseMenuDrawNoButton.getCenter().x, g_pauseMenuDrawNoButton.getCenter().y, 1.0f, ofColor::black);
+		}
+
 		drawBtn(pauseMenuSettingsButton, "Settings", 1);
 		drawBtn(pauseMenuQuitButton, "Disconnect", 2);
 	}
