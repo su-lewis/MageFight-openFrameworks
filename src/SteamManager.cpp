@@ -24,6 +24,7 @@ int SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, uint64_t s
 int SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
 int SteamAPI_ISteamFriends_GetLargeFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
 void SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(intptr_t instancePtr, uint64_t steamIDLobby);
+bool SteamAPI_ISteamFriends_SetRichPresence(intptr_t instancePtr, const char * pchKey, const char * pchValue); // <--- ADD THIS LINE
 
 uint64_t SteamAPI_ISteamUserStats_FindLeaderboard(intptr_t instancePtr, const char * pchLeaderboardName);
 uint64_t SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardDataRequest, int nRangeStart, int nRangeEnd);
@@ -709,4 +710,10 @@ int SteamManager::checkLeaverBuster() {
 	int32_t oppElo = 0;
 	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", &oppElo);
 	return (int)oppElo;
+}
+void SteamManager::updateRichPresence(const std::string & status) {
+	if (!m_bInitialized || !SteamFriends()) return;
+
+	// Sets the text that appears under "Mage Fight" in the Steam Friends List
+	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "status", status.c_str());
 }

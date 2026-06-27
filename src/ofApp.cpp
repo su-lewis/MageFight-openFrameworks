@@ -27,14 +27,20 @@
 	#include <windows.h>
 #endif
 
+static std::string g_lockstepLogFilename = "";
+
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
-	std::string role = isHost ? "host" : "client";
-	std::string filename = "lockstep_trace_" + role + ".log";
+	// Generate a unique filename with a timestamp once per match
+	if (g_lockstepLogFilename.empty()) {
+		std::string role = isHost ? "host" : "client";
+		std::string ts = ofGetTimestampString("%Y%m%d_%H%M%S");
+		g_lockstepLogFilename = "lockstep_trace_" + role + "_" + ts + ".log";
+	}
+
 	std::string timeStr = ofGetTimestampString("%H:%M:%S");
 	std::string logLine = "[" + timeStr + "] T:" + std::to_string(turn) + " | " + eventStr + "\n";
 
-	// FIX: Use ofFile::Append so it actually builds a history instead of overwriting line 1!
-	ofFile file(filename, ofFile::Append);
+	ofFile file(g_lockstepLogFilename, ofFile::Append);
 	file << logLine;
 }
 
@@ -46,7 +52,7 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		std::string safeContent = "";
 		for (char c : content) {
 			if (c == '\"')
-				safeContent += "\\\""; // We can safely use double quotes now!
+				safeContent += "\\\"";
 			else if (c == '\\')
 				safeContent += "\\\\";
 			else if (c == '\n')
@@ -59,7 +65,7 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 
 		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
 
-		// 2. Write to a relative file path (Works natively on Windows, Linux, and Proton!)
+		// 2. Write to a relative file path
 		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
 
 		std::ofstream outFile(fileName, std::ios::binary);
@@ -68,32 +74,10 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			outFile.close();
 		}
 
-#ifdef _WIN32
-		// 3. Use CreateProcess to call curl directly (bypassing cmd.exe entirely)
-		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @" + fileName + " \"" + url + "\"";
-
-		STARTUPINFOA si;
-		PROCESS_INFORMATION pi;
-		ZeroMemory(&si, sizeof(si));
-		si.cb = sizeof(si);
-		si.dwFlags = STARTF_USESHOWWINDOW;
-		si.wShowWindow = SW_HIDE; // Hidden window
-		ZeroMemory(&pi, sizeof(pi));
-
-		// CreateProcess needs a mutable string buffer
-		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
-		cmdBuffer.push_back('\0');
-
-		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-			WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s for upload to finish
-			CloseHandle(pi.hProcess);
-			CloseHandle(pi.hThread);
-		}
-#else
+		// 3. Use system(). Windows runs it via cmd, Proton seamlessly runs it via the Linux Terminal!
 		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @" + fileName + " \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
-#endif
 
 		// 4. Clean up the file
 		std::remove(fileName.c_str());
@@ -4897,6 +4881,36 @@ void ofApp::update() {
 
 		prevState = currentState;
 	}
+
+	// --- STEAM RICH PRESENCE ---
+	static std::string lastPresence = "";
+	std::string currentPresence = "In Menus";
+
+	if (g_isHostingLobby && !isMultiplayer) {
+		currentPresence = "Awaiting a challenger...";
+	} else if (g_isConnectingToLobby) {
+		currentPresence = "Entering the Dungeon...";
+	} else if (isMultiplayer && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL)) {
+		currentPresence = "1v1 Mage Duel";
+	} else if (!isMultiplayer && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL)) {
+		if (isVsAI)
+			currentPresence = "Battling the AI";
+		else
+			currentPresence = "Testing spells on a friend";
+	} else if (currentState == STATE_MAIN_MENU) {
+		currentPresence = "Consulting the menu";
+	} else if (currentState == STATE_MULTIPLAYER_MENU) {
+		currentPresence = "Browsing Challenges";
+	} else if (currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SAVE_BROWSER) {
+		currentPresence = "Preparing a solo run...";
+	}
+
+	// Only send the packet to Steam if the status actually changed!
+	if (currentPresence != lastPresence) {
+		lastPresence = currentPresence;
+		steamManager.updateRichPresence(currentPresence);
+	}
+	// ---------------------------
 
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
@@ -11357,8 +11371,8 @@ void ofApp::drawGame() {
 				float btnX = 0.0f;
 				float btnY = 0.0f;
 				int activeOwnerID = curr.isMinion ? curr.ownerID : curr.playerID;
-				// If active owner is player 0, place reroll button to the RIGHT of AP.
-				if (activeOwnerID == 0) {
+				// FIX: If active owner is the Local Player, place reroll button to the RIGHT of AP (Bottom).
+				if ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == myLocalPlayerID)) {
 					float p0_apCenterX = p0_discardRect.getCenter().x;
 					float p0_apCenterY = p0_discardRect.y - (10.0f * scale);
 					string p0_apText = "0 AP";
@@ -17454,6 +17468,33 @@ void ofApp::startNewTurn() {
 		}
 
 		if (skipTurn) {
+			// FIX: Clear "Next Turn" AP buffs so they don't carry over into future turns
+			if (startingPlayer.nextTurnAPBonus > 0) {
+				EffectOp clrAp = {};
+				clrAp.type = EffectOpType::MODIFY_STAT;
+				clrAp.data.modifyStat.targetIndex = currentPlayerIndex;
+				clrAp.data.modifyStat.statType = 11;
+				clrAp.data.modifyStat.delta = -startingPlayer.nextTurnAPBonus;
+				clrAp.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(clrAp);
+			}
+			if (startingPlayer.nextTurnD10AP) {
+				EffectOp clrD10 = {};
+				clrD10.type = EffectOpType::REMOVE_STATUS;
+				clrD10.data.status.targetIndex = currentPlayerIndex;
+				clrD10.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+				clrD10.data.status.duration = 0;
+				queueEffect(clrD10);
+			}
+			if (startingPlayer.nextTurnBonusDiceFromMinions) {
+				EffectOp clrMinions = {};
+				clrMinions.type = EffectOpType::REMOVE_STATUS;
+				clrMinions.data.status.targetIndex = currentPlayerIndex;
+				clrMinions.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+				clrMinions.data.status.duration = 0;
+				queueEffect(clrMinions);
+			}
+
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
 			wait.data.damage.fixedDamage = 1;
@@ -20322,6 +20363,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: invalid targetIdx=" << targetIdx;
 			break;
 		}
+
+		// SECURITY CHECK: Ensure the sender actually owns the unit drawing the cards
+		int targetOwner = players[targetIdx].isMinion ? players[targetIdx].ownerID : players[targetIdx].playerID;
+		if (isMultiplayer && targetOwner != (int)cmd.playerID) {
+			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: Sender " << cmd.playerID << " does not own unit " << targetIdx;
+			break;
+		}
+
 		int savedCurrent = currentPlayerIndex;
 		currentPlayerIndex = targetIdx;
 		for (int d = 0; d < num; ++d) {
@@ -20364,6 +20413,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
 			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid currentPlayerIndex=" << currentPlayerIndex;
 			resetCardState(); // CRITICAL FIX
+			break;
+		}
+
+		// SECURITY CHECK: Ensure the sender actually owns the unit whose turn it currently is
+		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		if (isMultiplayer && activeOwner != (int)cmd.playerID) {
+			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: Sender " << cmd.playerID << " does not own active unit " << currentPlayerIndex;
+			resetCardState();
 			break;
 		}
 
@@ -25377,6 +25434,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	// Complex cards that have generic stats but require custom C++ logic
 	if (playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY) return false;
 
+	// Complex cards that have generic stats but require custom C++ logic
+	if (playedCard.type == CARD_FIREBALL || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY) return false;
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
 	bool hasHeal = (playedCard.healDiceNum > 0 || playedCard.baseHeal > 0 || playedCard.healAmount > 0);
@@ -28250,6 +28309,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		shouldShowRangedPreview = true;
 	}
 
+	// FIX: Health Flagon and pure self-buffs do not need Line of Sight / AOE previews drawn on the whole board
+	if (card.targeting == TARGET_SELF && !card.isAoe) {
+		shouldShowRangedPreview = false;
+	}
+
 	if (shouldShowRangedPreview) {
 		// 1. Extract Range Dice parameters globally
 		int rangeNum = 0, rangeSides = 0;
@@ -28358,12 +28422,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (card.type == CARD_MAGIC_BOLT) {
 					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue; // Skip empty walls for bolt target
 
-					long long maxTotalHalfTiles = ((long long)(maxRangeFeet + maxAoeFeet) * 2LL) / 5LL;
+					// FIX: Use mathematical rounding to match engine validation!
+					long long maxTotalHalfTiles = (long long)std::round((maxRangeFeet + maxAoeFeet) * 2.0 / 5.0);
 					long long maxTotalDistSq = maxTotalHalfTiles * maxTotalHalfTiles;
 
 					if (distSq <= maxTotalDistSq) {
 						glm::ivec2 impactTile = { tx, ty };
-						long long maxRangeHalfTiles = ((long long)maxRangeFeet * 2LL) / 5LL;
+						long long maxRangeHalfTiles = (long long)std::round(maxRangeFeet * 2.0 / 5.0);
 						long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 						long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
 
@@ -28389,7 +28454,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex) && !board[impactTile.x][impactTile.y].hasWall) {
 							hitsSomeone = true;
 						} else {
-							long long aoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
+							long long aoeHalfTiles = (long long)std::round(maxAoeFeet * 2.0 / 5.0);
 							long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
 
 							for (size_t i = 0; i < players.size(); ++i) {
@@ -28419,7 +28484,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 
 					if (info.reason == VALID) {
-						if (card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
+						// FIX: Magic Bolt is now included in the ground-targeting UI checker
+						if (card.type == CARD_MAGIC_BOLT || card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
 							if (info.isTargetable) valid = true;
 						} else if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							valid = true;
@@ -28454,7 +28520,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// MUST HAVE LOS TO THE TARGET TILE ITSELF!
 					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
 						bool hitsSomeone = false;
-						long long aoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
+						// FIX: Apply mathematical rounding
+						long long aoeHalfTiles = (long long)std::round(maxAoeFeet * 2.0 / 5.0);
 						long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
 
 						for (size_t i = 0; i < players.size(); ++i) {
@@ -29030,8 +29097,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool canBeClicked = false;
 				bool isOccupied = board[x][y].hasPlayer;
 
-				// --- CHAIN LIGHTNING / MAGIC BLAST LOGIC ---
-				if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
+				// --- MAGIC BLAST LOGIC ---
+				if (card.type == CARD_MAGIC_BLAST) {
 					if (isPreview) {
 						if (isOccupied) {
 							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
@@ -32986,7 +33053,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	}
 
 	long long distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
-	long long maxRangeScaled = ((long long)maxRangeFeet * 2LL) / 5LL;
+	// FIX: Use mathematical rounding to prevent 12ft (4.8) from truncating to 10ft (4)
+	long long maxRangeScaled = (long long)std::round(maxRangeFeet * 2.0 / 5.0);
 
 	if (distScaledSq > maxRangeScaled * maxRangeScaled) {
 		result.reason = INVALID_OUT_OF_RANGE;
@@ -32995,22 +33063,18 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
 
-	if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST || cardType == CARD_CHAIN_LIGHTNING) {
-		if (isOccupied) {
-			bool hasOther = false;
-			auto occs = getTileOccupants((int)targetTile.x, (int)targetTile.y);
-			for (int o : occs) {
-				if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
-					hasOther = true;
-					break;
-				}
-			}
-			result.isTargetable = hasOther;
-		} else {
+	// FIX: Explicitly allow ground-targeted AOE spells to target empty floor tiles!
+	// ADDED: Magic Bolt and Magic Blast are also allowed to ground-target.
+	bool isGroundTargetAoe = (cardType == CARD_FIREBALL || cardType == CARD_CHAIN_LIGHTNING || cardType == CARD_PSIONIC_WAVE || cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST);
+
+	if (isGroundTargetAoe) {
+		// Even if ground-targeting, the tile still must catch someone in the splash!
+		if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST) {
+			bool hasTargetInAoe = false;
+
 			if (cardType == CARD_MAGIC_BOLT) {
-				bool hasTargetInAoe = false;
 				float maxAoeFeet = 20.0f;
-				long long maxAoeHalfTiles = ((long long)maxAoeFeet * 2LL) / 5LL;
+				long long maxAoeHalfTiles = (long long)std::round(maxAoeFeet * 2.0 / 5.0);
 				long long maxAoeDistSq = maxAoeHalfTiles * maxAoeHalfTiles;
 				for (size_t i = 0; i < players.size(); ++i) {
 					if (casterIndexForSelfChecks >= 0 && (int)i == casterIndexForSelfChecks) continue;
@@ -33024,38 +33088,33 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 						}
 					}
 				}
-				result.isTargetable = hasTargetInAoe;
-			} else {
-				bool hasNeighbor = false;
+			} else if (cardType == CARD_MAGIC_BLAST) {
+				// 3x3 Grid (Adjacent)
 				for (int dx = -1; dx <= 1; ++dx) {
 					for (int dy = -1; dy <= 1; ++dy) {
 						if (dx == 0 && dy == 0) continue;
-						if (cardType == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
+						// Magic Blast cannot splash diagonally!
+						if (std::abs(dx) == 1 && std::abs(dy) == 1) continue;
 						int nx = (int)targetTile.x + dx;
 						int ny = (int)targetTile.y + dy;
 						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
 							auto occs = getTileOccupants(nx, ny);
 							for (int o : occs) {
 								if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) {
-									bool blocked = false;
-									if (std::abs(dx) == 1 && std::abs(dy) == 1) {
-										if (isTileBlocked((int)targetTile.x + dx, (int)targetTile.y) && isTileBlocked((int)targetTile.x, (int)targetTile.y + dy)) {
-											blocked = true;
-										}
-									}
-									if (!blocked) {
-										hasNeighbor = true;
-										break;
-									}
+									hasTargetInAoe = true;
+									break;
 								}
 							}
 						}
-						if (hasNeighbor) break;
+						if (hasTargetInAoe) break;
 					}
-					if (hasNeighbor) break;
+					if (hasTargetInAoe) break;
 				}
-				result.isTargetable = hasNeighbor;
 			}
+			result.isTargetable = hasTargetInAoe;
+		} else {
+			// Fireball / Chain Lightning / Psionic Wave
+			result.isTargetable = true;
 		}
 	} else {
 		result.isTargetable = isOccupied;

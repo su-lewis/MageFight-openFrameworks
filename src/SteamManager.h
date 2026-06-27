@@ -57,6 +57,7 @@ public:
 	CSteamID getOpponentSteamID() const;
 	CSteamID getLocalSteamID() const;
 	bool getAvatarImage(const CSteamID & id, ofImage & outImage, int size = 64) const;
+	void updateRichPresence(const std::string & status);
 
 	// Connection Flags
 	bool checkAndClearDisconnectFlag();
