@@ -12590,15 +12590,18 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// 3. Check for "Draggable" things (Cards in hand)
 	Player * handPlayer = nullptr;
-	if (isMultiplayer) {
-		int localPIdx = findPlayerIndexByID(myLocalPlayerID);
-		if (!players.empty() && localPIdx >= 0) {
-			handPlayer = &players[localPIdx];
-		}
-	} else {
-		// CRITICAL FIX: In Local PvP (Singleplayer), the active player's hand is the one on screen!
-		if (!players.empty() && currentPlayerIndex >= 0) {
-			handPlayer = &players[currentPlayerIndex];
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player & activePlayer = players[currentPlayerIndex];
+		if (isMultiplayer) {
+			// In multiplayer, the hand on screen belongs to the active unit.
+			// We only interact with it if WE own the active unit (Player or Minion).
+			int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
+			if (activeOwnerID == myLocalPlayerID) {
+				handPlayer = &activePlayer;
+			}
+		} else {
+			// In singleplayer, the active unit's hand is always interactive
+			handPlayer = &activePlayer;
 		}
 	}
 
@@ -19973,8 +19976,17 @@ void ofApp::simulationTick() {
 			// (Deck, discard, hand, and played pile must all be completely empty).
 			bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
 
-			if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
-				shouldDie = true;
+			// Safety: Tortoise/Ghost forms store their active transformation card in a special slot
+			if (players[i].inTortoiseForm && players[i].tortoiseFormCard.type != CARD_NONE) noCards = false;
+			if (players[i].inGhostForm && players[i].ghostFormCard.type != CARD_NONE) noCards = false;
+
+			if (noCards && initialDraftComplete) {
+				if (players[i].health > 0) {
+					ofLogNotice("Exhaustion") << "Unit " << players[i].playerID << " has no cards left! Exhaustion death.";
+					players[i].health = 0; // Force HP to 0 so Faerie/Death mechanics trigger normally
+					shouldDie = true;
+					queueFloatingTextVisual(gridToWorld(players[i].x, players[i].y), "Out of Cards!", ofColor::purple);
+				}
 			}
 
 			if (!shouldDie) continue;
