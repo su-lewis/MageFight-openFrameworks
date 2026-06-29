@@ -6478,6 +6478,7 @@ void ofApp::setupGame() {
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
+	p1.visualPos = gridToWorld(p1.x, p1.y); // FIX: Initialize visual position
 	p1.deck.clear();
 	players.push_back(p1);
 
@@ -6485,6 +6486,7 @@ void ofApp::setupGame() {
 	p2.x = BOARD_WIDTH - 1;
 	p2.y = 0;
 	p2.playerID = 1;
+	p2.visualPos = gridToWorld(p2.x, p2.y); // FIX: Initialize visual position
 	p2.deck.clear();
 	players.push_back(p2);
 
@@ -6638,6 +6640,7 @@ void ofApp::initialiseGameStateCommon() {
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
+	p1.visualPos = gridToWorld(p1.x, p1.y); // FIX: Initialize visual position
 	p1.deck.clear();
 	players.push_back(p1);
 
@@ -6645,6 +6648,7 @@ void ofApp::initialiseGameStateCommon() {
 	p2.x = BOARD_WIDTH - 1;
 	p2.y = 0;
 	p2.playerID = 1;
+	p2.visualPos = gridToWorld(p2.x, p2.y); // FIX: Initialize visual position
 	p2.deck.clear();
 	players.push_back(p2);
 
@@ -8876,8 +8880,12 @@ void ofApp::drawGame() {
 		for (int opaquePlayerIdx = 0; opaquePlayerIdx < players.size(); ++opaquePlayerIdx) {
 			const auto & player = players[opaquePlayerIdx];
 
-			// compute world position for shadow (ground plane y=0)
-			glm::vec3 p = player.visualPos; // Start with the player's own visual position
+			// CRITICAL FIX: Re-enable Color Material per-player so OpenGL doesn't render them black!
+			glEnable(GL_COLOR_MATERIAL);
+			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+			// 1. Determine Position using Bulletproof Grid Fallback
+			glm::vec3 p = gridToWorld(player.x, player.y);
 
 			bool foundEq = false;
 			if (isEarthquakeActive) {
@@ -8936,7 +8944,7 @@ void ofApp::drawGame() {
 
 			// continue to draw the player model below (existing code)
 			// 1. Determine Position
-			glm::vec3 pos = player.visualPos; // Use player's own visual position
+			glm::vec3 pos = gridToWorld(player.x, player.y);
 
 			bool foundEq2 = false;
 			if (isEarthquakeActive) {
@@ -8950,6 +8958,9 @@ void ofApp::drawGame() {
 			}
 			if (!foundEq2) {
 				if (isPlayerAnimating && animatingPlayerIndex == opaquePlayerIdx) {
+					pos = playerVisualPos;
+				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
+					// Use global player visual pos for the active player so it tracks hops/movements
 					pos = playerVisualPos;
 				}
 			}
@@ -9169,16 +9180,10 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 			ofPopStyle();
 
-			// Critical Fix: Nuke any lingering OpenGL materials/colors from custom models
-			// (like Kobold King) so they don't tint the 3D scene geometry on the next frame.
+			// Safe cleanup: Reset OF's global color state instead of hard-disabling GL materials.
+			// Disabling GL_COLOR_MATERIAL causes openFrameworks to render subsequent models invisibly!
 			ofSetColor(255, 255, 255, 255);
-			glDisable(GL_COLOR_MATERIAL);
-			float defaultAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-			float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
-			glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
-			glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
-
-			opaquePlayerIdx++;
+			glEnable(GL_COLOR_MATERIAL);
 		}
 
 		// Safely close out the batched PBR Shader instance
@@ -16430,6 +16435,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 						if (draggedCardIndex >= 0 && draggedCardIndex < (int)currentPlayer.hand.size()) {
 							currentPlayer.hand[draggedCardIndex].currentPos = currentPlayer.hand[draggedCardIndex].targetPos;
 							currentPlayer.hand[draggedCardIndex].currentScale = currentPlayer.hand[draggedCardIndex].targetScale;
+
+							// FIX: Release the card from the cursor so it behaves like a normal menu
+							currentPlayer.hand[draggedCardIndex].isAnimating = false;
+							draggedCardIndex = -1;
 						}
 					}
 				} else {
@@ -17816,6 +17825,17 @@ void ofApp::continueNewTurn() {
 	if (isHost()) {
 		turnStartBackupSnapshot = buildSnapshotString();
 		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
+	}
+
+	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
+	if (isMultiplayer) {
+		ChecksumPacket chk = {};
+		chk.type = PKT_CHECKSUM_CHECK;
+		chk.playerID = myLocalPlayerID;
+		chk.turnNumber = globalTurnCounter;
+		chk.checksum = calculateChecksum();
+		steamManager.sendPacket(&chk, sizeof(chk));
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
 	}
 
 	// Autosave at the start of each turn (singleplayer or host in multiplayer).
@@ -22269,9 +22289,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		int step = op.data.damage.fixedDamage;
 		if (step == 0) {
+			int rangeTotal = currentEffectSequence.blackboard[0];
+			std::vector<int> rawRange = { currentEffectSequence.blackboard[3], currentEffectSequence.blackboard[4] };
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 2, 6, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_FIREBALL;
@@ -22339,13 +22363,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				break;
 			}
 
-			std::vector<int> rawDmg;
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int dmgRoll = resolveDiceRollDetailed(1, 6, rawDmg) + luckBonus;
-			currentEffectSequence.blackboard[1] = dmgRoll;
+			int dmgRoll = currentEffectSequence.blackboard[1];
+			std::vector<int> rawDmg = { currentEffectSequence.blackboard[2] };
 			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 
-			queueVisualDelay(1.2f);
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0;
+			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_FIREBALL;
 			next.data.damage.fixedDamage = 3;
@@ -22389,7 +22414,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_MAGIC_BOLT;
@@ -22463,7 +22488,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_MAGIC_BOLT;
@@ -22500,7 +22525,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_MAGIC_BOLT;
@@ -22567,7 +22592,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_CHAIN_LIGHTNING;
@@ -22643,7 +22668,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_CHAIN_LIGHTNING;
@@ -22697,16 +22722,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			// +3 AP Gain
-			EffectOp ap = {};
-			ap.type = EffectOpType::MODIFY_STAT;
-			ap.data.modifyStat.targetIndex = currentPlayerIndex;
-			ap.data.modifyStat.statType = 11; // Next Turn AP Bonus
-			ap.data.modifyStat.delta = 3;
-			ap.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(ap);
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+3 AP Next Turn", ofColor::cyan);
-
 			opComplete = true;
 			break;
 		}
@@ -22723,7 +22738,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_ETHEREAL_JOLT;
@@ -22759,7 +22774,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
 
 			if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
@@ -22832,7 +22847,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_SHOOT_ARROW;
@@ -22876,7 +22891,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -22918,7 +22933,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
+			wait.data.damage.fixedDamage = 0;
 			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_SHOOT_ARROW;
@@ -25653,7 +25668,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// Complex cards that have generic stats but require custom C++ logic
-	if (playedCard.type == CARD_FIREBALL || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY) return false;
+	if (playedCard.type == CARD_FIREBALL || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_DRAIN_PUNCH || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_FLAIL || playedCard.type == CARD_FLURRY_OF_FISTS || playedCard.type == CARD_FORTIFY || playedCard.type == CARD_VAMPIRE_BITE || playedCard.type == CARD_DEMOLITION || playedCard.type == CARD_SPARK_OF_GENIUS || playedCard.type == CARD_PSIONIC_WAVE || playedCard.type == CARD_EARTHQUAKE || playedCard.type == CARD_FORM_OF_GHOST || playedCard.type == CARD_GIANT_MAGIC_HAND || playedCard.type == CARD_TRANSFORM_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_SPRINT || playedCard.type == CARD_FULL_RESTORE || playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SHOCK || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_TRAIN || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DISPEL || playedCard.type == CARD_AMNESIA || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_BLOCKING_BOON || playedCard.type == CARD_TELEPORT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_RAISE_DEAD || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_STRENGTHEN_ELEMENTS || playedCard.type == CARD_CREATE_WALL || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_DARK_SHIELD || playedCard.type == CARD_CALL_FOR_WOLVES || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_NECROMANCER_S_BLESSING || playedCard.type == CARD_TIME_VORTEX || playedCard.type == CARD_SUMMON_HELLHOUND || playedCard.type == CARD_DEATH || playedCard.type == CARD_SUMMON_DEMON || playedCard.type == CARD_SHIELD_BASH || playedCard.type == CARD_ADD_POISON || playedCard.type == CARD_FORM_OF_TORTOISE || playedCard.type == CARD_STUDY || playedCard.type == CARD_ETHEREAL_JOLT) return false;
 
 	// --- 1. Determine if this card has Data-Driven fields ---
 	bool hasDamage = (playedCard.damageDiceNum > 0 || playedCard.baseDamage > 0);
@@ -25699,7 +25714,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		}
 
 		glm::vec3 worldStart, worldEnd;
-		computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
+		computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 
 		ofColor tColor = ofColor::white;
 		if (playedCard.damageType == DAMAGE_FIRE)
@@ -28535,7 +28550,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 	// FIX: Health Flagon and pure self-buffs do not need Line of Sight / AOE previews drawn on the whole board
 	if ((card.targeting == TARGET_SELF || card.targeting == TARGET_NONE) && !card.isAoe) {
-		shouldShowRangedPreview = false;
+		if (card.type != CARD_ETHEREAL_JOLT && card.type != CARD_SHOOT_ARROW && card.type != CARD_MAGIC_BOLT && card.type != CARD_CHAIN_LIGHTNING && card.type != CARD_MAGIC_BLAST && card.type != CARD_DEATH) {
+			shouldShowRangedPreview = false;
+		}
 	}
 
 	if (shouldShowRangedPreview) {
@@ -29205,33 +29222,53 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			case TARGET_LINE_OF_SIGHT_TILE:
 			case TARGET_ANY_TILE: {
-				float maxRangeFeet;
+				float currentMaxRangeFeet;
 
 				// --- Determine Max Range based on current card/state ---
 				if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT && interactionDiceRoll > 0) {
-					maxRangeFeet = (float)interactionDiceRoll;
+					currentMaxRangeFeet = (float)interactionDiceRoll;
 				}
 				// Magic Blast: fixed max range = 20 ft (d20)
 				else if (card.type == CARD_MAGIC_BLAST) {
-					maxRangeFeet = 20.0f;
+					currentMaxRangeFeet = 20.0f;
 				}
 				// Infinite Range Cards
 				else if (card.type == CARD_HEAL || card.type == CARD_DEATH || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
-					maxRangeFeet = 9999.0f;
+					currentMaxRangeFeet = 9999.0f;
 				}
 				// Special-case Shoot Arrow: fixed max range = 2 * 20 = 40 ft
 				else if (card.type == CARD_SHOOT_ARROW) {
-					maxRangeFeet = 2.0f * 20.0f;
+					currentMaxRangeFeet = 2.0f * 20.0f;
 				} else {
 					// Default: dice-based range
 					auto [rNum, rSides] = getCardRangeDice(card, card.numDice, card.diceSides);
-					maxRangeFeet = (float)(rNum * rSides);
+					if (rNum <= 0 || rSides <= 0) {
+						if (card.type == CARD_MAGIC_BOLT || card.type == CARD_SHOOT_ARROW) {
+							rNum = 2;
+							rSides = 20;
+						} else if (card.type == CARD_CHAIN_LIGHTNING) {
+							rNum = 2;
+							rSides = 10;
+						} else if (card.type == CARD_ETHEREAL_JOLT) {
+							rNum = 1;
+							rSides = 20;
+						} else if (card.type == CARD_FIREBALL) {
+							rNum = 2;
+							rSides = 6;
+						} else if (card.type == CARD_MAGIC_BLAST) {
+							rNum = 1;
+							rSides = 20;
+						}
+					}
+					currentMaxRangeFeet = (float)(rNum * rSides);
 				}
 
-				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
+				TargetInfo info = isLosTargetValid(casterPos, targetPos, currentMaxRangeFeet, card.type);
 				// --- Determine Red Preview ---
-				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
-					isPreview = true;
+				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE) {
+					if (!board[x][y].hasWall || info.isTargetable) {
+						isPreview = true;
+					}
 				} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) && info.reason == INVALID_SELF) {
 					isPreview = true;
 				}
@@ -29324,32 +29361,28 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// --- CHAIN LIGHTNING / MAGIC BLAST LOGIC ---
 				if (card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST) {
 					if (isPreview) {
-						if (isOccupied) {
-							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
-						} else {
-							for (int dx = -1; dx <= 1; dx++) {
-								for (int dy = -1; dy <= 1; dy++) {
-									if (dx == 0 && dy == 0) continue;
+						for (int dx = -1; dx <= 1; dx++) {
+							for (int dy = -1; dy <= 1; dy++) {
+								// Magic Blast is strictly orthogonal
+								if (card.type == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
 
-									// Magic Blast cannot splash diagonally!
-									if (card.type == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
-
-									int nx = x + dx;
-									int ny = y + dy;
-									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
-										bool blocked = false;
+								int nx = x + dx;
+								int ny = y + dy;
+								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+									bool blocked = false;
+									if (dx != 0 || dy != 0) {
 										// Chain Lightning diagonal pinch block
 										if (card.type == CARD_CHAIN_LIGHTNING && std::abs(dx) == 1 && std::abs(dy) == 1) {
-											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
-										}
-										if (!blocked) {
-											canBeClicked = true;
-											break;
+											if (isTileBlocked(x + dx, y) && isTileBlocked(x, y + dy)) blocked = true;
 										}
 									}
+									if (!blocked) {
+										canBeClicked = true;
+										break;
+									}
 								}
-								if (canBeClicked) break;
 							}
+							if (canBeClicked) break;
 						}
 					}
 				}
@@ -31146,9 +31179,9 @@ void ofApp::spawnTracerWithAdjacent(glm::vec3 start, glm::vec3 end, glm::ivec2 i
 // Compute tracer endpoints: start at caster tile face midpoint toward target,
 // end at the center of the impacted tile (always the tile center in world coords).
 void ofApp::computeTracerEndpoints(glm::vec2 rayStart, glm::vec2 rayEnd, glm::vec3 & outStart, glm::vec3 & outEnd) {
-	// ALWAYS use gridToWorld to guarantee perfect center-to-center tracing!
-	glm::vec3 wStart = gridToWorld((int)floor(rayStart.x), (int)floor(rayStart.y));
-	glm::vec3 wEnd = gridToWorld((int)floor(rayEnd.x), (int)floor(rayEnd.y));
+	// Add a small epsilon to prevent precision issues when flooring .0 or .9999
+	glm::vec3 wStart = gridToWorld((int)floor(rayStart.x + 0.001f), (int)floor(rayStart.y + 0.001f));
+	glm::vec3 wEnd = gridToWorld((int)floor(rayEnd.x + 0.001f), (int)floor(rayEnd.y + 0.001f));
 
 	outStart = wStart + glm::vec3(0, 0.6f, 0);
 	outEnd = wEnd + glm::vec3(0, 0.6f, 0);
@@ -32574,9 +32607,11 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 	// Preserve starting HP for resurrection/checks
 	int initialHealth = target.health;
+
 	// Delegate deterministic absorption + HP modification to helper
 	int applied = applyDamageWithMitigations(target, calculatedDamage, type, attackerIndex);
 	glm::vec3 targetPos = gridToWorld(target.x, target.y);
+
 	if (applied > 0) {
 		queueFloatingTextVisual(targetPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
 
@@ -32604,95 +32639,9 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		queueFloatingTextVisual(targetPos, "-0" + typeLabel, ofColor::gray);
 	}
 
-	if (target.health <= 0) {
-		ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
-
-		int dyingIdx = -1;
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (&players[i] == &target) {
-				dyingIdx = (int)i;
-				break;
-			}
-		}
-
-		// Faerie Resurrection (orthogonal adjacency only; no diagonals)
-		bool resurrected = false;
-		if (!target.isFaerie && target.x >= 0 && target.y >= 0 && dyingIdx >= 0) {
-			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-					if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
-					int nx = target.x + dx;
-					int ny = target.y + dy;
-					if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-
-					for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
-						Player & p = players[pidx];
-						bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (target.isMinion ? target.ownerID : target.playerID);
-						if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0 && isSameTeam) {
-							std::vector<int> rawRes;
-							int raw = resolveDiceRollDetailed(1, 4, rawRes);
-							int luckBonus = p.luck + computePassiveLuck((int)pidx);
-							int roll = raw + luckBonus;
-							if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
-							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_HEALING, (int)pidx, 1.0f);
-							int hp = (target.maxHealth * roll) / 4;
-							if (hp < 1) hp = 1;
-
-							int pct = roll * 25;
-							std::string calcStr = "Roll: " + ofToString(roll) + " * 25% = " + ofToString(pct) + "% -> " + ofToString(hp) + " HP";
-							queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white, 4.0f);
-
-							// NEW: Visual Tracer to show the magical link
-							queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
-
-							{
-								EffectOp wait = {};
-								wait.type = EffectOpType::WAIT_VISUAL;
-								wait.data.damage.fixedDamage = 1;
-								queueEffect(wait);
-
-								EffectOp setHp = {};
-								setHp.type = EffectOpType::MODIFY_STAT;
-								setHp.data.modifyStat.targetIndex = dyingIdx;
-								setHp.data.modifyStat.statType = 0; // HP
-								setHp.data.modifyStat.delta = hp - target.health;
-								setHp.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(setHp); // FIXED: Prevent queue bypass!
-							}
-							resurrected = true;
-							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
-							ofLogNotice("Faerie") << "Unit " << target.playerID << " resurrected by faerie for " << hp << " HP.";
-						}
-					}
-				}
-			}
-		}
-
-		if (resurrected) {
-			return target.health < initialHealth;
-		}
-
-		DeathMarker death;
-
-		death.x = target.x;
-		death.y = target.y;
-		death.turnDied = globalTurnCounter;
-		death.deck = target.deck;
-		graveyard.push_back(death);
-
-		bool hasOther = false;
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (&players[i] != &target && players[i].x == target.x && players[i].y == target.y && players[i].health > 0) {
-				hasOther = true;
-				break;
-			}
-		}
-		if (!hasOther) {
-			board[target.x][target.y].hasPlayer = false;
-		}
-
-		target.x = -1000;
-	}
+	// DEATH LOGIC COMPLETELY REMOVED FROM HERE!
+	// It is now handled exclusively and safely inside simulationTick()
+	// so that AOE spells don't shift array indices mid-resolution.
 
 	return target.health < initialHealth;
 }
@@ -33319,8 +33268,6 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			} else if (cardType == CARD_MAGIC_BLAST || cardType == CARD_CHAIN_LIGHTNING) {
 				for (int dx = -1; dx <= 1; ++dx) {
 					for (int dy = -1; dy <= 1; ++dy) {
-						if (dx == 0 && dy == 0) continue;
-
 						// Magic Blast is strictly orthogonal
 						if (cardType == CARD_MAGIC_BLAST && std::abs(dx) == 1 && std::abs(dy) == 1) continue;
 
@@ -33331,10 +33278,12 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 							for (int o : occs) {
 								if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) { // Must be someone other than caster
 									bool blocked = false;
-									// Chain Lightning diagonal pinch block
-									if (cardType == CARD_CHAIN_LIGHTNING && std::abs(dx) == 1 && std::abs(dy) == 1) {
-										if (isTileBlocked((int)targetTile.x + dx, (int)targetTile.y) && isTileBlocked((int)targetTile.x, (int)targetTile.y + dy)) {
-											blocked = true;
+									if (dx != 0 || dy != 0) {
+										// Chain Lightning diagonal pinch block
+										if (cardType == CARD_CHAIN_LIGHTNING && std::abs(dx) == 1 && std::abs(dy) == 1) {
+											if (isTileBlocked((int)targetTile.x + dx, (int)targetTile.y) && isTileBlocked((int)targetTile.x, (int)targetTile.y + dy)) {
+												blocked = true;
+											}
 										}
 									}
 									if (!blocked) {
