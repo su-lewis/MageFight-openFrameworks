@@ -6474,7 +6474,7 @@ void ofApp::setupGame() {
 	buildFloorMesh();
 
 	// --- PLAYER CREATION ---
-	Player p1;
+	Player p1 = {};
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
@@ -6482,7 +6482,7 @@ void ofApp::setupGame() {
 	p1.deck.clear();
 	players.push_back(p1);
 
-	Player p2;
+	Player p2 = {};
 	p2.x = BOARD_WIDTH - 1;
 	p2.y = 0;
 	p2.playerID = 1;
@@ -8046,11 +8046,6 @@ void ofApp::updateGameLogic() {
 
 	// Check if we need to start a chained draft
 	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && !networkPending.draftQueue.empty()) {
-		// Start drafts from lower class to higher class by extracting the lower 16 bits
-		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end(), [](int a, int b) {
-			return (a & 0xFFFF) < (b & 0xFFFF);
-		});
-
 		int packed = networkPending.draftQueue.front();
 		networkPending.draftQueue.erase(networkPending.draftQueue.begin());
 
@@ -26578,13 +26573,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			for (int roll : rawD20s) {
 				int finalRoll = roll + luckBonus;
 				if (finalRoll >= 20) {
-					networkPending.draftQueue.push_back(3);
+					networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 3);
 					draftCount = draftCount + 1;
 				} else if (finalRoll >= 16) {
-					networkPending.draftQueue.push_back(2);
+					networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 2);
 					draftCount = draftCount + 1;
 				} else if (finalRoll >= 10) {
-					networkPending.draftQueue.push_back(1);
+					networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 1);
 					draftCount = draftCount + 1;
 				}
 			}
@@ -30420,7 +30415,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 					}
 				}
 			} else if (parts[0] == "P" && parts.size() >= 45) {
-				Player p;
+				Player p = {};
 				int idx = 1;
 				p.playerID = std::stoi(parts[idx++]);
 				p.x = std::stoi(parts[idx++]);
