@@ -987,7 +987,8 @@ public:
 	void harnessAutoAdvanceTurns(int turns);
 
 	// Reliable send tracking for legacy packets removed: lockstep commands used instead
-	void sendSnapshotToClient(bool useTurnStartBackup = false);	std::string buildSnapshotString();
+	void sendSnapshotToClient(bool useTurnStartBackup = false);
+	std::string buildSnapshotString();
 	void applySnapshotString(const std::string & data, bool fromNetworkSnapshot = true);
 
 	// Anti-cheat: Log deck states for verification
@@ -2436,6 +2437,7 @@ private:
 	void drawMenuTitle(const std::string & title, const ofRectangle & menuRect, float yOffset = 60);
 
 	// ===== CENTRALIZED CARD INTERACTION SYSTEM =====
+	void resetCardToBaseStats(Card & card);
 	void updateCardInteractionState(CardInteractionState newState, int cardIdx = -1, int cardType = CARD_NONE);
 	void resetCardInteraction();
 	void handleCardDragToPlay(int cardIndex);

@@ -641,7 +641,7 @@ void SteamManager::OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, 
 	if (!bIOFailure && pCallback->m_bLeaderboardFound) {
 		currentLeaderboardHandle = pCallback->m_hSteamLeaderboard;
 		SteamAPICall_t hSteamAPICall = SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(
-			(intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 10);
+			(intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 100);
 		m_LeaderboardScoresDownloadedCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardScoresDownloaded);
 	}
 }
