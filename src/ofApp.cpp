@@ -67,16 +67,11 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
 		std::string absPath = "";
 
-#ifdef _WIN32
-		// 2. Get the official Windows TEMP folder. Proton correctly maps this to a
-		//    writable directory inside its virtual file system on Linux (~/.steam/steam/...).
-		char tempPath[MAX_PATH];
-		GetTempPathA(MAX_PATH, tempPath);
-		absPath = std::string(tempPath) + fileName;
-#else
-		// Fallback for native Linux/macOS builds
-		absPath = ofToDataPath(fileName, true);
-#endif
+		try {
+			absPath = (std::filesystem::temp_directory_path() / fileName).string();
+		} catch (...) {
+			absPath = ofToDataPath(fileName, true);
+		}
 
 		// Write payload to disk
 		ofFile file(absPath, ofFile::WriteOnly, true);
@@ -85,7 +80,6 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 
 #ifdef _WIN32
 		// 3. Use CreateProcess to call curl directly, bypassing cmd.exe's quote-stripping bugs.
-		//    This is the most robust method for both native Windows and Proton.
 		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
 
 		STARTUPINFOA si;
@@ -96,7 +90,6 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		si.wShowWindow = SW_HIDE; // Hidden window
 		ZeroMemory(&pi, sizeof(pi));
 
-		// CreateProcess needs a mutable string buffer
 		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
 		cmdBuffer.push_back('\0');
 
@@ -105,13 +98,29 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			CloseHandle(pi.hProcess);
 			CloseHandle(pi.hThread);
 		} else {
-			// Fallback for Proton / Wine where curl.exe might not exist natively
-			std::string fallbackCmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+			// PROTON / LINUX FALLBACK:
+			// Wine lacks curl.exe, so it falls back to native Linux curl via system().
+			// Native Linux curl cannot read Windows paths like C:\Temp\...
+			// Solution: Pass the JSON directly via command line using single quotes!
+			std::string shellSafeJson = jsonStr;
+			size_t pos = 0;
+			while ((pos = shellSafeJson.find("'", pos)) != std::string::npos) {
+				shellSafeJson.replace(pos, 1, "'\\''");
+				pos += 4;
+			}
+			std::string fallbackCmd = "curl -s -H \"Content-Type: application/json\" -X POST -d '" + shellSafeJson + "' \"" + url + "\"";
 			system(fallbackCmd.c_str());
 		}
 #else
-		// Native Linux/macOS uses system()
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+		// Native macOS / Linux
+		// Use the single-quote direct string method to completely avoid file permission issues on macOS!
+		std::string shellSafeJson = jsonStr;
+		size_t pos = 0;
+		while ((pos = shellSafeJson.find("'", pos)) != std::string::npos) {
+			shellSafeJson.replace(pos, 1, "'\\''");
+			pos += 4;
+		}
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d '" + shellSafeJson + "' \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
 #endif
@@ -2905,7 +2914,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 }
 
 Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap, int summonerPlayerID) {
-	Player minion;
+	Player minion = {};
 	// playerID/x/y set by caller (spawn function)
 	minion.isMinion = true;
 	minion.ap = ap;
@@ -6636,7 +6645,7 @@ void ofApp::initialiseGameStateCommon() {
 
 	// --- PLAYER CREATION ---
 	players.clear();
-	Player p1;
+	Player p1 = {};
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
@@ -6644,7 +6653,7 @@ void ofApp::initialiseGameStateCommon() {
 	p1.deck.clear();
 	players.push_back(p1);
 
-	Player p2;
+	Player p2 = {};
 	p2.x = BOARD_WIDTH - 1;
 	p2.y = 0;
 	p2.playerID = 1;
@@ -17636,6 +17645,38 @@ void ofApp::startNewTurn() {
 			queueEffect(endOp);
 
 			if (!isProcessingEffect) beginEffectSequence();
+
+			// HOST: proactively save a Turn-Start master backup so clients can recover
+			// if a checksum mismatch occurs shortly after turn advancement.
+			if (isHost()) {
+				turnStartBackupSnapshot = buildSnapshotString();
+				ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
+			}
+
+			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
+			if (isMultiplayer) {
+				ChecksumPacket chk = {};
+				chk.type = PKT_CHECKSUM_CHECK;
+				chk.playerID = myLocalPlayerID;
+				chk.turnNumber = globalTurnCounter;
+				chk.checksum = calculateChecksum();
+				steamManager.sendPacket(&chk, sizeof(chk));
+				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
+			}
+
+			// Autosave at the start of each turn (singleplayer or host in multiplayer).
+			if (!isMultiplayer || isHost()) {
+				bool ok = saveGameStateToFile("autosave.json");
+				if (ok) {
+					std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+					saveGameStateToFile(stamped);
+					pruneOldSaves(5);
+					addGameLog("Autosaved turn-start (autosave.json)");
+				} else {
+					ofLogWarning("Save") << "Failed to autosave turn-start.";
+				}
+			}
+
 			return;
 		}
 
@@ -17815,38 +17856,7 @@ void ofApp::continueNewTurn() {
 
 	// --- AP ROLL LOGIC ---
 
-	// HOST: proactively save a Turn-Start master backup so clients can recover
-	// if a checksum mismatch occurs shortly after turn advancement.
-	if (isHost()) {
-		turnStartBackupSnapshot = buildSnapshotString();
-		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
-	}
-
-	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
-	if (isMultiplayer) {
-		ChecksumPacket chk = {};
-		chk.type = PKT_CHECKSUM_CHECK;
-		chk.playerID = myLocalPlayerID;
-		chk.turnNumber = globalTurnCounter;
-		chk.checksum = calculateChecksum();
-		steamManager.sendPacket(&chk, sizeof(chk));
-		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
-	}
-
-	// Autosave at the start of each turn (singleplayer or host in multiplayer).
-	if (!isMultiplayer || isHost()) {
-		bool ok = saveGameStateToFile("autosave.json");
-		if (ok) {
-			std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
-			saveGameStateToFile(stamped);
-			pruneOldSaves(5);
-			addGameLog("Autosaved turn-start (autosave.json)");
-		} else {
-			ofLogWarning("Save") << "Failed to autosave turn-start.";
-		}
-	}
-
-	// Assistant adjacency bonus is computed on-demand via computePassiveLuck(),
+	// Assistant adjacency bonus is computed on-demand via compute
 	// which checks for assistants whose `directSummonerID` matches the target
 	// and are adjacent. Do not set `startingPlayer.luck` here as adjacency may
 	// change at any time; computePassiveLuck() provides the dynamic value.
