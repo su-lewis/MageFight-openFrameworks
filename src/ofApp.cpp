@@ -27,28 +27,22 @@
 	#include <windows.h>
 #endif
 
-static std::string g_lockstepLogFilename = "";
-
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
-	// Generate a unique filename with a timestamp once per match
-	if (g_lockstepLogFilename.empty()) {
-		std::string role = isHost ? "host" : "client";
-		std::string ts = ofGetTimestampString("%Y%m%d_%H%M%S");
-		g_lockstepLogFilename = "lockstep_trace_" + role + "_" + ts + ".log";
-	}
+	// Use a fixed filename so it overwrites every match and prevents folder bloat
+	std::string role = isHost ? "host" : "client";
+	std::string filename = "lockstep_trace_" + role + ".log";
 
 	std::string timeStr = ofGetTimestampString("%H:%M:%S");
 	std::string logLine = "[" + timeStr + "] T:" + std::to_string(turn) + " | " + eventStr + "\n";
 
-	ofFile file(g_lockstepLogFilename, ofFile::Append);
+	ofFile file(filename, ofFile::Append);
 	file << logLine;
 }
 
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
-	if (url.empty()) return;
+	if (url.empty() || url.find("YOUR_") != std::string::npos) return;
 
 	std::thread([url, content]() {
-		// 1. Bulletproof JSON Sanitizer
 		std::string safeContent = "";
 		for (char c : content) {
 			if (c == '\"')
@@ -64,66 +58,78 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		}
 
 		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
-		std::string fileName = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
-		std::string absPath = "";
 
-		try {
-			absPath = (std::filesystem::temp_directory_path() / fileName).string();
-		} catch (...) {
-			absPath = ofToDataPath(fileName, true);
+		ofHttpRequest request;
+		request.url = url;
+		request.method = ofHttpRequest::POST;
+		request.body = jsonStr;
+		request.contentType = "application/json";
+
+		ofURLFileLoader loader;
+		ofHttpResponse response = loader.handleRequest(request);
+
+		if (response.status != 200 && response.status != 204) {
+			ofLogWarning("Discord") << "Webhook failed: " << response.status << " " << response.error;
+		}
+	}).detach();
+}
+
+static void sendDiscordFileWebhook(const std::string & url, const std::string & content, const std::vector<std::string> & filePaths) {
+	if (url.empty() || url.find("YOUR_") != std::string::npos) return;
+
+	std::thread([url, content, filePaths]() {
+		std::string safeContent = "";
+		for (char c : content) {
+			if (c == '\"')
+				safeContent += "\\\"";
+			else if (c == '\\')
+				safeContent += "\\\\";
+			else if (c == '\n')
+				safeContent += "\\n";
+			else if (c == '\r')
+				continue;
+			else
+				safeContent += c;
 		}
 
-		// Write payload to disk
-		ofFile file(absPath, ofFile::WriteOnly, true);
-		file << jsonStr;
-		file.close();
+		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+		std::string boundary = "----DiscordWebhookBoundary" + std::to_string(ofGetSystemTimeMillis());
+		std::string body = "";
 
-#ifdef _WIN32
-		// 3. Use CreateProcess to call curl directly, bypassing cmd.exe's quote-stripping bugs.
-		std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
+		// Pure C++ Multipart Form Data encoding (bypasses curl entirely)
+		body += "--" + boundary + "\r\n";
+		body += "Content-Disposition: form-data; name=\"payload_json\"\r\n";
+		body += "Content-Type: application/json\r\n\r\n";
+		body += jsonStr + "\r\n";
 
-		STARTUPINFOA si;
-		PROCESS_INFORMATION pi;
-		ZeroMemory(&si, sizeof(si));
-		si.cb = sizeof(si);
-		si.dwFlags = STARTF_USESHOWWINDOW;
-		si.wShowWindow = SW_HIDE; // Hidden window
-		ZeroMemory(&pi, sizeof(pi));
+		// File Payloads
+		for (size_t i = 0; i < filePaths.size(); ++i) {
+			ofFile file(filePaths[i]);
+			if (!file.exists() || file.getSize() == 0) continue;
 
-		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
-		cmdBuffer.push_back('\0');
+			ofBuffer fileBuf = file.readToBuffer();
+			std::string fileName = file.getFileName();
 
-		bool success = false;
-		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-			WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s for upload to finish
-			DWORD exitCode = 1;
-			GetExitCodeProcess(pi.hProcess, &exitCode);
-			if (exitCode == 0) {
-				success = true;
-			}
-			CloseHandle(pi.hProcess);
-			CloseHandle(pi.hThread);
+			body += "--" + boundary + "\r\n";
+			body += "Content-Disposition: form-data; name=\"file" + std::to_string(i + 1) + "\"; filename=\"" + fileName + "\"\r\n";
+			body += "Content-Type: text/plain\r\n\r\n";
+			body += fileBuf.getText() + "\r\n";
 		}
 
-		if (!success) {
-			// PROTON / LINUX FALLBACK:
-			// In Wine/Proton, CreateProcessA might succeed but native Linux curl fails
-			// because it cannot read Windows paths (e.g. C:\Temp\...).
-			// Solution: Use CMD.EXE's native `<` redirection to open the file and pipe it
-			// to curl via stdin (`-d @-`). This lets Wine securely translate the file contents!
-			std::string fallbackCmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @- \"" + url + "\" < \"" + absPath + "\"";
-			system(fallbackCmd.c_str());
-		}
-#else
-		// Native macOS / Linux
-		// Use the absolute UNIX path which native curl perfectly understands.
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
-		int r = system(cmd.c_str());
-		(void)r;
-#endif
+		body += "--" + boundary + "--\r\n";
 
-		// 4. Clean up the file
-		ofFile::removeFile(absPath, false);
+		ofHttpRequest request;
+		request.url = url;
+		request.method = ofHttpRequest::POST;
+		request.body = body;
+		request.contentType = "multipart/form-data; boundary=" + boundary;
+
+		ofURLFileLoader loader;
+		ofHttpResponse response = loader.handleRequest(request);
+
+		if (response.status != 200 && response.status != 204) {
+			ofLogWarning("Discord") << "File Webhook failed: " << response.status << " " << response.error;
+		}
 	}).detach();
 }
 
@@ -4621,6 +4627,12 @@ void ofApp::updateStateMachine() {
 		if (!isMultiplayer && currentState == STATE_PAUSED) {
 			deltaTime = 0.0f;
 		}
+
+		// Freeze the simulation entirely if we hit a fatal desync
+		if (currentState == STATE_DESYNC) {
+			deltaTime = 0.0f;
+		}
+
 		simulationAccumulator += deltaTime;
 		while (simulationAccumulator >= SIMULATION_TIMESTEP) {
 			simulationTick();
@@ -6385,9 +6397,10 @@ void ofApp::setupGame() {
 		gameplaySeededByHost = true;
 		eloCalculated = false;
 
-		// --- LOCKSTEP TRACING: Reset log for new match ---
-		std::string filename = "lockstep_trace_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
-		ofFile::removeFile(filename);
+		// --- LOCKSTEP TRACING: Reset logs for new match ---
+		std::string role = steamManager.isHost() ? "host" : "client";
+		ofFile::removeFile("lockstep_trace_" + role + ".log");
+		ofFile::removeFile("deck_states_" + role + ".log");
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "MATCH STARTED. Seed: " + std::to_string(currentMapSeed));
 
 		// ARM THE LEAVERBUSTER TRAP (SECURE STEAM BACKEND)
@@ -6480,11 +6493,15 @@ void ofApp::setupGame() {
 	buildFloorMesh();
 
 	// --- PLAYER CREATION ---
+
 	Player p1 = {};
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
 	p1.visualPos = gridToWorld(p1.x, p1.y); // FIX: Initialize visual position
+	p1.summonedOnTurnCycle = -1; // FIX: Main players do not suffer from summoning sickness!
+	p1.health = 15; // Enforce safe defaults just in case struct initializers drop
+	p1.maxHealth = 15;
 	p1.deck.clear();
 	players.push_back(p1);
 
@@ -6493,6 +6510,9 @@ void ofApp::setupGame() {
 	p2.y = 0;
 	p2.playerID = 1;
 	p2.visualPos = gridToWorld(p2.x, p2.y); // FIX: Initialize visual position
+	p2.summonedOnTurnCycle = -1;
+	p2.health = 15;
+	p2.maxHealth = 15;
 	p2.deck.clear();
 	players.push_back(p2);
 
@@ -6647,6 +6667,9 @@ void ofApp::initialiseGameStateCommon() {
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
 	p1.visualPos = gridToWorld(p1.x, p1.y); // FIX: Initialize visual position
+	p1.summonedOnTurnCycle = -1; // FIX: Main players do not suffer from summoning sickness!
+	p1.health = 15;
+	p1.maxHealth = 15;
 	p1.deck.clear();
 	players.push_back(p1);
 
@@ -6655,6 +6678,9 @@ void ofApp::initialiseGameStateCommon() {
 	p2.y = 0;
 	p2.playerID = 1;
 	p2.visualPos = gridToWorld(p2.x, p2.y); // FIX: Initialize visual position
+	p2.summonedOnTurnCycle = -1;
+	p2.health = 15;
+	p2.maxHealth = 15;
 	p2.deck.clear();
 	players.push_back(p2);
 
@@ -8360,9 +8386,20 @@ void ofApp::buildFloorMesh() {
 void ofApp::drawGame() {
 	if (currentState == STATE_DESYNC) {
 		ofPushStyle();
+		ofSetColor(0, 0, 0, 230);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
 		ofSetColor(255, 30, 30);
-		titleFont.drawString("DESYNC DETECTED", ofGetWidth() / 2.0f - 240, ofGetHeight() / 2.0f - 40);
-		uiFont.drawString(desyncMessage, ofGetWidth() / 2.0f - 360, ofGetHeight() / 2.0f + 8);
+		drawPixelTextCentered(titleFont, "FATAL DESYNC DETECTED", ofGetWidth() / 2.0f, ofGetHeight() / 2.0f - 60, 1.5f, ofColor::red);
+		drawPixelTextCentered(uiFont, desyncMessage, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 1.0f, ofColor::white);
+
+		float uiScaleBtn = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+		gameOverReturnBtn.set(ofGetWidth() / 2.0f - 100 * uiScaleBtn, ofGetHeight() / 2.0f + 80 * uiScaleBtn, 200 * uiScaleBtn, 60 * uiScaleBtn);
+
+		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
+		ofDrawRectRounded(gameOverReturnBtn, 10);
+		drawPixelTextCentered(uiFont, "Quit to Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f, ofColor::white);
+
 		ofPopStyle();
 		return;
 	}
@@ -13665,6 +13702,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
+	if (currentState == STATE_DESYNC) {
+		if (button == OF_MOUSE_BUTTON_LEFT && gameOverReturnBtn.inside(x, y)) {
+			if (isMultiplayer) {
+				steamManager.leaveLobby();
+				isMultiplayer = false;
+				hasReceivedHandshake = false;
+				initialDraftComplete = false;
+				draftAcceptLocked = false;
+				draftAcceptApplied = false;
+				gameplaySeededByHost = false;
+				handshakeRequestInterval = 1.0f;
+				waitingForClientHandshake = false;
+				waitingForReconnect = false;
+				reconnectTurnTimerPausedByDisconnect = false;
+				reconnectTurnTimerPausedRemainingFrames = 0;
+				turnTimerPaused = false;
+				turnTimerPausedRemainingFrames = 0;
+				reconnectForfeitStartTime = -1.0f;
+			}
+			cleanupGame();
+			currentState = STATE_MAIN_MENU;
+		}
+		return; // Block all other input
+	}
+
 	// Always track mouse down position at the start for drag detection
 	if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
 		mouseDownPos.set(x, y);
@@ -17070,6 +17132,7 @@ void ofApp::keyReleased(int key) {
 		}
 
 		switch (currentState) {
+		case STATE_DESYNC:
 		case STATE_GAMEPLAY:
 			// Check UI panels first
 			if (isShowingPileView) {
@@ -17643,13 +17706,6 @@ void ofApp::startNewTurn() {
 
 			if (!isProcessingEffect) beginEffectSequence();
 
-			// HOST: proactively save a Turn-Start master backup so clients can recover
-			// if a checksum mismatch occurs shortly after turn advancement.
-			if (isHost()) {
-				turnStartBackupSnapshot = buildSnapshotString();
-				ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
-			}
-
 			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 			if (isMultiplayer) {
 				ChecksumPacket chk = {};
@@ -18065,6 +18121,7 @@ void ofApp::continueNewTurn() {
 		apResolvedThisTurn = true;
 
 		int deltaAP = apTotal - currentAP;
+
 		if (deltaAP != 0) {
 			EffectOp apOp = {};
 			apOp.type = EffectOpType::MODIFY_STAT;
@@ -18072,7 +18129,7 @@ void ofApp::continueNewTurn() {
 			apOp.data.modifyStat.statType = 3; // AP
 			apOp.data.modifyStat.delta = deltaAP;
 			apOp.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(apOp);
+			processEffectOp(apOp); // This safely updates currentAP under the hood
 		}
 
 		if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
@@ -18153,13 +18210,6 @@ void ofApp::continueNewTurn() {
 	// These are already handled in startNewTurn() before continueNewTurn() is called.
 	// Fire/Paralysis checks would have returned early in startNewTurn() and resolved
 	// before reaching here, so no need to check again.
-
-	// HOST: proactively save a Turn-Start master backup so clients can recover
-	// if a checksum mismatch occurs shortly after turn advancement.
-	if (isHost()) {
-		turnStartBackupSnapshot = buildSnapshotString();
-		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
-	}
 
 	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 	if (isMultiplayer) {
@@ -24133,6 +24183,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					created.x = tx;
 					created.y = ty;
 					created.visualPos = gridToWorld(tx, ty);
+					created.summonedOnTurnCycle = -1; // No summoning sickness for main players
+					created.health = 15;
+					created.maxHealth = 15;
 					players.push_back(created);
 					pidx = (int)players.size() - 1;
 				}
@@ -30691,21 +30744,12 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 
 	if (!parseOk) {
 		ofLogError("Snapshot") << "applySnapshotString failed to parse snapshot data.";
-		// Attempt fallback to backup snapshot if available and different
-		if (!turnStartBackupSnapshot.empty() && turnStartBackupSnapshot != data) {
-			ofLogNotice("Snapshot") << "Attempting to restore from Turn-Start Master Backup due to parse failure.";
-			applySnapshotString(turnStartBackupSnapshot, fromNetworkSnapshot);
-		}
 		return;
 	}
 
 	// Basic validation
 	if (tmpCurrentPlayerIndex < -1 || (tmpCurrentPlayerIndex >= 0 && tmpCurrentPlayerIndex >= (int)tmpPlayers.size())) {
 		ofLogError("Snapshot") << "Invalid currentPlayerIndex in snapshot: " << tmpCurrentPlayerIndex << " players=" << tmpPlayers.size();
-		if (!turnStartBackupSnapshot.empty() && turnStartBackupSnapshot != data) {
-			ofLogNotice("Snapshot") << "Attempting to restore from Turn-Start Master Backup due to invalid indices.";
-			applySnapshotString(turnStartBackupSnapshot, fromNetworkSnapshot);
-		}
 		return;
 	}
 
@@ -30984,8 +31028,8 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 void ofApp::sendSnapshotToClient(bool useTurnStartBackup) {
 	if (!isMultiplayer || !isHost()) return;
 
-	// If requested (e.g. for reconnects), use the pristine Turn-Start state to avoid mid-spell desyncs
-	std::string data = (useTurnStartBackup && !turnStartBackupSnapshot.empty()) ? turnStartBackupSnapshot : buildSnapshotString();
+	// In a strict deterministic model, we send the exact current state.
+	std::string data = buildSnapshotString();
 	uint32_t snapshotId = ++lastSnapshotId;
 
 	SnapshotBeginPacket begin = {};
@@ -35967,13 +36011,9 @@ void ofApp::processNetworkPackets() {
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
 				if (isHost()) {
-					// Send the pristine Turn-Start snapshot so the client doesn't wake up mid-spell!
-					if (!turnStartBackupSnapshot.empty()) {
-						applySnapshotString(turnStartBackupSnapshot);
-						ofLogNotice("Network") << "Host rewound local state to match requested snapshot.";
-					}
-					sendSnapshotToClient(true);
-					ofLogNotice("Network") << "Host: Sent authoritative Turn-Start snapshot to client.";
+					// Just send the current state; no rewinding!
+					sendSnapshotToClient(false);
+					ofLogNotice("Network") << "Host: Sent authoritative snapshot to client.";
 				}
 				continue;
 			}
@@ -36216,42 +36256,46 @@ void ofApp::processNetworkPackets() {
 				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "CHECKSUM_CHECK Recv. Local: " + std::to_string(mySum) + " Remote: " + std::to_string(pkt->checksum));
 
 				if (mySum != pkt->checksum) {
-					ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " vs Remote: " << pkt->checksum << ". Rewinding to start of turn...";
+					ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " vs Remote: " << pkt->checksum << ". Halting game.";
 					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "*** DESYNC DETECTED! Local: " + std::to_string(mySum) + " vs Remote: " + std::to_string(pkt->checksum) + " ***");
 
-					// Auto State-Dump for Diffing!
-					std::string dumpName = "desync_dump_turn" + std::to_string(globalTurnCounter) + "_" + (steamManager.isHost() ? "host" : "client") + ".txt";
+					// Disarm LeaverBuster immediately so neither player loses Elo when they quit!
+					steamManager.disarmLeaverBuster();
+
+					// Overwrite the previous desync dump to prevent folder bloat
+					std::string roleStr = steamManager.isHost() ? "host" : "client";
+					std::string dumpName = "latest_desync_dump_" + roleStr + ".txt";
+					std::string traceName = "lockstep_trace_" + roleStr + ".log";
+
 					std::string dumpStr = buildSnapshotString();
 					ofBuffer dumpBuf;
 					dumpBuf.set(dumpStr.c_str(), dumpStr.size());
 					ofBufferToFile(dumpName, dumpBuf);
 					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
 
-					if (isHost()) {
-						// 1. Host rewinds ITSELF to the start of the turn
-						if (!turnStartBackupSnapshot.empty()) {
-							applySnapshotString(turnStartBackupSnapshot);
-							ofLogNotice("Network") << "Host rewound local state.";
-						}
+					// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
+					// Replace this placeholder with the actual Webhook URL for the report-bugs channel!
+					std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
 
-						// 2. Host forcefully pushes this restored state to the Client
-						sendSnapshotToClient();
+					std::string myName = steamManager.getLocalPlayerName();
+					if (myName.empty()) myName = "A Mage";
+					std::string oppName = steamManager.getOpponentName();
+					if (oppName.empty()) oppName = "Opponent";
 
-						// 3. Visual notification
-						queueFloatingTextVisual(glm::vec3(0, 5, 0), "SYNC ERROR: TURN REWOUND", ofColor::red);
-					} else {
-						// Client detected a desync on its own end. Request the host to fix it.
-						SnapshotRequestPacket req = {};
-						req.type = PKT_SNAPSHOT_REQUEST;
-						req.playerID = myLocalPlayerID;
-						req.requestedTurn = pkt->turnNumber;
-						steamManager.sendPacket(&req, sizeof(req));
+					std::string msg = "**FATAL DESYNC**\n";
+					msg += "**Players:** " + myName + " vs " + oppName + "\n";
+					msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
+					msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
+					msg += "Attached are the local state dump and lockstep trace for debugging.";
 
-						waitingForSnapshotStartTime = ofGetElapsedTimef();
-						queueFloatingTextVisual(glm::vec3(0, 5, 0), "Requesting Resync...", ofColor::yellow);
-					}
+					std::vector<std::string> uploadFiles = { dumpName, traceName };
+					sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
+					// --------------------------------------------------
+
+					// Freeze the game in a fatal desync state so the developers can patch the underlying bug
+					desyncMessage = "Local: " + std::to_string(mySum) + "\nRemote: " + std::to_string(pkt->checksum) + "\nCheck latest_desync_dump logs.";
+					currentState = STATE_DESYNC;
 				}
-				// Removed the dangerous mid-turn backup overwrite that caused cascading desyncs!
 			}
 			// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
 			// will detect key pickups locally. Legacy packet handling deleted to avoid
@@ -37056,7 +37100,7 @@ void ofApp::updateAI() {
 	// onto the human player! Changing `!isMyTurn()` to `isMyTurn()` fixes this.
 	if (isVsAI && !isAIvsAI && isMyTurn()) return;
 
-	if (endTurnLocked || g_isGameOver) return;
+	if (endTurnLocked || g_isGameOver || currentState == STATE_DESYNC) return;
 
 	bool isGameBusy = false;
 
