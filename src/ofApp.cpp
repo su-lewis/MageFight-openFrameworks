@@ -25698,7 +25698,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		auto path = getLineOfSightPath(clearRay.start, clearRay.end);
 
 		glm::vec2 endPoint = clearRay.end;
-		if (path.size() > 1) {
+		if (path.size() > 1 && playedCard.type != CARD_MAGIC_BOLT && playedCard.type != CARD_ETHEREAL_JOLT) {
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
@@ -28714,8 +28714,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y));
 
 								if (pDistSq <= aoeDistSq) {
-									auto los = getClearLosRay(glm::vec2(impactTile.x, impactTile.y), glm::vec2(players[i].x, players[i].y), card.type);
-									if (los.hasLos) {
+									auto innerLosPath = getLineOfSightPath(glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f), glm::vec2(players[i].x + 0.5f, players[i].y + 0.5f));
+									bool blockedByWall = false;
+									for (const auto & stepP : innerLosPath) {
+										if ((int)stepP.x == impactTile.x && (int)stepP.y == impactTile.y) continue;
+										if ((int)stepP.x == players[i].x && (int)stepP.y == players[i].y) break;
+										if (isTileWall((int)stepP.x, (int)stepP.y)) {
+											blockedByWall = true;
+											break;
+										}
+									}
+									if (!blockedByWall) {
 										hitsSomeone = true;
 										break;
 									}
@@ -33269,8 +33278,17 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 					if (players[i].health <= 0) continue;
 					long long distSq = getFaceToFaceDistanceSquaredScaled(targetTile, glm::vec2((float)players[i].x, (float)players[i].y));
 					if (distSq <= maxAoeDistSq) {
-						auto innerLos = getClearLosRay(targetTile, glm::vec2((float)players[i].x, (float)players[i].y), cardType);
-						if (innerLos.hasLos) {
+						auto innerLosPath = getLineOfSightPath(targetTile + 0.5f, glm::vec2((float)players[i].x + 0.5f, (float)players[i].y + 0.5f));
+						bool blockedByWall = false;
+						for (const auto & stepP : innerLosPath) {
+							if ((int)stepP.x == (int)targetTile.x && (int)stepP.y == (int)targetTile.y) continue;
+							if ((int)stepP.x == players[i].x && (int)stepP.y == players[i].y) break;
+							if (isTileWall((int)stepP.x, (int)stepP.y)) {
+								blockedByWall = true;
+								break;
+							}
+						}
+						if (!blockedByWall) {
 							hasTargetInAoe = true;
 							break;
 						}
