@@ -93,34 +93,31 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
 		cmdBuffer.push_back('\0');
 
+		bool success = false;
 		if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
 			WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s for upload to finish
+			DWORD exitCode = 1;
+			GetExitCodeProcess(pi.hProcess, &exitCode);
+			if (exitCode == 0) {
+				success = true;
+			}
 			CloseHandle(pi.hProcess);
 			CloseHandle(pi.hThread);
-		} else {
+		}
+
+		if (!success) {
 			// PROTON / LINUX FALLBACK:
-			// Wine lacks curl.exe, so it falls back to native Linux curl via system().
-			// Native Linux curl cannot read Windows paths like C:\Temp\...
-			// Solution: Pass the JSON directly via command line using single quotes!
-			std::string shellSafeJson = jsonStr;
-			size_t pos = 0;
-			while ((pos = shellSafeJson.find("'", pos)) != std::string::npos) {
-				shellSafeJson.replace(pos, 1, "'\\''");
-				pos += 4;
-			}
-			std::string fallbackCmd = "curl -s -H \"Content-Type: application/json\" -X POST -d '" + shellSafeJson + "' \"" + url + "\"";
+			// In Wine/Proton, CreateProcessA might succeed but native Linux curl fails
+			// because it cannot read Windows paths (e.g. C:\Temp\...).
+			// Solution: Use CMD.EXE's native `<` redirection to open the file and pipe it
+			// to curl via stdin (`-d @-`). This lets Wine securely translate the file contents!
+			std::string fallbackCmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @- \"" + url + "\" < \"" + absPath + "\"";
 			system(fallbackCmd.c_str());
 		}
 #else
 		// Native macOS / Linux
-		// Use the single-quote direct string method to completely avoid file permission issues on macOS!
-		std::string shellSafeJson = jsonStr;
-		size_t pos = 0;
-		while ((pos = shellSafeJson.find("'", pos)) != std::string::npos) {
-			shellSafeJson.replace(pos, 1, "'\\''");
-			pos += 4;
-		}
-		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d '" + shellSafeJson + "' \"" + url + "\"";
+		// Use the absolute UNIX path which native curl perfectly understands.
+		std::string cmd = "curl -s -H \"Content-Type: application/json\" -X POST -d @\"" + absPath + "\" \"" + url + "\"";
 		int r = system(cmd.c_str());
 		(void)r;
 #endif
@@ -18156,6 +18153,37 @@ void ofApp::continueNewTurn() {
 	// These are already handled in startNewTurn() before continueNewTurn() is called.
 	// Fire/Paralysis checks would have returned early in startNewTurn() and resolved
 	// before reaching here, so no need to check again.
+
+	// HOST: proactively save a Turn-Start master backup so clients can recover
+	// if a checksum mismatch occurs shortly after turn advancement.
+	if (isHost()) {
+		turnStartBackupSnapshot = buildSnapshotString();
+		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
+	}
+
+	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
+	if (isMultiplayer) {
+		ChecksumPacket chk = {};
+		chk.type = PKT_CHECKSUM_CHECK;
+		chk.playerID = myLocalPlayerID;
+		chk.turnNumber = globalTurnCounter;
+		chk.checksum = calculateChecksum();
+		steamManager.sendPacket(&chk, sizeof(chk));
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
+	}
+
+	// Autosave at the start of each turn (singleplayer or host in multiplayer).
+	if (!isMultiplayer || isHost()) {
+		bool ok = saveGameStateToFile("autosave.json");
+		if (ok) {
+			std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+			saveGameStateToFile(stamped);
+			pruneOldSaves(5);
+			addGameLog("Autosaved turn-start (autosave.json)");
+		} else {
+			ofLogWarning("Save") << "Failed to autosave turn-start.";
+		}
+	}
 }
 
 // Cancel any active targeting modes/menus and reset related state
@@ -22320,23 +22348,20 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 
 			glm::vec2 endPoint = los.end;
-			if (path.size() > 1) {
-				for (size_t i = 1; i < path.size(); ++i) {
-					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (stepDistSq > maxDistSq) {
-						int fallShortIdx = std::max(1, (int)i - 1);
-						endPoint = path[fallShortIdx] + 0.5f;
-						impactTile = glm::ivec2((int)path[fallShortIdx].x, (int)path[fallShortIdx].y);
-						break;
-					}
-					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileBlocked(impactTile.x, impactTile.y)) {
-						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-						break;
-					}
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					impactTile = stepTile;
+					break;
 				}
-			} else {
-				impactTile = targetTile;
+			}
+
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
+			glm::vec2 dir = endPoint - los.start;
+			if (glm::length(dir) > maxRangeUnits) {
+				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
+				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
 
 			glm::vec3 worldStart, worldEnd;
@@ -22432,35 +22457,21 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-
+			glm::vec2 startPoint = casterTile + 0.5f;
+			glm::vec2 endPoint = targetTile + 0.5f;
 			glm::ivec2 impactTile = targetTile;
-			glm::vec2 endPoint = targetTile + 0.5f; // Magic bolt ignores cover, so ray is center-to-center
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
-				impactTile = casterTile;
-				auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-				// FIX: Use tile centers to generate the path array to avoid Face-coordinate flooring bugs
-				std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 
-				if (path.size() > 1) {
-					for (size_t i = 1; i < path.size(); ++i) {
-						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (stepDistSq > maxDistSq) {
-							int fallShortIdx = std::max(1, (int)i - 1);
-							endPoint = path[fallShortIdx] + 0.5f;
-							impactTile = glm::ivec2((int)path[fallShortIdx].x, (int)path[fallShortIdx].y);
-							break;
-						}
-						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						// Magic Bolt passes through walls, so don't break early!
-					}
-				}
+			// Ignore cover, just restrict strictly to exact rolled range
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
+			glm::vec2 dir = endPoint - startPoint;
+			if (glm::length(dir) > maxRangeUnits) {
+				endPoint = startPoint + glm::normalize(dir) * maxRangeUnits;
+				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(startPoint, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
@@ -22609,32 +22620,27 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-
-			glm::ivec2 impactTile = casterTile;
+			glm::ivec2 impactTile = targetTile;
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
 			glm::vec2 endPoint = los.end;
-			if (path.size() > 1) {
-				for (size_t i = 1; i < path.size(); ++i) {
-					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (stepDistSq > maxDistSq) {
-						int fallShortIdx = std::max(1, (int)i - 1);
-						endPoint = path[fallShortIdx] + 0.5f;
-						impactTile = glm::ivec2((int)path[fallShortIdx].x, (int)path[fallShortIdx].y);
-						break;
-					}
-					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileBlocked(impactTile.x, impactTile.y)) {
-						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-						break;
-					}
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					impactTile = stepTile;
+					break;
 				}
-			} else {
-				impactTile = targetTile;
 			}
+
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
+			glm::vec2 dir = endPoint - los.start;
+			if (glm::length(dir) > maxRangeUnits) {
+				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
+				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
+			}
+			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
@@ -22755,31 +22761,32 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			glm::ivec2 impactTile = casterTile;
+			glm::ivec2 impactTile = targetTile;
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
-			glm::vec2 endPoint = clearRay.end;
 
-			if (path.size() > 1) {
-				for (size_t i = 1; i < path.size(); ++i) {
-					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (stepDistSq > maxDistSq) {
-						int fallShortIdx = std::max(1, (int)i - 1);
-						endPoint = path[fallShortIdx] + 0.5f;
-						impactTile = glm::ivec2((int)path[fallShortIdx].x, (int)path[fallShortIdx].y);
-						break;
-					}
-					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+			glm::vec2 endPoint = clearRay.end;
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					impactTile = stepTile;
+					break;
 				}
-			} else {
-				impactTile = targetTile;
 			}
 
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
+			glm::vec2 dir = endPoint - clearRay.start;
+			if (glm::length(dir) > maxRangeUnits) {
+				endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
+				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
+
 			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
 
 			if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
@@ -22865,38 +22872,30 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-
 			glm::ivec2 impactTile = targetTile;
-
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
 			glm::vec2 endPoint = clearRay.end;
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, targetTile) > maxDistSq) {
-				impactTile = casterTile;
-				if (path.size() > 1) {
-					for (size_t i = 1; i < path.size(); ++i) {
-						long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-						if (stepDistSq > maxDistSq) {
-							int fallShortIdx = std::max(1, (int)i - 1);
-							endPoint = path[fallShortIdx] + 0.5f;
-							impactTile = glm::ivec2((int)path[fallShortIdx].x, (int)path[fallShortIdx].y);
-							break;
-						}
-
-						impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-						if (isTileBlocked(impactTile.x, impactTile.y)) {
-							endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-							break;
-						}
-					}
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					impactTile = stepTile;
+					break;
 				}
 			}
 
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
+			glm::vec2 dir = endPoint - clearRay.start;
+			if (glm::length(dir) > maxRangeUnits) {
+				endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
+				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -23063,33 +23062,27 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = interactionTargetTile;
 			int rangeRoll = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
-
-			glm::ivec2 impactTile = casterTile;
+			glm::ivec2 impactTile = targetTile;
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
+
 			glm::vec2 endPoint = los.end;
-
-			if (path.size() > 1) {
-				for (size_t i = 1; i < path.size(); ++i) {
-					long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, path[i]);
-					if (stepDistSq > maxDistSq) {
-						int fallShortIdx = std::max(1, (int)i - 1);
-						endPoint = path[fallShortIdx] + 0.5f;
-						impactTile = glm::ivec2((int)path[fallShortIdx].x, (int)path[fallShortIdx].y);
-						break;
-					}
-
-					impactTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (isTileBlocked(impactTile.x, impactTile.y)) {
-						endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-						break;
-					}
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					impactTile = stepTile;
+					break;
 				}
-			} else {
-				impactTile = targetTile;
 			}
+
+			float maxRangeUnits = (float)rangeRoll / 5.0f;
+			glm::vec2 dir = endPoint - los.start;
+			if (glm::length(dir) > maxRangeUnits) {
+				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
+				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
+			}
+			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
@@ -25709,17 +25702,29 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		if (path.size() > 1) {
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				impactTile = stepTile;
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
 					// Fell short, stop at the blocked tile center
 					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					impactTile = stepTile;
 					break;
 				}
 			}
 		}
 
+		// Cap by exact crow-flies distance
+		float maxRangeFeet = 9999.0f;
+		auto [rNum, rSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
+		if (rNum > 0 && rSides > 0) maxRangeFeet = (float)(rNum * rSides);
+
+		float maxRangeUnits = maxRangeFeet / 5.0f;
+		glm::vec2 dir = endPoint - clearRay.start;
+		if (glm::length(dir) > maxRangeUnits) {
+			endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
+			impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
+		}
+
 		glm::vec3 worldStart, worldEnd;
-		computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
+		computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 
 		ofColor tColor = ofColor::white;
 		if (playedCard.damageType == DAMAGE_FIRE)
@@ -31184,12 +31189,14 @@ void ofApp::spawnTracerWithAdjacent(glm::vec3 start, glm::vec3 end, glm::ivec2 i
 // Compute tracer endpoints: start at caster tile face midpoint toward target,
 // end at the center of the impacted tile (always the tile center in world coords).
 void ofApp::computeTracerEndpoints(glm::vec2 rayStart, glm::vec2 rayEnd, glm::vec3 & outStart, glm::vec3 & outEnd) {
-	// Add a small epsilon to prevent precision issues when flooring .0 or .9999
-	glm::vec3 wStart = gridToWorld((int)floor(rayStart.x + 0.001f), (int)floor(rayStart.y + 0.001f));
-	glm::vec3 wEnd = gridToWorld((int)floor(rayEnd.x + 0.001f), (int)floor(rayEnd.y + 0.001f));
+	// rayStart and rayEnd are pure float grid coordinates.
+	// Convert perfectly to world space without snapping to tiles!
+	auto toWorld = [&](glm::vec2 p) {
+		return glm::vec3((p.x - BOARD_WIDTH / 2.0f) * TILE_SIZE, 0.0f, (p.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE);
+	};
 
-	outStart = wStart + glm::vec3(0, 0.6f, 0);
-	outEnd = wEnd + glm::vec3(0, 0.6f, 0);
+	outStart = toWorld(rayStart) + glm::vec3(0, 0.6f, 0);
+	outEnd = toWorld(rayEnd) + glm::vec3(0, 0.6f, 0);
 }
 
 //--------------------------------------------------------------
@@ -33399,64 +33406,106 @@ glm::vec2 ofApp::getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm:
 }
 //--------------------------------------------------------------
 float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
-	if (casterTile == targetTile) return 0.0f; // Self is 0
+	if (casterTile == targetTile) return 0.0f;
 
-	// 1. Get Centers
+	int cx = (int)casterTile.x;
+	int cy = (int)casterTile.y;
+	int tx = (int)targetTile.x;
+	int ty = (int)targetTile.y;
+
+	auto isFaceOpen = [&](int x, int y, int dirX, int dirY) {
+		int nx = x + dirX;
+		int ny = y + dirY;
+		if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) return false;
+		if (nx == cx && ny == cy) return true;
+		if (nx == tx && ny == ty) return true;
+		return !(board[nx][ny].hasWall || board[nx][ny].hasPlayer);
+	};
+
 	glm::vec2 cCenter = casterTile + 0.5f;
 	glm::vec2 tCenter = targetTile + 0.5f;
 
-	// 2. Define offsets from center to face midpoints
 	glm::vec2 faceOffsets[] = {
-		{ 0.5f, 0.0f }, // East
-		{ -0.5f, 0.0f }, // West
-		{ 0.0f, 0.5f }, // South
-		{ 0.0f, -0.5f } // North
+		{ 0.5f, 0.0f }, { -0.5f, 0.0f }, { 0.0f, 0.5f }, { 0.0f, -0.5f }
 	};
+	int faceDirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+
+	std::vector<glm::vec2> validCasterFaces;
+	std::vector<glm::vec2> validTargetFaces;
+
+	for (int i = 0; i < 4; i++) {
+		if (isFaceOpen(cx, cy, faceDirs[i][0], faceDirs[i][1])) {
+			validCasterFaces.push_back(cCenter + faceOffsets[i]);
+		}
+		if (isFaceOpen(tx, ty, faceDirs[i][0], faceDirs[i][1])) {
+			validTargetFaces.push_back(tCenter + faceOffsets[i]);
+		}
+	}
+
+	// Fallback to center if perfectly boxed in
+	if (validCasterFaces.empty()) validCasterFaces.push_back(cCenter);
+	if (validTargetFaces.empty()) validTargetFaces.push_back(tCenter);
 
 	float shortestDist = std::numeric_limits<float>::max();
-
-	// Loop through all 4 faces of the Caster
-	for (int i = 0; i < 4; i++) {
-		glm::vec2 cFace = cCenter + faceOffsets[i];
-		for (int j = 0; j < 4; j++) {
-			glm::vec2 tFace = tCenter + faceOffsets[j];
-
+	for (const auto & cFace : validCasterFaces) {
+		for (const auto & tFace : validTargetFaces) {
 			float d = glm::distance(cFace, tFace);
 			if (d < shortestDist) shortestDist = d;
 		}
 	}
 
-	// Adjacent tiles share a face -> distance 0.
-	// Enforce a 1-foot minimum (0.2 grid units) for non-self tiles so it displays correctly.
 	return std::max(0.2f, shortestDist);
 }
 
-// Integer-scaled squared face-to-face distance. Coordinates scaled by 2 (half-tile units)
 long long ofApp::getFaceToFaceDistanceSquaredScaled(glm::vec2 casterTile, glm::vec2 targetTile) {
-	// Scale centers by 2: center = tile*2 + 1
-	int cx = (int)casterTile.x * 2 + 1;
-	int cy = (int)casterTile.y * 2 + 1;
-	int tx = (int)targetTile.x * 2 + 1;
-	int ty = (int)targetTile.y * 2 + 1;
+	if (casterTile == targetTile) return 0;
 
-	// Face offsets in scaled coords (half-tile => +/-1, 0)
-	int faceOffsets[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	int cx = (int)casterTile.x;
+	int cy = (int)casterTile.y;
+	int tx = (int)targetTile.x;
+	int ty = (int)targetTile.y;
+
+	int cx2 = cx * 2 + 1;
+	int cy2 = cy * 2 + 1;
+	int tx2 = tx * 2 + 1;
+	int ty2 = ty * 2 + 1;
+
+	int faceDirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+
+	auto isFaceOpen = [&](int x, int y, int dirX, int dirY) {
+		int nx = x + dirX;
+		int ny = y + dirY;
+		if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) return false;
+		if (nx == cx && ny == cy) return true;
+		if (nx == tx && ny == ty) return true;
+		return !(board[nx][ny].hasWall || board[nx][ny].hasPlayer);
+	};
+
+	std::vector<std::pair<int, int>> validCasterFaces;
+	std::vector<std::pair<int, int>> validTargetFaces;
+
+	for (int i = 0; i < 4; ++i) {
+		if (isFaceOpen(cx, cy, faceDirs[i][0], faceDirs[i][1])) {
+			validCasterFaces.push_back({ cx2 + faceDirs[i][0], cy2 + faceDirs[i][1] });
+		}
+		if (isFaceOpen(tx, ty, faceDirs[i][0], faceDirs[i][1])) {
+			validTargetFaces.push_back({ tx2 + faceDirs[i][0], ty2 + faceDirs[i][1] });
+		}
+	}
+
+	if (validCasterFaces.empty()) validCasterFaces.push_back({ cx2, cy2 });
+	if (validTargetFaces.empty()) validTargetFaces.push_back({ tx2, ty2 });
 
 	long long best = LLONG_MAX;
-	for (int i = 0; i < 4; ++i) {
-		int cfx = cx + faceOffsets[i][0];
-		int cfy = cy + faceOffsets[i][1];
-		for (int j = 0; j < 4; ++j) {
-			int tfx = tx + faceOffsets[j][0];
-			int tfy = ty + faceOffsets[j][1];
-			long long dx = (long long)cfx - (long long)tfx;
-			long long dy = (long long)cfy - (long long)tfy;
+	for (const auto & cFace : validCasterFaces) {
+		for (const auto & tFace : validTargetFaces) {
+			long long dx = (long long)cFace.first - tFace.first;
+			long long dy = (long long)cFace.second - tFace.second;
 			long long d2 = dx * dx + dy * dy;
 			if (d2 < best) best = d2;
 		}
 	}
-	// Adjacent tiles share a face -> distance 0 will be found above
-	return best; // squared distance in units of (half-tile)^2
+	return best;
 }
 //--------------------------------------------------------------
 bool ofApp::isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end) {
@@ -35902,6 +35951,10 @@ void ofApp::processNetworkPackets() {
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
 				if (isHost()) {
 					// Send the pristine Turn-Start snapshot so the client doesn't wake up mid-spell!
+					if (!turnStartBackupSnapshot.empty()) {
+						applySnapshotString(turnStartBackupSnapshot);
+						ofLogNotice("Network") << "Host rewound local state to match requested snapshot.";
+					}
 					sendSnapshotToClient(true);
 					ofLogNotice("Network") << "Host: Sent authoritative Turn-Start snapshot to client.";
 				}
@@ -36180,12 +36233,8 @@ void ofApp::processNetworkPackets() {
 						waitingForSnapshotStartTime = ofGetElapsedTimef();
 						queueFloatingTextVisual(glm::vec3(0, 5, 0), "Requesting Resync...", ofColor::yellow);
 					}
-				} else {
-					// If checksums match mid-turn, update the backup so we don't lose progress on a good move!
-					if (isHost()) {
-						turnStartBackupSnapshot = buildSnapshotString();
-					}
 				}
+				// Removed the dangerous mid-turn backup overwrite that caused cascading desyncs!
 			}
 			// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
 			// will detect key pickups locally. Legacy packet handling deleted to avoid
@@ -36479,7 +36528,11 @@ long long ofApp::calculateChecksum() {
 	// Hash Effect Ops
 	for (const auto & op : currentEffectSequence.ops) {
 		mix((uint64_t)op.type);
-		mix((uint64_t)op.data.damage.targetIndex); // Quick representation of the union data
+		// Ignore WAIT_VISUAL's targetIndex because it is used as a frame countdown
+		// which constantly mutates, causing false desyncs over the network!
+		if (op.type != EffectOpType::WAIT_VISUAL) {
+			mix((uint64_t)op.data.damage.targetIndex); // Quick representation of the union data
+		}
 	}
 
 	// 4. TRANSIENT SPELL STATES
