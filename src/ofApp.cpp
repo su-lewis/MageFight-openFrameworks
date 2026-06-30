@@ -22340,12 +22340,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			glm::ivec2 impactTile = casterTile;
+			glm::ivec2 impactTile = targetTile;
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
 			glm::vec2 endPoint = los.end;
 			for (size_t i = 1; i < path.size(); ++i) {
@@ -22363,6 +22361,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
 				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
+			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
