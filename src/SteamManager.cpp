@@ -41,6 +41,9 @@ uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, u
 #endif
 #include <fstream>
 
+extern bool g_isHostingLobby;
+extern bool g_isConnectingToLobby;
+
 SteamManager::SteamManager()
 	: m_bInitialized(false)
 	, m_bIsHost(false)
@@ -390,6 +393,7 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
 		ofLogError("Steam") << "Lobby Creation Failed. Result: " << pCallback->m_eResult;
 		m_bIsHost = false;
+		g_isHostingLobby = false;
 		return;
 	}
 
@@ -409,7 +413,11 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
-	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) return;
+	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
+		ofLogWarning("Steam") << "Lobby enter failed. Response: " << pCallback->m_EChatRoomEnterResponse;
+		g_isConnectingToLobby = false;
+		return;
+	}
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 
@@ -475,8 +483,19 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 		if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
 			// NEW: Reject connection if we already have an active opponent
 			if (m_hConnection != k_HSteamNetConnection_Invalid) {
-				ofLogWarning("Steam") << "Rejecting 3rd party connection. Match is full.";
-				SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+				if (m_OpponentID.IsValid() && pInfo->m_info.m_identityRemote.GetSteamID64() == m_OpponentID.ConvertToUint64()) {
+					ofLogNotice("Steam") << "Opponent is reconnecting before old connection timed out. Closing old connection.";
+					SteamNetworkingSockets()->CloseConnection(m_hConnection, 0, "Stale connection", false);
+					m_hConnection = k_HSteamNetConnection_Invalid;
+					if (SteamNetworkingSockets()->AcceptConnection(pInfo->m_hConn) == k_EResultOK) {
+						ofLogNotice("Steam") << "Accepted Reconnection!";
+					} else {
+						SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+					}
+				} else {
+					ofLogWarning("Steam") << "Rejecting 3rd party connection. Match is full.";
+					SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+				}
 			}
 			// Otherwise, accept normally
 			else if (SteamNetworkingSockets()->AcceptConnection(pInfo->m_hConn) == k_EResultOK) {
@@ -488,7 +507,7 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 			}
 		}
 		break;
-	} // <-- Added closing brace
+	}
 
 	case k_ESteamNetworkingConnectionState_Connected: { // <-- Added opening brace
 		ofLogNotice("Steam") << "Connection Fully Active!";
@@ -711,10 +730,12 @@ int SteamManager::checkLeaverBuster() {
 	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", &oppElo);
 	return (int)oppElo;
 }
-void SteamManager::updateRichPresence(const std::string & status) {
-	if (!m_bInitialized || !SteamFriends()) return;
+void SteamManager::updateRichPresence(const std::string & presenceText) {
+	if (!SteamAPI_IsSteamRunning() || !SteamFriends()) return;
 
-	// Sets the text that appears under "Mage Fight" in the Steam Friends List
-	// The key MUST be "#status" for the Steam client to display it.
-	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "#status", status.c_str());
+	// 1. Set the actual text you want to display
+	SteamFriends()->SetRichPresence("status", presenceText.c_str());
+
+	// 2. CRITICAL: Tell Steam to display the "status" key using a Localization Token
+	SteamFriends()->SetRichPresence("steam_display", "#Status");
 }

@@ -64,12 +64,25 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		request.method = ofHttpRequest::POST;
 		request.body = jsonStr;
 		request.contentType = "application/json";
+		request.headers["User-Agent"] = "DiscordBot (MageFight, 1.0)";
 
 		ofURLFileLoader loader;
 		ofHttpResponse response = loader.handleRequest(request);
 
+		// If native OF fails (usually SSL cert issues on Linux/Proton), fallback to curl.exe
 		if (response.status != 200 && response.status != 204) {
-			ofLogWarning("Discord") << "Webhook failed: " << response.status << " " << response.error;
+			ofLogWarning("Discord") << "Native Webhook failed (" << response.status << "). Trying curl fallback...";
+
+			std::string tmpPath = ofToDataPath("discord_tmp_" + std::to_string(ofGetSystemTimeMillis()) + ".json", true);
+			ofFile f(tmpPath, ofFile::WriteOnly);
+			f << jsonStr;
+			f.close();
+
+			std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -d @\"" + tmpPath + "\" \"" + url + "\"";
+			int sysRet = system(cmd.c_str());
+			(void)sysRet;
+
+			ofFile::removeFile(tmpPath, false);
 		}
 	}).detach();
 }
@@ -96,13 +109,11 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 		std::string boundary = "----DiscordWebhookBoundary" + std::to_string(ofGetSystemTimeMillis());
 		std::string body = "";
 
-		// Pure C++ Multipart Form Data encoding (bypasses curl entirely)
 		body += "--" + boundary + "\r\n";
 		body += "Content-Disposition: form-data; name=\"payload_json\"\r\n";
 		body += "Content-Type: application/json\r\n\r\n";
 		body += jsonStr + "\r\n";
 
-		// File Payloads
 		for (size_t i = 0; i < filePaths.size(); ++i) {
 			ofFile file(filePaths[i]);
 			if (!file.exists() || file.getSize() == 0) continue;
@@ -123,12 +134,29 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 		request.method = ofHttpRequest::POST;
 		request.body = body;
 		request.contentType = "multipart/form-data; boundary=" + boundary;
+		request.headers["User-Agent"] = "DiscordBot (MageFight, 1.0)";
 
 		ofURLFileLoader loader;
 		ofHttpResponse response = loader.handleRequest(request);
 
 		if (response.status != 200 && response.status != 204) {
-			ofLogWarning("Discord") << "File Webhook failed: " << response.status << " " << response.error;
+			ofLogWarning("Discord") << "Native File Webhook failed (" << response.status << "). Trying curl fallback...";
+
+			std::string tmpPath = ofToDataPath("discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json", true);
+			ofFile f(tmpPath, ofFile::WriteOnly);
+			f << jsonStr;
+			f.close();
+
+			std::string cmd = "curl.exe -s -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -F \"payload_json=<" + tmpPath + "\" ";
+			for (size_t i = 0; i < filePaths.size(); ++i) {
+				cmd += "-F \"file" + std::to_string(i + 1) + "=@" + ofToDataPath(filePaths[i], true) + "\" ";
+			}
+			cmd += "\"" + url + "\"";
+
+			int sysRet = system(cmd.c_str());
+			(void)sysRet;
+
+			ofFile::removeFile(tmpPath, false);
 		}
 	}).detach();
 }
@@ -183,8 +211,8 @@ static float g_mpLeaderboardScroll = 0.0f;
 static ofSoundPlayer g_gameMusic;
 static float savedGameMusicVolume = 0.0f;
 
-static bool g_isHostingLobby = false;
-static bool g_isConnectingToLobby = false;
+bool g_isHostingLobby = false;
+bool g_isConnectingToLobby = false;
 
 static float g_lastLobbyRefreshTime = 0.0f;
 static float g_lastLeaderboardRefreshTime = 0.0f;
@@ -14066,7 +14094,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
 			if (mpLobbyButtons[i].inside(x, y)) {
 				if (lobbies[i].numPlayers >= lobbies[i].maxPlayers) {
-					return; // Don't allow joining full lobbies!
+					addGameLog("Lobby appears full, but attempting to reclaim disconnected spot...");
 				}
 				steamManager.joinLobbyByID(lobbies[i].lobbyID);
 				addGameLog("Joining lobby...");
@@ -31025,6 +31053,8 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	skipClientShuffleFor = -1;
 	draftAcceptApplied = false;
 	waitingForDraftOptionsStartTime = 0.0f;
+	g_isConnectingToLobby = false;
+	g_isHostingLobby = false;
 	// Clear any per-player deck dirty flags
 	for (auto & p : players)
 		p.deckNeedsShuffle = false;
@@ -35989,7 +36019,7 @@ void ofApp::processNetworkPackets() {
 				SnapshotEndPacket * ep = (SnapshotEndPacket *)header;
 				if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
 					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
-					applySnapshotString(incomingSnapshotBuffer);
+					applySnapshotString(incomingSnapshotBuffer, true);
 					if (waitingForReconnect) {
 						if (reconnectTurnTimerPausedByDisconnect) {
 							turnTimerPaused = false;
