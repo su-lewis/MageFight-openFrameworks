@@ -20559,6 +20559,14 @@ void ofApp::simulationTick() {
 					}
 				}
 
+				// Shift pending visual key drafts so they don't award cards to the wrong unit!
+				for (auto & pending : pendingVisualKeyDraftQueue) {
+					if (pending.targetIndex == idx)
+						pending.targetIndex = -1;
+					else if (pending.targetIndex > idx)
+						pending.targetIndex -= 1;
+				}
+
 				players.erase(players.begin() + idx);
 
 				if (players.empty()) {
@@ -36275,14 +36283,14 @@ void ofApp::processNetworkPackets() {
 
 					// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
 					// Replace this placeholder with the actual Webhook URL for the report-bugs channel!
-					std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
+					std::string webhookURL = "YOUR_DESYNC_WEBHOOK_URL_HERE";
 
 					std::string myName = steamManager.getLocalPlayerName();
 					if (myName.empty()) myName = "A Mage";
 					std::string oppName = steamManager.getOpponentName();
 					if (oppName.empty()) oppName = "Opponent";
 
-					std::string msg = "**FATAL DESYNC**\n";
+					std::string msg = "🚨 **FATAL DESYNC DETECTED** 🚨\n";
 					msg += "**Players:** " + myName + " vs " + oppName + "\n";
 					msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
 					msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
