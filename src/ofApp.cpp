@@ -217,6 +217,10 @@ bool g_isConnectingToLobby = false;
 static float g_lastLobbyRefreshTime = 0.0f;
 static float g_lastLeaderboardRefreshTime = 0.0f;
 
+static bool isFastForwarding = false;
+static ofRectangle replayProgressBarRect;
+static uint32_t replayMaxFrame = 100;
+
 // Path constants
 
 // Pending macros migrated; use `networkPending.*` fields.
@@ -4580,17 +4584,9 @@ void ofApp::updateStateMachine() {
 				// WE NO LONGER RETURN HERE!
 				// This allows the local player to keep playing the game, animations to finish, and simulationTick to run!
 			} else {
-				ofLogNotice("Network") << "Opponent left before/during lobby setup. Returning to main menu.";
-				isMultiplayer = false;
-				hasReceivedHandshake = false;
-				initialDraftComplete = false;
-				draftAcceptLocked = false;
-				draftAcceptApplied = false;
-				gameplaySeededByHost = false;
-				handshakeRequestInterval = 1.0f;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-				lastChatInteractionTime = ofGetElapsedTimef();
+				ofLogNotice("Network") << "Connection dropped during lobby setup. Awaiting Steam auto-reconnect...";
+				// Do not instantly kill the game; Steam will automatically retry.
+				// The user can press the Cancel button if it takes too long.
 				return;
 			}
 		}
@@ -6454,8 +6450,10 @@ void ofApp::setupGame() {
 
 	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
 	else {
-		std::random_device rd;
-		currentMapSeed = rd();
+		if (!isReplayMode) { // <-- Prevent overwriting the replay's exact map seed!
+			std::random_device rd;
+			currentMapSeed = rd();
+		}
 		lastTurnStartSentPlayer = -1;
 		lastTurnStartSentCounter = -1;
 		gameplayRNG.seed(currentMapSeed);
@@ -6575,6 +6573,8 @@ void ofApp::setupGame() {
 		// Singleplayer: start immediately
 		startInitiativePhase();
 	}
+
+	recalculateUI(ofGetWidth(), ofGetHeight()); // <-- Fixes the missing Draw button!
 }
 
 void ofApp::initGameFromSeed(uint32_t seed) {
@@ -6611,6 +6611,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 
 	// Initialize the same common state as host
 	initialiseGameStateCommon();
+	recalculateUI(ofGetWidth(), ofGetHeight());
 }
 // -----------------------------------------------------------------------------
 // Initialize shared game state (board layout, players, cameras, turn init)
@@ -7291,12 +7292,14 @@ void ofApp::prepareGameVisualState() {
 					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
 					if (!pausedForKeyDraft) {
 						if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
-							std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-							int idx = footIdx(visualRNG);
-							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-							footstepSounds[idx].setVolume(std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f));
-							footstepSounds[idx].play();
+							if (!isFastForwarding) { // <-- Suppress audio during fast forward
+								std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+								int idx = footIdx(visualRNG);
+								std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+								footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+								footstepSounds[idx].setVolume(std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f));
+								footstepSounds[idx].play();
+							}
 						}
 						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
 							isPlayerAnimating = false;
@@ -12689,6 +12692,36 @@ void ofApp::drawGame() {
 		ofPopStyle(); // CRITICAL FIX: Prevent memory leak by popping the style pushed at the top of g_isGameOver!
 	}
 
+	if (isReplayMode) {
+		float scale = getUIScaleFromHeight(ofGetHeight());
+		float barW = ofGetWidth() * 0.8f;
+		float barH = 20 * scale;
+		float barX = (ofGetWidth() - barW) / 2.0f;
+		float barY = ofGetHeight() - barH - 20 * scale;
+
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 180);
+		ofDrawRectRounded(barX, barY, barW, barH, 5);
+
+		replayMaxFrame = replayPlaybackQueue.empty() ? 100 : replayPlaybackQueue.back().frame + 120;
+		replayMaxFrame = std::max(replayMaxFrame, simulationFrame); // Avoid div by zero
+
+		float pct = (float)simulationFrame / (float)replayMaxFrame;
+		ofSetColor(255, 200, 0, 200);
+		ofDrawRectRounded(barX, barY, barW * pct, barH, 5);
+
+		ofSetColor(255);
+		ofDrawRectangle(barX + barW * pct - 2, barY - 2, 4, barH + 4); // Playhead
+
+		int curSecs = simulationFrame / 60; // Approximate
+		int maxSecs = replayMaxFrame / 60;
+		std::string timeStr = "Replay: " + std::to_string(curSecs) + "s / " + std::to_string(maxSecs) + "s";
+		drawPixelTextCentered(uiFont, timeStr, ofGetWidth() / 2, barY - 15 * scale, 1.0f, ofColor::white);
+		ofPopStyle();
+
+		replayProgressBarRect.set(barX, barY, barW, barH);
+	}
+
 } // End of drawGame()
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
@@ -13723,6 +13756,34 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// If watching a replay, block ALL gameplay inputs!
 	if (isReplayMode && currentState == STATE_GAMEPLAY) {
 		if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
+			if (button == OF_MOUSE_BUTTON_LEFT && replayProgressBarRect.inside(x, y)) {
+				float pct = (x - replayProgressBarRect.x) / replayProgressBarRect.width;
+				pct = std::clamp(pct, 0.0f, 1.0f);
+				uint32_t targetFrame = (uint32_t)(pct * replayMaxFrame);
+
+				if (targetFrame < simulationFrame) {
+					replayPlaybackIndex = 0;
+					setupGame();
+				}
+				isFastForwarding = true;
+				while (simulationFrame < targetFrame) {
+					simulationTick();
+					simulationFrame++;
+				}
+				isFastForwarding = false;
+
+				activeDiceRolls.clear();
+				activeFloatingTexts.clear();
+				activeCardDisplays.clear();
+				activeStolenCardAnimations.clear();
+				activePlayedCardAnimations.clear();
+				activeRemovedCardAnimations.clear();
+				activeTracers.clear();
+				visualEvents.clear();
+				isPlayerAnimating = false;
+				animatingPlayerIndex = -1;
+				return;
+			}
 			// Allow pausing to exit the replay
 			if (pauseMenuResumeButton.inside(x, y)) { /* fall through to pause menu */
 			} else if (!isChatOpen)
@@ -15980,6 +16041,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 void ofApp::mouseDragged(int x, int y, int button) {
 	// Keep hover/cursor state up-to-date while a mouse button is held.
 	mouseMoved(x, y);
+
+	if (isReplayMode && currentState == STATE_GAMEPLAY && button == OF_MOUSE_BUTTON_LEFT) {
+		if (replayProgressBarRect.inside(x, y)) {
+			float pct = (x - replayProgressBarRect.x) / replayProgressBarRect.width;
+			pct = std::clamp(pct, 0.0f, 1.0f);
+			uint32_t targetFrame = (uint32_t)(pct * replayMaxFrame);
+
+			if (targetFrame < simulationFrame) {
+				replayPlaybackIndex = 0;
+				setupGame();
+			}
+			isFastForwarding = true;
+			while (simulationFrame < targetFrame) {
+				simulationTick();
+				simulationFrame++;
+			}
+			isFastForwarding = false;
+
+			activeDiceRolls.clear();
+			activeFloatingTexts.clear();
+			activeCardDisplays.clear();
+			activeStolenCardAnimations.clear();
+			activePlayedCardAnimations.clear();
+			activeRemovedCardAnimations.clear();
+			activeTracers.clear();
+			visualEvents.clear();
+			isPlayerAnimating = false;
+			animatingPlayerIndex = -1;
+			return;
+		}
+	}
 
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 		return;
@@ -36135,15 +36227,13 @@ void ofApp::processNetworkPackets() {
 					ack.elo = myElo;
 					steamManager.sendPacket(&ack, sizeof(ack));
 
-					// Always resend the READY packet if the Host is still asking for handshakes!
-					if (currentState == STATE_GAMEPLAY || currentState == STATE_INITIATIVE_ROLL || clientSentReady) {
-						ClientReadyPacket r = {};
-						r.type = PKT_CLIENT_READY;
-						r.playerID = myLocalPlayerID;
-						r.ready = 1;
-						steamManager.sendPacket(&r, sizeof(r));
-						clientSentReady = true;
-					}
+					// Always send the READY packet immediately so the Host can start the match!
+					ClientReadyPacket r = {};
+					r.type = PKT_CLIENT_READY;
+					r.playerID = myLocalPlayerID;
+					r.ready = 1;
+					steamManager.sendPacket(&r, sizeof(r));
+					clientSentReady = true;
 				}
 				continue;
 			}
