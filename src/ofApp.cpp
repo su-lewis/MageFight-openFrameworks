@@ -269,7 +269,8 @@ static float g_templateHeight = 1448.0f;
 
 static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
 	if (text.empty()) return;
-	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
+	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 	float fitW = std::max(1.0f, rect.width - 2.0f);
 
 	float customSpaceW = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f) * drawScale;
@@ -966,9 +967,9 @@ static bool startsWith(const std::string & s, const std::string & prefix) {
 }
 
 static float quantizePixelTextScale(float scale) {
-	return std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
+	return std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 }
-
 static void drawPixelTextBaseline(const ofTrueTypeFont & font,
 	const std::string & text,
 	float baselineX,
@@ -1077,9 +1078,9 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	int outlinePx) {
 	if (text.empty()) return;
 
-	// Pixel-font stability: quantize scale and snap draw origins to integer pixels.
-	// Fractional scale/translation causes shimmering and per-glyph shape variation.
-	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+	// Pixel-font stability: quantize scale to half-steps (0.5x).
+	// Prevents random thick/thin letters without shrinking text too much.
+	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
 	// Center by the text bounding-box center, then snap to integer pixels
 	float centerX = rect.x + rect.width * 0.5f;
@@ -1459,7 +1460,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 
 		auto fitsAt = [&](float s) {
-			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			float drawScale = std::max(0.5f, std::round(s * 2.0f) / 2.0f);
 			for (const auto & t : texts) {
 				if (t.empty()) continue;
 				ofRectangle b = font.getStringBoundingBox(t, 0, 0);
@@ -1499,7 +1500,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		const float inset = (float)r + 0.5f; // Minimal inset for outline
 
 		auto fitsAt = [&](float s) {
-			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			float drawScale = std::max(0.5f, std::round(s * 2.0f) / 2.0f);
 			for (const auto & text : texts) {
 				if (text.empty()) continue;
 
@@ -1622,7 +1623,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float fitW = std::max(1.0f, rect.width - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		auto fitsAt = [&](float s) {
-			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			float drawScale = std::max(0.5f, std::round(s * 2.0f) / 2.0f);
 			ofRectangle b = font.getStringBoundingBox(text, 0, 0);
 			if (b.width <= 0.0f || b.height <= 0.0f) return true;
 			return (b.width * drawScale <= fitW) && (b.height * drawScale <= fitH);
@@ -1652,7 +1653,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float fitW = std::max(1.0f, rect.width - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		auto fitsAt = [&](float s) {
-			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			float drawScale = std::max(0.5f, std::round(s * 2.0f) / 2.0f);
 			auto lines = wrapTextScaled(font, text, fitW, drawScale);
 			if (lines.empty()) return true;
 			for (const auto & line : lines) {
@@ -1738,7 +1739,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		const float inset = (float)r + 1.0f;
 		const float fitW = std::max(1.0f, rect.width - inset * 2.0f);
 		const float fitH = std::max(1.0f, rect.height - inset * 2.0f);
-		float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+		float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 		auto lines = wrapTextScaled(font, text, fitW, drawScale);
 		if (lines.empty()) return;
 
