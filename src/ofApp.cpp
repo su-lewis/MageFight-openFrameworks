@@ -216,6 +216,7 @@ bool g_isConnectingToLobby = false;
 
 static float g_lastLobbyRefreshTime = 0.0f;
 static float g_lastLeaderboardRefreshTime = 0.0f;
+static float g_desyncStartTime = 0.0f;
 
 static bool isFastForwarding = false;
 static ofRectangle replayProgressBarRect;
@@ -13793,6 +13794,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_DESYNC) {
+		if (ofGetElapsedTimef() - g_desyncStartTime < 1.0f) return; // Cooldown to prevent accidental clicks
+
 		if (button == OF_MOUSE_BUTTON_LEFT && gameOverReturnBtn.inside(x, y)) {
 			if (isMultiplayer) {
 				steamManager.leaveLobby();
@@ -36150,6 +36153,11 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_HANDSHAKE) {
+				// FIX: Completely ignore stray/corrupted handshakes if we are already in an active match!
+				if (currentState != STATE_MAIN_MENU && currentState != STATE_MULTIPLAYER_MENU) {
+					continue;
+				}
+
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
 				// --- VERSION CONTROL: Reject outdated players! ---
@@ -36424,6 +36432,7 @@ void ofApp::processNetworkPackets() {
 					// Freeze the game in a fatal desync state so the developers can patch the underlying bug
 					desyncMessage = "Local: " + std::to_string(mySum) + "\nRemote: " + std::to_string(pkt->checksum) + "\nCheck latest_desync_dump logs.";
 					currentState = STATE_DESYNC;
+					g_desyncStartTime = ofGetElapsedTimef();
 				}
 			}
 			// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
