@@ -4545,8 +4545,8 @@ void ofApp::updateStateMachine() {
 	// Disconnection / reconnection handling (multiplayer)
 	if (isMultiplayer) {
 		if (!steamManager.hasOpponent()) {
-			// FIX: If the game has already concluded, we don't care if the opponent leaves the lobby!
-			if (g_isGameOver) return;
+			// FIX: If the game has already concluded, or we are viewing a desync, don't interrupt!
+			if (g_isGameOver || currentState == STATE_DESYNC) return;
 
 			bool inMatchState = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED || currentState == STATE_WAITING_FOR_RECONNECT);
 			if (inMatchState) {
@@ -4656,6 +4656,7 @@ void ofApp::updateStateMachine() {
 
 		// Freeze the simulation entirely if we hit a fatal desync
 		if (currentState == STATE_DESYNC) {
+			// Auto-quit after 10 seconds of being in the desync screen
 			if (ofGetElapsedTimef() - g_desyncStartTime >= 10.0f) {
 				if (isMultiplayer) {
 					steamManager.leaveLobby();
@@ -4676,6 +4677,7 @@ void ofApp::updateStateMachine() {
 				}
 				cleanupGame();
 				currentState = STATE_MAIN_MENU;
+				return; // Skip the rest of update to avoid ticking zero-delta loops!
 			}
 			deltaTime = 0.0f;
 		}
@@ -6578,8 +6580,9 @@ void ofApp::setupGame() {
 
 	// Snap the on-screen player visual to the local player's starting square now that
 	// `myLocalPlayerID` has been assigned (hosts/clients may set this before calling).
-	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size())
-		playerVisualPos = gridToWorld(players[myLocalPlayerID].x, players[myLocalPlayerID].y);
+	currentPlayerIndex = 0;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
+		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 	else
 		playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
@@ -6738,6 +6741,14 @@ void ofApp::initialiseGameStateCommon() {
 
 	board[p1.x][p1.y].hasPlayer = true;
 	board[p2.x][p2.y].hasPlayer = true;
+
+	// NEW: Force initialize the playerVisualPos so the Client knows where to look!
+	currentPlayerIndex = 0;
+	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size()) {
+		playerVisualPos = gridToWorld(players[myLocalPlayerID].x, players[myLocalPlayerID].y);
+	} else {
+		playerVisualPos = gridToWorld(players[0].x, players[0].y);
+	}
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
 	if (isMultiplayer && isHost()) {
@@ -21709,6 +21720,16 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
+		if (actionName == "Desync") {
+			if (currentState != STATE_DESYNC) {
+				steamManager.disarmLeaverBuster(); // Save their Elo!
+				desyncMessage = "Opponent detected a fatal desync.";
+				currentState = STATE_DESYNC;
+				g_desyncStartTime = ofGetElapsedTimef();
+			}
+			break;
+		}
+
 		if (actionName == "SyncRI") {
 			// Apply the mask received from the opponent
 			if (cmd.playerID != myLocalPlayerID) {
@@ -33910,6 +33931,12 @@ void ofApp::cleanupGame() {
 	hasReceivedHandshake = false;
 	clientSentReady = false;
 
+	// Reset Chat State to prevent Hotkeys from getting locked in menus
+	isChatOpen = false;
+	isChatMinimized = true;
+	chatInput.clear();
+	lastChatInteractionTime = -999.0f;
+
 	// --- FIX: Reset all Lobby and Connection flags to prevent getting stuck ---
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
@@ -36051,6 +36078,15 @@ void ofApp::processNetworkPackets() {
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
 
+		// CRITICAL FIX: If we are not in a match state, drop ALL gameplay packets.
+		// This prevents lingering snapshots/commands in the Steam network buffer from
+		// "resurrecting" a closed game and trapping the player in an empty board!
+		if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC) {
+			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY) {
+				continue;
+			}
+		}
+
 		// Mark that we're actively processing a network packet. This allows us to
 		// enforce the "Zombie Client" rule: clients must not execute authoritative
 		// logic (draws, dice, turn starts) except while handling host packets.
@@ -36458,9 +36494,19 @@ void ofApp::processNetworkPackets() {
 					desyncMessage = "Local: " + std::to_string(mySum) + "\nRemote: " + std::to_string(pkt->checksum) + "\nCheck latest_desync_dump logs.";
 					currentState = STATE_DESYNC;
 					g_desyncStartTime = ofGetElapsedTimef();
+
+					// FORCE THE OTHER PLAYER TO DESYNC AND QUIT TOO!
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					strncpy(cmd.stringData, "Desync", sizeof(cmd.stringData) - 1);
+					steamManager.sendPacket(&cmd, sizeof(cmd));
 				}
 			}
-			// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
+			// PKT_KEY_PICKUP handling removed:
 			// will detect key pickups locally. Legacy packet handling deleted to avoid
 			// UI races and double-processing.
 			else if (header->type == PKT_CHAT_MESSAGE) {
@@ -36742,6 +36788,8 @@ long long ofApp::calculateChecksum() {
 
 	// TRANSIENT EFFECT STATES AND OPS REMOVED TO PREVENT FALSE DESYNCS
 	// WHEN PACKETS ARE RECEIVED MID-EFFECT-SEQUENCE
+
+	// 4. TRANSIENT SPELL STATES
 
 	// 5. KEYS & GRAVEYARD
 	mix((uint64_t)floatingKeyInstances.size());
