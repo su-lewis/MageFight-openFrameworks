@@ -20790,10 +20790,24 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 	}
 
-	// Reject stale player-initiated commands that arrive after the turn advanced.n advanced.
+	// Reject stale player-initiated commands that arrive after the turn advanced.
 	if (cmd.turnNumber != (uint32_t)globalTurnCounter) {
-		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_PSEUDO_ACTION) {
-			ofLogWarning("Lockstep") << "Dropped stale command " << cmd.commandType << " from turn " << cmd.turnNumber << " (Current: " << globalTurnCounter << ")";
+		bool isStale = false;
+
+		// Always drop standard gameplay commands from previous turns
+		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_MENU_CHOICE || cmd.commandType == CMD_STATUS_ACTION || cmd.commandType == CMD_RENEWED_INSPIRATION || cmd.commandType == CMD_DRAFT_ACTION) {
+			isStale = true;
+		}
+		// For Pseudo Actions, we only drop in-game actions. Meta commands (Forfeit, Desync) bypass the turn-check!
+		else if (cmd.commandType == CMD_PSEUDO_ACTION) {
+			std::string actionName = cmd.stringData;
+			if (actionName == "PlaceKobold" || actionName == "PlaceWolf" || actionName == "Shell Spike" || actionName == "AssistantReroll" || actionName == "SyncRI") {
+				isStale = true;
+			}
+		}
+
+		if (isStale) {
+			ofLogWarning("Lockstep") << "Dropped stale command " << cmd.commandType << " (" << cmd.stringData << ") from turn " << cmd.turnNumber << " (Current: " << globalTurnCounter << ")";
 			return;
 		}
 	}
@@ -36456,6 +36470,12 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_CHECKSUM_CHECK) {
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
 				if (skipChecksumValidation) continue;
+
+				// FIX: Ignore delayed checksum packets from previous turns to prevent false-positive desyncs!
+				if (pkt->turnNumber != globalTurnCounter) {
+					ofLogNotice("Network") << "Ignoring Checksum from different turn. Packet: " << pkt->turnNumber << " Local: " << globalTurnCounter;
+					continue;
+				}
 
 				long long mySum = calculateChecksum();
 
