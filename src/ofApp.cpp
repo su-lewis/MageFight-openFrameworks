@@ -27,6 +27,9 @@
 	#include <windows.h>
 #endif
 
+static std::queue<long long> s_pendingRemoteChecksums;
+static std::queue<long long> s_pendingLocalChecksums;
+
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
 	// Use a fixed filename so it overwrites every match and prevents folder bloat
 	std::string role = isHost ? "host" : "client";
@@ -6317,6 +6320,11 @@ void ofApp::recalculateUI(int w, int h) {
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	// Reset lockstep runtime state for a fresh match.
+	while (!s_pendingRemoteChecksums.empty())
+		s_pendingRemoteChecksums.pop();
+	while (!s_pendingLocalChecksums.empty())
+		s_pendingLocalChecksums.pop();
+
 	g_isGameOver = false;
 	g_winnerID = -1;
 	g_drawOfferPlayerID = -1; // <--- ADDED THIS
@@ -17868,11 +17876,14 @@ void ofApp::startNewTurn() {
 
 			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 			if (isMultiplayer) {
+				long long mySum = calculateChecksum();
+				s_pendingLocalChecksums.push(mySum);
+
 				ChecksumPacket chk = {};
 				chk.type = PKT_CHECKSUM_CHECK;
 				chk.playerID = myLocalPlayerID;
 				chk.turnNumber = globalTurnCounter;
-				chk.checksum = calculateChecksum();
+				chk.checksum = mySum;
 				steamManager.sendPacket(&chk, sizeof(chk));
 				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
 			}
@@ -18373,11 +18384,14 @@ void ofApp::continueNewTurn() {
 
 	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 	if (isMultiplayer) {
+		long long mySum = calculateChecksum();
+		s_pendingLocalChecksums.push(mySum);
+
 		ChecksumPacket chk = {};
 		chk.type = PKT_CHECKSUM_CHECK;
 		chk.playerID = myLocalPlayerID;
 		chk.turnNumber = globalTurnCounter;
-		chk.checksum = calculateChecksum();
+		chk.checksum = mySum;
 		steamManager.sendPacket(&chk, sizeof(chk));
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
 	}
@@ -20316,11 +20330,12 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			cmd.seq = ++watchdogClientActionCounter;
 			cmd.commandId = nextCommandId++; // Host assigns official ID
 
+			steamManager.sendPacket(&cmd, sizeof(cmd)); // CRITICAL FIX: Send BEFORE queuing
+
 			if (applyLocally) {
 				queueInputCommand(cmd);
 				processCommandQueue();
 			}
-			steamManager.sendPacket(&cmd, sizeof(cmd));
 			return true;
 		}
 	}
@@ -33917,6 +33932,11 @@ void ofApp::debugSkipDraftRandomCards() {
 }
 //--------------------------------------------------------------
 void ofApp::cleanupGame() {
+	while (!s_pendingRemoteChecksums.empty())
+		s_pendingRemoteChecksums.pop();
+	while (!s_pendingLocalChecksums.empty())
+		s_pendingLocalChecksums.pop();
+
 	players.clear();
 	activeDiceRolls.clear();
 	activeCardDisplays.clear();
@@ -36361,8 +36381,8 @@ void ofApp::processNetworkPackets() {
 					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
 						// Host receives client intent. Assign official ID, execute, and echo.
 						cmd->commandId = nextCommandId++;
+						steamManager.sendPacket(cmd, sizeof(InputCommandPacket)); // CRITICAL FIX: Send BEFORE queuing
 						queueInputCommand(*cmd);
-						steamManager.sendPacket(cmd, sizeof(InputCommandPacket));
 					}
 				} else {
 					// Client receives officially sequenced command from Host.
@@ -36469,68 +36489,14 @@ void ofApp::processNetworkPackets() {
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
 				if (skipChecksumValidation) continue;
 
-				// FIX: Ignore delayed checksum packets from previous turns to prevent false-positive desyncs!
 				if (pkt->turnNumber != globalTurnCounter) {
 					ofLogNotice("Network") << "Ignoring Checksum from different turn. Packet: " << pkt->turnNumber << " Local: " << globalTurnCounter;
 					continue;
 				}
 
-				long long mySum = calculateChecksum();
-
-				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "CHECKSUM_CHECK Recv. Local: " + std::to_string(mySum) + " Remote: " + std::to_string(pkt->checksum));
-
-				if (mySum != pkt->checksum) {
-					ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " vs Remote: " << pkt->checksum << ". Halting game.";
-					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "*** DESYNC DETECTED! Local: " + std::to_string(mySum) + " vs Remote: " + std::to_string(pkt->checksum) + " ***");
-
-					// Disarm LeaverBuster immediately so neither player loses Elo when they quit!
-					steamManager.disarmLeaverBuster();
-
-					// Overwrite the previous desync dump to prevent folder bloat
-					std::string roleStr = steamManager.isHost() ? "host" : "client";
-					std::string dumpName = "latest_desync_dump_" + roleStr + ".txt";
-					std::string traceName = "lockstep_trace_" + roleStr + ".log";
-
-					std::string dumpStr = buildSnapshotString();
-					ofBuffer dumpBuf;
-					dumpBuf.set(dumpStr.c_str(), dumpStr.size());
-					ofBufferToFile(dumpName, dumpBuf);
-					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
-
-					// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
-					// Replace this placeholder with the actual Webhook URL for the report-bugs channel!
-					std::string webhookURL = "YOUR_DESYNC_WEBHOOK_URL_HERE";
-
-					std::string myName = steamManager.getLocalPlayerName();
-					if (myName.empty()) myName = "A Mage";
-					std::string oppName = steamManager.getOpponentName();
-					if (oppName.empty()) oppName = "Opponent";
-
-					std::string msg = "🚨 **FATAL DESYNC DETECTED** 🚨\n";
-					msg += "**Players:** " + myName + " vs " + oppName + "\n";
-					msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
-					msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
-					msg += "Attached are the local state dump and lockstep trace for debugging.";
-
-					std::vector<std::string> uploadFiles = { dumpName, traceName };
-					sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
-					// --------------------------------------------------
-
-					// Freeze the game in a fatal desync state so the developers can patch the underlying bug
-					desyncMessage = "Local: " + std::to_string(mySum) + "\nRemote: " + std::to_string(pkt->checksum) + "\nCheck latest_desync_dump logs.";
-					currentState = STATE_DESYNC;
-					g_desyncStartTime = ofGetElapsedTimef();
-
-					// FORCE THE OTHER PLAYER TO DESYNC AND QUIT TOO!
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_PSEUDO_ACTION;
-					strncpy(cmd.stringData, "Desync", sizeof(cmd.stringData) - 1);
-					steamManager.sendPacket(&cmd, sizeof(cmd));
-				}
+				// Push remote checksum and evaluate if we have our local one ready!
+				s_pendingRemoteChecksums.push(pkt->checksum);
+				continue;
 			}
 			// PKT_KEY_PICKUP handling removed:
 			// will detect key pickups locally. Legacy packet handling deleted to avoid
@@ -36604,6 +36570,63 @@ void ofApp::processNetworkPackets() {
 		// Legacy resend watchdogs removed: lockstep input commands are reliable.
 
 		// Close processNetworkPackets() scope
+	}
+
+	// --- EVALUATE PENDING CHECKSUMS ---
+	while (!s_pendingLocalChecksums.empty() && !s_pendingRemoteChecksums.empty()) {
+		long long localSum = s_pendingLocalChecksums.front();
+		long long remoteSum = s_pendingRemoteChecksums.front();
+		s_pendingLocalChecksums.pop();
+		s_pendingRemoteChecksums.pop();
+
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "CHECKSUM_CHECK Evaluated. Local: " + std::to_string(localSum) + " Remote: " + std::to_string(remoteSum));
+
+		if (localSum != remoteSum) {
+			ofLogError("Net") << "DESYNC DETECTED! Local: " << localSum << " vs Remote: " << remoteSum << ". Halting game.";
+			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "*** DESYNC DETECTED! Local: " + std::to_string(localSum) + " vs Remote: " + std::to_string(remoteSum) + " ***");
+
+			steamManager.disarmLeaverBuster();
+
+			std::string roleStr = steamManager.isHost() ? "host" : "client";
+			std::string dumpName = "latest_desync_dump_" + roleStr + ".txt";
+			std::string traceName = "lockstep_trace_" + roleStr + ".log";
+
+			std::string dumpStr = buildSnapshotString();
+			ofBuffer dumpBuf;
+			dumpBuf.set(dumpStr.c_str(), dumpStr.size());
+			ofBufferToFile(dumpName, dumpBuf);
+			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
+
+			// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
+			std::string webhookURL = "YOUR_DESYNC_WEBHOOK_URL_HERE";
+
+			std::string myName = steamManager.getLocalPlayerName();
+			if (myName.empty()) myName = "A Mage";
+			std::string oppName = steamManager.getOpponentName();
+			if (oppName.empty()) oppName = "Opponent";
+
+			std::string msg = "🚨 **FATAL DESYNC DETECTED** 🚨\n";
+			msg += "**Players:** " + myName + " vs " + oppName + "\n";
+			msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
+			msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
+			msg += "Attached are the local state dump and lockstep trace for debugging.";
+
+			std::vector<std::string> uploadFiles = { dumpName, traceName };
+			sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
+
+			desyncMessage = "Local: " + std::to_string(localSum) + "\nRemote: " + std::to_string(remoteSum) + "\nCheck latest_desync_dump logs.";
+			currentState = STATE_DESYNC;
+			g_desyncStartTime = ofGetElapsedTimef();
+
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "Desync", sizeof(cmd.stringData) - 1);
+			steamManager.sendPacket(&cmd, sizeof(cmd));
+		}
 	}
 }
 
