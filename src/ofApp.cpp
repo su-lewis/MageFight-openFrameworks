@@ -30955,13 +30955,17 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 			player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 		}
 	} else {
-		isMultiplayer = false;
-		hasReceivedHandshake = false;
-		gameplaySeededByHost = false;
-		waitingForReconnect = false;
-		reconnectForfeitStartTime = 0.0f;
-		reconnectTurnTimerPausedByDisconnect = false;
-		reconnectTurnTimerPausedRemainingFrames = 0;
+		// FIX: Only wipe multiplayer connection variables if we are ACTUALLY returning to singleplayer!
+		// If we are just doing a local turn-rewind on the Host, preserve the multiplayer state!
+		if (!steamManager.hasOpponent()) {
+			isMultiplayer = false;
+			hasReceivedHandshake = false;
+			gameplaySeededByHost = false;
+			waitingForReconnect = false;
+			reconnectForfeitStartTime = 0.0f;
+			reconnectTurnTimerPausedByDisconnect = false;
+			reconnectTurnTimerPausedRemainingFrames = 0;
+		}
 	}
 	if (tmpHasMapSeed) currentMapSeed = tmpMapSeed;
 	if (tmpHasRngState) {
