@@ -4504,9 +4504,7 @@ void ofApp::updateStateMachine() {
 		bool shufflesDone = activeShuffleAnimations.empty();
 
 		if (picksDone && networkPending.draftShuffleNeeded) {
-			for (size_t pi = 0; pi < players.size(); ++pi) {
-				shuffleGameVector(players[pi].deck, (int)pi);
-			}
+			// The deck was already deterministically shuffled in CMD_ACCEPT_DRAFT.
 			networkPending.draftShuffleNeeded = false;
 		}
 
