@@ -6544,14 +6544,13 @@ void ofApp::setupGame() {
 	buildFloorMesh();
 
 	// --- PLAYER CREATION ---
-
 	Player p1 = {};
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
 	p1.visualPos = gridToWorld(p1.x, p1.y); // FIX: Initialize visual position
 	p1.summonedOnTurnCycle = -1; // FIX: Main players do not suffer from summoning sickness!
-	p1.health = 15; // Enforce safe defaults just in case struct initializers drop
+	p1.health = 15;
 	p1.maxHealth = 15;
 	p1.deck.clear();
 	players.push_back(p1);
@@ -6580,9 +6579,8 @@ void ofApp::setupGame() {
 
 	// Snap the on-screen player visual to the local player's starting square now that
 	// `myLocalPlayerID` has been assigned (hosts/clients may set this before calling).
-	currentPlayerIndex = 0;
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
-		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size())
+		playerVisualPos = gridToWorld(players[myLocalPlayerID].x, players[myLocalPlayerID].y);
 	else
 		playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
@@ -6742,13 +6740,11 @@ void ofApp::initialiseGameStateCommon() {
 	board[p1.x][p1.y].hasPlayer = true;
 	board[p2.x][p2.y].hasPlayer = true;
 
-	// NEW: Force initialize the playerVisualPos so the Client knows where to look!
 	currentPlayerIndex = 0;
-	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size()) {
+	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size())
 		playerVisualPos = gridToWorld(players[myLocalPlayerID].x, players[myLocalPlayerID].y);
-	} else {
+	else
 		playerVisualPos = gridToWorld(players[0].x, players[0].y);
-	}
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
 	if (isMultiplayer && isHost()) {
@@ -36082,6 +36078,15 @@ void ofApp::processNetworkPackets() {
 		// This prevents lingering snapshots/commands in the Steam network buffer from
 		// "resurrecting" a closed game and trapping the player in an empty board!
 		if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC) {
+			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY) {
+				continue;
+			}
+		}
+
+		// CRITICAL FIX: If we are not in a multiplayer match, drop ALL gameplay packets.
+		// This prevents lingering snapshots/commands in the Steam network buffer from
+		// "resurrecting" a closed game and trapping the player in an empty board!
+		if (!isMultiplayer) {
 			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY) {
 				continue;
 			}
