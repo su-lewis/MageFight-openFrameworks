@@ -17,7 +17,6 @@
 #include <map>
 #include <new>
 #include <nlohmann/json.hpp>
-#include <queue>
 #include <random>
 #include <set>
 #include <sstream>
@@ -27,8 +26,8 @@
 	#include <windows.h>
 #endif
 
-static std::queue<long long> s_pendingRemoteChecksums;
-static std::queue<long long> s_pendingLocalChecksums;
+static std::map<int, long long> s_pendingRemoteChecksums;
+static std::map<int, long long> s_pendingLocalChecksums;
 
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
 	// Use a fixed filename so it overwrites every match and prevents folder bloat
@@ -6320,10 +6319,8 @@ void ofApp::recalculateUI(int w, int h) {
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	// Reset lockstep runtime state for a fresh match.
-	while (!s_pendingRemoteChecksums.empty())
-		s_pendingRemoteChecksums.pop();
-	while (!s_pendingLocalChecksums.empty())
-		s_pendingLocalChecksums.pop();
+	s_pendingRemoteChecksums.clear();
+	s_pendingLocalChecksums.clear();
 
 	g_isGameOver = false;
 	g_winnerID = -1;
@@ -17877,7 +17874,7 @@ void ofApp::startNewTurn() {
 			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 			if (isMultiplayer) {
 				long long mySum = calculateChecksum();
-				s_pendingLocalChecksums.push(mySum);
+				s_pendingLocalChecksums[globalTurnCounter] = mySum;
 
 				ChecksumPacket chk = {};
 				chk.type = PKT_CHECKSUM_CHECK;
@@ -18385,7 +18382,7 @@ void ofApp::continueNewTurn() {
 	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 	if (isMultiplayer) {
 		long long mySum = calculateChecksum();
-		s_pendingLocalChecksums.push(mySum);
+		s_pendingLocalChecksums[globalTurnCounter] = mySum;
 
 		ChecksumPacket chk = {};
 		chk.type = PKT_CHECKSUM_CHECK;
@@ -33932,10 +33929,8 @@ void ofApp::debugSkipDraftRandomCards() {
 }
 //--------------------------------------------------------------
 void ofApp::cleanupGame() {
-	while (!s_pendingRemoteChecksums.empty())
-		s_pendingRemoteChecksums.pop();
-	while (!s_pendingLocalChecksums.empty())
-		s_pendingLocalChecksums.pop();
+	s_pendingRemoteChecksums.clear();
+	s_pendingLocalChecksums.clear();
 
 	players.clear();
 	activeDiceRolls.clear();
@@ -36495,7 +36490,7 @@ void ofApp::processNetworkPackets() {
 				}
 
 				// Push remote checksum and evaluate if we have our local one ready!
-				s_pendingRemoteChecksums.push(pkt->checksum);
+				s_pendingRemoteChecksums[pkt->turnNumber] = pkt->checksum;
 				continue;
 			}
 			// PKT_KEY_PICKUP handling removed:
@@ -36573,17 +36568,29 @@ void ofApp::processNetworkPackets() {
 	}
 
 	// --- EVALUATE PENDING CHECKSUMS ---
-	while (!s_pendingLocalChecksums.empty() && !s_pendingRemoteChecksums.empty()) {
-		long long localSum = s_pendingLocalChecksums.front();
-		long long remoteSum = s_pendingRemoteChecksums.front();
-		s_pendingLocalChecksums.pop();
-		s_pendingRemoteChecksums.pop();
+	auto localIt = s_pendingLocalChecksums.begin();
+	auto remoteIt = s_pendingRemoteChecksums.begin();
+	while (localIt != s_pendingLocalChecksums.end() && remoteIt != s_pendingRemoteChecksums.end()) {
+		if (localIt->first < remoteIt->first) {
+			++localIt;
+			continue;
+		}
+		if (remoteIt->first < localIt->first) {
+			++remoteIt;
+			continue;
+		}
 
-		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "CHECKSUM_CHECK Evaluated. Local: " + std::to_string(localSum) + " Remote: " + std::to_string(remoteSum));
+		long long localSum = localIt->second;
+		long long remoteSum = remoteIt->second;
+		int turnNumber = localIt->first;
+		localIt = s_pendingLocalChecksums.erase(localIt);
+		remoteIt = s_pendingRemoteChecksums.erase(remoteIt);
+
+		writeLockstepTrace(steamManager.isHost(), turnNumber, "CHECKSUM_CHECK Evaluated. Local: " + std::to_string(localSum) + " Remote: " + std::to_string(remoteSum));
 
 		if (localSum != remoteSum) {
 			ofLogError("Net") << "DESYNC DETECTED! Local: " << localSum << " vs Remote: " << remoteSum << ". Halting game.";
-			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "*** DESYNC DETECTED! Local: " + std::to_string(localSum) + " vs Remote: " + std::to_string(remoteSum) + " ***");
+			writeLockstepTrace(steamManager.isHost(), turnNumber, "*** DESYNC DETECTED! Local: " + std::to_string(localSum) + " vs Remote: " + std::to_string(remoteSum) + " ***");
 
 			steamManager.disarmLeaverBuster();
 
