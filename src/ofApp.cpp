@@ -4656,6 +4656,27 @@ void ofApp::updateStateMachine() {
 
 		// Freeze the simulation entirely if we hit a fatal desync
 		if (currentState == STATE_DESYNC) {
+			if (ofGetElapsedTimef() - g_desyncStartTime >= 10.0f) {
+				if (isMultiplayer) {
+					steamManager.leaveLobby();
+					isMultiplayer = false;
+					hasReceivedHandshake = false;
+					initialDraftComplete = false;
+					draftAcceptLocked = false;
+					draftAcceptApplied = false;
+					gameplaySeededByHost = false;
+					handshakeRequestInterval = 1.0f;
+					waitingForClientHandshake = false;
+					waitingForReconnect = false;
+					reconnectTurnTimerPausedByDisconnect = false;
+					reconnectTurnTimerPausedRemainingFrames = 0;
+					turnTimerPaused = false;
+					turnTimerPausedRemainingFrames = 0;
+					reconnectForfeitStartTime = -1.0f;
+				}
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
 			deltaTime = 0.0f;
 		}
 
@@ -8425,6 +8446,10 @@ void ofApp::drawGame() {
 		ofSetColor(255, 30, 30);
 		drawPixelTextCentered(titleFont, "FATAL DESYNC DETECTED", ofGetWidth() / 2.0f, ofGetHeight() / 2.0f - 60, 1.5f, ofColor::red);
 		drawPixelTextCentered(uiFont, desyncMessage, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 1.0f, ofColor::white);
+
+		int secondsLeft = 10 - (int)(ofGetElapsedTimef() - g_desyncStartTime);
+		if (secondsLeft < 0) secondsLeft = 0;
+		drawPixelTextCentered(uiFont, "Game will quit to main menu in " + std::to_string(secondsLeft) + " seconds. Elo will not change.", ofGetWidth() / 2.0f, ofGetHeight() / 2.0f + 40, 1.0f, ofColor::yellow);
 
 		float uiScaleBtn = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 		gameOverReturnBtn.set(ofGetWidth() / 2.0f - 100 * uiScaleBtn, ofGetHeight() / 2.0f + 80 * uiScaleBtn, 200 * uiScaleBtn, 60 * uiScaleBtn);
@@ -36714,32 +36739,9 @@ long long ofApp::calculateChecksum() {
 	mix((uint64_t)interactingCardType);
 	mix((uint64_t)interactingCardIndex);
 	mix((uint64_t)interactionTargetIndex);
-	mix((uint64_t)cardPlayState);
-	mix((uint64_t)(isProcessingEffect ? 1 : 0));
-	mix((uint64_t)currentEffectSequence.currentOp);
-	mix((uint64_t)currentEffectSequence.ops.size());
 
-	// Hash Effect Blackboard
-	for (int i = 0; i < 16; i++) {
-		mix((uint64_t)currentEffectSequence.blackboard[i]);
-	}
-
-	// Hash Effect Ops
-	for (const auto & op : currentEffectSequence.ops) {
-		mix((uint64_t)op.type);
-		// Ignore WAIT_VISUAL's targetIndex because it is used as a frame countdown
-		// which constantly mutates, causing false desyncs over the network!
-		if (op.type != EffectOpType::WAIT_VISUAL) {
-			mix((uint64_t)op.data.damage.targetIndex); // Quick representation of the union data
-		}
-	}
-
-	// 4. TRANSIENT SPELL STATES
-	mix((uint64_t)magicBlastChoicesRemaining);
-	mix((uint64_t)koboldsRemainingToPlace);
-	mix((uint64_t)wolfSummonStage);
-	mix((uint64_t)numCardsToRemove);
-	mix((uint64_t)blockingBoonPendingCasterIndex);
+	// TRANSIENT EFFECT STATES AND OPS REMOVED TO PREVENT FALSE DESYNCS
+	// WHEN PACKETS ARE RECEIVED MID-EFFECT-SEQUENCE
 
 	// 5. KEYS & GRAVEYARD
 	mix((uint64_t)floatingKeyInstances.size());
@@ -36835,6 +36837,7 @@ long long ofApp::calculateChecksum() {
 
 	return (long long)h;
 }
+
 // Public harness wrapper
 bool ofApp::harnessLoadAndPrintChecksum(const std::string & path) {
 	if (loadGameStateFromFile(path)) {
