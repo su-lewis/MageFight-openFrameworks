@@ -36080,19 +36080,12 @@ void ofApp::processNetworkPackets() {
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
 
-		// CRITICAL FIX: If we are not in a match state, drop ALL gameplay packets.
+		// CRITICAL FIX: If we are not in a multiplayer match (or we fatal desynced), drop ALL gameplay packets.
 		// This prevents lingering snapshots/commands in the Steam network buffer from
 		// "resurrecting" a closed game and trapping the player in an empty board!
-		if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC) {
-			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY) {
-				continue;
-			}
-		}
-
-		// CRITICAL FIX: If we are not in a multiplayer match, drop ALL gameplay packets.
-		// This prevents lingering snapshots/commands in the Steam network buffer from
-		// "resurrecting" a closed game and trapping the player in an empty board!
-		if (!isMultiplayer) {
+		// We DO NOT check currentState here because the Client is technically still in
+		// STATE_MULTIPLAYER_MENU when it needs to receive the StartMatch command!
+		if (!isMultiplayer || currentState == STATE_DESYNC) {
 			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY) {
 				continue;
 			}
