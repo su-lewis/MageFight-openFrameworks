@@ -6479,6 +6479,7 @@ void ofApp::setupGame() {
 			std::random_device rd;
 			currentMapSeed = rd();
 		}
+
 		lastTurnStartSentPlayer = -1;
 		lastTurnStartSentCounter = -1;
 		gameplayRNG.seed(currentMapSeed);
@@ -6747,11 +6748,16 @@ void ofApp::initialiseGameStateCommon() {
 		playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
-	if (isMultiplayer && isHost()) {
-		hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
-		clientsReady.clear();
-		ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
+	if (isMultiplayer) {
+		if (isHost()) {
+			hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
+			clientsReady.clear();
+			ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
+		} else {
+			ofLogNotice("Game") << "Client: waiting for StartMatch command from host.";
+		}
 	} else {
+		// Singleplayer: start immediately
 		startInitiativePhase();
 	}
 }
