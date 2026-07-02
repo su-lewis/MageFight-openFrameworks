@@ -29,6 +29,9 @@
 static std::map<int, long long> s_pendingRemoteChecksums;
 static std::map<int, long long> s_pendingLocalChecksums;
 
+// --- NEW: FULL MATCH LOG TRACKING ---
+static std::vector<std::string> s_fullMatchLog;
+
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
 	// Use a fixed filename so it overwrites every match and prevents folder bloat
 	std::string role = isHost ? "host" : "client";
@@ -4779,6 +4782,43 @@ void ofApp::update() {
 		return;
 	}
 
+	// --- FULL MATCH LOG SAVING ---
+	static bool matchLogSaved = false;
+	if (g_isGameOver && !matchLogSaved) {
+		matchLogSaved = true;
+
+		std::string matchLog = "=== MATCH SUMMARY ===\n";
+		matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
+		matchLog += "End Reason: " + std::string(g_winnerID == 2 ? "Draw" : "Victory") + "\n";
+		matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
+		matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n";
+		matchLog += "Winner ID: " + std::to_string(g_winnerID) + "\n\n";
+		matchLog += "--- PLAYERS ---\n";
+		matchLog += "Player 0: " + player0SteamName + "\n";
+		matchLog += "Player 1: " + player1SteamName + "\n\n";
+		matchLog += "--- EVENT LOG ---\n";
+		for (const auto & line : s_fullMatchLog) {
+			matchLog += line + "\n";
+		}
+		matchLog += "\n--- STATS ---\n";
+		for (int i = 0; i < 2; i++) {
+			matchLog += "Player " + std::to_string(i) + " Stats:\n";
+			matchLog += "  Max Dmg/Turn: " + std::to_string(matchStats[i].maxDamageInOneTurn) + "\n";
+			matchLog += "  Cards Played: " + std::to_string(matchStats[i].cardsPlayed) + "\n";
+			matchLog += "  Minions Spawned: " + std::to_string(matchStats[i].minionsSpawned) + "\n";
+			matchLog += "  Total Healing: " + std::to_string(matchStats[i].totalHealing) + "\n";
+		}
+		matchLog += "=====================\n";
+
+		std::string filename = getSavesDirPath().string() + "/match_log_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
+		ofFile f(filename, ofFile::WriteOnly);
+		f << matchLog;
+		f.close();
+		ofLogNotice("MatchLog") << "Saved full match log to " << filename;
+	} else if (!g_isGameOver) {
+		matchLogSaved = false; // Reset for next match
+	}
+
 	// --- ELO CALCULATION ---
 	if (g_isGameOver && !eloCalculated && isMultiplayer) {
 		eloCalculated = true;
@@ -6425,6 +6465,9 @@ void ofApp::setupGame() {
 	g_actionHistory.clear();
 	g_playerDefenses.clear();
 	turnTimerEnabled = true; // Ensure turn timer is enabled for every game
+
+	s_fullMatchLog.clear();
+	s_fullMatchLog.push_back("[" + ofGetTimestampString("%H:%M:%S") + "] --- MATCH STARTED ---");
 
 	// Repopulate default floating key positions so keys are present
 	// when a new game is started (previously keys were only added in setup()).
@@ -30553,7 +30596,9 @@ void ofApp::addGameLog(const std::string & logText) {
 	if (gameLog.size() > static_cast<size_t>(maxLogEntries)) {
 		gameLog.erase(gameLog.begin());
 	}
-	// Don't show chat window for log entries - only for chat messages
+
+	// Push to the persistent full match log so it survives UI truncation!
+	s_fullMatchLog.push_back("[" + ofGetTimestampString("%H:%M:%S") + "] " + logText);
 }
 
 //--------------------------------------------------------------
@@ -37010,6 +37055,37 @@ void ofApp::processNetworkPackets() {
 			desyncMessage = "Local: " + std::to_string(localSum) + "\nRemote: " + std::to_string(remoteSum) + "\nCheck latest_desync_dump logs.";
 			currentState = STATE_DESYNC;
 			g_desyncStartTime = ofGetElapsedTimef();
+
+			// --- FULL MATCH LOG SAVING (DESYNC) ---
+			std::string matchLog = "=== MATCH SUMMARY ===\n";
+			matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
+			matchLog += "End Reason: Fatal Desync\n";
+			matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
+			matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n";
+			matchLog += "Winner ID: N/A\n\n";
+			matchLog += "--- PLAYERS ---\n";
+			matchLog += "Player 0: " + player0SteamName + "\n";
+			matchLog += "Player 1: " + player1SteamName + "\n\n";
+			matchLog += "--- EVENT LOG ---\n";
+			for (const auto & line : s_fullMatchLog) {
+				matchLog += line + "\n";
+			}
+			matchLog += "\n--- STATS ---\n";
+			for (int i = 0; i < 2; i++) {
+				matchLog += "Player " + std::to_string(i) + " Stats:\n";
+				matchLog += "  Max Dmg/Turn: " + std::to_string(matchStats[i].maxDamageInOneTurn) + "\n";
+				matchLog += "  Cards Played: " + std::to_string(matchStats[i].cardsPlayed) + "\n";
+				matchLog += "  Minions Spawned: " + std::to_string(matchStats[i].minionsSpawned) + "\n";
+				matchLog += "  Total Healing: " + std::to_string(matchStats[i].totalHealing) + "\n";
+			}
+			matchLog += "=====================\n";
+
+			std::string filename = getSavesDirPath().string() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
+			ofFile f(filename, ofFile::WriteOnly);
+			f << matchLog;
+			f.close();
+			ofLogNotice("MatchLog") << "Saved full match log to " << filename;
+			// --------------------------------------
 
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
