@@ -7300,36 +7300,34 @@ void ofApp::prepareGameVisualState() {
 	}
 
 	// Hand Interpolation (144Hz Smooth + No Bouncing)
-	if (!players.empty()) {
-		for (auto & p : players) {
-			if (p.isMinion) continue;
-
-			bool isLocal = false;
-			if (isMultiplayer) {
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		auto getLocalHandPlayer = [&]() -> Player * {
+			if (players.empty()) return nullptr;
+			if (isMultiplayer || isVsAI) {
 				if (myLocalPlayerID == 2) {
-					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
-				} else {
-					isLocal = (p.playerID == myLocalPlayerID);
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
+					return nullptr;
 				}
-			} else if (isVsAI) {
-				isLocal = (p.playerID == 0);
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					Player & activePlayer = players[currentPlayerIndex];
+					int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
+					if (activeOwnerID == myLocalPlayerID) return &activePlayer;
+				}
+				for (auto & p : players) {
+					if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
+				}
 			} else {
-				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
 			}
+			return nullptr;
+		};
 
-			size_t numCards = p.hand.size();
-			if (numCards == 0) continue;
+		Player * handPlayer = getLocalHandPlayer();
+		if (handPlayer) {
+			size_t numCards = handPlayer->hand.size();
 
 			// 1. Calculate the target layout for the fan of cards
 			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
-
-			float arcSign = 1.0f;
-			if (!isLocal) {
-				float scale = getUIScaleFromHeight(ofGetHeight());
-				float handCardH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
-				handLayout.restY = -(handCardH * 0.35f); // Hide partially off the top edge
-				arcSign = -1.0f; // Arch downwards
-			}
 
 			for (size_t i = 0; i < numCards; i++) {
 				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
@@ -7344,25 +7342,23 @@ void ofApp::prepareGameVisualState() {
 
 				// Enhanced breathing
 				float breathing = 0.0f;
-				if (isLocal && draggedCardIndex == -1) {
+				if (draggedCardIndex == -1) {
 					breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
 				}
 
 				// PURE RESTING POSITION - TargetPos never jumps up!
-				float cardCenterY = handLayout.restY + (arcDrop * (fanT * fanT) * arcSign) + breathing;
-				p.hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
+				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 
-				if (isLocal && static_cast<int>(i) == draggedCardIndex) continue;
+				if (static_cast<int>(i) != draggedCardIndex) {
+					float dt = ofGetLastFrameTime();
+					if (dt > 0.1f) dt = 0.016f;
 
-				float dt = ofGetLastFrameTime();
-				if (dt > 0.1f) dt = 0.016f;
-
-				// Apply hover lift dynamically
-				float hoverLift = 0.0f;
-				float targetScaleVal = 1.0f;
-
-				if (isLocal) {
+					// Apply hover lift dynamically
+					float hoverLift = 0.0f;
 					bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
+
+					// If the card is actively being aimed/targeted, DO NOT hover it
 					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
 					bool isRenewedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
@@ -7370,36 +7366,30 @@ void ofApp::prepareGameVisualState() {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
 						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
 						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
-						hoverLift = desiredHoverY - p.hand[i].targetPos.y;
+						hoverLift = desiredHoverY - handPlayer->hand[i].targetPos.y;
 					}
 
+					float targetScaleVal = 1.0f;
 					if (isRenewedMenu) {
 						targetScaleVal = 1.0f;
 					} else if (isLocallyHovered && !isActivelyTargeting) {
 						targetScaleVal = kHandHoverScale;
 					}
 					if (isCurrentPlayerLocal() && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
-				} else {
-					if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == (int)i) {
-						float uiScale = getUIScaleFromHeight(ofGetHeight());
-						hoverLift = 30.0f * uiScale;
-						targetScaleVal = 1.15f;
-					}
+
+					handPlayer->hand[i].targetScale = targetScaleVal;
+
+					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
+					float scaleLerp = 1.0f - std::exp(-springScale * dt);
+					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
+
+					// Interpolate toward the resting position + the hover lift
+					ofVec2f actualTarget = handPlayer->hand[i].targetPos + ofVec2f(0.0f, hoverLift);
+
+					float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
+					float posLerp = 1.0f - std::exp(-springPos * dt);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(actualTarget, posLerp);
 				}
-
-				p.hand[i].targetScale = targetScaleVal;
-
-				float springScale = (p.hand[i].targetScale > p.hand[i].currentScale) ? 25.0f : 12.0f;
-				float scaleLerp = 1.0f - std::exp(-springScale * dt);
-				p.hand[i].currentScale = ofLerp(p.hand[i].currentScale, p.hand[i].targetScale, scaleLerp);
-
-				// Interpolate toward the resting position + the hover lift
-				ofVec2f actualTarget = p.hand[i].targetPos + ofVec2f(0.0f, hoverLift);
-
-				float springPos = (isLocal && hoverLift < 0.0f) ? 22.0f : 14.0f;
-				if (!isLocal && hoverLift > 0.0f) springPos = 22.0f;
-				float posLerp = 1.0f - std::exp(-springPos * dt);
-				p.hand[i].currentPos = p.hand[i].currentPos.getInterpolated(actualTarget, posLerp);
 			}
 		}
 	}
@@ -11760,174 +11750,192 @@ void ofApp::drawGame() {
 	}
 
 	// --- OPTIMISED HAND DRAWING ---
-	if (!players.empty()) {
-		for (auto & p : players) {
-			if (p.isMinion) continue;
+	// Draw the hand area only when we have a valid player/context (match rest of UI)
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		// Hearthstone-style hover scale for cards
+		const float hoverScale = kHandHoverScale;
 
-			bool isLocal = false;
-			if (isMultiplayer) {
+		auto getLocalHandPlayer = [&]() -> Player * {
+			if (players.empty()) return nullptr;
+			if (isMultiplayer || isVsAI) {
 				if (myLocalPlayerID == 2) {
-					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
-				} else {
-					isLocal = (p.playerID == myLocalPlayerID);
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						return &players[currentPlayerIndex];
+					}
+					return nullptr;
 				}
-			} else if (isVsAI) {
-				isLocal = (p.playerID == 0);
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					Player & activePlayer = players[currentPlayerIndex];
+					int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
+					if (activeOwnerID == myLocalPlayerID) return &activePlayer;
+				}
+				for (auto & p : players) {
+					if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
+				}
 			} else {
-				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					return &players[currentPlayerIndex];
+				}
+			}
+			return nullptr;
+		};
+
+		Player * handPlayer = getLocalHandPlayer();
+		if (!handPlayer) return;
+		Player & currentPlayer = *handPlayer;
+		size_t numCards = currentPlayer.hand.size();
+
+		static size_t lastLoggedHandSize = 9999;
+		if (numCards != lastLoggedHandSize) {
+			ofLogNotice("Hand") << "Displaying hand for player " << currentPlayer.playerID << ": " << numCards << " cards (isMultiplayer=" << isMultiplayer << " myLocalPlayerID=" << myLocalPlayerID << ")";
+			lastLoggedHandSize = numCards;
+		}
+
+		// Hearthstone-style hand layout with dynamic spacing
+		HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+		ofRectangle handAreaRect = handLayout.handAreaRect;
+		float baseCardHeight = handLayout.cardH;
+		float handBaseCardWidth = handLayout.cardW;
+
+		ofPushStyle();
+		ofSetColor(18, 18, 24, 105);
+		ofDrawRectRounded(handAreaRect, 24.0f);
+		ofNoFill();
+		ofSetColor(120, 120, 140, 135);
+		ofSetLineWidth(2.0f);
+		ofDrawRectRounded(handAreaRect, 24.0f);
+		ofPopStyle();
+
+		// 1. Determine which card should be drawn LAST (On Top)
+		int indexToDrawLast = -1;
+		if (draggedCardIndex != -1)
+			indexToDrawLast = draggedCardIndex;
+		else if (hoveredCardIndex != -1)
+			indexToDrawLast = hoveredCardIndex;
+
+		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
+		auto drawHandCard = [&](int index, bool isTopCard) {
+			Card & card = currentPlayer.hand[index];
+			// If this card is currently represented by a flying animation, skip drawing
+			if (card.isAnimating) return;
+
+			// Use the smooth physics scale directly (NO double scaling!)
+			float drawScale = card.currentScale;
+
+			float w = handBaseCardWidth * drawScale;
+			float h = baseCardHeight * drawScale;
+
+			// Card's physical position is already updated by the spring physics (NO double offset!)
+			float drawX = card.currentPos.x - w / 2.0f;
+			float drawY = card.currentPos.y - h / 2.0f;
+
+			float fanT = 0.0f;
+			if (numCards >= 4) {
+				fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+			}
+			float maxTiltDeg = 0.0f;
+			if (numCards >= 4) {
+				maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
 			}
 
-			size_t numCards = p.hand.size();
-			if (numCards == 0) continue;
+			// Tilt calculation
+			float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
 
-			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
-			float baseCardHeight = handLayout.cardH;
-			float handBaseCardWidth = handLayout.cardW;
+			// Smoothly straighten the card out as it pops up during hover
+			if (index == hoveredCardIndex) {
+				float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, hoverScale - 1.0f), 0.0f, 1.0f);
+				tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
+			}
 
-			if (isLocal) {
+			if (index == draggedCardIndex) {
+				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
+			}
+
+			ofPushMatrix();
+			ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
+			ofRotateDeg(tiltDeg);
+			ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
+
+			if (isTopCard) {
 				ofPushStyle();
-				ofSetColor(18, 18, 24, 105);
-				ofDrawRectRounded(handLayout.handAreaRect, 24.0f);
-				ofNoFill();
-				ofSetColor(120, 120, 140, 135);
-				ofSetLineWidth(2.0f);
-				ofDrawRectRounded(handLayout.handAreaRect, 24.0f);
+				ofSetColor(0, 0, 0, 78);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
+					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+				ofSetColor(0, 0, 0, 34);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 11.0f, drawY + 15.0f, w, h,
+					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 				ofPopStyle();
 			}
 
-			int indexToDrawLast = -1;
-			if (isLocal) {
-				if (draggedCardIndex != -1)
-					indexToDrawLast = draggedCardIndex;
-				else if (hoveredCardIndex != -1)
-					indexToDrawLast = hoveredCardIndex;
+			// B. Draw Overlays as Solid Polygons BEFORE the card face
+			ofPushStyle();
+			ofFill();
+
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+				bool isSelected = false;
+				for (int sel : renewedSelectedHandIndices)
+					if (sel == index) isSelected = true;
+				if (isSelected) {
+					ofSetColor(ofColor::green);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
+			} else if (opponentInteraction.open && opponentInteraction.type == 6) {
+				if (s_opponentRiMask & (1U << index)) {
+					ofSetColor(ofColor::green);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
 			} else {
-				if (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) indexToDrawLast = opponentHoverCardIndex;
-			}
-
-			auto drawHandCard = [&](int index, bool isTopCard) {
-				Card & card = p.hand[index];
-				if (card.isAnimating) return;
-
-				float drawScale = card.currentScale;
-				float w = handBaseCardWidth * drawScale;
-				float h = baseCardHeight * drawScale;
-				float drawX = card.currentPos.x - w / 2.0f;
-				float drawY = card.currentPos.y - h / 2.0f;
-
-				float fanT = 0.0f;
-				if (numCards >= 4) {
-					fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f;
-				}
-				float maxTiltDeg = 0.0f;
-				if (numCards >= 4) {
-					maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
+				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
+					ofSetColor(ofColor::green);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 				}
 
-				float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
-				if (!isLocal) tiltDeg = -tiltDeg;
+				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
+					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
+					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
 
-				if (isLocal && index == hoveredCardIndex) {
-					float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, kHandHoverScale - 1.0f), 0.0f, 1.0f);
-					tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
-				} else if (!isLocal && isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
-					float hoverT = std::clamp((drawScale - 1.0f) / 0.15f, 0.0f, 1.0f);
-					tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
-				}
-
-				if (isLocal && index == draggedCardIndex) {
-					tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
-				}
-
-				ofPushMatrix();
-				ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
-				ofRotateDeg(tiltDeg);
-				ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
-
-				if (isTopCard) {
-					ofPushStyle();
-					ofSetColor(0, 0, 0, 78);
-					if (isLocal) {
-						drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
-							card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-					} else {
-						cardBackImage.draw(drawX + 6.0f, drawY + 9.0f, w, h);
-					}
-					ofPopStyle();
-				}
-
-				ofPushStyle();
-				ofFill();
-
-				if (isLocal) {
-					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-						bool isSelected = false;
-						for (int sel : renewedSelectedHandIndices)
-							if (sel == index) isSelected = true;
-						if (isSelected) {
-							ofSetColor(ofColor::green);
-							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-						}
-					} else if (opponentInteraction.open && opponentInteraction.type == 6) {
-						if (s_opponentRiMask & (1U << index)) {
-							ofSetColor(ofColor::green);
-							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-						}
-					} else {
-						if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
-							ofSetColor(ofColor::green);
-							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-						}
-
-						if (p.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-							bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
-							bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
-
-							if (isDirectDamageCard && !isExcluded) {
-								ofSetColor(255, 140, 0);
-								drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-							}
-						}
-					}
-
-					if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
-						ofSetColor(255, 255, 255, 200);
-						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-					}
-				} else {
-					if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
-						ofSetColor(255, 0, 0, 200);
+					if (isDirectDamageCard && !isExcluded) {
+						ofSetColor(255, 140, 0);
 						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 					}
 				}
-
-				ofPopStyle();
-
-				if (isLocal) {
-					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
-						ofSetColor(200, 200, 255);
-					} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
-						ofSetColor(80, 80, 80, 180);
-					} else {
-						ofSetColor(255);
-					}
-					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &p);
-				} else {
-					ofSetColor(255);
-					cardBackImage.draw(drawX, drawY, w, h);
-				}
-
-				ofPopMatrix();
-			};
-
-			for (size_t i = 0; i < numCards; i++) {
-				if (static_cast<int>(i) == indexToDrawLast) continue;
-				drawHandCard(i, false);
 			}
 
-			if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
-				drawHandCard(indexToDrawLast, true);
+			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
+				ofSetColor(255, 255, 255, 200);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 			}
+			if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
+				ofSetColor(255, 0, 0, 200);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+			}
+
+			ofPopStyle();
+
+			// A. Draw Sprite
+			// Ghostly tint for copied cards in Renewed Inspiration mode
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
+				ofSetColor(200, 200, 255); // Subtle Blue-White tint
+			} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
+				ofSetColor(80, 80, 80, 180); // Gray out RI!
+			} else {
+				ofSetColor(255); // Normal
+			}
+
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
+
+			ofPopMatrix();
+		};
+
+		// 2. PASS 1: Draw standard cards
+		for (size_t i = 0; i < numCards; i++) {
+			if (static_cast<int>(i) == indexToDrawLast) continue;
+			drawHandCard(i, false);
+		}
+
+		// 3. PASS 2: Draw the "Top" card
+		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
+			drawHandCard(indexToDrawLast, true);
 		}
 	}
 
@@ -17472,9 +17480,14 @@ void ofApp::keyReleased(int key) {
 			return;
 		}
 
-		if (currentState == STATE_DRAFTING && !isInGameDraft) {
-			pausedFromState = STATE_DRAFTING;
-			currentState = STATE_PAUSED;
+		if (currentState == STATE_DRAFTING) {
+			bool isMyDraft = isLocalDraftingPlayer(draftPlayerIndex);
+			if (isInGameDraft && isMyDraft) {
+				ofLogNotice("Draft") << "ESC ignored during your in-game key draft (must pick a card).";
+			} else {
+				pausedFromState = STATE_DRAFTING;
+				currentState = STATE_PAUSED;
+			}
 			return;
 		}
 
@@ -17496,18 +17509,6 @@ void ofApp::keyReleased(int key) {
 		case STATE_INITIATIVE_ROLL:
 			pausedFromState = STATE_INITIATIVE_ROLL;
 			currentState = STATE_PAUSED;
-			break;
-		case STATE_DRAFTING:
-			// If this draft was triggered by picking up a key (in-game draft),
-			// disallow cancelling — the player must make a pick. For normal
-			// drafting screens (e.g. pre-game), allow pause as before.
-			if (isInGameDraft) {
-				ofLogNotice("Draft") << "ESC ignored during in-game key draft (must pick a card).";
-				// swallow ESC — do not change currentState
-			} else {
-				pausedFromState = STATE_DRAFTING;
-				currentState = STATE_PAUSED;
-			}
 			break;
 
 		case STATE_PAUSED:
@@ -17586,49 +17587,42 @@ void ofApp::windowResized(int w, int h) {
 	endTurnButtonCurrentPos = endTurnButtonTargetPos;
 
 	// 2. Snap Cards in Hand - Hearthstone Style
-	if (!players.empty()) {
-		for (auto & p : players) {
-			if (p.isMinion) continue;
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player & currentPlayer = players[currentPlayerIndex];
 
-			bool isLocal = false;
-			if (isMultiplayer) {
-				if (myLocalPlayerID == 2) {
-					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+		// Hearthstone layout: bottom of screen, slightly cut off
+		size_t numCards = currentPlayer.hand.size();
+		if (numCards > 0) {
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale; // Scaled card width
+			float handAreaWidth = w * 0.85f; // Use most of screen width
+			float handRestY = h - 20.0f; // Near bottom, partially visible
+
+			// Dynamic spacing: fewer cards = more space, more cards = closer
+			float spacing = 0.0f;
+			if (numCards == 1) {
+				spacing = 0.0f; // One card centered
+			} else if (numCards <= 10) {
+				// Scale spacing inversely with card count
+				float totalWidth = numCards * handBaseCardWidth;
+				if (totalWidth < handAreaWidth) {
+					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
+					spacing = std::min(spacing, 120.0f); // Max spacing
 				} else {
-					isLocal = (p.playerID == myLocalPlayerID);
+					spacing = 10.0f; // Min spacing when cramped
 				}
-			} else if (isVsAI) {
-				isLocal = (p.playerID == 0);
 			} else {
-				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+				spacing = 10.0f; // Very cramped
 			}
 
-			size_t numCards = p.hand.size();
-			if (numCards == 0) continue;
+			// Calculate total width and center
+			float totalHandWidth = numCards * handBaseCardWidth + (numCards - 1) * spacing;
+			float startX = (w - totalHandWidth) / 2.0f;
 
-			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
-			float arcSign = 1.0f;
-			if (!isLocal) {
-				float scale = getUIScaleFromHeight(ofGetHeight());
-				float handCardH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
-				handLayout.restY = -(handCardH * 0.35f);
-				arcSign = -1.0f;
-			}
-
+			// Position each card
 			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW / 2.0f);
-				float fanT = 0.0f;
-				if (numCards >= 4) {
-					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f;
-				}
-				float arcDrop = 0.0f;
-				if (numCards >= 4) {
-					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
-				}
-				float cardCenterY = handLayout.restY + (arcDrop * (fanT * fanT) * arcSign);
-
-				p.hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
-				p.hand[i].currentPos = p.hand[i].targetPos;
+				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
+				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handRestY);
+				currentPlayer.hand[i].currentPos = currentPlayer.hand[i].targetPos;
 			}
 		}
 	}
@@ -19317,6 +19311,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 			if (menuType != 0) {
 				int tgt = interactionTargetIndex;
+				if (menuType == 9) {
+					// FIX: Pack the wall grid coordinates into targetIndex so the opponent's menu knows where it is!
+					tgt = (gridX << 16) | (gridY & 0xFFFF);
+				}
 				sendMenuState(menuType, tgt, -1, cardIndex);
 			}
 		}
@@ -20428,17 +20426,18 @@ void ofApp::drawCard(bool sendPacket) {
 
 		// Set anim.targetPos to the standard hand area (bottom)
 		// Card already exists in hand, so use current hand size directly.
-		size_t numCards = currentPlayer.hand.size();
-		float handCenterY = ofGetHeight() - 130.0f;
-		float handBaseCardWidth = kCardPixelWidth;
-		float handAreaWidth = ofGetWidth() * 0.6f;
-		float totalCardWidths = numCards * handBaseCardWidth;
-		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
-		padding = std::min(padding, 20.0f);
-		float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
-		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-		float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+		size_t numCardsNow = currentPlayer.hand.size();
+		float handCenterY_now = ofGetHeight() - 130.0f;
+		float handBaseCardWidth_now = kCardPixelWidth;
+		float handAreaWidth_now = ofGetWidth() * 0.6f;
+		float totalCardWidths_now = numCardsNow * handBaseCardWidth_now;
+		float padding_now = (numCardsNow > 1) ? (handAreaWidth_now - totalCardWidths_now) / (numCardsNow - 1) : 0;
+		padding_now = std::min(padding_now, 20.0f);
+		float totalHandWidth_now = (numCardsNow * handBaseCardWidth_now) + ((numCardsNow - 1) * padding_now);
+		float startX_now = (ofGetWidth() - totalHandWidth_now) / 2.0f;
+		float cardCenterX_now = startX_now + (numCardsNow - 1) * (handBaseCardWidth_now + padding_now) + (handBaseCardWidth_now / 2.0f);
+
+		anim.targetPos = glm::vec2(cardCenterX_now, handCenterY_now);
 		anim.endPos = anim.startPos;
 
 		if (hasDrawSourceRect) {
@@ -21783,7 +21782,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 						break;
 					}
 				}
-				if (slot < 0) continue;
+
+				// FALLBACK: If the visual draft UI got out of sync for the opponent,
+				// force the animation to spawn from the center of the screen anyway!
+				if (slot < 0) slot = 1;
+
 				float cx = startX + static_cast<float>(slot) * (cardW + spacing);
 				glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
 				DraftPickedMove mv;
@@ -23941,29 +23944,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (numCardsToRemoveLocal > 0) {
 				numCardsToRemove = numCardsToRemoveLocal;
 
-				// FIX: Singleplayer/Local PvP plays on the same screen, so it is always Local.
-				bool chooserIsLocal = (!isMultiplayer) || (myLocalPlayerID == amnesiaChooserPlayerID);
-				if (!chooserIsLocal) {
-					for (const auto & p : players) {
-						if (p.isMinion && p.playerID == amnesiaChooserPlayerID && p.ownerID == myLocalPlayerID) {
-							chooserIsLocal = true;
-							break;
-						}
-					}
-				}
-
 				// FIX: Both peers must update interaction state
 				updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, CARD_AMNESIA);
 				advanceCardState(CARD_PLAY_STATE_MENU);
 
-				if (chooserIsLocal) {
-					amnesiaDeckCopy = amnesiaTarget->deck;
-					amnesiaSelectedIndices.clear();
-				} else {
-					// Fall back to a waiting state for the other peer
-					opponentInteraction.open = true;
-					opponentInteraction.type = 99; // Represents "Waiting for Opponent"
-				}
+				// FIX: Populate the deck copy for both peers so the opponent can watch!
+				amnesiaDeckCopy = amnesiaTarget->deck;
+				amnesiaSelectedIndices.clear();
+
 				opComplete = true;
 				break;
 			} else {
@@ -36895,6 +36883,12 @@ void ofApp::processNetworkPackets() {
 								updateCardInteractionState(CARD_INTERACTION_STATE_MENU, msp->cardIndex, cType);
 							}
 							interactionTargetIndex = msp->targetIndex;
+
+							// FIX: Unpack the wall coordinates for Giant Magic Hand
+							if (cType == CARD_GIANT_MAGIC_HAND) {
+								magicHandTargetTile.x = (msp->targetIndex >> 16) & 0xFFFF;
+								magicHandTargetTile.y = msp->targetIndex & 0xFFFF;
+							}
 
 							opponentInteraction.open = true;
 							opponentInteraction.type = msp->menuType;
