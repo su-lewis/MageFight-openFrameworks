@@ -80,9 +80,18 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			f << jsonStr;
 			f.close();
 
-			std::string cmd = "curl.exe -s -H \"Content-Type: application/json\" -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -d @\"" + tmpPath + "\" \"" + url + "\"";
-			int sysRet = system(cmd.c_str());
-			(void)sysRet;
+			// FIX: Added -k to bypass Proton/Wine SSL cert issues.
+			std::string args = "-k -s -H \"Content-Type: application/json\" -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -d @\"" + tmpPath + "\" \"" + url + "\"";
+
+			std::string cmd1 = "curl.exe " + args;
+			int sysRet = system(cmd1.c_str());
+
+			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
+			if (sysRet != 0) {
+				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
+				std::string cmd2 = "Z:\\usr\\bin\\curl " + args;
+				system(cmd2.c_str());
+			}
 
 			ofFile::removeFile(tmpPath, false);
 		}
@@ -149,14 +158,22 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 			f << jsonStr;
 			f.close();
 
-			std::string cmd = "curl.exe -s -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -F \"payload_json=<" + tmpPath + "\" ";
+			// FIX: Added -k to bypass Proton/Wine SSL cert issues.
+			std::string args = "-k -s -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -F \"payload_json=<" + tmpPath + "\" ";
 			for (size_t i = 0; i < filePaths.size(); ++i) {
-				cmd += "-F \"file" + std::to_string(i + 1) + "=@" + ofToDataPath(filePaths[i], true) + "\" ";
+				args += "-F \"file" + std::to_string(i + 1) + "=@" + ofToDataPath(filePaths[i], true) + "\" ";
 			}
-			cmd += "\"" + url + "\"";
+			args += "\"" + url + "\"";
 
-			int sysRet = system(cmd.c_str());
-			(void)sysRet;
+			std::string cmd1 = "curl.exe " + args;
+			int sysRet = system(cmd1.c_str());
+
+			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
+			if (sysRet != 0) {
+				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
+				std::string cmd2 = "Z:\\usr\\bin\\curl " + args;
+				system(cmd2.c_str());
+			}
 
 			ofFile::removeFile(tmpPath, false);
 		}
@@ -219,6 +236,8 @@ bool g_isConnectingToLobby = false;
 static float g_lastLobbyRefreshTime = 0.0f;
 static float g_lastLeaderboardRefreshTime = 0.0f;
 static float g_desyncStartTime = 0.0f;
+
+extern bool g_isSpectator;
 
 static bool isFastForwarding = false;
 static ofRectangle replayProgressBarRect;
@@ -5104,7 +5123,23 @@ void ofApp::update() {
 				// to avoid mismatch races when lobby data is stale or the host regenerated
 				// a seed during reconnects. We will keep requesting the seed until
 				// a handshake packet arrives.
-				if (steamManager.isMatchStarted()) {
+				if (g_isSpectator) {
+					// We are a spectator. Request snapshot.
+					ofLogNotice("Spectator") << "Joined as Spectator! Requesting snapshot...";
+					myLocalPlayerID = 2; // Spectator ID
+					isMultiplayer = true;
+					hasReceivedHandshake = true;
+					g_isConnectingToLobby = false;
+
+					static float lastReq = 0;
+					if (ofGetElapsedTimef() - lastReq > 2.0f) {
+						lastReq = ofGetElapsedTimef();
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						steamManager.sendPacket(&req, sizeof(req));
+					}
+				} else if (steamManager.isMatchStarted()) {
 					uint32_t seed = steamManager.getLobbySeed();
 					if (seed != 0) {
 						float now = ofGetElapsedTimef();
@@ -6061,18 +6096,17 @@ void ofApp::drawMultiplayerMenu() {
 			if (lRect.getBottom() > listY && lRect.getTop() < listY + listHeight) {
 				mpLobbyButtons.push_back(lRect);
 
-				bool isFull = (lobbies[i].numPlayers >= lobbies[i].maxPlayers);
+				bool inProgress = (lobbies[i].numPlayers >= 2); // 2 is the actual playing capacity
 
-				if (isFull) {
-					ofSetColor(30, 30, 40); // Darker, inactive background
-				} else {
-					ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
-				}
+				ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
 				ofDrawRectRounded(lRect, 8.0f);
 
-				ofSetColor(isFull ? ofColor(120, 120, 120) : ofColor::white);
-				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/" + std::to_string(lobbies[i].maxPlayers) + ")";
-				if (isFull) lobbyText += " [FULL]";
+				ofSetColor(ofColor::white);
+				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/10)";
+				if (inProgress)
+					lobbyText += " [SPECTATE]";
+				else
+					lobbyText += " [JOIN]";
 				uiFont.drawString(lobbyText, lRect.x + 15, lRect.y + 40 * uiScale);
 			} else {
 				// Push empty rect so the loop index matches the lobby click selection array!
@@ -6292,7 +6326,6 @@ void ofApp::recalculateUI(int w, int h) {
 	float pBtnWidth = btnWidth;
 	float pBtnHeight = btnHeight;
 	float pGap = btnGap; // same vertical gap as main menu
-	float pStartY = h / 2.0f - (pBtnHeight * 2 + pGap * 2) / 2.0f; // center the stack vertically
 	// When not multiplayer we show Resume, Save, Load, Settings, Quit (5 buttons)
 	// When multiplayer we show Resume, Settings, Quit (3 buttons)
 	if (!isMultiplayer) {
@@ -8989,7 +9022,7 @@ void ofApp::drawGame() {
 		}
 
 		// Draw simple blob shadows under players (so units appear grounded without full shadow-mapping)
-		for (int opaquePlayerIdx = 0; opaquePlayerIdx < players.size(); ++opaquePlayerIdx) {
+		for (int opaquePlayerIdx = 0; opaquePlayerIdx < (int)players.size(); ++opaquePlayerIdx) {
 			const auto & player = players[opaquePlayerIdx];
 
 			// CRITICAL FIX: Re-enable Color Material per-player so OpenGL doesn't render them black!
@@ -9464,7 +9497,7 @@ void ofApp::drawGame() {
 				float bob = sin(ofGetElapsedTimef() * 1.5f) * 0.15f;
 				ofTranslate(pos.x, currentOverheadY + 0.4f + bob, pos.z);
 
-				glm::vec3 camPos = cam.getPosition();
+				glm::vec3 camPos = activeCam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
 
@@ -9515,10 +9548,9 @@ void ofApp::drawGame() {
 				// Elevate the fire to span from 2ft up to 6ft (center at Y=4)
 				ofTranslate(pos.x + wobbleX, 4.0f, pos.z + wobbleZ);
 
-				// Billboard to camera
-				glm::vec3 camPos = cam.getPosition();
-				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
-				ofRotateYDeg(angle);
+				// Billboard perfectly to camera using inverse view rotation!
+				glm::quat camQuat = activeCam.getGlobalOrientation();
+				ofMultMatrix(glm::toMat4(camQuat));
 
 				// MOVEMENT: Pulse the size rapidly
 				float pulse = 1.0f + sin(time * 16.0f) * 0.08f;
@@ -9550,7 +9582,7 @@ void ofApp::drawGame() {
 					float alpha = 1.0f - (yFloat / 1.5f);
 					ofPushMatrix();
 					ofTranslate(sin(slowTime + z) * 0.2f, yFloat, 0);
-					glm::vec3 camPos = cam.getPosition();
+					glm::vec3 camPos = activeCam.getPosition();
 					float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 					ofRotateYDeg(angle);
 					ofScale(0.02f, 0.02f, 0.02f);
@@ -9590,7 +9622,7 @@ void ofApp::drawGame() {
 				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
 				currentOverheadY += 1.0f;
 
-				glm::vec3 camPos = cam.getPosition();
+				glm::vec3 camPos = activeCam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
 
@@ -9608,7 +9640,7 @@ void ofApp::drawGame() {
 				ofPushMatrix();
 				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
 				currentOverheadY += 1.0f;
-				glm::vec3 camPos = cam.getPosition();
+				glm::vec3 camPos = activeCam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
 				float time = ofGetElapsedTimef();
@@ -9624,7 +9656,7 @@ void ofApp::drawGame() {
 				ofPushMatrix();
 				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
 				currentOverheadY += 1.0f;
-				glm::vec3 camPos = cam.getPosition();
+				glm::vec3 camPos = activeCam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
 				float time = ofGetElapsedTimef();
@@ -11164,9 +11196,11 @@ void ofApp::drawGame() {
 				activeOwnerID = players[currentPlayerIndex].ownerID;
 			else
 				activeOwnerID = players[currentPlayerIndex].playerID;
+
+			int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
 			// Bottom deck is always local player: show only when the active owner matches local player
 			if (isMultiplayer) {
-				if (activeOwnerID != myLocalPlayerID) skipDrawP0AP = true;
+				if (activeOwnerID != viewID) skipDrawP0AP = true;
 			} else {
 				// Singleplayer: hide bottom AP if active owner is player 1
 				if (activeOwnerID == 1) skipDrawP0AP = true;
@@ -11259,9 +11293,11 @@ void ofApp::drawGame() {
 				activeOwnerID_p1 = players[currentPlayerIndex].ownerID;
 			else
 				activeOwnerID_p1 = players[currentPlayerIndex].playerID;
+
+			int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
 			// For multiplayer, show top AP only when active owner is NOT local player
 			if (isMultiplayer) {
-				if (activeOwnerID_p1 == myLocalPlayerID) skipDrawP1AP = true;
+				if (activeOwnerID_p1 == viewID) skipDrawP1AP = true;
 			} else {
 				// Singleplayer: hide top AP if active owner is player 0
 				if (activeOwnerID_p1 == 0) skipDrawP1AP = true;
@@ -11567,7 +11603,8 @@ void ofApp::drawGame() {
 				float btnY = 0.0f;
 				int activeOwnerID = curr.isMinion ? curr.ownerID : curr.playerID;
 				// FIX: If active owner is the Local Player, place reroll button to the RIGHT of AP (Bottom).
-				if ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == myLocalPlayerID)) {
+				int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
+				if ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == viewID)) {
 					float p0_apCenterX = p0_discardRect.getCenter().x;
 					float p0_apCenterY = p0_discardRect.y - (10.0f * scale);
 					string p0_apText = "0 AP";
@@ -11626,10 +11663,32 @@ void ofApp::drawGame() {
 		// Hearthstone-style hover scale for cards
 		const float hoverScale = kHandHoverScale;
 
-		// There is only one hand area at the bottom. Since hands are wiped at the end
-		// of each turn, only the active unit (player or minion) has cards to draw!
-		Player * handPlayer = &players[currentPlayerIndex];
+		auto getLocalHandPlayer = [&]() -> Player * {
+			if (players.empty()) return nullptr;
+			if (isMultiplayer || isVsAI) {
+				if (myLocalPlayerID == 2) {
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						return &players[currentPlayerIndex];
+					}
+					return nullptr;
+				}
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					Player & activePlayer = players[currentPlayerIndex];
+					int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
+					if (activeOwnerID == myLocalPlayerID) return &activePlayer;
+				}
+				for (auto & p : players) {
+					if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
+				}
+			} else {
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					return &players[currentPlayerIndex];
+				}
+			}
+			return nullptr;
+		};
 
+		Player * handPlayer = getLocalHandPlayer();
 		if (!handPlayer) return;
 		Player & currentPlayer = *handPlayer;
 		size_t numCards = currentPlayer.hand.size();
@@ -12014,8 +12073,9 @@ void ofApp::drawGame() {
 	// --- Draw Card Played Display (UI-based popup after card is played) ---
 	for (const auto & disp : activeCardDisplays) {
 		ofSetColor(255, disp.currentAlpha);
-		float w = animCardBaseWidth * disp.currentScale;
-		float h = animCardBaseHeight * disp.currentScale;
+		float globalScale = getUIScaleFromHeight(ofGetHeight());
+		float w = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
+		float h = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
 		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, disp.card, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h, nullptr);
 	}
 
@@ -12066,8 +12126,8 @@ void ofApp::drawGame() {
 				string fullMsg = msg.playerName + ": " + msg.message;
 				auto lines = wrapText(fullMsg, chatMaxWidth - 20);
 
-				// FIX: Hard 5 second linger time per message, regardless of length
-				if (currentTime - msg.timestamp < 5.0f) {
+				// FIX: Increased linger time to 10 seconds so players can read longer messages
+				if (currentTime - msg.timestamp < 10.0f) {
 					visibleWrappedBlocks.push_back(lines);
 					hasLingering = true;
 				}
@@ -12320,15 +12380,16 @@ void ofApp::drawGame() {
 				// CLOSED: Draw lingering text ONLY (no background)
 				chatWindowRect.set(0, 0, 0, 0); // No click hitbox
 
-				// Anchor to the top of the chat box and cascade downwards!
-				float contentTop = chatY - chatBoxHeight + contentPadding;
-				float contentBottom = chatY - contentPadding;
+				// Anchor to the top of the screen/margin!
+				float closedContentTop = margin + contentPadding;
+				float closedContentBottom = ofGetHeight(); // No strict bottom limit for lingering text
 
-				float messageY = contentTop + messageHeight;
+				// Reduce spacing so it starts nicely at the top
+				float messageY = closedContentTop + messageHeight * 0.8f;
 
 				for (const auto & blk : visibleWrappedBlocks) {
 					for (const auto & line : blk) {
-						if (messageY > contentBottom) break; // Don't bleed out the bottom
+						if (messageY > closedContentBottom) break; // Don't bleed out the bottom
 
 						// Text shadow
 						drawPixelTextBaseline(uiFont, line, chatX + 11, messageY + 1, 1.0f, ofColor(0, 0, 0, 200));
@@ -12822,22 +12883,32 @@ void ofApp::mouseMoved(int x, int y) {
 	}
 
 	// 3. Check for "Draggable" things (Cards in hand)
-	Player * handPlayer = nullptr;
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & activePlayer = players[currentPlayerIndex];
-		if (isMultiplayer) {
-			// In multiplayer, the hand on screen belongs to the active unit.
-			// We only interact with it if WE own the active unit (Player or Minion).
-			int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
-			if (activeOwnerID == myLocalPlayerID) {
-				handPlayer = &activePlayer;
+	auto getLocalHandPlayer = [&]() -> Player * {
+		if (players.empty()) return nullptr;
+		if (isMultiplayer || isVsAI) {
+			if (myLocalPlayerID == 2) {
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					return &players[currentPlayerIndex];
+				}
+				return nullptr;
+			}
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				Player & activePlayer = players[currentPlayerIndex];
+				int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
+				if (activeOwnerID == myLocalPlayerID) return &activePlayer;
+			}
+			for (auto & p : players) {
+				if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
 			}
 		} else {
-			// In singleplayer, the active unit's hand is always interactive
-			handPlayer = &activePlayer;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				return &players[currentPlayerIndex];
+			}
 		}
-	}
+		return nullptr;
+	};
 
+	Player * handPlayer = getLocalHandPlayer();
 	if (handPlayer) {
 		Player & p = *handPlayer;
 
@@ -15552,8 +15623,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
 		if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			const Player & currentPlayer = players[currentPlayerIndex];
-			int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+			const Player & currActive = players[currentPlayerIndex];
+			int controlledPlayerID = currActive.isMinion ? currActive.ownerID : currActive.playerID;
 
 			bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
 			int deciderOwner = -1;
@@ -15563,7 +15634,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
-				// Not our turn in multiplayer, and no decision needed - ignore all gameplay clicks
+				// Not our turn - ignore all gameplay clicks (allow hover via mouseMoved)
 				return;
 			}
 		}
@@ -16180,8 +16251,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	// TURN VALIDATION: Only allow dragging if it's the local player's turn or a minion owned by the local player
 	// In singleplayer we allow dragging for the active player; only enforce in multiplayer.
 	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		const Player & currentPlayer = players[currentPlayerIndex];
-		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		const Player & currActive = players[currentPlayerIndex];
+		int controlledPlayerID = currActive.isMinion ? currActive.ownerID : currActive.playerID;
 
 		bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
 		int deciderOwner = -1;
@@ -16290,7 +16361,30 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		}
 
 		if (draggedCardIndex != -1) {
-			Player & currentPlayer = players[currentPlayerIndex];
+			auto getLocalHandPlayer = [&]() -> Player * {
+				if (players.empty()) return nullptr;
+				if (isMultiplayer || isVsAI) {
+					if (myLocalPlayerID == 2) {
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
+						return nullptr;
+					}
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						Player & activePlayer = players[currentPlayerIndex];
+						int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
+						if (activeOwnerID == myLocalPlayerID) return &activePlayer;
+					}
+					for (auto & p : players) {
+						if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
+					}
+				} else {
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
+				}
+				return nullptr;
+			};
+			Player * hpPtr = getLocalHandPlayer();
+			if (!hpPtr) return;
+			Player & currentPlayer = *hpPtr;
+
 			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
@@ -16441,8 +16535,8 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	// TURN VALIDATION: Only allow releasing if it's the local player's turn or a minion owned by the local player
 	// In singleplayer, allow releasing for the active player; only enforce in multiplayer.
 	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		const Player & currentPlayer = players[currentPlayerIndex];
-		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		const Player & currActive = players[currentPlayerIndex];
+		int controlledPlayerID = currActive.isMinion ? currActive.ownerID : currActive.playerID;
 
 		bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
 		int deciderOwner = -1;
@@ -17619,6 +17713,16 @@ void ofApp::startNewTurn() {
 		// --- B. CHECK FOR BONUS TURNS ---
 		if (endingPlayer.bonusTurns > 0) {
 			endingPlayer.bonusTurns--;
+
+			// Make next-turn draw active immediately for the bonus turn
+			if (endingPlayer.nextTurnExtraDraw) {
+				int currentCycle = endingPlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+				if (currentCycle == globalTurnCounter) {
+					int count = (endingPlayer.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+					endingPlayer.nextTurnExtraDrawSetOnCycle = (count << 16) | ((globalTurnCounter - 1) & 0xFFFF);
+				}
+			}
+
 			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
 		} else {
 			// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
@@ -21586,8 +21690,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				}
 			}
 		}
-
-		selectedDraftIndices.clear();
 
 		selectedDraftIndices.clear();
 
@@ -28529,12 +28631,33 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 //--------------------------------------------------------------
 glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
 	float scale = getUIScaleFromHeight(ofGetHeight());
-	float staticUICardWidth = (kCardPixelWidth * 0.45f) * scale;
-	float deckBottomGap = std::max(0.0f, 20.0f * scale - 12.0f * scale);
-	float p1_deckX = ofGetWidth() - staticUICardWidth - deckBottomGap;
+	float handW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
+	float handH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
 
-	// Default to opponent's side, near their AP UI
-	return glm::vec2(p1_deckX - staticUICardWidth * 1.5f, 160.0f * scale);
+	float deckBottomGap = std::max(0.0f, 20.0f * scale - 12.0f * scale);
+
+	int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
+
+	bool isP0 = false;
+	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+		int ownerID = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
+		isP0 = (ownerID == viewID);
+	}
+
+	float x, y;
+	if (isP0) {
+		// Draw next to P0's AP counter (Bottom Left)
+		float p0_deckX = deckBottomGap;
+		x = p0_deckX + ((kCardPixelWidth * 0.45f) * scale) + 40.0f * scale;
+		y = ofGetHeight() - handH * 0.5f - 80.0f * scale;
+	} else {
+		// Draw next to P1's AP counter (Bottom Right)
+		float p1_deckX = ofGetWidth() - ((kCardPixelWidth * 0.45f) * scale) - deckBottomGap;
+		x = p1_deckX - handW - 40.0f * scale;
+		y = ofGetHeight() - handH * 0.5f - 80.0f * scale;
+	}
+
+	return glm::vec2(x, y);
 }
 //--------------------------------------------------------------
 void ofApp::createCardDisplay(const Card & card, int playerIndex, bool forceVisibleForAllPlayers) {
@@ -30156,6 +30279,7 @@ bool ofApp::isMyTurn() const {
 
 //--------------------------------------------------------------
 bool ofApp::isCurrentPlayerLocal() const {
+	if (myLocalPlayerID == 2) return false; // Spectators cannot act locally
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	const Player & p = players[currentPlayerIndex];
 	int activeID = p.isMinion ? p.ownerID : p.playerID;
@@ -30204,8 +30328,14 @@ std::string ofApp::buildSnapshotString() {
 	ss << "SEED\t" << currentMapSeed << "\n";
 	ss << "RNG\t" << gameplayRNG << "\n";
 	ss << "RNGPOS\t" << gameplayRngAdvanceCount << "\n";
+
+	GameState syncState = currentState;
+	if (isMultiplayer && (currentState == STATE_PAUSED || currentState == STATE_SETTINGS || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC)) {
+		syncState = pausedFromState;
+	}
+
 	// Added currentMapSeed at the end
-	ss << "STATE\t" << (int)currentState
+	ss << "STATE\t" << (int)syncState
 	   << "\t" << currentPlayerIndex
 	   << "\t" << globalTurnCounter
 	   << "\t" << (isInGameDraft ? 1 : 0)
@@ -36824,7 +36954,11 @@ long long ofApp::calculateChecksum() {
 	mix((uint64_t)nextSummonOrder);
 
 	// 2. GAME & DRAFT STATE
-	mix((uint64_t)currentState);
+	GameState syncState = currentState;
+	if (isMultiplayer && (currentState == STATE_PAUSED || currentState == STATE_SETTINGS || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC)) {
+		syncState = pausedFromState;
+	}
+	mix((uint64_t)syncState);
 	mix((uint64_t)(isInGameDraft ? 1 : 0));
 	mix((uint64_t)(initialDraftComplete ? 1 : 0));
 	mix((uint64_t)draftStage);
@@ -36837,10 +36971,8 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)v);
 
 	// 3. CARD INTERACTION & EFFECT PIPELINE
-	mix((uint64_t)cardInteractionState);
-	mix((uint64_t)interactingCardType);
-	mix((uint64_t)interactingCardIndex);
-	mix((uint64_t)interactionTargetIndex);
+	// Local UI states (cardInteractionState, interactingCardType, etc.) are removed
+	// from the checksum to prevent desyncs when a player interacts locally.
 
 	// TRANSIENT EFFECT STATES AND OPS REMOVED TO PREVENT FALSE DESYNCS
 	// WHEN PACKETS ARE RECEIVED MID-EFFECT-SEQUENCE

@@ -40,9 +40,13 @@ uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, u
 	#include <windows.h>
 #endif
 #include <fstream>
+#include <vector>
 
 extern bool g_isHostingLobby;
 extern bool g_isConnectingToLobby;
+
+std::vector<HSteamNetConnection> g_spectatorConnections;
+bool g_isSpectator = false;
 
 SteamManager::SteamManager()
 	: m_bInitialized(false)
@@ -120,11 +124,11 @@ void SteamManager::update() {
 	}
 
 	// -- READ MESSAGES --
-	if (m_hConnection != k_HSteamNetConnection_Invalid) {
-		ISteamNetworkingSockets * net = SteamNetworkingSockets();
-		const int MAX_MSGS = 32;
-		SteamNetworkingMessage_t * msgs[MAX_MSGS];
+	ISteamNetworkingSockets * net = SteamNetworkingSockets();
+	const int MAX_MSGS = 32;
+	SteamNetworkingMessage_t * msgs[MAX_MSGS];
 
+	if (m_hConnection != k_HSteamNetConnection_Invalid) {
 		int numMsgs = net->ReceiveMessagesOnConnection(m_hConnection, msgs, MAX_MSGS);
 
 		for (int i = 0; i < numMsgs; i++) {
@@ -158,9 +162,19 @@ void SteamManager::update() {
 		}
 	}
 
+	// Read messages from spectators (Chat, Snapshot Requests)
+	for (auto conn : g_spectatorConnections) {
+		int numMsgs = net->ReceiveMessagesOnConnection(conn, msgs, MAX_MSGS);
+		for (int i = 0; i < numMsgs; i++) {
+			auto * msg = msgs[i];
+			std::vector<char> buffer((char *)msg->m_pData, (char *)msg->m_pData + msg->m_cbSize);
+			packetQueue.push(buffer);
+			msg->Release();
+		}
+	}
+
 	// Rely on SteamNetworkingSockets reliability for reliable sends.
 }
-
 void SteamManager::cleanup() {
 	// LEAVE THE LOBBY, BUT DO NOT SHUTDOWN THE API HERE
 	leaveLobby();
@@ -195,8 +209,8 @@ void SteamManager::createLobby() {
 	ofLogNotice("Steam") << "Requesting Lobby Creation...";
 	m_bIsHost = true;
 
-	// Change to Public so it shows up in the Lobby Browser using Flat API
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_CreateLobby((intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 2);
+	// Change to Public so it shows up in the Lobby Browser using Flat API. Max 10 (2 Players, 8 Spectators)
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_CreateLobby((intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 10);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
 
@@ -222,6 +236,8 @@ void SteamManager::closeConnection() {
 		m_hConnection = k_HSteamNetConnection_Invalid;
 		m_hListenSocket = k_HSteamListenSocket_Invalid;
 		m_OpponentID = CSteamID(); // Clear opponent memory
+		g_spectatorConnections.clear();
+		g_isSpectator = false;
 		while (!packetQueue.empty())
 			packetQueue.pop();
 		return;
@@ -233,6 +249,12 @@ void SteamManager::closeConnection() {
 		net->CloseConnection(m_hConnection, 0, "Closing", true);
 		m_hConnection = k_HSteamNetConnection_Invalid;
 	}
+
+	for (auto conn : g_spectatorConnections) {
+		net->CloseConnection(conn, 0, "Closing", true);
+	}
+	g_spectatorConnections.clear();
+	g_isSpectator = false;
 
 	if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
 		net->CloseListenSocket(m_hListenSocket);
@@ -315,12 +337,24 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		if (res != k_EResultOK) {
 			ofLogWarning("Steam") << "SendMessageToConnection failed (pktType=" << (int)outHdr->type << ") res=" << (int)res;
 		}
+
+		if (m_bIsHost) {
+			for (auto conn : g_spectatorConnections) {
+				SteamNetworkingSockets()->SendMessageToConnection(conn, buffer.data(), size, k_nSteamNetworkingSend_Reliable, nullptr);
+			}
+		}
 		return (res == k_EResultOK);
 	}
 
 	// Use Reliable for game data
 	EResult res = SteamNetworkingSockets()->SendMessageToConnection(
 		m_hConnection, data, size, k_nSteamNetworkingSend_Reliable, nullptr);
+
+	if (m_bIsHost) {
+		for (auto conn : g_spectatorConnections) {
+			SteamNetworkingSockets()->SendMessageToConnection(conn, data, size, k_nSteamNetworkingSend_Reliable, nullptr);
+		}
+	}
 
 	return (res == k_EResultOK);
 }
@@ -421,6 +455,14 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 
+	int numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64());
+	if (numPlayers > 2) {
+		g_isSpectator = true;
+		ofLogNotice("Steam") << "Joined Lobby as Spectator (" << numPlayers << " members).";
+	} else {
+		g_isSpectator = false;
+	}
+
 	// FIX: If we just created the lobby, we already know we are the Host.
 	// Do not ask Steam who the owner is, because the backend is too slow
 	// and will return 0, falsely stripping our Host status!
@@ -493,8 +535,12 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 						SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
 					}
 				} else {
-					ofLogWarning("Steam") << "Rejecting 3rd party connection. Match is full.";
-					SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+					// Accept third parties as Spectators!
+					if (SteamNetworkingSockets()->AcceptConnection(pInfo->m_hConn) == k_EResultOK) {
+						ofLogNotice("Steam") << "Accepted Spectator Connection!";
+					} else {
+						SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+					}
 				}
 			}
 			// Otherwise, accept normally
@@ -512,24 +558,30 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 	case k_ESteamNetworkingConnectionState_Connected: { // <-- Added opening brace
 		ofLogNotice("Steam") << "Connection Fully Active!";
 
-		// It's a reconnect if we already knew who the opponent was from earlier in the match!
-		bool isReconnect = m_OpponentID.IsValid();
+		if (m_hConnection == k_HSteamNetConnection_Invalid || pInfo->m_hConn == m_hConnection || (m_OpponentID.IsValid() && pInfo->m_info.m_identityRemote.GetSteamID64() == m_OpponentID.ConvertToUint64())) {
+			// It's a reconnect if we already knew who the opponent was from earlier in the match!
+			bool isReconnect = m_OpponentID.IsValid() && m_hConnection == k_HSteamNetConnection_Invalid;
 
-		m_hConnection = pInfo->m_hConn;
+			m_hConnection = pInfo->m_hConn;
 
-		// Store opponent Steam ID for name lookup
-		if (pInfo->m_info.m_identityRemote.GetSteamID64() != 0) {
-			m_OpponentID = CSteamID(pInfo->m_info.m_identityRemote.GetSteamID64());
-			ofLogNotice("Steam") << "Opponent ID: " << m_OpponentID.ConvertToUint64();
-		}
+			// Store opponent Steam ID for name lookup
+			if (pInfo->m_info.m_identityRemote.GetSteamID64() != 0) {
+				m_OpponentID = CSteamID(pInfo->m_info.m_identityRemote.GetSteamID64());
+				ofLogNotice("Steam") << "Opponent ID: " << m_OpponentID.ConvertToUint64();
+			}
 
-		// Set reconnection flag if opponent was previously disconnected
-		if (isReconnect) {
-			opponentReconnected = true;
-			ofLogNotice("Steam") << "Opponent reconnected!";
+			// Set reconnection flag if opponent was previously disconnected
+			if (isReconnect) {
+				opponentReconnected = true;
+				ofLogNotice("Steam") << "Opponent reconnected!";
+			}
+		} else {
+			// It is a Spectator!
+			g_spectatorConnections.push_back(pInfo->m_hConn);
+			ofLogNotice("Steam") << "Spectator ID: " << pInfo->m_info.m_identityRemote.GetSteamID64() << " Fully Connected!";
 		}
 		break;
-	} // <-- Added closing brace
+	}
 
 	default:
 		// Ignore other connection states (FindingRoute, FinWait, etc.)
