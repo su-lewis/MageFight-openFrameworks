@@ -75,23 +75,32 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		if (response.status != 200 && response.status != 204) {
 			ofLogWarning("Discord") << "Native Webhook failed (" << response.status << "). Trying curl fallback...";
 
-			std::string tmpPath = ofToDataPath("discord_tmp_" + std::to_string(ofGetSystemTimeMillis()) + ".json", true);
+			std::string tmpFilename = "discord_tmp_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+			std::string tmpPath = ofToDataPath(tmpFilename, true);
 			ofFile f(tmpPath, ofFile::WriteOnly);
 			f << jsonStr;
 			f.close();
 
-			// FIX: Added -k to bypass Proton/Wine SSL cert issues.
-			std::string args = "-k -s -H \"Content-Type: application/json\" -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -d @\"" + tmpPath + "\" \"" + url + "\"";
+			std::string dataDir = ofToDataPath("", true);
+			std::string args = "--max-time 10 -k -s -H \"Content-Type: application/json\" -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -d @\"" + tmpFilename + "\" \"" + url + "\"";
 
-			std::string cmd1 = "curl.exe " + args;
+#ifdef _WIN32
+			for (auto & c : dataDir) {
+				if (c == '/') c = '\\';
+			}
+			std::string cmd1 = "cd /d \"" + dataDir + "\" && curl.exe " + args;
 			int sysRet = system(cmd1.c_str());
 
 			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
 			if (sysRet != 0) {
 				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
-				std::string cmd2 = "Z:\\usr\\bin\\curl " + args;
+				std::string cmd2 = "cd /d \"" + dataDir + "\" && Z:\\usr\\bin\\curl " + args;
 				system(cmd2.c_str());
 			}
+#else
+			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
+			system(cmd1.c_str());
+#endif
 
 			ofFile::removeFile(tmpPath, false);
 		}
@@ -153,27 +162,38 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 		if (response.status != 200 && response.status != 204) {
 			ofLogWarning("Discord") << "Native File Webhook failed (" << response.status << "). Trying curl fallback...";
 
-			std::string tmpPath = ofToDataPath("discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json", true);
+			std::string tmpFilename = "discord_payload_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+			std::string tmpPath = ofToDataPath(tmpFilename, true);
 			ofFile f(tmpPath, ofFile::WriteOnly);
 			f << jsonStr;
 			f.close();
 
-			// FIX: Added -k to bypass Proton/Wine SSL cert issues.
-			std::string args = "-k -s -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -F \"payload_json=<" + tmpPath + "\" ";
+			std::string dataDir = ofToDataPath("", true);
+			std::string args = "--max-time 15 -k -s -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -F \"payload_json=<" + tmpFilename + "\" ";
 			for (size_t i = 0; i < filePaths.size(); ++i) {
-				args += "-F \"file" + std::to_string(i + 1) + "=@" + ofToDataPath(filePaths[i], true) + "\" ";
+				ofFile file(filePaths[i]);
+				std::string fileName = file.getFileName();
+				args += "-F \"file" + std::to_string(i + 1) + "=@" + fileName + "\" ";
 			}
 			args += "\"" + url + "\"";
 
-			std::string cmd1 = "curl.exe " + args;
+#ifdef _WIN32
+			for (auto & c : dataDir) {
+				if (c == '/') c = '\\';
+			}
+			std::string cmd1 = "cd /d \"" + dataDir + "\" && curl.exe " + args;
 			int sysRet = system(cmd1.c_str());
 
 			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
 			if (sysRet != 0) {
 				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
-				std::string cmd2 = "Z:\\usr\\bin\\curl " + args;
+				std::string cmd2 = "cd /d \"" + dataDir + "\" && Z:\\usr\\bin\\curl " + args;
 				system(cmd2.c_str());
 			}
+#else
+			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
+			system(cmd1.c_str());
+#endif
 
 			ofFile::removeFile(tmpPath, false);
 		}
@@ -6918,13 +6938,13 @@ void ofApp::prepareGameVisualState() {
 
 				if (isCoins) {
 					for (auto * r : groupRolls) {
-						if (r->result == 2)
+						if (r->rawResult == 2)
 							headsCount++;
-						else if (r->result == 1)
+						else if (r->rawResult == 1)
 							tailsCount++;
 					}
 					if (groupRolls.size() == 1) {
-						resultText = (it->result == 2) ? "Heads" : "Tails";
+						resultText = (it->rawResult == 2) ? "Heads" : "Tails";
 					} else {
 						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
 					}
@@ -6934,7 +6954,9 @@ void ofApp::prepareGameVisualState() {
 						int finalRoll = it->result;
 						int luckApplied = finalRoll - rawRoll;
 						if (luckApplied > 0) {
-							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
+							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Bonus) = " + ofToString(finalRoll);
+						} else if (luckApplied < 0) {
+							resultText = "Rolled " + ofToString(rawRoll) + " - " + ofToString(-luckApplied) + " (Penalty) = " + ofToString(finalRoll);
 						} else {
 							resultText = "Rolled " + ofToString(finalRoll);
 						}
@@ -6946,14 +6968,16 @@ void ofApp::prepareGameVisualState() {
 							int finalTotal = 0;
 							resultText = "Rolled ";
 							for (size_t i = 0; i < groupRolls.size(); i++) {
-								resultText += ofToString(groupRolls[i]->result);
+								resultText += ofToString(groupRolls[i]->rawResult);
 								finalTotal += groupRolls[i]->result;
 								rawTotal += groupRolls[i]->rawResult;
 								if (i < groupRolls.size() - 1) resultText += " + ";
 							}
 							int luckApplied = finalTotal - rawTotal;
 							if (luckApplied > 0) {
-								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
+								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Bonus) = " + ofToString(finalTotal);
+							} else if (luckApplied < 0) {
+								resultText += " = " + ofToString(rawTotal) + " - " + ofToString(-luckApplied) + " (Penalty) = " + ofToString(finalTotal);
 							} else {
 								resultText += " = " + ofToString(finalTotal);
 							}
@@ -7007,14 +7031,14 @@ void ofApp::prepareGameVisualState() {
 			}
 		}
 
-		// Remove ALL dice (including AP) after they finish spinning + 2.5s linger
+		// Remove ALL dice (including AP) after they finish spinning + 5.0s linger
 		if (it->isFinishedVisual && it->purpose != PURPOSE_AP && it->purpose != PURPOSE_BONUS_AP) {
-			if (elapsedTime > 0.8f + 2.5f) { // 0.8s spin + 2.5s linger
+			if (elapsedTime > 0.8f + 5.0f) { // 0.8s spin + 5.0s linger
 				it = activeDiceRolls.erase(it);
 				continue;
 			}
 		} else if (it->isFinishedVisual) {
-			if (elapsedTime > 0.8f + 2.5f) { // 0.8s spin + 2.5s linger
+			if (elapsedTime > 0.8f + 5.0f) { // 0.8s spin + 5.0s linger
 				it = activeDiceRolls.erase(it);
 				continue;
 			}
@@ -7227,13 +7251,35 @@ void ofApp::prepareGameVisualState() {
 	}
 
 	// Hand Interpolation (144Hz Smooth + No Bouncing)
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player * handPlayer = &players[currentPlayerIndex];
-		if (handPlayer) {
-			size_t numCards = handPlayer->hand.size();
+	if (!players.empty()) {
+		for (auto & p : players) {
+			if (p.isMinion) continue;
+
+			bool isLocal = true;
+			if (isMultiplayer || isVsAI) {
+				if (myLocalPlayerID == 2) {
+					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+				} else {
+					isLocal = (p.playerID == myLocalPlayerID);
+				}
+			} else {
+				// Local PvP: only the active player's hand is "local" (bottom), the other is "opponent" (top)
+				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+			}
+
+			size_t numCards = p.hand.size();
+			if (numCards == 0) continue;
 
 			// 1. Calculate the target layout for the fan of cards
 			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+
+			float arcSign = 1.0f;
+			if (!isLocal) {
+				float scale = getUIScaleFromHeight(ofGetHeight());
+				float handCardH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
+				handLayout.restY = -(handCardH * 0.35f); // Hide partially off the top edge
+				arcSign = -1.0f; // Arch downwards
+			}
 
 			for (size_t i = 0; i < numCards; i++) {
 				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
@@ -7248,25 +7294,25 @@ void ofApp::prepareGameVisualState() {
 
 				// Enhanced breathing
 				float breathing = 0.0f;
-				if (draggedCardIndex == -1) {
+				if (isLocal && draggedCardIndex == -1) {
 					breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
 				}
 
 				// PURE RESTING POSITION - TargetPos never jumps up!
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
-				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+				float cardCenterY = handLayout.restY + (arcDrop * (fanT * fanT) * arcSign) + breathing;
+				p.hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 
-				if (static_cast<int>(i) != draggedCardIndex) {
-					float dt = ofGetLastFrameTime();
-					if (dt > 0.1f) dt = 0.016f;
+				if (isLocal && static_cast<int>(i) == draggedCardIndex) continue;
 
-					// Apply hover lift dynamically
-					float hoverLift = 0.0f;
-					bool isLocallyHovered = (isCurrentPlayerLocal() && static_cast<int>(i) == hoveredCardIndex);
-					bool isOpponentHovered = (!isCurrentPlayerLocal() && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && static_cast<int>(i) == opponentHoverCardIndex);
-					(void)isOpponentHovered; // suppress unused warning
+				float dt = ofGetLastFrameTime();
+				if (dt > 0.1f) dt = 0.016f;
 
-					// If the card is actively being aimed/targeted, DO NOT hover it
+				// Apply hover lift dynamically
+				float hoverLift = 0.0f;
+				float targetScaleVal = 1.0f;
+
+				if (isLocal) {
+					bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
 					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
 					bool isRenewedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
@@ -7274,30 +7320,36 @@ void ofApp::prepareGameVisualState() {
 						float uiScale = getUIScaleFromHeight(ofGetHeight());
 						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
 						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
-						hoverLift = desiredHoverY - handPlayer->hand[i].targetPos.y;
+						hoverLift = desiredHoverY - p.hand[i].targetPos.y;
 					}
 
-					float targetScaleVal = 1.0f;
 					if (isRenewedMenu) {
 						targetScaleVal = 1.0f;
 					} else if (isLocallyHovered && !isActivelyTargeting) {
 						targetScaleVal = kHandHoverScale;
 					}
 					if (isCurrentPlayerLocal() && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
-
-					handPlayer->hand[i].targetScale = targetScaleVal;
-
-					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
-					float scaleLerp = 1.0f - std::exp(-springScale * dt);
-					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
-
-					// Interpolate toward the resting position + the hover lift
-					ofVec2f actualTarget = handPlayer->hand[i].targetPos + ofVec2f(0.0f, hoverLift);
-
-					float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
-					float posLerp = 1.0f - std::exp(-springPos * dt);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(actualTarget, posLerp);
+				} else {
+					if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == (int)i) {
+						float uiScale = getUIScaleFromHeight(ofGetHeight());
+						hoverLift = 30.0f * uiScale;
+						targetScaleVal = 1.15f;
+					}
 				}
+
+				p.hand[i].targetScale = targetScaleVal;
+
+				float springScale = (p.hand[i].targetScale > p.hand[i].currentScale) ? 25.0f : 12.0f;
+				float scaleLerp = 1.0f - std::exp(-springScale * dt);
+				p.hand[i].currentScale = ofLerp(p.hand[i].currentScale, p.hand[i].targetScale, scaleLerp);
+
+				// Interpolate toward the resting position + the hover lift
+				ofVec2f actualTarget = p.hand[i].targetPos + ofVec2f(0.0f, hoverLift);
+
+				float springPos = (isLocal && hoverLift < 0.0f) ? 22.0f : 14.0f;
+				if (!isLocal && hoverLift > 0.0f) springPos = 22.0f;
+				float posLerp = 1.0f - std::exp(-springPos * dt);
+				p.hand[i].currentPos = p.hand[i].currentPos.getInterpolated(actualTarget, posLerp);
 			}
 		}
 	}
@@ -11658,196 +11710,172 @@ void ofApp::drawGame() {
 	}
 
 	// --- OPTIMISED HAND DRAWING ---
-	// Draw the hand area only when we have a valid player/context (match rest of UI)
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		// Hearthstone-style hover scale for cards
-		const float hoverScale = kHandHoverScale;
+	if (!players.empty()) {
+		for (auto & p : players) {
+			if (p.isMinion) continue;
 
-		auto getLocalHandPlayer = [&]() -> Player * {
-			if (players.empty()) return nullptr;
+			bool isLocal = true;
 			if (isMultiplayer || isVsAI) {
 				if (myLocalPlayerID == 2) {
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						return &players[currentPlayerIndex];
-					}
-					return nullptr;
-				}
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					Player & activePlayer = players[currentPlayerIndex];
-					int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
-					if (activeOwnerID == myLocalPlayerID) return &activePlayer;
-				}
-				for (auto & p : players) {
-					if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
+					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
+				} else {
+					isLocal = (p.playerID == myLocalPlayerID);
 				}
 			} else {
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					return &players[currentPlayerIndex];
-				}
-			}
-			return nullptr;
-		};
-
-		Player * handPlayer = getLocalHandPlayer();
-		if (!handPlayer) return;
-		Player & currentPlayer = *handPlayer;
-		size_t numCards = currentPlayer.hand.size();
-
-		static size_t lastLoggedHandSize = 9999;
-		if (numCards != lastLoggedHandSize) {
-			ofLogNotice("Hand") << "Displaying hand for player " << currentPlayer.playerID << ": " << numCards << " cards (isMultiplayer=" << isMultiplayer << " myLocalPlayerID=" << myLocalPlayerID << ")";
-			lastLoggedHandSize = numCards;
-		}
-
-		// Hearthstone-style hand layout with dynamic spacing
-		HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
-		ofRectangle handAreaRect = handLayout.handAreaRect;
-		float baseCardHeight = handLayout.cardH;
-		float handBaseCardWidth = handLayout.cardW;
-
-		ofPushStyle();
-		ofSetColor(18, 18, 24, 105);
-		ofDrawRectRounded(handAreaRect, 24.0f);
-		ofNoFill();
-		ofSetColor(120, 120, 140, 135);
-		ofSetLineWidth(2.0f);
-		ofDrawRectRounded(handAreaRect, 24.0f);
-		ofPopStyle();
-
-		// float hoverDirection = kHandHoverLiftPx * getUIScaleFromHeight(ofGetHeight());
-		// Note: hoverScale is already defined at function scope
-		// bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
-
-		// 1. Determine which card should be drawn LAST (On Top)
-		int indexToDrawLast = -1;
-		if (draggedCardIndex != -1)
-			indexToDrawLast = draggedCardIndex;
-		else if (hoveredCardIndex != -1)
-			indexToDrawLast = hoveredCardIndex;
-
-		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
-		auto drawHandCard = [&](int index, bool isTopCard) {
-			Card & card = currentPlayer.hand[index];
-			// If this card is currently represented by a flying animation, skip drawing
-			if (card.isAnimating) return;
-
-			// Use the smooth physics scale directly (NO double scaling!)
-			float drawScale = card.currentScale;
-
-			float w = handBaseCardWidth * drawScale;
-			float h = baseCardHeight * drawScale;
-
-			// Card's physical position is already updated by the spring physics (NO double offset!)
-			float drawX = card.currentPos.x - w / 2.0f;
-			float drawY = card.currentPos.y - h / 2.0f;
-
-			float fanT = 0.0f;
-			if (numCards >= 4) {
-				fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
-			}
-			float maxTiltDeg = 0.0f;
-			if (numCards >= 4) {
-				maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
+				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 			}
 
-			// Tilt calculation
-			float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
+			size_t numCards = p.hand.size();
+			if (numCards == 0) continue;
 
-			// Smoothly straighten the card out as it pops up during hover
-			if (index == hoveredCardIndex) {
-				float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, hoverScale - 1.0f), 0.0f, 1.0f);
-				tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
-			}
+			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+			float baseCardHeight = handLayout.cardH;
+			float handBaseCardWidth = handLayout.cardW;
 
-			if (index == draggedCardIndex) {
-				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
-			}
-
-			ofPushMatrix();
-			ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
-			ofRotateDeg(tiltDeg);
-			ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
-
-			if (isTopCard) {
+			if (isLocal) {
 				ofPushStyle();
-				ofSetColor(0, 0, 0, 78);
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
-					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-				ofSetColor(0, 0, 0, 34);
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 11.0f, drawY + 15.0f, w, h,
-					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+				ofSetColor(18, 18, 24, 105);
+				ofDrawRectRounded(handLayout.handAreaRect, 24.0f);
+				ofNoFill();
+				ofSetColor(120, 120, 140, 135);
+				ofSetLineWidth(2.0f);
+				ofDrawRectRounded(handLayout.handAreaRect, 24.0f);
 				ofPopStyle();
 			}
 
-			// B. Draw Overlays as Solid Polygons BEFORE the card face
-			ofPushStyle();
-			ofFill();
-
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-				bool isSelected = false;
-				for (int sel : renewedSelectedHandIndices)
-					if (sel == index) isSelected = true;
-				if (isSelected) {
-					ofSetColor(ofColor::green);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-				}
-			} else if (opponentInteraction.open && opponentInteraction.type == 6) { // <--- ADD THIS BLOCK
-				if (s_opponentRiMask & (1U << index)) {
-					ofSetColor(ofColor::green);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-				}
+			int indexToDrawLast = -1;
+			if (isLocal) {
+				if (draggedCardIndex != -1)
+					indexToDrawLast = draggedCardIndex;
+				else if (hoveredCardIndex != -1)
+					indexToDrawLast = hoveredCardIndex;
 			} else {
-				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
-					ofSetColor(ofColor::green);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				if (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) indexToDrawLast = opponentHoverCardIndex;
+			}
+
+			auto drawHandCard = [&](int index, bool isTopCard) {
+				Card & card = p.hand[index];
+				if (card.isAnimating) return;
+
+				float drawScale = card.currentScale;
+				float w = handBaseCardWidth * drawScale;
+				float h = baseCardHeight * drawScale;
+				float drawX = card.currentPos.x - w / 2.0f;
+				float drawY = card.currentPos.y - h / 2.0f;
+
+				float fanT = 0.0f;
+				if (numCards >= 4) {
+					fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f;
+				}
+				float maxTiltDeg = 0.0f;
+				if (numCards >= 4) {
+					maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
 				}
 
-				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
-					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+				float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
+				if (!isLocal) tiltDeg = -tiltDeg;
 
-					if (isDirectDamageCard && !isExcluded) {
-						ofSetColor(255, 140, 0);
+				if (isLocal && index == hoveredCardIndex) {
+					float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, kHandHoverScale - 1.0f), 0.0f, 1.0f);
+					tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
+				} else if (!isLocal && isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
+					float hoverT = std::clamp((drawScale - 1.0f) / 0.15f, 0.0f, 1.0f);
+					tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
+				}
+
+				if (isLocal && index == draggedCardIndex) {
+					tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
+				}
+
+				ofPushMatrix();
+				ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
+				ofRotateDeg(tiltDeg);
+				ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
+
+				if (isTopCard) {
+					ofPushStyle();
+					ofSetColor(0, 0, 0, 78);
+					if (isLocal) {
+						drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
+							card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+					} else {
+						cardBackImage.draw(drawX + 6.0f, drawY + 9.0f, w, h);
+					}
+					ofPopStyle();
+				}
+
+				ofPushStyle();
+				ofFill();
+
+				if (isLocal) {
+					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+						bool isSelected = false;
+						for (int sel : renewedSelectedHandIndices)
+							if (sel == index) isSelected = true;
+						if (isSelected) {
+							ofSetColor(ofColor::green);
+							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+						}
+					} else if (opponentInteraction.open && opponentInteraction.type == 6) {
+						if (s_opponentRiMask & (1U << index)) {
+							ofSetColor(ofColor::green);
+							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+						}
+					} else {
+						if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
+							ofSetColor(ofColor::green);
+							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+						}
+
+						if (p.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
+							bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
+							bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+
+							if (isDirectDamageCard && !isExcluded) {
+								ofSetColor(255, 140, 0);
+								drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+							}
+						}
+					}
+
+					if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
+						ofSetColor(255, 255, 255, 200);
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+					}
+				} else {
+					if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
+						ofSetColor(255, 0, 0, 200);
 						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 					}
 				}
+
+				ofPopStyle();
+
+				if (isLocal) {
+					if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
+						ofSetColor(200, 200, 255);
+					} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
+						ofSetColor(80, 80, 80, 180);
+					} else {
+						ofSetColor(255);
+					}
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &p);
+				} else {
+					ofSetColor(255);
+					cardBackImage.draw(drawX, drawY, w, h);
+				}
+
+				ofPopMatrix();
+			};
+
+			for (size_t i = 0; i < numCards; i++) {
+				if (static_cast<int>(i) == indexToDrawLast) continue;
+				drawHandCard(i, false);
 			}
 
-			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
-				ofSetColor(255, 255, 255, 200);
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+			if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
+				drawHandCard(indexToDrawLast, true);
 			}
-			if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
-				ofSetColor(255, 0, 0, 200);
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-			}
-
-			ofPopStyle();
-
-			// A. Draw Sprite
-			// Ghostly tint for copied cards in Renewed Inspiration mode
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
-				ofSetColor(200, 200, 255); // Subtle Blue-White tint
-			} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
-				ofSetColor(80, 80, 80, 180); // Gray out RI!
-			} else {
-				ofSetColor(255); // Normal
-			}
-
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
-
-			ofPopMatrix();
-		};
-
-		// 2. PASS 1: Draw standard cards
-		for (size_t i = 0; i < numCards; i++) {
-			if (static_cast<int>(i) == indexToDrawLast) continue;
-			drawHandCard(i, false);
-		}
-
-		// 3. PASS 2: Draw the "Top" card
-		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
-			drawHandCard(indexToDrawLast, true);
 		}
 	}
 
@@ -12496,7 +12524,7 @@ void ofApp::drawGame() {
 	}
 
 	// --- DICE ROLL RESULT TEXT ---
-	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
+	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < 5.0f) {
 		ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f; // baseline Y for dice result text
@@ -17391,7 +17419,6 @@ void ofApp::keyReleased(int key) {
 		}
 
 		switch (currentState) {
-		case STATE_DESYNC:
 		case STATE_GAMEPLAY:
 			// Check UI panels first
 			if (isShowingPileView) {
@@ -17499,42 +17526,47 @@ void ofApp::windowResized(int w, int h) {
 	endTurnButtonCurrentPos = endTurnButtonTargetPos;
 
 	// 2. Snap Cards in Hand - Hearthstone Style
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & currentPlayer = players[currentPlayerIndex];
+	if (!players.empty()) {
+		for (auto & p : players) {
+			if (p.isMinion) continue;
 
-		// Hearthstone layout: bottom of screen, slightly cut off
-		size_t numCards = currentPlayer.hand.size();
-		if (numCards > 0) {
-			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale; // Scaled card width
-			float handAreaWidth = w * 0.85f; // Use most of screen width
-			float handRestY = h - 20.0f; // Near bottom, partially visible
-
-			// Dynamic spacing: fewer cards = more space, more cards = closer
-			float spacing = 0.0f;
-			if (numCards == 1) {
-				spacing = 0.0f; // One card centered
-			} else if (numCards <= 10) {
-				// Scale spacing inversely with card count
-				float totalWidth = numCards * handBaseCardWidth;
-				if (totalWidth < handAreaWidth) {
-					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
-					spacing = std::min(spacing, 120.0f); // Max spacing
+			bool isLocal = true;
+			if (isMultiplayer || isVsAI) {
+				if (myLocalPlayerID == 2) {
+					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 				} else {
-					spacing = 10.0f; // Min spacing when cramped
+					isLocal = (p.playerID == myLocalPlayerID);
 				}
 			} else {
-				spacing = 10.0f; // Very cramped
+				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 			}
 
-			// Calculate total width and center
-			float totalHandWidth = numCards * handBaseCardWidth + (numCards - 1) * spacing;
-			float startX = (w - totalHandWidth) / 2.0f;
+			size_t numCards = p.hand.size();
+			if (numCards == 0) continue;
 
-			// Position each card
+			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+			float arcSign = 1.0f;
+			if (!isLocal) {
+				float scale = getUIScaleFromHeight(ofGetHeight());
+				float handCardH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
+				handLayout.restY = -(handCardH * 0.35f);
+				arcSign = -1.0f;
+			}
+
 			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handRestY);
-				currentPlayer.hand[i].currentPos = currentPlayer.hand[i].targetPos;
+				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW / 2.0f);
+				float fanT = 0.0f;
+				if (numCards >= 4) {
+					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f;
+				}
+				float arcDrop = 0.0f;
+				if (numCards >= 4) {
+					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
+				}
+				float cardCenterY = handLayout.restY + (arcDrop * (fanT * fanT) * arcSign);
+
+				p.hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+				p.hand[i].currentPos = p.hand[i].targetPos;
 			}
 		}
 	}
@@ -20572,6 +20604,9 @@ void ofApp::simulationTick() {
 	// ONLY check if there are no pending spells processing so array indices don't shift!
 	if (!isProcessingEffect && !isEarthquakeActive) {
 		std::vector<int> removeIndices;
+		bool p0Died = false;
+		bool p1Died = false;
+
 		for (size_t i = 0; i < players.size(); ++i) {
 			bool shouldDie = (players[i].health <= 0);
 
@@ -20777,12 +20812,24 @@ void ofApp::simulationTick() {
 				// Mark this unit for removal from the board
 				removeIndices.push_back((int)i);
 
-				// --- GAME OVER CHECK ---
-				if (!players[i].isMinion && (players[i].playerID == 0 || players[i].playerID == 1)) {
-					g_isGameOver = true;
-					g_winnerID = (players[i].playerID == 0) ? 1 : 0;
+				// Track which main player died
+				if (!players[i].isMinion) {
+					if (players[i].playerID == 0) p0Died = true;
+					if (players[i].playerID == 1) p1Died = true;
 				}
 			}
+		}
+
+		// --- GAME OVER RESOLUTION ---
+		if (p0Died && p1Died) {
+			g_isGameOver = true;
+			g_winnerID = 2; // Draw
+		} else if (p0Died) {
+			g_isGameOver = true;
+			g_winnerID = 1;
+		} else if (p1Died) {
+			g_isGameOver = true;
+			g_winnerID = 0;
 		}
 
 		// CRITICAL FIX: Do not erase units and shift array indices if an effect sequence (like Resurrection) just started!
@@ -20841,6 +20888,27 @@ void ofApp::simulationTick() {
 						pending.targetIndex = -1;
 					else if (pending.targetIndex > idx)
 						pending.targetIndex -= 1;
+				}
+
+				// CRITICAL FIX: Shift pending card outcome targets to prevent game logic freeze
+				if (currentCardOutcome.casterIndex == idx) {
+					currentCardOutcome.casterIndex = -1;
+				} else if (currentCardOutcome.casterIndex > idx) {
+					currentCardOutcome.casterIndex -= 1;
+				}
+
+				if (currentCardOutcome.targetPlayerIndex == idx) {
+					currentCardOutcome.targetPlayerIndex = -1;
+				} else if (currentCardOutcome.targetPlayerIndex > idx) {
+					currentCardOutcome.targetPlayerIndex -= 1;
+				}
+
+				for (size_t k = 0; k < currentCardOutcome.attackTargetIndices.size(); ++k) {
+					if (currentCardOutcome.attackTargetIndices[k] == idx) {
+						currentCardOutcome.attackTargetIndices[k] = -1;
+					} else if (currentCardOutcome.attackTargetIndices[k] > idx) {
+						currentCardOutcome.attackTargetIndices[k] -= 1;
+					}
 				}
 
 				players.erase(players.begin() + idx);
@@ -22340,31 +22408,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	ofLogNotice("EffectQueue") << "PROCESSING opType=" << (int)op.type << " curOpIndex=" << currentEffectSequence.currentOp;
 	bool opComplete = false;
 
-	auto hasPendingDamageDiceVisualForCurrentOwner = [&]() -> bool {
-		int owner = currentPlayerIndex;
-		for (const auto & ev : visualEvents) {
-			if (ev.completed) continue;
-			if (ev.type != VE_DICE) continue;
-			if (ev.dicePurpose != PURPOSE_DAMAGE) continue;
-			if (owner >= 0 && ev.targetIndex != owner) continue;
-			return true;
-		}
-		for (const auto & roll : activeDiceRolls) {
-			if (roll.purpose != PURPOSE_DAMAGE) continue;
-			if (owner >= 0 && roll.associatedUnit != owner) continue;
-			if (!roll.isFinishedVisual) return true;
-		}
-		return false;
-	};
-
 	switch (op.type) {
 		// ROLL_DICE op fully removed from pipeline; dice are resolved at-card-play time.
 
 	case EffectOpType::DAMAGE: {
-		if (hasPendingDamageDiceVisualForCurrentOwner()) {
-			break;
-		}
-
 		int damage = op.data.damage.fixedDamage;
 		if (op.data.damage.damageFromSlot >= 0) {
 			damage = currentEffectSequence.blackboard[op.data.damage.damageFromSlot];
@@ -22379,10 +22426,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_GENERIC_DAMAGE: {
-		if (hasPendingDamageDiceVisualForCurrentOwner()) {
-			break;
-		}
-
 		int damage = op.data.damage.fixedDamage;
 		if (op.data.damage.damageFromSlot >= 0) {
 			damage = currentEffectSequence.blackboard[op.data.damage.damageFromSlot];
@@ -22701,23 +22744,44 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
-			glm::vec2 endPoint = los.end;
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
 					impactTile = stepTile;
 					break;
 				}
 			}
 
+			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
+				glm::ivec2 furthestTile = casterTile;
+				for (size_t i = 1; i < path.size(); ++i) {
+					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
+						furthestTile = stepTile;
+					} else {
+						break;
+					}
+				}
+				impactTile = furthestTile;
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
+			glm::vec2 endPoint = los.end;
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					break;
+				}
+			}
 			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			glm::vec2 dir = endPoint - los.start;
 			if (glm::length(dir) > maxRangeUnits) {
 				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
-				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
@@ -22817,13 +22881,31 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::ivec2 impactTile = targetTile;
 
 			// Ignore cover, just restrict strictly to exact rolled range
+			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
+				auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
+				std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
+
+				glm::ivec2 furthestTile = casterTile;
+				for (size_t i = 1; i < path.size(); ++i) {
+					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
+						furthestTile = stepTile;
+					} else {
+						break;
+					}
+				}
+				impactTile = furthestTile;
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
 			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			glm::vec2 dir = endPoint - startPoint;
 			if (glm::length(dir) > maxRangeUnits) {
 				endPoint = startPoint + glm::normalize(dir) * maxRangeUnits;
-				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(startPoint, endPoint, worldStart, worldEnd);
@@ -22975,27 +23057,49 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
+
 			glm::ivec2 impactTile = targetTile;
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
+
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					impactTile = stepTile;
+					break;
+				}
+			}
+
+			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
+				glm::ivec2 furthestTile = casterTile;
+				for (size_t i = 1; i < path.size(); ++i) {
+					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
+						furthestTile = stepTile;
+					} else {
+						break;
+					}
+				}
+				impactTile = furthestTile;
+			}
+			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = los.end;
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
 					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
-					impactTile = stepTile;
 					break;
 				}
 			}
-
 			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			glm::vec2 dir = endPoint - los.start;
 			if (glm::length(dir) > maxRangeUnits) {
 				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
-				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
@@ -23121,23 +23225,44 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
-			glm::vec2 endPoint = clearRay.end;
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
 					impactTile = stepTile;
 					break;
 				}
 			}
 
+			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
+				glm::ivec2 furthestTile = casterTile;
+				for (size_t i = 1; i < path.size(); ++i) {
+					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
+						furthestTile = stepTile;
+					} else {
+						break;
+					}
+				}
+				impactTile = furthestTile;
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
+			glm::vec2 endPoint = clearRay.end;
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					break;
+				}
+			}
 			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			glm::vec2 dir = endPoint - clearRay.start;
 			if (glm::length(dir) > maxRangeUnits) {
 				endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
-				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
@@ -23231,23 +23356,44 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
 
-			glm::vec2 endPoint = clearRay.end;
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
 					impactTile = stepTile;
 					break;
 				}
 			}
 
+			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
+				glm::ivec2 furthestTile = casterTile;
+				for (size_t i = 1; i < path.size(); ++i) {
+					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
+						furthestTile = stepTile;
+					} else {
+						break;
+					}
+				}
+				impactTile = furthestTile;
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
+			glm::vec2 endPoint = clearRay.end;
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					break;
+				}
+			}
 			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			glm::vec2 dir = endPoint - clearRay.start;
 			if (glm::length(dir) > maxRangeUnits) {
 				endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
-				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
@@ -23258,8 +23404,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
-
-			// --- FIX: Update the true target to where the arrow actually landed! ---
 			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
@@ -23421,23 +23565,44 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
 			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
 
-			glm::vec2 endPoint = los.end;
 			for (size_t i = 1; i < path.size(); ++i) {
 				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
 				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
 					impactTile = stepTile;
 					break;
 				}
 			}
 
+			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+
+			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
+				glm::ivec2 furthestTile = casterTile;
+				for (size_t i = 1; i < path.size(); ++i) {
+					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
+						furthestTile = stepTile;
+					} else {
+						break;
+					}
+				}
+				impactTile = furthestTile;
+			}
+			currentCardOutcome.primaryTarget = impactTile;
+
+			glm::vec2 endPoint = los.end;
+			for (size_t i = 1; i < path.size(); ++i) {
+				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
+				if (isTileBlocked(stepTile.x, stepTile.y)) {
+					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
+					break;
+				}
+			}
 			float maxRangeUnits = (float)rangeRoll / 5.0f;
 			glm::vec2 dir = endPoint - los.start;
 			if (glm::length(dir) > maxRangeUnits) {
 				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
-				impactTile = glm::ivec2((int)floor(endPoint.x), (int)floor(endPoint.y));
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
@@ -25385,17 +25550,28 @@ void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
 	int num = ev.diceNum;
 	int sides = ev.diceSides;
 	const std::vector<int> & raw = ev.diceRawResults;
+
+	int rawSum = 0;
+	for (int i = 0; i < num && i < (int)raw.size(); ++i)
+		rawSum += raw[i];
+	int diff = ev.diceResult - rawSum;
+	int baseBonus = num > 0 ? diff / num : 0;
+	int bonusRemainder = num > 0 ? std::abs(diff) % num : 0;
+
 	for (int i = 0; i < num; ++i) {
 		DiceRoll newRoll;
 		newRoll.purpose = static_cast<DicePurpose>(ev.dicePurpose);
 		newRoll.sides = sides;
+
+		int extra = (i < bonusRemainder) ? (diff > 0 ? 1 : -1) : 0;
+
 		if ((int)raw.size() > i) {
 			newRoll.rawResult = raw[i];
-			newRoll.result = raw[i];
+			newRoll.result = raw[i] + baseBonus + extra;
 		} else {
 			// Fallback: if no raw per-die results, distribute total evenly (visual fallback)
 			newRoll.rawResult = 1;
-			newRoll.result = 1;
+			newRoll.result = 1 + baseBonus + extra;
 		}
 		newRoll.startTime = ofGetElapsedTimef();
 		newRoll.isFinishedVisual = false;
@@ -25640,12 +25816,27 @@ void ofApp::applyCardOutcomeEffects() {
 	// This is where the actual game state changes happen
 	// Called by host immediately, and by clients when receiving PKT_CARD_OUTCOME
 
+	// CRITICAL FIX: If the caster died while the effect was resolving, their index is -1.
+	// Simply complete the state machine and skip resolving the hand/AP modifications.
+	if (currentCardOutcome.casterIndex < 0 || currentCardOutcome.casterIndex >= (int)players.size()) {
+		ofLogWarning("CardOutcome") << "Caster died or is invalid. Skipping hand/AP modifications.";
+		resetCardInteraction();
+		if (g_pendingShellSpike) {
+			g_pendingShellSpike = false;
+			if (isCurrentPlayerLocal()) {
+				tryTriggerShellSpike();
+			}
+		}
+		return;
+	}
+
 	Player & caster = players[currentCardOutcome.casterIndex];
 
 	if (!currentCardOutcome.apPaid) {
 		// Validate card index
 		if (currentCardOutcome.cardIndex < 0 || currentCardOutcome.cardIndex >= (int)caster.hand.size()) {
 			ofLogWarning("CardOutcome") << "Invalid card index: " << currentCardOutcome.cardIndex;
+			resetCardInteraction();
 			return;
 		}
 
