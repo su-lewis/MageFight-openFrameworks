@@ -5445,12 +5445,15 @@ void ofApp::draw() {
 			drawGame();
 			drawDraftScreen();
 			break;
+		case STATE_DESYNC:
+			drawGame();
+			break;
 		default:
 			break;
 		}
 
 		// Only draw the dark overlay if we are drawing over the game or pause menu
-		if (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_PAUSED || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DRAFTING) {
+		if (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_PAUSED || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_DESYNC) {
 			ofPushStyle();
 			ofSetColor(0, 0, 0, 170);
 			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
@@ -5460,6 +5463,9 @@ void ofApp::draw() {
 		drawSettingsMenu();
 		break;
 	case STATE_GAMEPLAY:
+		drawGame();
+		break;
+	case STATE_DESYNC:
 		drawGame();
 		break;
 	case STATE_SAVE_BROWSER:
@@ -7255,15 +7261,16 @@ void ofApp::prepareGameVisualState() {
 		for (auto & p : players) {
 			if (p.isMinion) continue;
 
-			bool isLocal = true;
-			if (isMultiplayer || isVsAI) {
+			bool isLocal = false;
+			if (isMultiplayer) {
 				if (myLocalPlayerID == 2) {
 					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 				} else {
 					isLocal = (p.playerID == myLocalPlayerID);
 				}
+			} else if (isVsAI) {
+				isLocal = (p.playerID == 0);
 			} else {
-				// Local PvP: only the active player's hand is "local" (bottom), the other is "opponent" (top)
 				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 			}
 
@@ -11714,13 +11721,15 @@ void ofApp::drawGame() {
 		for (auto & p : players) {
 			if (p.isMinion) continue;
 
-			bool isLocal = true;
-			if (isMultiplayer || isVsAI) {
+			bool isLocal = false;
+			if (isMultiplayer) {
 				if (myLocalPlayerID == 2) {
 					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 				} else {
 					isLocal = (p.playerID == myLocalPlayerID);
 				}
+			} else if (isVsAI) {
+				isLocal = (p.playerID == 0);
 			} else {
 				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 			}
@@ -16968,7 +16977,15 @@ void ofApp::keyPressed(int key) {
 
 				// Add to local chat history (singleplayer or multiplayer)
 				ChatMessage msg;
-				msg.playerName = (isMultiplayer) ? (myLocalPlayerID == 0 ? player0SteamName : player1SteamName) : (myLocalPlayerID == 0 ? "Player 1" : "Player 2");
+				if (isMultiplayer) {
+					if (myLocalPlayerID == 2) {
+						msg.playerName = "Spectator";
+					} else {
+						msg.playerName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
+					}
+				} else {
+					msg.playerName = (myLocalPlayerID == 0) ? "Player 1" : "Player 2";
+				}
 				msg.message = chatInput;
 				msg.timestamp = ofGetElapsedTimef();
 				chatHistory.push_back(msg);
@@ -17530,13 +17547,15 @@ void ofApp::windowResized(int w, int h) {
 		for (auto & p : players) {
 			if (p.isMinion) continue;
 
-			bool isLocal = true;
-			if (isMultiplayer || isVsAI) {
+			bool isLocal = false;
+			if (isMultiplayer) {
 				if (myLocalPlayerID == 2) {
 					isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 				} else {
 					isLocal = (p.playerID == myLocalPlayerID);
 				}
+			} else if (isVsAI) {
+				isLocal = (p.playerID == 0);
 			} else {
 				isLocal = (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == p.playerID);
 			}
@@ -20485,6 +20504,17 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 void ofApp::processCommandQueue() {
 	// Simply execute commands in the exact order they arrive in the queue (FIFO).
 	while (!commandQueue.empty()) {
+		// CRITICAL FIX: Ensure 100% Deterministic Checksums!
+		// If the next command is an End Turn, but the game is still resolving
+		// an active spell, sequence, or draft animation, PAUSE the queue!
+		// This guarantees that the Turn-End Checksum is only calculated on an idle board,
+		// completely protecting the game against framerate, latency, and Optimistic UI race conditions.
+		if (commandQueue.front().commandType == CMD_END_TURN) {
+			if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || !activeDraftPickedMoves.empty()) {
+				break;
+			}
+		}
+
 		InputCommandPacket cmd = commandQueue.front();
 		commandQueue.erase(commandQueue.begin());
 
@@ -22740,51 +22770,53 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			glm::ivec2 impactTile = targetTile;
-			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
-
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					impactTile = stepTile;
-					break;
-				}
-			}
-
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
-				glm::ivec2 furthestTile = casterTile;
-				for (size_t i = 1; i < path.size(); ++i) {
-					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
-						furthestTile = stepTile;
-					} else {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
+				int x0 = (int)cTile.x, y0 = (int)cTile.y;
+				int x1 = (int)tTile.x, y1 = (int)tTile.y;
+				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+				int err = dx + dy;
+				glm::ivec2 furthestValid = { x0, y0 };
+				while (true) {
+					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+							impact = furthestValid;
+							break;
+						}
+						furthestValid = { x0, y0 };
+						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
+							impact = { x0, y0 };
+							break;
+						}
+					}
+					if (x0 == x1 && y0 == y1) {
+						impact = { x0, y0 };
 						break;
 					}
+					int e2 = 2 * err;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
 				}
-				impactTile = furthestTile;
-			}
+				return impact;
+			};
+
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 endPoint = los.end;
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
-					break;
-				}
-			}
-			float maxRangeUnits = (float)rangeTotal / 5.0f;
-			glm::vec2 dir = endPoint - los.start;
-			if (glm::length(dir) > maxRangeUnits) {
-				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
-			}
-
+			// Visual tracer uses floats, but impact logic is purely integer
+			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -22792,7 +22824,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
@@ -22876,39 +22907,53 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			glm::vec2 startPoint = casterTile + 0.5f;
-			glm::vec2 endPoint = targetTile + 0.5f;
-			glm::ivec2 impactTile = targetTile;
-
-			// Ignore cover, just restrict strictly to exact rolled range
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
-				auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-				std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
-
-				glm::ivec2 furthestTile = casterTile;
-				for (size_t i = 1; i < path.size(); ++i) {
-					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
-						furthestTile = stepTile;
-					} else {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
+				int x0 = (int)cTile.x, y0 = (int)cTile.y;
+				int x1 = (int)tTile.x, y1 = (int)tTile.y;
+				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+				int err = dx + dy;
+				glm::ivec2 furthestValid = { x0, y0 };
+				while (true) {
+					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+							impact = furthestValid;
+							break;
+						}
+						furthestValid = { x0, y0 };
+						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
+							impact = { x0, y0 };
+							break;
+						}
+					}
+					if (x0 == x1 && y0 == y1) {
+						impact = { x0, y0 };
 						break;
 					}
+					int e2 = 2 * err;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
 				}
-				impactTile = furthestTile;
-			}
+				return impact;
+			};
+
+			// Magic bolt ignores cover (goes through walls/units) until it reaches range
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, false);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			float maxRangeUnits = (float)rangeTotal / 5.0f;
-			glm::vec2 dir = endPoint - startPoint;
-			if (glm::length(dir) > maxRangeUnits) {
-				endPoint = startPoint + glm::normalize(dir) * maxRangeUnits;
-			}
-
+			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(startPoint, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
@@ -23058,51 +23103,52 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			glm::ivec2 impactTile = targetTile;
-			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
-
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					impactTile = stepTile;
-					break;
-				}
-			}
-
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
-				glm::ivec2 furthestTile = casterTile;
-				for (size_t i = 1; i < path.size(); ++i) {
-					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
-						furthestTile = stepTile;
-					} else {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
+				int x0 = (int)cTile.x, y0 = (int)cTile.y;
+				int x1 = (int)tTile.x, y1 = (int)tTile.y;
+				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+				int err = dx + dy;
+				glm::ivec2 furthestValid = { x0, y0 };
+				while (true) {
+					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+							impact = furthestValid;
+							break;
+						}
+						furthestValid = { x0, y0 };
+						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
+							impact = { x0, y0 };
+							break;
+						}
+					}
+					if (x0 == x1 && y0 == y1) {
+						impact = { x0, y0 };
 						break;
 					}
+					int e2 = 2 * err;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
 				}
-				impactTile = furthestTile;
-			}
+				return impact;
+			};
+
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 endPoint = los.end;
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
-					break;
-				}
-			}
-			float maxRangeUnits = (float)rangeTotal / 5.0f;
-			glm::vec2 dir = endPoint - los.start;
-			if (glm::length(dir) > maxRangeUnits) {
-				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
-			}
-
+			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -23110,7 +23156,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
@@ -23221,58 +23266,57 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			glm::ivec2 impactTile = targetTile;
-			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
-
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					impactTile = stepTile;
-					break;
-				}
-			}
-
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
-				glm::ivec2 furthestTile = casterTile;
-				for (size_t i = 1; i < path.size(); ++i) {
-					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
-						furthestTile = stepTile;
-					} else {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
+				int x0 = (int)cTile.x, y0 = (int)cTile.y;
+				int x1 = (int)tTile.x, y1 = (int)tTile.y;
+				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+				int err = dx + dy;
+				glm::ivec2 furthestValid = { x0, y0 };
+				while (true) {
+					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+							impact = furthestValid;
+							break;
+						}
+						furthestValid = { x0, y0 };
+						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
+							impact = { x0, y0 };
+							break;
+						}
+					}
+					if (x0 == x1 && y0 == y1) {
+						impact = { x0, y0 };
 						break;
 					}
+					int e2 = 2 * err;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
 				}
-				impactTile = furthestTile;
-			}
+				return impact;
+			};
+
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 endPoint = clearRay.end;
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
-					break;
-				}
-			}
-			float maxRangeUnits = (float)rangeTotal / 5.0f;
-			glm::vec2 dir = endPoint - clearRay.start;
-			if (glm::length(dir) > maxRangeUnits) {
-				endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
-			}
-
+			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
-
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
 
 			if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
@@ -23352,51 +23396,52 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			glm::ivec2 impactTile = targetTile;
-			auto clearRay = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(clearRay.start, clearRay.end);
-
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					impactTile = stepTile;
-					break;
-				}
-			}
-
 			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
-				glm::ivec2 furthestTile = casterTile;
-				for (size_t i = 1; i < path.size(); ++i) {
-					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
-						furthestTile = stepTile;
-					} else {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
+				int x0 = (int)cTile.x, y0 = (int)cTile.y;
+				int x1 = (int)tTile.x, y1 = (int)tTile.y;
+				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+				int err = dx + dy;
+				glm::ivec2 furthestValid = { x0, y0 };
+				while (true) {
+					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+							impact = furthestValid;
+							break;
+						}
+						furthestValid = { x0, y0 };
+						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
+							impact = { x0, y0 };
+							break;
+						}
+					}
+					if (x0 == x1 && y0 == y1) {
+						impact = { x0, y0 };
 						break;
 					}
+					int e2 = 2 * err;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
 				}
-				impactTile = furthestTile;
-			}
+				return impact;
+			};
+
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 endPoint = clearRay.end;
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
-					break;
-				}
-			}
-			float maxRangeUnits = (float)rangeTotal / 5.0f;
-			glm::vec2 dir = endPoint - clearRay.start;
-			if (glm::length(dir) > maxRangeUnits) {
-				endPoint = clearRay.start + glm::normalize(dir) * maxRangeUnits;
-			}
-
+			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -23404,7 +23449,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
-			currentCardOutcome.primaryTarget = impactTile;
 
 			queueVisualDelay(0.4f);
 			EffectOp wait = {};
@@ -23561,51 +23605,52 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = interactionTargetTile;
 			int rangeRoll = currentEffectSequence.blackboard[0];
 
-			glm::ivec2 impactTile = targetTile;
-			auto los = getClearLosRay(casterTile, targetTile, currentCardOutcome.cardType);
-			std::vector<glm::vec2> path = getLineOfSightPath(los.start, los.end);
-
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					impactTile = stepTile;
-					break;
-				}
-			}
-
 			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
 			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 
-			if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)impactTile.x, (float)impactTile.y)) > maxDistSq) {
-				glm::ivec2 furthestTile = casterTile;
-				for (size_t i = 1; i < path.size(); ++i) {
-					glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-					if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2((float)stepTile.x, (float)stepTile.y)) <= maxDistSq) {
-						furthestTile = stepTile;
-					} else {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
+				int x0 = (int)cTile.x, y0 = (int)cTile.y;
+				int x1 = (int)tTile.x, y1 = (int)tTile.y;
+				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+				int err = dx + dy;
+				glm::ivec2 furthestValid = { x0, y0 };
+				while (true) {
+					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+							impact = furthestValid;
+							break;
+						}
+						furthestValid = { x0, y0 };
+						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
+							impact = { x0, y0 };
+							break;
+						}
+					}
+					if (x0 == x1 && y0 == y1) {
+						impact = { x0, y0 };
 						break;
 					}
+					int e2 = 2 * err;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
 				}
-				impactTile = furthestTile;
-			}
+				return impact;
+			};
+
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			glm::vec2 endPoint = los.end;
-			for (size_t i = 1; i < path.size(); ++i) {
-				glm::ivec2 stepTile = glm::ivec2((int)path[i].x, (int)path[i].y);
-				if (isTileBlocked(stepTile.x, stepTile.y)) {
-					endPoint = glm::vec2(stepTile.x + 0.5f, stepTile.y + 0.5f);
-					break;
-				}
-			}
-			float maxRangeUnits = (float)rangeRoll / 5.0f;
-			glm::vec2 dir = endPoint - los.start;
-			if (glm::length(dir) > maxRangeUnits) {
-				endPoint = los.start + glm::normalize(dir) * maxRangeUnits;
-			}
-
+			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(los.start, endPoint, worldStart, worldEnd);
+			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 4.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y)) {
@@ -33917,29 +33962,44 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2 endPoint) {
 	std::vector<glm::vec2> path;
 
-	glm::vec2 rayDir = endPoint - startPoint;
-	float totalDist = glm::length(rayDir);
+	// Convert floats to strict deterministic integers (scaled by 1000)
+	long long sx = (long long)std::round(startPoint.x * 1000.0);
+	long long sy = (long long)std::round(startPoint.y * 1000.0);
+	long long ex = (long long)std::round(endPoint.x * 1000.0);
+	long long ey = (long long)std::round(endPoint.y * 1000.0);
+
+	long long dx = ex - sx;
+	long long dy = ey - sy;
 
 	// Point blank
-	if (totalDist < 0.0001f) {
-		path.push_back(glm::vec2((int)floor(startPoint.x), (int)floor(startPoint.y)));
+	if (dx == 0 && dy == 0) {
+		path.push_back(glm::vec2((float)(sx / 1000LL), (float)(sy / 1000LL)));
 		return path;
 	}
-	rayDir /= totalDist;
 
-	// High precision sampler to record every single tile the line touches
-	glm::vec2 p0 = startPoint + rayDir * 0.001f;
-	glm::vec2 p1 = endPoint - rayDir * 0.001f;
-	float castDist = glm::distance(p0, p1);
+	long long absDx = std::abs(dx);
+	long long absDy = std::abs(dy);
+	long long maxDist = std::max(absDx, absDy);
 
-	int numSamples = (int)std::ceil(castDist * 50.0f);
-	glm::vec2 step = (p1 - p0) / (float)std::max(1, numSamples);
+	// Nudge inward slightly (1/1000th of a tile) to match old float logic
+	// This prevents the ray from clipping the exact corners of walls
+	sx += (dx * 1LL) / maxDist;
+	sy += (dy * 1LL) / maxDist;
+	ex -= (dx * 1LL) / maxDist;
+	ey -= (dy * 1LL) / maxDist;
+
+	// We replicate the "50 samples per tile" logic using pure integers
+	long long numSamples = (maxDist * 50LL) / 1000LL;
+	if (numSamples < 1) numSamples = 1;
 
 	int lastX = -1, lastY = -1;
-	for (int s = 0; s <= numSamples; s++) {
-		glm::vec2 p = p0 + step * (float)s;
-		int gx = (int)floor(p.x);
-		int gy = (int)floor(p.y);
+	for (long long s = 0; s <= numSamples; s++) {
+		long long curX = sx + (dx * s) / numSamples;
+		long long curY = sy + (dy * s) / numSamples;
+
+		// Safe floor for negative numbers (just in case rays exit board)
+		int gx = (curX >= 0) ? (int)(curX / 1000LL) : (int)((curX - 999LL) / 1000LL);
+		int gy = (curY >= 0) ? (int)(curY / 1000LL) : (int)((curY - 999LL) / 1000LL);
 
 		if (gx != lastX || gy != lastY) {
 			path.push_back(glm::vec2((float)gx, (float)gy));
@@ -33947,6 +34007,7 @@ std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2
 			lastY = gy;
 		}
 	}
+
 	return path;
 }
 // ----------------- HELPERS -----------------
@@ -36823,7 +36884,11 @@ void ofApp::processNetworkPackets() {
 
 				ChatMessage msg;
 				if (isMultiplayer) {
-					msg.playerName = (pkt->playerID == 0) ? player0SteamName : player1SteamName;
+					if (pkt->playerID == 2) {
+						msg.playerName = "Spectator";
+					} else {
+						msg.playerName = (pkt->playerID == 0) ? player0SteamName : player1SteamName;
+					}
 				} else {
 					msg.playerName = (pkt->playerID == 0) ? "Player 1" : "Player 2";
 				}
