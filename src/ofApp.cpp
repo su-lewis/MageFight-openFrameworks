@@ -32,6 +32,9 @@ static std::map<int, long long> s_pendingLocalChecksums;
 // --- NEW: FULL MATCH LOG TRACKING ---
 static std::vector<std::string> s_fullMatchLog;
 
+// --- NEW: OPPONENT DECISION QUEUE ---
+static std::deque<int> g_opponentDecisionQueue;
+
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
 	// Use a fixed filename so it overwrites every match and prevents folder bloat
 	std::string role = isHost ? "host" : "client";
@@ -3306,10 +3309,19 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 			if (!turnTimerPaused) {
 				turnTimerPaused = true;
 				turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+			}
+
+			if (!opponentDecisionTimerActive) {
+				// No one is currently deciding, so they become the active decision
 				opponentDecisionTimerActive = true;
 				opponentDecisionStartFrame = simulationFrame;
 				opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
 				opponentDecisionPlayerIndex = decidingPlayerIndex;
+			} else if (opponentDecisionPlayerIndex != decidingPlayerIndex) {
+				// Someone is already deciding! Push them into the queue if not already there
+				if (std::find(g_opponentDecisionQueue.begin(), g_opponentDecisionQueue.end(), decidingPlayerIndex) == g_opponentDecisionQueue.end()) {
+					g_opponentDecisionQueue.push_back(decidingPlayerIndex);
+				}
 			}
 		}
 	}
@@ -3429,14 +3441,30 @@ void ofApp::resetDraftPhaseTimerWindow() {
 
 void ofApp::resumeTurnTimerIfPausedForOpponent(int decidingPlayerIndex) {
 	if (!turnTimerEnabled) return;
+
+	// If the resolving player is currently the active decider
 	if (turnTimerPaused && opponentDecisionTimerActive && opponentDecisionPlayerIndex == decidingPlayerIndex) {
-		turnTimerPaused = false;
-		// Restore turnStartFrame such that remaining frames equals turnTimerPausedRemainingFrames
-		turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-		turnTimerPausedRemainingFrames = 0;
-		opponentDecisionTimerActive = false;
-		opponentDecisionStartFrame = 0;
-		opponentDecisionPlayerIndex = -1;
+		if (!g_opponentDecisionQueue.empty()) {
+			// There are other players waiting to decide! Pop the next one and start their timer
+			opponentDecisionPlayerIndex = g_opponentDecisionQueue.front();
+			g_opponentDecisionQueue.pop_front();
+			opponentDecisionStartFrame = simulationFrame;
+			opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+		} else {
+			// No one else waiting, resume main turn timer
+			turnTimerPaused = false;
+			turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+			turnTimerPausedRemainingFrames = 0;
+			opponentDecisionTimerActive = false;
+			opponentDecisionStartFrame = 0;
+			opponentDecisionPlayerIndex = -1;
+		}
+	} else {
+		// If they were in the queue but resolved early (edge case), safely remove them
+		auto it = std::find(g_opponentDecisionQueue.begin(), g_opponentDecisionQueue.end(), decidingPlayerIndex);
+		if (it != g_opponentDecisionQueue.end()) {
+			g_opponentDecisionQueue.erase(it);
+		}
 	}
 }
 
@@ -6466,6 +6494,8 @@ void ofApp::setupGame() {
 	g_playerDefenses.clear();
 	turnTimerEnabled = true; // Ensure turn timer is enabled for every game
 
+	g_opponentDecisionQueue.clear(); // Clear the decision queue!
+
 	s_fullMatchLog.clear();
 	s_fullMatchLog.push_back("[" + ofGetTimestampString("%H:%M:%S") + "] --- MATCH STARTED ---");
 
@@ -6871,6 +6901,22 @@ void ofApp::updateGame() {
 	updateAI();
 	prepareGameVisualState();
 	updateGameLogic();
+}
+
+// --- NEW: 3D SPATIAL AUDIO PANNER ---
+static void playOnBoardSound(ofCamera & cam, ofSoundPlayer & sound, glm::vec3 worldPos, float volume, float speed) {
+	if (!sound.isLoaded()) return;
+
+	// Project the 3D world coordinate to the 2D screen coordinate
+	glm::vec3 screenPos = cam.worldToScreen(worldPos);
+
+	// Map the screen X position (0 to width) to a pan value (-1.0 to 1.0)
+	float pan = ofMap(screenPos.x, 0.0f, (float)ofGetWidth(), -1.0f, 1.0f, true);
+
+	sound.setPan(pan);
+	sound.setVolume(std::clamp(volume, 0.0f, 1.0f));
+	sound.setSpeed(speed);
+	sound.play();
 }
 
 void ofApp::prepareGameVisualState() {
@@ -7460,9 +7506,10 @@ void ofApp::prepareGameVisualState() {
 								std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
 								int idx = footIdx(visualRNG);
 								std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-								footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-								footstepSounds[idx].setVolume(std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f));
-								footstepSounds[idx].play();
+
+								// Play footstep through the new 3D Spatial Audio system!
+								float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f);
+								playOnBoardSound(getActiveCamera(), footstepSounds[idx], targetPos, vol, footSpeed(visualRNG));
 							}
 						}
 						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
@@ -15156,7 +15203,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = pausedFromState;
 			return;
 		}
-
 		// --- DRAW SYSTEM CLICKS ---
 		if (isMultiplayer) {
 			auto sendDrawAction = [&](const std::string & actionStr) {
@@ -15170,13 +15216,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 				sendInputCommand(cmd, true);
 			};
 
-			if (g_drawOfferPlayerID == -1 && g_pauseMenuDrawButton.inside(x, y)) {
+			if (g_drawOfferPlayerID == -1 && g_pauseMenuDrawButton.inside(x, y) && !g_isGameOver) {
 				sendDrawAction("OfferDraw");
 				return;
-			} else if (g_drawOfferPlayerID == myLocalPlayerID && g_pauseMenuDrawButton.inside(x, y)) {
+			} else if (g_drawOfferPlayerID == myLocalPlayerID && g_pauseMenuDrawButton.inside(x, y) && !g_isGameOver) {
 				sendDrawAction("CancelDraw");
 				return;
-			} else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID) {
+			} else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID && !g_isGameOver) {
 				if (g_pauseMenuDrawYesButton.inside(x, y)) {
 					sendDrawAction("AcceptDraw");
 					return;
@@ -30651,6 +30697,12 @@ std::string ofApp::buildSnapshotString() {
 		ss << "\t" << v;
 	ss << "\n";
 
+	ss << "OPP_DEC_Q\t" << g_opponentDecisionQueue.size();
+	for (int pIdx : g_opponentDecisionQueue) {
+		ss << "\t" << pIdx;
+	}
+	ss << "\n";
+
 	ss << "AFK\t" << afkStrikeCounts[0] << "\t" << afkStrikeCounts[1]
 	   << "\t" << currentTurnOwnerID
 	   << "\t" << (currentTurnHadMeaningfulAction ? 1 : 0)
@@ -30898,6 +30950,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	float tmpReconnectRemainingSeconds = -1.0f;
 
 	std::vector<int> tmpPendingDraftQueue;
+	std::deque<int> tmpOppDecisionQueue; // <--- Add this!
 	Tile tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
 	std::vector<Card> tmpDraftOptionsCards;
 	std::vector<int> tmpSelectedDraftIndices;
@@ -31066,6 +31119,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				tmpPendingDraftQueue.clear();
 				for (size_t i = 2; i < parts.size(); ++i)
 					tmpPendingDraftQueue.push_back(std::stoi(parts[i]));
+			} else if (parts[0] == "OPP_DEC_Q" && parts.size() >= 2) {
+				tmpOppDecisionQueue.clear();
+				int count = std::stoi(parts[1]);
+				for (int i = 0; i < count; ++i) {
+					if (2 + i < (int)parts.size()) {
+						tmpOppDecisionQueue.push_back(std::stoi(parts[2 + i]));
+					}
+				}
 			} else if (parts[0] == "BOARD" && parts.size() >= 3) {
 				const std::string & walls = parts[1];
 				const std::string & magicWalls = parts[2];
@@ -31533,6 +31594,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	}
 
 	networkPending.draftQueue = tmpPendingDraftQueue;
+	g_opponentDecisionQueue = tmpOppDecisionQueue; // <--- Add this!
 
 	// copy board cells
 	for (int x = 0; x < BOARD_WIDTH; ++x)
@@ -34379,6 +34441,8 @@ void ofApp::cleanupGame() {
 	hasReceivedHandshake = false;
 	clientSentReady = false;
 
+	g_opponentDecisionQueue.clear(); // Clear the decision queue!
+
 	// Reset Chat State to prevent Hotkeys from getting locked in menus
 	isChatOpen = false;
 	isChatMinimized = true;
@@ -36390,7 +36454,19 @@ void ofApp::drawPauseMenu() {
 		drawBtn(pauseMenuResumeButton, "Resume", 0);
 
 		// --- DRAW SYSTEM UI ---
-		if (g_drawOfferPlayerID == -1) {
+		if (g_isGameOver) {
+			// Greyed out and disabled if the match is already over
+			ofSetColor(80, 80, 90, 255);
+			ofDrawRectRounded(g_pauseMenuDrawButton, 12.0f);
+			ofSetColor(50, 50, 60, 255);
+			ofNoFill();
+			ofSetLineWidth(2.0f);
+			ofDrawRectRounded(g_pauseMenuDrawButton, 12.0f);
+			ofFill();
+			ofSetColor(150, 150, 150, 255);
+			ofRectangle tb = uiFont.getStringBoundingBox("Request Draw", 0, 0);
+			uiFont.drawString("Request Draw", g_pauseMenuDrawButton.getCenter().x - tb.getWidth() / 2.0f, g_pauseMenuDrawButton.getCenter().y + tb.getHeight() / 2.0f);
+		} else if (g_drawOfferPlayerID == -1) {
 			drawBtn(g_pauseMenuDrawButton, "Request Draw", 5);
 		} else if (g_drawOfferPlayerID == myLocalPlayerID) {
 			drawBtn(g_pauseMenuDrawButton, "Cancel", 5);
