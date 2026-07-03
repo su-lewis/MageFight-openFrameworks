@@ -11863,8 +11863,23 @@ void ofApp::drawGame() {
 		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
 		auto drawHandCard = [&](int index, bool isTopCard) {
 			Card & card = currentPlayer.hand[index];
+
 			// If this card is currently represented by a flying animation, skip drawing
-			if (card.isAnimating) return;
+			if (card.isAnimating) {
+				// Failsafe: if the animation no longer exists, force the card visible!
+				bool foundAnim = false;
+				for (const auto & a : activeDrawCardAnimations) {
+					if (a.card.name == card.name && (a.ownerPlayerID == currentPlayer.playerID || a.ownerIndex == currentPlayerIndex)) {
+						foundAnim = true;
+						break;
+					}
+				}
+				if (!foundAnim) {
+					card.isAnimating = false;
+				} else {
+					return;
+				}
+			}
 
 			// Use the smooth physics scale directly (NO double scaling!)
 			float drawScale = card.currentScale;
@@ -18110,7 +18125,7 @@ void ofApp::startNewTurn() {
 			if (!isProcessingEffect) beginEffectSequence();
 
 			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
-			if (isMultiplayer) {
+			if (isMultiplayer && myLocalPlayerID != 2) {
 				long long mySum = calculateChecksum();
 				s_pendingLocalChecksums[globalTurnCounter] = mySum;
 
@@ -18618,7 +18633,7 @@ void ofApp::continueNewTurn() {
 	// before reaching here, so no need to check again.
 
 	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
-	if (isMultiplayer) {
+	if (isMultiplayer && myLocalPlayerID != 2) {
 		long long mySum = calculateChecksum();
 		s_pendingLocalChecksums[globalTurnCounter] = mySum;
 
@@ -31430,7 +31445,11 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 			if (steamManager.isHost()) {
 				myLocalPlayerID = 0;
 			} else {
-				myLocalPlayerID = 1;
+				if (g_isSpectator) {
+					myLocalPlayerID = 2; // Protect Spectator identity to prevent input desyncs!
+				} else {
+					myLocalPlayerID = 1;
+				}
 			}
 			// Restore names so the Turn Indicator text is correct
 			std::string p0Name = steamManager.isHost() ? steamManager.getLocalPlayerName() : steamManager.getOpponentName();
@@ -36795,7 +36814,10 @@ void ofApp::processNetworkPackets() {
 						ofLogNotice("Network") << "Client received Host Handshake. Final Seed: " << currentMapSeed;
 
 						isMultiplayer = true;
-						myLocalPlayerID = 1;
+						if (g_isSpectator)
+							myLocalPlayerID = 2;
+						else
+							myLocalPlayerID = 1;
 						hasReceivedHandshake = true;
 						gameplaySeededByHost = true;
 
@@ -36977,9 +36999,10 @@ void ofApp::processNetworkPackets() {
 				}
 				continue;
 			}
+
 			if (header->type == PKT_CHECKSUM_CHECK) {
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
-				if (skipChecksumValidation) continue;
+				if (skipChecksumValidation || pkt->playerID == 2) continue;
 
 				if (pkt->turnNumber != globalTurnCounter) {
 					ofLogNotice("Network") << "Ignoring Checksum from different turn. Packet: " << pkt->turnNumber << " Local: " << globalTurnCounter;
