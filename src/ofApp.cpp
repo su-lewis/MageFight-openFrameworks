@@ -11792,177 +11792,178 @@ void ofApp::drawGame() {
 		};
 
 		Player * handPlayer = getLocalHandPlayer();
-		if (!handPlayer) return;
-		Player & currentPlayer = *handPlayer;
-		size_t numCards = currentPlayer.hand.size();
+		if (handPlayer) {
+			Player & currentPlayer = *handPlayer;
+			size_t numCards = currentPlayer.hand.size();
 
-		static size_t lastLoggedHandSize = 9999;
-		if (numCards != lastLoggedHandSize) {
-			ofLogNotice("Hand") << "Displaying hand for player " << currentPlayer.playerID << ": " << numCards << " cards (isMultiplayer=" << isMultiplayer << " myLocalPlayerID=" << myLocalPlayerID << ")";
-			lastLoggedHandSize = numCards;
-		}
-
-		// Hearthstone-style hand layout with dynamic spacing
-		HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
-		ofRectangle handAreaRect = handLayout.handAreaRect;
-		float baseCardHeight = handLayout.cardH;
-		float handBaseCardWidth = handLayout.cardW;
-
-		ofPushStyle();
-		ofSetColor(18, 18, 24, 105);
-		ofDrawRectRounded(handAreaRect, 24.0f);
-		ofNoFill();
-		ofSetColor(120, 120, 140, 135);
-		ofSetLineWidth(2.0f);
-		ofDrawRectRounded(handAreaRect, 24.0f);
-		ofPopStyle();
-
-		// 1. Determine which card should be drawn LAST (On Top)
-		int indexToDrawLast = -1;
-		if (draggedCardIndex != -1)
-			indexToDrawLast = draggedCardIndex;
-		else if (hoveredCardIndex != -1)
-			indexToDrawLast = hoveredCardIndex;
-
-		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
-		auto drawHandCard = [&](int index, bool isTopCard) {
-			Card & card = currentPlayer.hand[index];
-
-			// If this card is currently represented by a flying animation, skip drawing
-			if (card.isAnimating) {
-				// Failsafe: if the animation no longer exists, force the card visible!
-				bool foundAnim = false;
-				for (const auto & a : activeDrawCardAnimations) {
-					if (a.card.name == card.name && (a.ownerPlayerID == currentPlayer.playerID || a.ownerIndex == currentPlayerIndex)) {
-						foundAnim = true;
-						break;
-					}
-				}
-				if (!foundAnim) {
-					card.isAnimating = false;
-				} else {
-					return;
-				}
+			static size_t lastLoggedHandSize = 9999;
+			if (numCards != lastLoggedHandSize) {
+				ofLogNotice("Hand") << "Displaying hand for player " << currentPlayer.playerID << ": " << numCards << " cards (isMultiplayer=" << isMultiplayer << " myLocalPlayerID=" << myLocalPlayerID << ")";
+				lastLoggedHandSize = numCards;
 			}
 
-			// Use the smooth physics scale directly (NO double scaling!)
-			float drawScale = card.currentScale;
+			// Hearthstone-style hand layout with dynamic spacing
+			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+			ofRectangle handAreaRect = handLayout.handAreaRect;
+			float baseCardHeight = handLayout.cardH;
+			float handBaseCardWidth = handLayout.cardW;
 
-			float w = handBaseCardWidth * drawScale;
-			float h = baseCardHeight * drawScale;
-
-			// Card's physical position is already updated by the spring physics (NO double offset!)
-			float drawX = card.currentPos.x - w / 2.0f;
-			float drawY = card.currentPos.y - h / 2.0f;
-
-			float fanT = 0.0f;
-			if (numCards >= 4) {
-				fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
-			}
-			float maxTiltDeg = 0.0f;
-			if (numCards >= 4) {
-				maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
-			}
-
-			// Tilt calculation
-			float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
-
-			// Smoothly straighten the card out as it pops up during hover
-			if (index == hoveredCardIndex) {
-				float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, hoverScale - 1.0f), 0.0f, 1.0f);
-				tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
-			}
-
-			if (index == draggedCardIndex) {
-				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
-			}
-
-			ofPushMatrix();
-			ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
-			ofRotateDeg(tiltDeg);
-			ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
-
-			if (isTopCard) {
-				ofPushStyle();
-				ofSetColor(0, 0, 0, 78);
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
-					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-				ofSetColor(0, 0, 0, 34);
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 11.0f, drawY + 15.0f, w, h,
-					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-				ofPopStyle();
-			}
-
-			// B. Draw Overlays as Solid Polygons BEFORE the card face
 			ofPushStyle();
-			ofFill();
-
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-				bool isSelected = false;
-				for (int sel : renewedSelectedHandIndices)
-					if (sel == index) isSelected = true;
-				if (isSelected) {
-					ofSetColor(ofColor::green);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-				}
-			} else if (opponentInteraction.open && opponentInteraction.type == 6) {
-				if (s_opponentRiMask & (1U << index)) {
-					ofSetColor(ofColor::green);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-				}
-			} else {
-				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
-					ofSetColor(ofColor::green);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-				}
-
-				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
-					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
-
-					if (isDirectDamageCard && !isExcluded) {
-						ofSetColor(255, 140, 0);
-						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-					}
-				}
-			}
-
-			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
-				ofSetColor(255, 255, 255, 200);
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-			}
-			if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
-				ofSetColor(255, 0, 0, 200);
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-			}
-
+			ofSetColor(18, 18, 24, 105);
+			ofDrawRectRounded(handAreaRect, 24.0f);
+			ofNoFill();
+			ofSetColor(120, 120, 140, 135);
+			ofSetLineWidth(2.0f);
+			ofDrawRectRounded(handAreaRect, 24.0f);
 			ofPopStyle();
 
-			// A. Draw Sprite
-			// Ghostly tint for copied cards in Renewed Inspiration mode
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
-				ofSetColor(200, 200, 255); // Subtle Blue-White tint
-			} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
-				ofSetColor(80, 80, 80, 180); // Gray out RI!
-			} else {
-				ofSetColor(255); // Normal
+			// 1. Determine which card should be drawn LAST (On Top)
+			int indexToDrawLast = -1;
+			if (draggedCardIndex != -1)
+				indexToDrawLast = draggedCardIndex;
+			else if (hoveredCardIndex != -1)
+				indexToDrawLast = hoveredCardIndex;
+
+			// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
+			auto drawHandCard = [&](int index, bool isTopCard) {
+				Card & card = currentPlayer.hand[index];
+
+				// If this card is currently represented by a flying animation, skip drawing
+				if (card.isAnimating) {
+					// Failsafe: if the animation no longer exists, force the card visible!
+					bool foundAnim = false;
+					for (const auto & a : activeDrawCardAnimations) {
+						if (a.card.name == card.name && (a.ownerPlayerID == currentPlayer.playerID || a.ownerIndex == currentPlayerIndex)) {
+							foundAnim = true;
+							break;
+						}
+					}
+					if (!foundAnim) {
+						card.isAnimating = false;
+					} else {
+						return;
+					}
+				}
+
+				// Use the smooth physics scale directly (NO double scaling!)
+				float drawScale = card.currentScale;
+
+				float w = handBaseCardWidth * drawScale;
+				float h = baseCardHeight * drawScale;
+
+				// Card's physical position is already updated by the spring physics (NO double offset!)
+				float drawX = card.currentPos.x - w / 2.0f;
+				float drawY = card.currentPos.y - h / 2.0f;
+
+				float fanT = 0.0f;
+				if (numCards >= 4) {
+					fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+				}
+				float maxTiltDeg = 0.0f;
+				if (numCards >= 4) {
+					maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
+				}
+
+				// Tilt calculation
+				float tiltDeg = fanT * std::abs(fanT) * maxTiltDeg;
+
+				// Smoothly straighten the card out as it pops up during hover
+				if (index == hoveredCardIndex) {
+					float hoverT = std::clamp((drawScale - 1.0f) / std::max(0.001f, hoverScale - 1.0f), 0.0f, 1.0f);
+					tiltDeg = ofLerp(tiltDeg, 0.0f, hoverT);
+				}
+
+				if (index == draggedCardIndex) {
+					tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
+				}
+
+				ofPushMatrix();
+				ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
+				ofRotateDeg(tiltDeg);
+				ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
+
+				if (isTopCard) {
+					ofPushStyle();
+					ofSetColor(0, 0, 0, 78);
+					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
+						card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+					ofSetColor(0, 0, 0, 34);
+					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 11.0f, drawY + 15.0f, w, h,
+						card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+					ofPopStyle();
+				}
+
+				// B. Draw Overlays as Solid Polygons BEFORE the card face
+				ofPushStyle();
+				ofFill();
+
+				if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+					bool isSelected = false;
+					for (int sel : renewedSelectedHandIndices)
+						if (sel == index) isSelected = true;
+					if (isSelected) {
+						ofSetColor(ofColor::green);
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+					}
+				} else if (opponentInteraction.open && opponentInteraction.type == 6) {
+					if (s_opponentRiMask & (1U << index)) {
+						ofSetColor(ofColor::green);
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+					}
+				} else {
+					if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
+						ofSetColor(ofColor::green);
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+					}
+
+					if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
+						bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
+						bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+
+						if (isDirectDamageCard && !isExcluded) {
+							ofSetColor(255, 140, 0);
+							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+						}
+					}
+				}
+
+				if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
+					ofSetColor(255, 255, 255, 200);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
+				if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
+					ofSetColor(255, 0, 0, 200);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+				}
+
+				ofPopStyle();
+
+				// A. Draw Sprite
+				// Ghostly tint for copied cards in Renewed Inspiration mode
+				if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
+					ofSetColor(200, 200, 255); // Subtle Blue-White tint
+				} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && index == interactingCardIndex) {
+					ofSetColor(80, 80, 80, 180); // Gray out RI!
+				} else {
+					ofSetColor(255); // Normal
+				}
+
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
+
+				ofPopMatrix();
+			};
+
+			// 2. PASS 1: Draw standard cards
+			for (size_t i = 0; i < numCards; i++) {
+				if (static_cast<int>(i) == indexToDrawLast) continue;
+				drawHandCard(i, false);
 			}
 
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
-
-			ofPopMatrix();
-		};
-
-		// 2. PASS 1: Draw standard cards
-		for (size_t i = 0; i < numCards; i++) {
-			if (static_cast<int>(i) == indexToDrawLast) continue;
-			drawHandCard(i, false);
-		}
-
-		// 3. PASS 2: Draw the "Top" card
-		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
-			drawHandCard(indexToDrawLast, true);
-		}
+			// 3. PASS 2: Draw the "Top" card
+			if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
+				drawHandCard(indexToDrawLast, true);
+			}
+		} // Close if (handPlayer)
 	}
 
 	// --- NEW: DRAW DECK/DISCARD HOVER VIEW ---
@@ -13906,7 +13907,7 @@ cursor_check_done:;
 // ----------------- FULL mousePressed FUNCTION -----------------
 
 void ofApp::mousePressed(int x, int y, int button) {
-	if (g_isGameOver) {
+	if (g_isGameOver && currentState != STATE_PAUSED && currentState != STATE_SETTINGS) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
 				saveReplay("last_match_replay.json");
@@ -15319,44 +15320,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// PHASE 1: MODAL UI INTERRUPTS
 	// ==============================================================================
 
-	// --- GAME OVER SCREEN CLICK ---
-	if (g_isGameOver) {
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
-				saveReplay("last_match_replay.json");
-				replaySavedThisMatch = true;
-				return;
-			}
-
-			if (gameOverReturnBtn.inside(x, y)) {
-				g_isGameOver = false;
-				isReplayMode = false;
-
-				if (isMultiplayer) {
-					steamManager.leaveLobby();
-					isMultiplayer = false;
-					hasReceivedHandshake = false;
-					initialDraftComplete = false;
-					draftAcceptLocked = false;
-					draftAcceptApplied = false;
-					gameplaySeededByHost = false;
-					handshakeRequestInterval = 1.0f;
-					waitingForClientHandshake = false; // Reset handshake lock
-					waitingForReconnect = false;
-					reconnectTurnTimerPausedByDisconnect = false;
-					reconnectTurnTimerPausedRemainingFrames = 0;
-					turnTimerPaused = false;
-					turnTimerPausedRemainingFrames = 0;
-					reconnectForfeitStartTime = -1.0f;
-				}
-
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-			}
-		}
-		return; // Block all other input
-	}
-
 	// --- Card Encyclopedia UI ---
 	if (isCardEncyclopediaOpen) {
 		// Right-click cancels the modal
@@ -16598,6 +16561,44 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	mouseMoved(x, y);
 
 	if (currentState != STATE_GAMEPLAY) return;
+
+	// --- GAME OVER SCREEN CLICK ---
+	if (g_isGameOver && currentState != STATE_PAUSED && currentState != STATE_SETTINGS) {
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
+				saveReplay("last_match_replay.json");
+				replaySavedThisMatch = true;
+				return;
+			}
+
+			if (gameOverReturnBtn.inside(x, y)) {
+				g_isGameOver = false;
+				isReplayMode = false;
+
+				if (isMultiplayer) {
+					steamManager.leaveLobby();
+					isMultiplayer = false;
+					hasReceivedHandshake = false;
+					initialDraftComplete = false;
+					draftAcceptLocked = false;
+					draftAcceptApplied = false;
+					gameplaySeededByHost = false;
+					handshakeRequestInterval = 1.0f;
+					waitingForClientHandshake = false; // Reset handshake lock
+					waitingForReconnect = false;
+					reconnectTurnTimerPausedByDisconnect = false;
+					reconnectTurnTimerPausedRemainingFrames = 0;
+					turnTimerPaused = false;
+					turnTimerPausedRemainingFrames = 0;
+					reconnectForfeitStartTime = -1.0f;
+				}
+
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
+		}
+		return; // Block all other input
+	}
 
 	// --- PROCESS MENUS FIRST ---
 	// Allows victims of cards like Magic Blast to interact with their punishment menus
