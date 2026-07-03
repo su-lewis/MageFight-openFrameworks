@@ -19423,6 +19423,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	std::string cardName = "Unknown";
 	int cardCost = 0;
+	(void)cardCost; // Suppress unused warning
 
 	// Safe index fetching: The victim of a Magic Blast shouldn't check the Caster's hand size!
 	if (interactingCardType != CARD_MAGIC_BLAST && interactingCardType != PSEUDO_CARD_GHOST_RELOCATE) {
@@ -20485,20 +20486,29 @@ void ofApp::drawCard(bool sendPacket) {
 			anim.currentPos = glm::vec2(start2D.x, start2D.y); // initialize in screen-space so first frame is correct
 		}
 
-		// Set anim.targetPos to the standard hand area (bottom)
-		// Card already exists in hand, so use current hand size directly.
-		size_t numCardsNow = currentPlayer.hand.size();
-		float handCenterY_now = ofGetHeight() - 130.0f;
-		float handBaseCardWidth_now = kCardPixelWidth;
-		float handAreaWidth_now = ofGetWidth() * 0.6f;
-		float totalCardWidths_now = numCardsNow * handBaseCardWidth_now;
-		float padding_now = (numCardsNow > 1) ? (handAreaWidth_now - totalCardWidths_now) / (numCardsNow - 1) : 0;
-		padding_now = std::min(padding_now, 20.0f);
-		float totalHandWidth_now = (numCardsNow * handBaseCardWidth_now) + ((numCardsNow - 1) * padding_now);
-		float startX_now = (ofGetWidth() - totalHandWidth_now) / 2.0f;
-		float cardCenterX_now = startX_now + (numCardsNow - 1) * (handBaseCardWidth_now + padding_now) + (handBaseCardWidth_now / 2.0f);
+		// Set anim.targetPos to the standard hand area
+		size_t numCardsAnim = currentPlayer.hand.size();
+		float handCenterY_anim = ofGetHeight() - 130.0f;
 
-		anim.targetPos = glm::vec2(cardCenterX_now, handCenterY_now);
+		if (isMultiplayer) {
+			int drawingOwnerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+			if (myLocalPlayerID == 2) {
+				if (drawingOwnerID == 1) handCenterY_anim = -150.0f; // Spectator views P1 at top
+			} else {
+				if (drawingOwnerID != myLocalPlayerID) handCenterY_anim = -150.0f; // Opponent flies to top
+			}
+		}
+
+		float handBaseCardWidth_anim = kCardPixelWidth;
+		float handAreaWidth_anim = ofGetWidth() * 0.6f;
+		float totalCardWidths_anim = numCardsAnim * handBaseCardWidth_anim;
+		float padding_anim = (numCardsAnim > 1) ? (handAreaWidth_anim - totalCardWidths_anim) / (std::max((size_t)2, numCardsAnim) - 1) : 0;
+		padding_anim = std::min(padding_anim, 20.0f);
+		float totalHandWidth_anim = (numCardsAnim * handBaseCardWidth_anim) + ((numCardsAnim - 1) * padding_anim);
+		float startX_anim = (ofGetWidth() - totalHandWidth_anim) / 2.0f;
+		float cardCenterX_anim = startX_anim + (numCardsAnim - 1) * (handBaseCardWidth_anim + padding_anim) + (handBaseCardWidth_anim / 2.0f);
+
+		anim.targetPos = glm::vec2(cardCenterX_anim, handCenterY_anim);
 		anim.endPos = anim.startPos;
 
 		if (hasDrawSourceRect) {
@@ -22065,7 +22075,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (actionName == "SyncRI") {
 			// Apply the mask received from the opponent
-			if (cmd.playerID != myLocalPlayerID) {
+			if (cmd.playerID != (uint32_t)myLocalPlayerID) {
 				s_opponentRiMask = cmd.params[0];
 			}
 			break;
@@ -33691,8 +33701,6 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 		return (board[qx][qy].hasWall || board[qx][qy].hasPlayer);
 	};
 
-	int startX = x;
-	int startY = y;
 	int steps = 0;
 
 	while ((x != endX || y != endY) && steps < 1000) {
