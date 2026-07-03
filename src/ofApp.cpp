@@ -12547,31 +12547,36 @@ void ofApp::drawGame() {
 		drawCardEncyclopediaUI();
 	}
 
-	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
-	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
-		string msg = "Wolf: Choose spawn tile";
+	// --- TOP INSTRUCTION TEXT (Minion Placement) ---
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+		string msg = "";
 
-		// Optional: Change text if it's the second wolf
-		if (wolfSummonStage == 2) msg = "Wolf: Choose 2nd spawn tile (Heads!)";
+		if (interactingCardType == CARD_CALL_FOR_WOLVES) {
+			if (wolfSummonStage == 2)
+				msg = "Wolf: Choose 2nd adjacent empty tile (Heads!)";
+			else
+				msg = "Wolf: Choose an adjacent empty tile";
+		} else if (interactingCardType == CARD_CALL_FOR_KOBOLDS) {
+			msg = "Kobold: Choose adjacent empty tile (" + ofToString(koboldsRemainingToPlace) + " left)";
+		}
 
-		// Calculate center position
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		if (!msg.empty()) {
+			// Calculate center position
+			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+			float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+			float ty = ofGetHeight() * 0.12f;
 
-		// MOVED LOWER: 25% down the screen
-		// Move header area up so cards centered vertically won't overlap it
-		float ty = ofGetHeight() * 0.12f;
+			// Draw Text Shadow/Outline for visibility
+			ofSetColor(0, 0, 0, 255);
+			titleFont.drawString(msg, tx + 2, ty + 2);
+			titleFont.drawString(msg, tx - 2, ty - 2);
+			titleFont.drawString(msg, tx + 2, ty - 2);
+			titleFont.drawString(msg, tx - 2, ty + 2);
 
-		// Draw Text Shadow/Outline for visibility
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		titleFont.drawString(msg, tx - 2, ty - 2);
-		titleFont.drawString(msg, tx + 2, ty - 2);
-		titleFont.drawString(msg, tx - 2, ty + 2);
-
-		// Draw Main Text
-		ofSetColor(ofColor::white);
-		titleFont.drawString(msg, tx, ty);
+			// Draw Main Text
+			ofSetColor(ofColor::white);
+			titleFont.drawString(msg, tx, ty);
+		}
 	}
 
 	// --- CENTRALIZED TARGETING INSTRUCTION TEXT ---
@@ -15890,7 +15895,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			if (isOptionalInteraction) {
-				// --- FIX: Handle Blocking Boon Forfeit ---
+				// --- FIX: Synchronize all skips over the network to prevent freezes! ---
 				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
@@ -15901,9 +15906,39 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.params[0] = (int)CARD_BLOCKING_BOON;
 					cmd.params[1] = -1; // -1 means forfeit targeting
 					sendInputCommand(cmd, true);
-					resetCardInteraction();
-				} else {
-					cancelAllTargeting();
+				} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = -1;
+					cmd.params[1] = -1;
+					strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
+				} else if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = -1;
+					cmd.params[1] = -1;
+					strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
+				} else if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = -1;
+					cmd.params[1] = -1;
+					strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
 				}
 				playHandFeedbackSfx(0.9f, 0.1f);
 				return;
@@ -16693,33 +16728,14 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				}
 			}
 
-			// If a committed card is currently in targeting mode, refund AP and restore the card on cancel.
+			// CRITICAL FIX: Prevent cancelling any spell that has already started resolving over the network.
+			// Refunding AP locally while the opponent awaits a network packet causes an irrecoverable desync!
 			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentCardOutcome.apPaid && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
-				// Prevent cancelling Teleport because the network has already rolled its dice!
-				if (interactingCardType == CARD_TELEPORT) {
-					ofLogNotice("Input") << "Right-click ignored for Teleport (dice already rolled).";
-					return;
-				}
-
-				// Shell Spike triggered targeting costs no AP and should not refund/resurrect the tortoise card
+				// The only exception is Shell Spike, which can be legally cancelled/skipped without a desync
+				// because it does not consume AP or cards from hand.
 				if (interactingCardType != CARD_FORM_OF_TORTOISE) {
-					Player & caster = players[currentCardOutcome.casterIndex];
-					auto restoreIt = std::find_if(caster.discardPile.rbegin(), caster.discardPile.rend(), [&](const Card & c) {
-						return c.type == currentCardOutcome.cardType;
-					});
-					if (restoreIt != caster.discardPile.rend()) {
-						Card restoredCard = *restoreIt;
-						int refund = getEffectiveCardCostForPlayer(caster, restoredCard);
-						caster.hand.push_back(restoredCard);
-						caster.discardPile.erase(std::next(restoreIt).base());
-						currentAP += refund;
-						updatePlayerAP(caster, currentAP);
-						if (!caster.cardsPlayedThisTurn.empty() && caster.cardsPlayedThisTurn.back() == restoredCard.type) {
-							caster.cardsPlayedThisTurn.pop_back();
-						}
-						currentCardOutcome.apPaid = false;
-						queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Cancelled", ofColor::gray);
-					}
+					ofLogNotice("Input") << "Right-click ignored: Cannot cancel a spell after it has begun resolving over the network.";
+					return;
 				}
 			}
 			selectedCardIndex = -1;
@@ -17719,40 +17735,11 @@ void ofApp::startNewTurn() {
 		endingPlayer.playedCardsPile.clear();
 		endingPlayer.cardsPlayedThisTurn.clear();
 
-		// Clear shocks counter via deterministic effect
-		if (endingPlayer.shocksPlayedThisTurn != 0) {
-			EffectOp clearShocks = {};
-			clearShocks.type = EffectOpType::MODIFY_STAT;
-			clearShocks.data.modifyStat.targetIndex = currentPlayerIndex;
-			clearShocks.data.modifyStat.statType = 12; // Shocks counter
-			clearShocks.data.modifyStat.delta = -endingPlayer.shocksPlayedThisTurn;
-			clearShocks.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(clearShocks);
-			if (!isProcessingEffect) beginEffectSequence();
-		}
-
-		// Clear poison buff at end of turn via deterministic effect
-		{
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_ADD_POISON;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-			if (!isProcessingEffect) beginEffectSequence();
-		}
-
-		// Clear flurry stacks via deterministic effect
-		if (endingPlayer.flurryOfFistsStacks != 0) {
-			EffectOp clearFlurry = {};
-			clearFlurry.type = EffectOpType::MODIFY_STAT;
-			clearFlurry.data.modifyStat.targetIndex = currentPlayerIndex;
-			clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
-			clearFlurry.data.modifyStat.delta = -endingPlayer.flurryOfFistsStacks;
-			clearFlurry.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(clearFlurry);
-			if (!isProcessingEffect) beginEffectSequence();
-		}
+		// CRITICAL FIX: Clear per-turn trackers synchronously!
+		// (Doing this via EffectOp causes them to persist incorrectly across bonus turns)
+		endingPlayer.shocksPlayedThisTurn = 0;
+		endingPlayer.flurryOfFistsStacks = 0;
+		endingPlayer.nextAttackAddPoison = false;
 
 		// If the player had an extra draw for this turn but didn't use it, it expires.
 		int cycle = endingPlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
@@ -25079,9 +25066,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
 					queueFloatingTextVisual(tPos, s, ofColor::gray);
 					if (delta > 0) {
+						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
-						if (target.inTortoiseForm) isSpike = true;
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
+
 						if (isSpike) g_pendingShellSpike = true;
 					}
 				}
@@ -25098,9 +25086,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
 					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
 					if (delta > 0) {
+						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
-						if (target.inTortoiseForm) isSpike = true;
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
+
 						if (isSpike) g_pendingShellSpike = true;
 					}
 				}
@@ -25117,9 +25106,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
 					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
 					if (delta > 0) {
+						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
-						if (target.inTortoiseForm) isSpike = true;
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
+
 						if (isSpike) g_pendingShellSpike = true;
 					}
 				}
@@ -25136,9 +25126,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
 					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
 					if (delta > 0) {
+						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
-						if (target.inTortoiseForm) isSpike = true;
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
+
 						if (isSpike) g_pendingShellSpike = true;
 					}
 				}
@@ -25159,9 +25150,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
 					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
 					if (delta > 0) {
+						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
-						if (target.inTortoiseForm) isSpike = true;
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
+
 						if (isSpike) g_pendingShellSpike = true;
 					}
 				}
@@ -25960,7 +25952,7 @@ void ofApp::applyCardOutcomeEffects() {
 
 	if (g_pendingShellSpike) {
 		g_pendingShellSpike = false;
-		tryTriggerShellSpike(); // FIX: Let both peers enter targeting mode!
+		tryTriggerShellSpike(); // FIX: Let both peers enter targeting mode to pass Checksum!
 	}
 }
 
@@ -27916,12 +27908,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		wolfSummonCount = 0;
 		wolfSummonStage = 1;
 
+		// FIX: BOTH peers must enter PLACING state to block their command queues synchronously!
+		updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_WOLVES);
+
 		if (isCurrentPlayerLocal()) {
-			updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_WOLVES);
 			calculateTargetHighlights();
 			queueFloatingTextVisual(gridToWorld(cx, cy), "Place Wolf", ofColor::gold);
 		} else {
-			updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 			queueFloatingTextVisual(gridToWorld(cx, cy), "Opponent placing wolf...", ofColor::gray);
 		}
 
@@ -29675,8 +29668,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// Default TARGET_SELF behavior for other cards (Buffs, etc)
 				else {
 					if (x == px && y == py) {
-						isPreview = true;
-						isValidTarget = true;
+						if (hasEnoughAP) board[x][y].isTargetable = true;
+						// CRITICAL FIX: We skip setting 'isValidTarget = true' and 'isPreview = true',
+						// and `continue` early so the visual renderer ignores this tile.
+						// The card is still perfectly playable, but leaves no confusing glows!
+						continue;
 					}
 				}
 				break;
@@ -33038,9 +33034,8 @@ void ofApp::applyDispelEffect(int statusID) {
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE); // <-- FIXED
 	}
 
-	// Trigger Shell Spike only on the local active player; the actual hit is
-	// resolved through the deterministic CMD_PSEUDO_ACTION path.
-	if (isCurrentPlayerLocal()) tryTriggerShellSpike();
+	// FIX: Let both peers enter targeting mode!
+	tryTriggerShellSpike();
 
 	// Always clear dispel UI transient state.
 	statusSelectLabels.clear();
