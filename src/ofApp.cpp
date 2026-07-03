@@ -26,6 +26,17 @@
 	#include <windows.h>
 #endif
 
+// --- CRITICAL FIX: OVERRIDE EXTERNAL SHUFFLES ---
+// Guarantees all internal deck shuffles bypass external/broken C++ distributions
+#define shuffleGameVector(deck, pidx)                                                              \
+	do {                                                                                           \
+		robust_deterministic_shuffle((deck), gameplayRNG);                                         \
+		if ((pidx) >= 0 && (pidx) < (int)players.size()) players[(pidx)].deckNeedsShuffle = false; \
+	} while (0)
+
+#define deterministic_shuffle_gameplay(deck) robust_deterministic_shuffle((deck), gameplayRNG)
+// ------------------------------------------------
+
 static std::map<int, long long> s_pendingRemoteChecksums;
 static std::map<int, long long> s_pendingLocalChecksums;
 
@@ -472,8 +483,19 @@ template <typename T>
 static void robust_deterministic_shuffle(std::vector<T> & vec, std::mt19937 & rng) {
 	if (vec.empty()) return;
 	for (int i = (int)vec.size() - 1; i > 0; --i) {
-		std::uniform_int_distribution<int> dist(0, i);
-		int j = dist(rng);
+		// Custom cross-platform uniform distribution (Compiler agnostic)
+		uint32_t range = (uint32_t)(i + 1);
+		const uint64_t fullRange = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1ull;
+		const uint32_t threshold = static_cast<uint32_t>(fullRange % range);
+		uint32_t roll = 0;
+		for (;;) {
+			uint32_t raw = rng();
+			if (raw >= threshold) {
+				roll = raw % range;
+				break;
+			}
+		}
+		int j = (int)roll;
 		std::swap(vec[i], vec[j]);
 	}
 }
@@ -20537,14 +20559,14 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 void ofApp::processCommandQueue() {
 	// Simply execute commands in the exact order they arrive in the queue (FIFO).
 	while (!commandQueue.empty()) {
-		// CRITICAL FIX: Ensure 100% Deterministic Checksums!
-		// If the next command is an End Turn, but the game is still resolving
-		// an active spell, sequence, or draft animation, PAUSE the queue!
-		// This guarantees that the Turn-End Checksum is only calculated on an idle board,
-		// completely protecting the game against framerate, latency, and Optimistic UI race conditions.
-		if (commandQueue.front().commandType == CMD_END_TURN) {
-			if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || !activeDraftPickedMoves.empty()) {
-				break;
+		int cmdType = commandQueue.front().commandType;
+
+		// CRITICAL FIX: Prevent Optimistic UI and Packet Bunching from corrupting the State Machine!
+		// If the game is resolving a card, moving, or drafting, PAUSE the queue for all new actions.
+		// Meta-commands (Menus, Targets, Chat, Desync) bypass this so they can resolve the busy state!
+		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || !activeDraftPickedMoves.empty()) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_ACCEPT_DRAFT) {
+				break; // PAUSE THE QUEUE
 			}
 		}
 
@@ -20553,6 +20575,7 @@ void ofApp::processCommandQueue() {
 
 		const uint64_t key = (uint64_t(cmd.playerID) << 32) | uint64_t(cmd.commandId);
 		queuedCommandKeys.erase(key);
+
 		if (executedCommandKeys.find(key) != executedCommandKeys.end()) {
 			ofLogNotice("Lockstep") << "Skipping duplicate execution of InputCommand: id=" << cmd.commandId << " player=" << cmd.playerID;
 			continue;
@@ -24895,10 +24918,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueEffect(healOp);
 				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
 
-				// FIX: Trigger if the target is a Tortoise OR the caster is the Tortoise!
+				// FIX: Trigger only if the Tortoise ITSELF gains Health on its own turn!
 				bool isSpike = false;
-				if (target.inTortoiseForm) isSpike = true;
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].inTortoiseForm) isSpike = true;
+				if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
 				if (isSpike) g_pendingShellSpike = true;
 			} else {
@@ -25938,9 +25960,7 @@ void ofApp::applyCardOutcomeEffects() {
 
 	if (g_pendingShellSpike) {
 		g_pendingShellSpike = false;
-		if (isCurrentPlayerLocal()) {
-			tryTriggerShellSpike();
-		}
+		tryTriggerShellSpike(); // FIX: Let both peers enter targeting mode!
 	}
 }
 
@@ -36932,12 +36952,9 @@ void ofApp::processNetworkPackets() {
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
 				if (skipChecksumValidation || pkt->playerID == 2) continue;
 
-				if (pkt->turnNumber != globalTurnCounter) {
-					ofLogNotice("Network") << "Ignoring Checksum from different turn. Packet: " << pkt->turnNumber << " Local: " << globalTurnCounter;
-					continue;
-				}
-
-				// Push remote checksum and evaluate if we have our local one ready!
+				// DO NOT drop checksums from different turns!
+				// Visual animations can cause a peer to start a turn slightly later/earlier than the other.
+				// Just store it in the map and it will be safely evaluated when the local turn perfectly matches!
 				s_pendingRemoteChecksums[pkt->turnNumber] = pkt->checksum;
 				continue;
 			}
