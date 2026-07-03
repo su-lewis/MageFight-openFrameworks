@@ -7348,24 +7348,8 @@ void ofApp::prepareGameVisualState() {
 	// Hand Interpolation (144Hz Smooth + No Bouncing)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		auto getLocalHandPlayer = [&]() -> Player * {
-			if (players.empty()) return nullptr;
-			if (isMultiplayer || isVsAI) {
-				if (myLocalPlayerID == 2) {
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
-					return nullptr;
-				}
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					Player & activePlayer = players[currentPlayerIndex];
-					int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
-					if (activeOwnerID == myLocalPlayerID) return &activePlayer;
-				}
-				for (auto & p : players) {
-					if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
-				}
-			} else {
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
-			}
-			return nullptr;
+			if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return nullptr;
+			return &players[currentPlayerIndex];
 		};
 
 		Player * handPlayer = getLocalHandPlayer();
@@ -11803,28 +11787,8 @@ void ofApp::drawGame() {
 		const float hoverScale = kHandHoverScale;
 
 		auto getLocalHandPlayer = [&]() -> Player * {
-			if (players.empty()) return nullptr;
-			if (isMultiplayer || isVsAI) {
-				if (myLocalPlayerID == 2) {
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						return &players[currentPlayerIndex];
-					}
-					return nullptr;
-				}
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					Player & activePlayer = players[currentPlayerIndex];
-					int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
-					if (activeOwnerID == myLocalPlayerID) return &activePlayer;
-				}
-				for (auto & p : players) {
-					if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
-				}
-			} else {
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					return &players[currentPlayerIndex];
-				}
-			}
-			return nullptr;
+			if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return nullptr;
+			return &players[currentPlayerIndex];
 		};
 
 		Player * handPlayer = getLocalHandPlayer();
@@ -13034,28 +12998,8 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// 3. Check for "Draggable" things (Cards in hand)
 	auto getLocalHandPlayer = [&]() -> Player * {
-		if (players.empty()) return nullptr;
-		if (isMultiplayer || isVsAI) {
-			if (myLocalPlayerID == 2) {
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					return &players[currentPlayerIndex];
-				}
-				return nullptr;
-			}
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				Player & activePlayer = players[currentPlayerIndex];
-				int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
-				if (activeOwnerID == myLocalPlayerID) return &activePlayer;
-			}
-			for (auto & p : players) {
-				if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
-			}
-		} else {
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				return &players[currentPlayerIndex];
-			}
-		}
-		return nullptr;
+		if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return nullptr;
+		return &players[currentPlayerIndex];
 	};
 
 	Player * handPlayer = getLocalHandPlayer();
@@ -16511,24 +16455,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 		if (draggedCardIndex != -1) {
 			auto getLocalHandPlayer = [&]() -> Player * {
-				if (players.empty()) return nullptr;
-				if (isMultiplayer || isVsAI) {
-					if (myLocalPlayerID == 2) {
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
-						return nullptr;
-					}
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						Player & activePlayer = players[currentPlayerIndex];
-						int activeOwnerID = activePlayer.isMinion ? activePlayer.ownerID : activePlayer.playerID;
-						if (activeOwnerID == myLocalPlayerID) return &activePlayer;
-					}
-					for (auto & p : players) {
-						if (!p.isMinion && p.playerID == myLocalPlayerID) return &p;
-					}
-				} else {
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) return &players[currentPlayerIndex];
-				}
-				return nullptr;
+				if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return nullptr;
+				return &players[currentPlayerIndex];
 			};
 			Player * hpPtr = getLocalHandPlayer();
 			if (!hpPtr) return;
@@ -20489,15 +20417,6 @@ void ofApp::drawCard(bool sendPacket) {
 		// Set anim.targetPos to the standard hand area
 		size_t numCardsAnim = currentPlayer.hand.size();
 		float handCenterY_anim = ofGetHeight() - 130.0f;
-
-		if (isMultiplayer) {
-			int drawingOwnerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-			if (myLocalPlayerID == 2) {
-				if (drawingOwnerID == 1) handCenterY_anim = -150.0f; // Spectator views P1 at top
-			} else {
-				if (drawingOwnerID != myLocalPlayerID) handCenterY_anim = -150.0f; // Opponent flies to top
-			}
-		}
 
 		float handBaseCardWidth_anim = kCardPixelWidth;
 		float handAreaWidth_anim = ofGetWidth() * 0.6f;
