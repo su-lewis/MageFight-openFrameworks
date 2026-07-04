@@ -18064,16 +18064,17 @@ void ofApp::startNewTurn() {
 
 			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 			if (isMultiplayer && myLocalPlayerID != 2) {
+				int uniqueTurnId = ((globalTurnCounter & 0x7FFF) << 16) | ((currentPlayerIndex & 0xFF) << 8) | (players[currentPlayerIndex].bonusTurns & 0xFF);
 				long long mySum = calculateChecksum();
-				s_pendingLocalChecksums[globalTurnCounter] = mySum;
+				s_pendingLocalChecksums[uniqueTurnId] = mySum;
 
 				ChecksumPacket chk = {};
 				chk.type = PKT_CHECKSUM_CHECK;
 				chk.playerID = myLocalPlayerID;
-				chk.turnNumber = globalTurnCounter;
+				chk.turnNumber = uniqueTurnId;
 				chk.checksum = mySum;
 				steamManager.sendPacket(&chk, sizeof(chk));
-				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
+				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM (Skip): " + std::to_string(chk.checksum) + " ID: " + std::to_string(uniqueTurnId));
 			}
 
 			// Autosave at the start of each turn (singleplayer or host in multiplayer).
@@ -18572,16 +18573,17 @@ void ofApp::continueNewTurn() {
 
 	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
 	if (isMultiplayer && myLocalPlayerID != 2) {
+		int uniqueTurnId = ((globalTurnCounter & 0x7FFF) << 16) | ((currentPlayerIndex & 0xFF) << 8) | (players[currentPlayerIndex].bonusTurns & 0xFF);
 		long long mySum = calculateChecksum();
-		s_pendingLocalChecksums[globalTurnCounter] = mySum;
+		s_pendingLocalChecksums[uniqueTurnId] = mySum;
 
 		ChecksumPacket chk = {};
 		chk.type = PKT_CHECKSUM_CHECK;
 		chk.playerID = myLocalPlayerID;
-		chk.turnNumber = globalTurnCounter;
+		chk.turnNumber = uniqueTurnId;
 		chk.checksum = mySum;
 		steamManager.sendPacket(&chk, sizeof(chk));
-		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum));
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum) + " ID: " + std::to_string(uniqueTurnId));
 	}
 
 	// Autosave at the start of each turn (singleplayer or host in multiplayer).
