@@ -19327,7 +19327,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
+
+		cmd.commandId = nextCommandId;
+		nextCommandId = nextCommandId + 1;
+
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_PLAY_CARD;
 		cmd.params[0] = cardIndex;
@@ -19341,6 +19344,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		// that open a menu (like Magic Blast) will be instantly closed!
 
 		resetCardInteraction();
+		resetCardState(); // CRITICAL FIX: Resets to IDLE to unblock the lockstep queue!
 
 		sendInputCommand(cmd, true);
 		break;
