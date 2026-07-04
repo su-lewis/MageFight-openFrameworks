@@ -22836,6 +22836,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
 						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
 							impact = furthestValid;
+							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
+								impact = { x0, y0 };
+							}
 							break;
 						}
 						furthestValid = { x0, y0 };
@@ -22850,12 +22853,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					int e2 = 2 * err;
 					if (e2 >= dy) {
-						err += dy;
-						x0 += sx;
+						err = err + dy;
+						x0 = x0 + sx;
 					}
 					if (e2 <= dx) {
-						err += dx;
-						y0 += sy;
+						err = err + dx;
+						y0 = y0 + sy;
 					}
 				}
 				return impact;
@@ -22973,6 +22976,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
 						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
 							impact = furthestValid;
+							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
+								impact = { x0, y0 };
+							}
 							break;
 						}
 						furthestValid = { x0, y0 };
@@ -22987,12 +22993,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					int e2 = 2 * err;
 					if (e2 >= dy) {
-						err += dy;
-						x0 += sx;
+						err = err + dy;
+						x0 = x0 + sx;
 					}
 					if (e2 <= dx) {
-						err += dx;
-						y0 += sy;
+						err = err + dx;
+						y0 = y0 + sy;
 					}
 				}
 				return impact;
@@ -23169,6 +23175,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
 						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
 							impact = furthestValid;
+							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
+								impact = { x0, y0 };
+							}
 							break;
 						}
 						furthestValid = { x0, y0 };
@@ -23183,12 +23192,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					int e2 = 2 * err;
 					if (e2 >= dy) {
-						err += dy;
-						x0 += sx;
+						err = err + dy;
+						x0 = x0 + sx;
 					}
 					if (e2 <= dx) {
-						err += dx;
-						y0 += sy;
+						err = err + dx;
+						y0 = y0 + sy;
 					}
 				}
 				return impact;
@@ -23332,6 +23341,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
 						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
 							impact = furthestValid;
+							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
+								impact = { x0, y0 };
+							}
 							break;
 						}
 						furthestValid = { x0, y0 };
@@ -23346,12 +23358,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					int e2 = 2 * err;
 					if (e2 >= dy) {
-						err += dy;
-						x0 += sx;
+						err = err + dy;
+						x0 = x0 + sx;
 					}
 					if (e2 <= dx) {
-						err += dx;
-						y0 += sy;
+						err = err + dx;
+						y0 = y0 + sy;
 					}
 				}
 				return impact;
@@ -23462,6 +23474,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
 						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
 							impact = furthestValid;
+							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
+								impact = { x0, y0 };
+							}
 							break;
 						}
 						furthestValid = { x0, y0 };
@@ -23476,12 +23491,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					int e2 = 2 * err;
 					if (e2 >= dy) {
-						err += dy;
-						x0 += sx;
+						err = err + dy;
+						x0 = x0 + sx;
 					}
 					if (e2 <= dx) {
-						err += dx;
-						y0 += sy;
+						err = err + dx;
+						y0 = y0 + sy;
 					}
 				}
 				return impact;
@@ -23671,6 +23686,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
 						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
 							impact = furthestValid;
+							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
+								impact = { x0, y0 };
+							}
 							break;
 						}
 						furthestValid = { x0, y0 };
@@ -23685,12 +23703,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					int e2 = 2 * err;
 					if (e2 >= dy) {
-						err += dy;
-						x0 += sx;
+						err = err + dy;
+						x0 = x0 + sx;
 					}
 					if (e2 <= dx) {
-						err += dx;
-						y0 += sy;
+						err = err + dx;
+						y0 = y0 + sy;
 					}
 				}
 				return impact;
