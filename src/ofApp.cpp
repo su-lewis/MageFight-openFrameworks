@@ -21772,7 +21772,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		// Spawn visual animations for picked cards and vanish the rest (visual-only)
-		{
+		// We skip this if we are the ones who sent it, because our local optimistic UI
+		// already spawned the flying cards instantly for responsiveness!
+		if (cmd.playerID != (uint32_t)myLocalPlayerID) {
 			float cardW, cardH, spacing, startX, startY;
 			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 			int nowFrameLocal = (int)simulationFrame;
