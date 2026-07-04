@@ -1,16 +1,16 @@
 #version 150
 
-uniform sampler2D tex0;
-uniform int levels;        // posterize levels (1 = off)
-uniform int useDither;     // 0/1
-uniform vec2 uResolution;  // full-screen resolution
-uniform vec2 uLowRes;      // low-res FBO size (optional)
-uniform vec3 edgeColor;    // color tint for edges
-uniform float edgeStrength;// how strong edge darkening is
-
+in vec2 vTexCoord;
 out vec4 fragColor;
 
-// Lightweight Bayer 4x4 matrix
+uniform sampler2D tex0;
+uniform int levels;        
+uniform int useDither;     
+uniform vec2 uResolution;  
+uniform vec2 uLowRes;      
+uniform vec3 edgeColor;    
+uniform float edgeStrength;
+
 float bayer4(vec2 p) {
     int x = int(mod(p.x, 4.0));
     int y = int(mod(p.y, 4.0));
@@ -24,63 +24,55 @@ float bayer4(vec2 p) {
     return (m[idx] + 0.5) / 16.0;
 }
 
-// Compute luminance
 float lum(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
 }
 
 void main() {
-    // normalized uv (0..1) with origin at top-left like texture sampling expects
-    vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
-    uv.y = 1.0 - uv.y;
-
-    // Determine low-res grid to sample from, prefer provided uLowRes when valid
-    vec2 lowRes = (uLowRes.x > 1.0 && uLowRes.y > 1.0) ? uLowRes : vec2(max(1.0, floor(uResolution.x / 4.0)), max(1.0, floor(uResolution.y / 4.0)));
-    vec2 texel = 1.0 / lowRes;
-
+    vec2 uv = vTexCoord;
+    
     // Pixel-center sample in low-res grid (crisp pixel-art sampling)
-    vec2 lowCoord = floor(uv * lowRes) / lowRes + 0.5 / lowRes;
+    vec2 texel = 1.0 / uLowRes;
+    vec2 lowCoord = floor(uv * uLowRes) / uLowRes + 0.5 / uLowRes;
+    
     vec3 base = texture(tex0, lowCoord).rgb;
 
-    // Posterize (per-channel) controlled by `levels`
+    // --- FIX: BRIGHTEN THE IMAGE ---
+    // Boost saturation slightly, and add a flat 20% brightness boost so it isn't so dark
+    float luma = lum(base);
+    base = mix(vec3(luma), base, 1.30); // Saturation boost
+    base *= 1.20; // 20% Brightness boost
+    base = clamp(base, 0.0, 1.0);
+
+    // Color Banding / Posterization
     float L = max(1.0, float(levels));
     vec3 q = base;
+    
     if (L > 1.0) {
         if (useDither == 1) {
-            // gentle Bayer dither depending on screen coords (reduced strength)
-            float d = bayer4(gl_FragCoord.xy) * 0.15;
-            q.r = floor(q.r * L + d) / L;
-            q.g = floor(q.g * L + d) / L;
-            q.b = floor(q.b * L + d) / L;
+            float d = (bayer4(gl_FragCoord.xy) - 0.5) * 0.1;
+            q = floor((q + d) * L) / L;
         } else {
             q = floor(q * L) / L;
         }
-        // mix posterized result with original so the effect is subtler
-        q = mix(base, q, 0.25);
     }
 
-    // edge detection on the low-res grid (Sobel-ish)
+    // Crisp Edge Detection (Sobel)
     float c = lum(base);
     float l = lum(texture(tex0, lowCoord + vec2(-texel.x, 0)).rgb);
     float r = lum(texture(tex0, lowCoord + vec2(texel.x, 0)).rgb);
     float u = lum(texture(tex0, lowCoord + vec2(0, -texel.y)).rgb);
     float d = lum(texture(tex0, lowCoord + vec2(0, texel.y)).rgb);
+    
     float gx = (r - l);
     float gy = (d - u);
     float edge = sqrt(gx * gx + gy * gy);
 
-    // Smooth the edge response and allow edgeStrength to control it
-    float threshold = 0.08;
-    float edgeFactor = smoothstep(threshold, threshold * max(edgeStrength, 1.0), edge) * 0.6;
+    // Hard threshold for a crisp 1-pixel dark outline
+    float edgeFactor = step(0.15, edge) * max(edgeStrength, 0.5);
 
-    // Compose final color: apply subtle edge darkening towards edgeColor
-    vec3 edgeTint = mix(q, edgeColor, 0.0); // keep tint optional; default 0
-    vec3 colorWithEdge = mix(q, edgeTint * 0.93, edgeFactor * 0.45);
-    colorWithEdge *= mix(1.0, 0.98, edgeFactor * 0.15); // further reduced darkening
-
-    // Avoid additional gamma boosting — use the composed color directly
-    // (removing the previous pow(...) which made the image too bright)
-    vec3 finalCol = colorWithEdge; // keep full brightness
+    // Apply outline (darken the edge)
+    vec3 finalCol = mix(q, edgeColor, edgeFactor * 0.85);
 
     fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
 }

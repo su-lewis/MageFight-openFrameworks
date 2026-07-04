@@ -11535,8 +11535,14 @@ void ofApp::drawGame() {
 	bool isOptionalInteraction = false;
 	string optionalBtnText = "Done";
 	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
-		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
+		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
+			isOptionalInteraction = true;
+			optionalBtnText = "Skip Remaining";
+		}
+		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) {
+			isOptionalInteraction = true;
+			optionalBtnText = "Skip 2nd Wolf";
+		}
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
 		isOptionalInteraction = true;
 		optionalBtnText = "Skip Spike";
@@ -11949,11 +11955,11 @@ void ofApp::drawGame() {
 					}
 				}
 
-				if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
+				if (currentState != STATE_DRAFTING && localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
 					ofSetColor(255, 255, 255, 200);
 					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 				}
-				if (isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
+				if (currentState != STATE_DRAFTING && isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
 					ofSetColor(255, 0, 0, 200);
 					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 				}
@@ -13155,8 +13161,8 @@ cursor_check_done:;
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
 				float cx = startX + i * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
-					// FIX 3: We MUST set newHoverType so the opponent sees us hovering the card!
-					newHoverType = HOVER_HAND_CARD;
+					// Isolate draft hovers from hand hovers using ID 5
+					newHoverType = 5;
 					newHoverCardIndex = i;
 					break;
 				}
@@ -14937,6 +14943,38 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Use the actual drafting player's index for proper animation targeting
 					mv.ownerIndex = draftPlayerIndex;
 					scheduleDraftPickedMove(mv);
+				}
+
+				// NEW: Optimistically schedule the shuffle visual so it happens instantly!
+				float cardAnimDuration = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f;
+				bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
+				if (!targetIsMinion) {
+					startShuffleVisual(draftPlayerIndex, cardAnimDuration);
+				} else {
+					ShuffleAnimation s;
+					s.playerIndex = draftPlayerIndex;
+					bool assignedRect = false;
+					for (const auto & mui : activeMinionUIs) {
+						if (mui.playerIndex == draftPlayerIndex) {
+							s.deckRect = mui.deckRect;
+							assignedRect = true;
+							break;
+						}
+					}
+					if (!assignedRect) {
+						int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+						int ownerID = (ownerSlot >= 0) ? players[ownerSlot].playerID : players[draftPlayerIndex].ownerID;
+						if (isMultiplayer)
+							s.deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+						else
+							s.deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
+					}
+					s.startTime = ofGetElapsedTimef() + cardAnimDuration;
+					s.duration = 0.9f;
+					s.currentAlpha = 255.0f;
+					s.currentScale = 1.0f;
+					s.rotation = 0.0f;
+					activeShuffleAnimations.push_back(s);
 				}
 
 				// Vanish all option slots immediately; picked cards are represented
@@ -17509,13 +17547,10 @@ void ofApp::keyReleased(int key) {
 		}
 
 		if (currentState == STATE_DRAFTING) {
-			bool isMyDraft = isLocalDraftingPlayer(draftPlayerIndex);
-			if (isInGameDraft && isMyDraft) {
-				ofLogNotice("Draft") << "ESC ignored during your in-game key draft (must pick a card).";
-			} else {
-				pausedFromState = STATE_DRAFTING;
-				currentState = STATE_PAUSED;
-			}
+			// Always allow players to access the Pause Menu (for Settings/Quitting)
+			// Resume will safely return them to this exact draft screen.
+			pausedFromState = STATE_DRAFTING;
+			currentState = STATE_PAUSED;
 			return;
 		}
 
@@ -20558,7 +20593,8 @@ void ofApp::processCommandQueue() {
 		// If the game is resolving a card, moving, or drafting, PAUSE the queue for all new actions.
 		// Meta-commands (Menus, Targets, Chat, Desync) bypass this so they can resolve the busy state!
 		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || !activeDraftPickedMoves.empty()) {
-			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_ACCEPT_DRAFT) {
+			// REMOVED CMD_ACCEPT_DRAFT: In-game key drafts must be allowed to bypass the queue lock!
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
 				break; // PAUSE THE QUEUE
 			}
 		}
@@ -21735,46 +21771,47 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << cmdDraftPlayerIdx << " picks=" << picks.size() << " (shuffled)";
 
-		// Schedule visual shuffle and animations consistent with click-path timing
-		float cardAnimDuration = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f;
-		bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
-		if (!targetIsMinion) {
-			startShuffleVisual(cmdDraftPlayerIdx, cardAnimDuration);
-		}
-
-		// Minion-specific shuffle visual (as done in click handler)
-		if (targetIsMinion) {
-			ShuffleAnimation s;
-			s.playerIndex = cmdDraftPlayerIdx;
-			bool assignedRect = false;
-			for (const auto & mui : activeMinionUIs) {
-				if (mui.playerIndex == cmdDraftPlayerIdx) {
-					s.deckRect = mui.deckRect;
-					assignedRect = true;
-					break;
-				}
-			}
-			if (!assignedRect) {
-				int ownerSlot = findPlayerIndexByID(players[cmdDraftPlayerIdx].ownerID);
-				int ownerID = (ownerSlot >= 0) ? players[ownerSlot].playerID : players[cmdDraftPlayerIdx].ownerID;
-				if (isMultiplayer) {
-					s.deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
-				} else {
-					s.deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
-				}
-			}
-			s.startTime = ofGetElapsedTimef() + cardAnimDuration;
-			s.duration = 0.9f;
-			s.currentAlpha = 255.0f;
-			s.currentScale = 1.0f;
-			s.rotation = 0.0f;
-			activeShuffleAnimations.push_back(s);
-		}
-
 		// Spawn visual animations for picked cards and vanish the rest (visual-only)
 		// We skip this if we are the ones who sent it, because our local optimistic UI
-		// already spawned the flying cards instantly for responsiveness!
+		// already spawned the flying cards and shuffle instantly for responsiveness!
 		if (cmd.playerID != (uint32_t)myLocalPlayerID) {
+
+			// Schedule visual shuffle and animations consistent with click-path timing
+			float cardAnimDuration = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f;
+			bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
+			if (!targetIsMinion) {
+				startShuffleVisual(cmdDraftPlayerIdx, cardAnimDuration);
+			}
+
+			// Minion-specific shuffle visual (as done in click handler)
+			if (targetIsMinion) {
+				ShuffleAnimation s;
+				s.playerIndex = cmdDraftPlayerIdx;
+				bool assignedRect = false;
+				for (const auto & mui : activeMinionUIs) {
+					if (mui.playerIndex == cmdDraftPlayerIdx) {
+						s.deckRect = mui.deckRect;
+						assignedRect = true;
+						break;
+					}
+				}
+				if (!assignedRect) {
+					int ownerSlot = findPlayerIndexByID(players[cmdDraftPlayerIdx].ownerID);
+					int ownerID = (ownerSlot >= 0) ? players[ownerSlot].playerID : players[cmdDraftPlayerIdx].ownerID;
+					if (isMultiplayer) {
+						s.deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+					} else {
+						s.deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
+					}
+				}
+				s.startTime = ofGetElapsedTimef() + cardAnimDuration;
+				s.duration = 0.9f;
+				s.currentAlpha = 255.0f;
+				s.currentScale = 1.0f;
+				s.rotation = 0.0f;
+				activeShuffleAnimations.push_back(s);
+			}
+
 			float cardW, cardH, spacing, startX, startY;
 			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 			int nowFrameLocal = (int)simulationFrame;
@@ -22086,6 +22123,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "PlaceKobold") {
+			if (targetX == -1 && targetY == -1) {
+				// Player clicked 'Done' to skip remaining
+				koboldsRemainingToPlace = 0;
+				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+				isShowingTooltip = false;
+				resetCardState();
+				break;
+			}
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			// UI Check Removed: We trust the lockstep command!
 			int dist = abs(targetX - koboldPlacementSourceX) + abs(targetY - koboldPlacementSourceY);
@@ -22136,6 +22181,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "PlaceWolf") {
+			if (targetX == -1 && targetY == -1) {
+				// Player clicked 'Done' to skip remaining
+				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+				wolfSummonStage = 0;
+				isShowingTooltip = false;
+				resetCardState();
+				break;
+			}
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			int dist = abs(targetX - wolfPlacementSourceX) + abs(targetY - wolfPlacementSourceY);
 			if (dist != 1) break;
@@ -36018,7 +36071,7 @@ void ofApp::drawDraftScreen() {
 		}
 
 		bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
-		bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == (int)i);
+		bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
 
 		if (isLocallyHovered || isOpponentHovered) {
 			ofPushStyle();

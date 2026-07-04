@@ -6,103 +6,87 @@ out vec4 fragColor;
 uniform sampler2D tex0;
 uniform float uTime;
 uniform vec2 uResolution;
-uniform float uScanlineIntensity; // 0..1
-uniform float uPixelSize; // 1.0 = native, >1 pixelates
+uniform float uScanlineIntensity;
+uniform float uPixelSize;
 
-// Commodore 64-ish 16-color palette (approximate in sRGB)
-vec3 c64Palette[16] = vec3[16](
-    vec3(0.0, 0.0, 0.0),       // black
-    vec3(1.0, 1.0, 1.0),       // white
-    vec3(0.666, 0.333, 0.0),   // red-ish
-    vec3(1.0, 0.666, 0.0),     // cyan-ish (approx)
-    vec3(0.333, 0.666, 0.0),   // purple-ish
-    vec3(0.0, 0.666, 0.0),     // green
-    vec3(0.666, 0.666, 0.0),   // blue-ish
-    vec3(0.333, 0.333, 0.333), // yellow/dark gray
-    vec3(0.666, 0.333, 0.666), // orange/med
-    vec3(0.0, 0.333, 0.666),   // brown/med
-    vec3(0.333, 0.333, 0.0),   // light red
-    vec3(0.666, 0.666, 0.333), // light cyan
-    vec3(0.333, 0.666, 0.666), // light purple
-    vec3(0.666, 0.333, 0.333), // light green
-    vec3(0.333, 0.666, 0.333), // light blue
-    vec3(0.666, 0.666, 0.666)  // light gray
+// Authentic Commodore 64 16-color palette (Pepto's Palette in sRGB)
+const vec3 c64Palette[16] = vec3[16](
+    vec3(0.000, 0.000, 0.000), // 0: Black
+    vec3(1.000, 1.000, 1.000), // 1: White
+    vec3(0.533, 0.149, 0.169), // 2: Red
+    vec3(0.439, 0.784, 0.792), // 3: Cyan
+    vec3(0.541, 0.243, 0.580), // 4: Purple
+    vec3(0.341, 0.651, 0.259), // 5: Green
+    vec3(0.200, 0.157, 0.541), // 6: Blue
+    vec3(0.710, 0.784, 0.439), // 7: Yellow
+    vec3(0.541, 0.329, 0.161), // 8: Orange
+    vec3(0.259, 0.200, 0.000), // 9: Brown
+    vec3(0.761, 0.490, 0.482), // 10: Light Red
+    vec3(0.263, 0.263, 0.263), // 11: Dark Gray
+    vec3(0.420, 0.420, 0.420), // 12: Medium Gray
+    vec3(0.600, 0.882, 0.569), // 13: Light Green
+    vec3(0.420, 0.388, 0.831), // 14: Light Blue
+    vec3(0.580, 0.580, 0.580)  // 15: Light Gray
 );
 
-// 2x2 ordered Bayer matrix for simple dithering
-int bayer2[4] = int[4](0, 2, 3, 1);
+float bayer4(vec2 p) {
+    int x = int(mod(p.x, 4.0));
+    int y = int(mod(p.y, 4.0));
+    int idx = x + y * 4;
+    float m[16] = float[16](
+        0.0, 8.0, 2.0, 10.0,
+        12.0, 4.0, 14.0, 6.0,
+        3.0, 11.0, 1.0, 9.0,
+        15.0, 7.0, 13.0, 5.0
+    );
+    return (m[idx] + 0.5) / 16.0;
+}
 
-float bayerDither(vec2 uv, float scale) {
-    ivec2 p = ivec2(floor(uv * scale));
-    int idx = (p.x % 2) + (p.y % 2) * 2;
-    float threshold = float(bayer2[idx]) / 4.0;
-    return threshold;
+// FIX: Pure Euclidean distance prevents dark grays from hue-shifting into brown/yellow
+float colorDistance(vec3 c1, vec3 c2) {
+    vec3 diff = c1 - c2;
+    return dot(diff, diff); 
 }
 
 vec3 findClosestPalette(vec3 c) {
     float bestDist = 1000.0;
     int bestI = 0;
     for (int i = 0; i < 16; ++i) {
-        float d = distance(c, c64Palette[i]);
-        if (d < bestDist) { bestDist = d; bestI = i; }
+        float d = colorDistance(c, c64Palette[i]);
+        if (d < bestDist) { 
+            bestDist = d; 
+            bestI = i; 
+        }
     }
     return c64Palette[bestI];
 }
-
-int findClosestPaletteIndex(vec3 c) {
-    float bestDist = 1000.0;
-    int bestI = 0;
-    for (int i = 0; i < 16; ++i) {
-        float d = distance(c, c64Palette[i]);
-        if (d < bestDist) { bestDist = d; bestI = i; }
-    }
-    return bestI;
-}
-
-// (saturation boost removed) -- keep colors closer to the original
 
 void main() {
     vec2 uv = vTexCoord;
     vec4 col = texture(tex0, uv);
     vec3 color = col.rgb;
 
-
-    // optional low-res pixelation to emulate C64 low resolution
+    // Optional pixelation
     float pixelSize = max(1.0, uPixelSize);
     if (pixelSize > 1.5) {
         vec2 pxUv = floor(uv * uResolution / pixelSize) * pixelSize / uResolution;
         color = texture(tex0, pxUv).rgb;
     }
 
-    // apply slight palette mapping with dithering
-    float scale = 6.0; // dither scale
-    float t = bayerDither(gl_FragCoord.xy / uResolution, scale);
+    // FIX: Reduced dither strength from 0.15 to 0.08 for a cleaner image
+    float dither = (bayer4(gl_FragCoord.xy) - 0.5) * 0.08;
+    
+    // Snap to the absolute C64 palette
+    vec3 mapped = findClosestPalette(clamp(color + dither, 0.0, 1.0));
 
-    // Slightly stronger dither amplitude
-    vec3 mapped = findClosestPalette(color + (t - 0.5) * 0.03);
-
-    // Increase palette replacement strength so C64 look is more visible
-    mapped = mix(color, mapped, 0.45);
-
-    // No extra saturation boost; preserve mapped color
-
-    // Avoid altering very bright pixels at all (keeps highlights intact)
-    float lum = dot(color, vec3(0.299, 0.587, 0.114));
-    if (lum > 0.92) {
-        mapped = color;
-    } else {
-        int nearest = findClosestPaletteIndex(color);
-        // If the nearest palette entry is black but the pixel isn't dark,
-        // prefer the original color to avoid black replacement for moderately bright pixels.
-        if (nearest == 0 && lum > 0.09) {
-            mapped = color;
-        }
-    }
-
-    // scanlines
+    // Original working scanlines
     float scan = sin((gl_FragCoord.y + uTime * 30.0) * 1.2) * 0.5 + 0.5;
-    // Increase scanline slightly to strengthen the retro feel, while keeping it controlled
-    mapped *= mix(1.0, 1.0 - uScanlineIntensity * 0.28, scan);
+    mapped *= mix(1.0, 1.0 - uScanlineIntensity * 0.2, scan);
+
+    // Subtle CRT Vignette (Darker corners)
+    vec2 crtUV = uv * 2.0 - 1.0;
+    float vignette = 1.0 - dot(crtUV, crtUV) * 0.15;
+    mapped *= vignette;
 
     fragColor = vec4(mapped, col.a);
 }
