@@ -4585,28 +4585,9 @@ void ofApp::updateStateMachine() {
 	if (draftEndScheduled) {
 		if (simulationFrame >= (uint32_t)draftEndAt) {
 			draftEndScheduled = false;
-			// Instead of instantly starting the turn, we queue the visual finalization!
-			networkPending.draftFinalize = true;
-			networkPending.draftShuffleNeeded = true;
-			ofLogNotice("Draft") << "Draft end timer hit. Waiting for visuals to finish...";
-		}
-	}
+			initialDraftComplete = true;
 
-	// If we have a pending draft finalization, wait for pick animations and shuffle visuals
-	if (networkPending.draftFinalize) {
-		bool picksDone = activeDraftPickedMoves.empty();
-		bool shufflesDone = activeShuffleAnimations.empty();
-
-		if (picksDone && networkPending.draftShuffleNeeded) {
-			// The deck was already deterministically shuffled in CMD_ACCEPT_DRAFT.
-			networkPending.draftShuffleNeeded = false;
-		}
-
-		if (picksDone && shufflesDone && diceVisualsFinishedAndLinger()) {
-			networkPending.draftFinalize = false;
-			initialDraftComplete = true; // <-- CRITICAL: Prevents instant-death bug!
-
-			ofLogNotice("Draft") << "Visuals complete! Starting match. nextPlayer=" << draftEndNextPlayerIndex;
+			ofLogNotice("Draft") << "Draft end timer hit! Starting match. nextPlayer=" << draftEndNextPlayerIndex;
 			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
 				// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
 				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
@@ -8309,13 +8290,10 @@ void ofApp::updateGameLogic() {
 		}
 	}
 
-	// If a turn start was deferred while visuals played, commit it now once visuals finished.
 	if (turnStartDeferred) {
-		bool commitNow = false;
-		if (diceVisualsFinishedAndLinger())
-			commitNow = true;
-
-		if (commitNow) {
+		// Wait exactly 48 deterministic ticks (0.8s) for dice to "finish spinning"
+		// instead of relying on real-world visual timers to prevent framerate desyncs.
+		if (simulationFrame >= (uint32_t)(turnStartDeferredAtFrame + 48)) {
 			turnStartDeferred = false;
 			turnStartFrame = (int)simulationFrame;
 			ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
@@ -11112,10 +11090,7 @@ void ofApp::drawGame() {
 				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
 			}
 			// Determine which drawn flag applies to the active player
-			if (activePlayer.playerID == myLocalPlayerID)
-				activeMainDeckAlreadyDrawn = hasDrawnCardsThisTurn;
-			else
-				activeMainDeckAlreadyDrawn = opponentHasDrawnCardsThisTurn;
+			activeMainDeckAlreadyDrawn = activePlayer.hasDrawnThisTurn;
 		}
 
 		// Only highlight deck if it's the active main-deck turn and that active player hasn't drawn yet
@@ -15781,7 +15756,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Decide which "has drawn" flag applies: if the minion belongs to the local player
 					// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
 					bool belongsToLocalPlayer = (uiMinion.ownerID == myLocalPlayerID);
-					bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
+					bool canDraw = !uiMinion.hasDrawnThisTurn;
 					if (!canDraw) continue;
 
 					// Call the unified draw function. It handles draw count and networking internally.
@@ -15836,7 +15811,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			ofRectangle activeDeckRect = (activePlayer.playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
 			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
 			bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
-			bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			bool activeAlreadyDrew = activePlayer.hasDrawnThisTurn;
 			if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
 				int localPlayerIndex = -1;
 				if (isMultiplayer) {
@@ -17260,7 +17235,7 @@ void ofApp::keyPressed(int key) {
 		} else {
 			activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
 		}
-		bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+		bool activeAlreadyDrew = activePlayer.hasDrawnThisTurn;
 
 		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew || activePlayer.hasDrawnThisTurn) return;
 
@@ -18175,11 +18150,11 @@ void ofApp::startNewTurn() {
 }
 
 void ofApp::requestStartNewTurn() {
-	if (inSimulationTick) {
-		startNewTurn();
-	} else {
-		pendingStartNewTurnRequests += 1;
-	}
+	// Always defer the turn start until the end of the current simulation tick.
+	// This ensures that the Host and Client process the exact same sequence of
+	// updateGameLogic() passes between consecutive turn skips, preventing
+	// turnStartDeferred flags and checksums from fracturing.
+	pendingStartNewTurnRequests += 1;
 }
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
@@ -20590,10 +20565,10 @@ void ofApp::processCommandQueue() {
 		int cmdType = commandQueue.front().commandType;
 
 		// CRITICAL FIX: Prevent Optimistic UI and Packet Bunching from corrupting the State Machine!
-		// If the game is resolving a card, moving, or drafting, PAUSE the queue for all new actions.
-		// Meta-commands (Menus, Targets, Chat, Desync) bypass this so they can resolve the busy state!
-		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || !activeDraftPickedMoves.empty()) {
-			// REMOVED CMD_ACCEPT_DRAFT: In-game key drafts must be allowed to bypass the queue lock!
+		// If the game is resolving a card, moving, or earthquake, PAUSE the queue for all new actions.
+		// Removed !activeDraftPickedMoves.empty() from this check because visual animations
+		// must NEVER pause the deterministic lockstep queue!
+		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE) {
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
 				break; // PAUSE THE QUEUE
 			}
@@ -21996,35 +21971,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		// Execute turn end logic
 		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
-		// Host: trigger authoritative turn start sequence
-		if (isHost()) {
-			ofLogNotice("Lockstep") << "Host processing CMD_END_TURN -> startNewTurn()";
-			startNewTurn();
-			// Ensure the visible timer for the next player is deferred until
-			// any queued visuals (dice, animations) have finished. Some
-			// turn-start code paths may bypass the usual deferred flag, so
-			// enforce it here for safety.
-			turnStartDeferred = true;
-			turnStartDeferredAtFrame = (int)simulationFrame;
-			// Also reset the visible timer baseline so the UI shows a fresh
-			// timer for the next player immediately (safety for stuck visuals).
-			turnStartFrame = (int)simulationFrame;
-			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
-		} else {
-			// Clients: advance local turn state as well so the client rolls AP
-			// and advances its own state. Also defer the visible timer until
-			// visuals complete so the player's thinking time does not include
-			// opponent animations.
-			ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
-			turnStartDeferred = true;
-			turnStartDeferredAtFrame = (int)simulationFrame;
-			// Reset baseline timer immediately so clients see the timer reset even
-			// if visuals are still playing; continue authoritative start logic.
-			turnStartFrame = (int)simulationFrame;
-			startNewTurn();
-		}
+
+		// Let startNewTurn() and continueNewTurn() handle the turnStartDeferred flags internally
+		// so that the checksum is evaluated with identical state on both peers.
+		startNewTurn();
 		break;
 	}
 
@@ -23426,7 +23377,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				return impact;
 			};
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
+			// FIX: Ethereal Jolt ignores walls and units (stopsOnObstacle = false)
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, false);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -30689,6 +30641,14 @@ std::string ofApp::buildSnapshotString() {
 		syncState = pausedFromState;
 	}
 
+	bool p0Drawn = false, p1Drawn = false;
+	for (const auto & p : players) {
+		if (!p.isMinion) {
+			if (p.playerID == 0) p0Drawn = p.hasDrawnThisTurn;
+			if (p.playerID == 1) p1Drawn = p.hasDrawnThisTurn;
+		}
+	}
+
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)syncState
 	   << "\t" << currentPlayerIndex
@@ -30698,8 +30658,8 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << draftPlayerIndex
 	   << "\t" << draftPicksRemaining
 	   << "\t" << currentDraftClassTier
-	   << "\t" << (hasDrawnCardsThisTurn ? 1 : 0)
-	   << "\t" << (opponentHasDrawnCardsThisTurn ? 1 : 0)
+	   << "\t" << (p0Drawn ? 1 : 0)
+	   << "\t" << (p1Drawn ? 1 : 0)
 	   << "\t" << currentAP
 	   << "\t" << lastAPDiceNum
 	   << "\t" << lastAPDiceSides
