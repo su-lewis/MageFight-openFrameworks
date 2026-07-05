@@ -224,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to adjacent unit.
+- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
 ---
 
 ## 30. Call for Wolves

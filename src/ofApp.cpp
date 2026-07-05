@@ -7962,63 +7962,40 @@ void ofApp::updateGameLogic() {
 					}
 				} else {
 					// Auto-end-turn during gameplay
-					if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0 && koboldPlacementSourceX >= 0) {
-						struct Tile {
-							int x;
-							int y;
-						};
-						std::vector<Tile> candidates;
-						const Tile dirs[4] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-						for (const auto & d : dirs) {
-							int nx = koboldPlacementSourceX + d.x;
-							int ny = koboldPlacementSourceY + d.y;
-							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-							if (board[nx][ny].hasWall || board[nx][ny].hasPlayer) continue;
-							candidates.push_back({ nx, ny });
-						}
-						int toPlace = std::min<int>(koboldsRemainingToPlace, (int)candidates.size());
-						for (int i = 0; i < toPlace; ++i) {
-							InputCommandPacket place = {};
-							place.type = PKT_INPUT_COMMAND;
-							place.playerID = myLocalPlayerID;
-							place.commandId = nextCommandId++;
-							place.turnNumber = globalTurnCounter;
-							place.commandType = CMD_PSEUDO_ACTION;
-							place.params[0] = candidates[i].x;
-							place.params[1] = candidates[i].y;
-							strncpy(place.stringData, "PlaceKobold", sizeof(place.stringData) - 1);
-							sendInputCommand(place, true);
-						}
-					}
-
 					if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-						int choice = 1;
-						if (interactingCardType == CARD_DISPEL)
-							choice = 2; // Purge
-						else if (interactingCardType == CARD_BURST_OF_LIGHT)
-							choice = 1; // Dmg
+						// SECURITY CHECK: Only allow actual menu cards to send CMD_MENU_CHOICE on timeout
+						if (interactingCardType == CARD_BURST_OF_LIGHT || interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL || interactingCardType == CARD_GIANT_MAGIC_HAND || interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_TRAIN || interactingCardType == CARD_AMNESIA || interactingCardType == CARD_RENEWED_INSPIRATION || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
 
-						InputCommandPacket cmd = {};
-						cmd.type = PKT_INPUT_COMMAND;
-						cmd.playerID = myLocalPlayerID;
-						cmd.commandId = nextCommandId++;
-						cmd.turnNumber = globalTurnCounter;
-						cmd.commandType = CMD_MENU_CHOICE;
-						cmd.params[0] = interactingCardType;
-						cmd.params[1] = interactionTargetIndex;
-						cmd.params[2] = choice;
-						cmd.params[3] = interactingCardIndex;
+							int choice = 1;
+							if (interactingCardType == CARD_DISPEL)
+								choice = 2; // Default to Purge
+							else if (interactingCardType == CARD_BURST_OF_LIGHT)
+								choice = 1; // Default to Dmg
 
-						if (interactingCardType == CARD_AMNESIA) {
-							cmd.params[2] = 3;
-							cmd.params[4] = 0;
-						} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
-							cmd.commandType = CMD_RENEWED_INSPIRATION;
-							cmd.params[0] = currentPlayerIndex;
-							cmd.params[1] = 0;
-							cmd.params[2] = interactingCardIndex;
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+
+							// Ensure Renewed Inspiration uses its specific command type
+							if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+								cmd.commandType = CMD_RENEWED_INSPIRATION;
+								cmd.params[0] = currentPlayerIndex;
+								cmd.params[1] = 0; // Select 0 cards on timeout
+								cmd.params[2] = interactingCardIndex;
+							} else {
+								cmd.commandType = CMD_MENU_CHOICE;
+								cmd.params[0] = interactingCardType;
+								cmd.params[1] = interactionTargetIndex;
+								cmd.params[2] = choice;
+								cmd.params[3] = interactingCardIndex;
+							}
+							sendInputCommand(cmd, true);
+						} else {
+							// If it's an invalid menu state (like Heal glitching into this block), cleanly cancel it!
+							cancelAllTargeting();
 						}
-						sendInputCommand(cmd, true);
 					} else if (cardInteractionState == CARD_INTERACTION_STATE_STATUS || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 						cancelAllTargeting();
 					}
@@ -21592,6 +21569,32 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
+		// --- NEW FIX: Allow single-target spells that piggyback on MENU_CHOICE to bypass menu validation ---
+		if (menuType == CARD_HEAL || menuType == CARD_LESSER_HEAL) {
+			if (targetIndex >= 0 && targetIndex < (int)players.size()) {
+				beginEffectSequence();
+				EffectOp healOp = {};
+				healOp.type = EffectOpType::HEAL;
+				healOp.data.heal.targetIndex = targetIndex;
+
+				// Fetch the actual heal amount from the card definition
+				int healAmt = 0;
+				if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
+					Card & playedCard = players[currentPlayerIndex].hand[cardIndex];
+					healAmt = playedCard.baseHeal > 0 ? playedCard.baseHeal : playedCard.healAmount;
+				}
+
+				healOp.data.heal.amount = healAmt;
+				healOp.data.heal.amountFromSlot = -1;
+				queueEffect(healOp);
+
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+				resetCardInteraction();
+			}
+			break;
+		}
+		// --------------------------------------------------------------------------------------------------
+
 		std::string buttonId;
 		switch ((CardType)menuType) {
 		case CARD_BURST_OF_LIGHT:
@@ -21624,6 +21627,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (buttonId.empty()) {
 			ofLogWarning("Lockstep") << "CMD_MENU_CHOICE rejected: unsupported menuType=" << menuType;
+
+			// --- CRITICAL FAILSAFE ---
+			// If the client's lockstep queue stalls and sends an invalid or stuck menu choice,
+			// forcefully reset the logical play-state to IDLE. This un-pauses the queue,
+			// allowing the turn timer and End Turn buttons to function normally again.
+			resetCardInteraction();
+			resetCardState();
+			// -------------------------
+
 			break;
 		}
 
@@ -25026,18 +25038,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	case EffectOpType::MODIFY_STAT: {
 		// NEW: Handle the immediate turn-end effect used by Sleep/Paralysis skips
 		if (op.data.modifyStat.statType == 99) {
-			if (isMultiplayer && isHost()) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_END_TURN;
-				sendInputCommand(cmd, true);
-			} else if (!isMultiplayer) {
-				requestStartNewTurn();
-			}
+			// FIX: Do not emit a network command here! The game relies on the deterministic
+			// `requestStartNewTurn()` to safely sequence unit deaths before the turn advances.
+			// Emitting a CMD_END_TURN causes a race condition that double-skips the turn if a unit died!
+			requestStartNewTurn();
 			opComplete = true;
 			break;
 		}
