@@ -7775,50 +7775,56 @@ void ofApp::prepareGameVisualState() {
 		}                                                                                                                         \
 	} while (0)
 
-#define EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(playerIdx)                                              \
-	do {                                                                                              \
-		Player & _p = players[(playerIdx)];                                                           \
-		std::queue<glm::ivec2> _q;                                                                    \
-		std::vector<std::vector<int>> _dist(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));         \
-		_q.push({ _p.x, _p.y });                                                                      \
-		_dist[_p.x][_p.y] = 0;                                                                        \
-		int _minDist = -1;                                                                            \
-		ghostRelocateChoices.clear();                                                                 \
-		while (!_q.empty()) {                                                                         \
-			glm::ivec2 _curr = _q.front();                                                            \
-			_q.pop();                                                                                 \
-			int _d = _dist[_curr.x][_curr.y];                                                         \
-			if (_minDist != -1 && _d > _minDist) continue;                                            \
-			bool _occupied = false;                                                                   \
-			for (auto & _op : players) {                                                              \
-				if (_op.health > 0 && _op.x == _curr.x && _op.y == _curr.y) {                         \
-					_occupied = true;                                                                 \
-					break;                                                                            \
-				}                                                                                     \
-			}                                                                                         \
-			if (!board[_curr.x][_curr.y].hasWall && !_occupied) {                                     \
-				_minDist = _d;                                                                        \
-				ghostRelocateChoices.push_back(_curr);                                                \
-				if (ghostRelocateChoices.size() >= 4) break;                                          \
-			} else {                                                                                  \
-				glm::ivec2 _dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };                   \
-				for (auto & _dir : _dirs) {                                                           \
-					int _nx = _curr.x + _dir.x;                                                       \
-					int _ny = _curr.y + _dir.y;                                                       \
-					if (_nx >= 0 && _nx < BOARD_WIDTH && _ny >= 0 && _ny < BOARD_HEIGHT) {            \
-						if (_dist[_nx][_ny] == -1) {                                                  \
-							_dist[_nx][_ny] = _d + 1;                                                 \
-							_q.push({ _nx, _ny });                                                    \
-						}                                                                             \
-					}                                                                                 \
-				}                                                                                     \
-			}                                                                                         \
-		}                                                                                             \
-		if (ghostRelocateChoices.empty()) ghostRelocateChoices.push_back({ _p.x, _p.y });             \
-		ghostRelocateTargetIndex = (playerIdx);                                                       \
-		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_GHOST_RELOCATE); \
-		if (isMultiplayer) sendMenuState(5, (playerIdx), -1, -1);                                     \
-		calculateTargetHighlights(-1);                                                                \
+#define EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(playerIdx)                                                                                                                              \
+	do {                                                                                                                                                                              \
+		Player & _p = players[(playerIdx)];                                                                                                                                           \
+		std::queue<glm::ivec2> _q;                                                                                                                                                    \
+		std::vector<std::vector<int>> _dist(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));                                                                                         \
+		_q.push({ _p.x, _p.y });                                                                                                                                                      \
+		_dist[_p.x][_p.y] = 0;                                                                                                                                                        \
+		int _minDist = -1;                                                                                                                                                            \
+		ghostRelocateChoices.clear();                                                                                                                                                 \
+		while (!_q.empty()) {                                                                                                                                                         \
+			glm::ivec2 _curr = _q.front();                                                                                                                                            \
+			_q.pop();                                                                                                                                                                 \
+			int _d = _dist[_curr.x][_curr.y];                                                                                                                                         \
+			if (_minDist != -1 && _d > _minDist) continue;                                                                                                                            \
+			bool _occupied = false;                                                                                                                                                   \
+			for (auto & _op : players) {                                                                                                                                              \
+				if (_op.health > 0 && _op.x == _curr.x && _op.y == _curr.y) {                                                                                                         \
+					_occupied = true;                                                                                                                                                 \
+					break;                                                                                                                                                            \
+				}                                                                                                                                                                     \
+			}                                                                                                                                                                         \
+			if (!board[_curr.x][_curr.y].hasWall && !_occupied) {                                                                                                                     \
+				_minDist = _d;                                                                                                                                                        \
+				ghostRelocateChoices.push_back(_curr);                                                                                                                                \
+				if (ghostRelocateChoices.size() >= 4) break;                                                                                                                          \
+			} else {                                                                                                                                                                  \
+				glm::ivec2 _dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };                                                                                                   \
+				for (auto & _dir : _dirs) {                                                                                                                                           \
+					int _nx = _curr.x + _dir.x;                                                                                                                                       \
+					int _ny = _curr.y + _dir.y;                                                                                                                                       \
+					if (_nx >= 0 && _nx < BOARD_WIDTH && _ny >= 0 && _ny < BOARD_HEIGHT) {                                                                                            \
+						if (_dist[_nx][_ny] == -1) {                                                                                                                                  \
+							_dist[_nx][_ny] = _d + 1;                                                                                                                                 \
+							_q.push({ _nx, _ny });                                                                                                                                    \
+						}                                                                                                                                                             \
+					}                                                                                                                                                                 \
+				}                                                                                                                                                                     \
+			}                                                                                                                                                                         \
+		}                                                                                                                                                                             \
+		if (ghostRelocateChoices.empty()) ghostRelocateChoices.push_back({ _p.x, _p.y });                                                                                             \
+		ghostRelocateTargetIndex = (playerIdx);                                                                                                                                       \
+		bool _isLocal = (!isMultiplayer) || (players[(playerIdx)].playerID == myLocalPlayerID) || (players[(playerIdx)].isMinion && players[(playerIdx)].ownerID == myLocalPlayerID); \
+		if (_isLocal) {                                                                                                                                                               \
+			updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_GHOST_RELOCATE);                                                                             \
+			calculateTargetHighlights(-1);                                                                                                                                            \
+		} else {                                                                                                                                                                      \
+			opponentInteraction.open = true;                                                                                                                                          \
+			opponentInteraction.type = 5;                                                                                                                                             \
+			opponentInteraction.targetIndex = (playerIdx);                                                                                                                            \
+		}                                                                                                                                                                             \
 	} while (0)
 
 void ofApp::updateGameLogic() {
@@ -7987,14 +7993,59 @@ void ofApp::updateGameLogic() {
 					}
 				} else {
 					// Auto-end-turn during gameplay
-					if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+					bool isLocalMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU);
+					bool isOpponentMenu = (opponentInteraction.open && opponentInteraction.type != 0 && opponentInteraction.type != 5 && opponentInteraction.type != 99);
+
+					if (isLocalMenu || isOpponentMenu) {
+						int cType = 0;
+						int cIdx = -1;
+						int tIdx = -1;
+
+						if (isLocalMenu) {
+							cType = interactingCardType;
+							cIdx = interactingCardIndex;
+							tIdx = interactionTargetIndex;
+						} else {
+							switch (opponentInteraction.type) {
+							case 1:
+								cType = CARD_WISDOM_BOON;
+								break;
+							case 2:
+								cType = CARD_BURST_OF_LIGHT;
+								break;
+							case 3:
+								cType = CARD_DOUBLE_HANDED;
+								break;
+							case 4:
+								cType = CARD_MAGIC_BLAST;
+								break;
+							case 6:
+								cType = CARD_RENEWED_INSPIRATION;
+								break;
+							case 7:
+								cType = CARD_TRAIN;
+								break;
+							case 8:
+								cType = CARD_DISPEL;
+								break;
+							case 9:
+								cType = CARD_GIANT_MAGIC_HAND;
+								break;
+							case 10:
+								cType = CARD_AMNESIA;
+								break;
+							}
+							cIdx = opponentInteraction.cardIndex;
+							tIdx = opponentInteraction.targetIndex;
+						}
+
 						// SECURITY CHECK: Only allow actual menu cards to send CMD_MENU_CHOICE on timeout
-						if (interactingCardType == CARD_BURST_OF_LIGHT || interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL || interactingCardType == CARD_GIANT_MAGIC_HAND || interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_TRAIN || interactingCardType == CARD_AMNESIA || interactingCardType == CARD_RENEWED_INSPIRATION || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+						if (cType == CARD_BURST_OF_LIGHT || cType == CARD_WISDOM_BOON || cType == CARD_DOUBLE_HANDED || cType == CARD_DISPEL || cType == CARD_GIANT_MAGIC_HAND || cType == CARD_MAGIC_BLAST || cType == CARD_TRAIN || cType == CARD_AMNESIA || cType == CARD_RENEWED_INSPIRATION) {
 
 							int choice = 1;
-							if (interactingCardType == CARD_DISPEL)
+							if (cType == CARD_DISPEL)
 								choice = 1; // CRITICAL FIX: Default to Barrier to prevent multi-step targeting desyncs!
-							else if (interactingCardType == CARD_BURST_OF_LIGHT)
+							else if (cType == CARD_BURST_OF_LIGHT)
 								choice = 1; // Default to Dmg
 
 							InputCommandPacket cmd = {};
@@ -8004,17 +8055,17 @@ void ofApp::updateGameLogic() {
 							cmd.turnNumber = globalTurnCounter;
 
 							// Ensure Renewed Inspiration uses its specific command type
-							if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+							if (cType == CARD_RENEWED_INSPIRATION) {
 								cmd.commandType = CMD_RENEWED_INSPIRATION;
 								cmd.params[0] = currentPlayerIndex;
 								cmd.params[1] = 0; // Select 0 cards on timeout
-								cmd.params[2] = interactingCardIndex;
+								cmd.params[2] = cIdx;
 							} else {
 								cmd.commandType = CMD_MENU_CHOICE;
-								cmd.params[0] = interactingCardType;
-								cmd.params[1] = interactionTargetIndex;
+								cmd.params[0] = cType;
+								cmd.params[1] = tIdx;
 								cmd.params[2] = choice;
-								cmd.params[3] = interactingCardIndex;
+								cmd.params[3] = cIdx;
 							}
 							sendInputCommand(cmd, true);
 						} else {
@@ -8030,7 +8081,15 @@ void ofApp::updateGameLogic() {
 						bool needsReloc = false;
 						CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
 						if (needsReloc) {
-							EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_PSEUDO_ACTION;
+							cmd.params[0] = currentPlayerIndex;
+							strncpy(cmd.stringData, "TriggerGhostRelocate", sizeof(cmd.stringData) - 1);
+							sendInputCommand(cmd, true);
 						} else {
 							ofLogNotice("Timer") << "Host: Timeout. Auto-ending turn.";
 							InputCommandPacket cmd = {};
@@ -8919,8 +8978,7 @@ void ofApp::drawGame() {
 				aoeFeet = (card.aoeRadiusDiceNum > 0) ? (card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20;
 			}
 
-			long long aoeHalfTiles = ((long long)aoeFeet * 2LL) / 5LL;
-			long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
+			long long aoeDistSqScaled = (long long)aoeFeet * (long long)aoeFeet * 4LL;
 
 			for (int cx = 0; cx < BOARD_WIDTH; ++cx) {
 				for (int cy = 0; cy < BOARD_HEIGHT; ++cy) {
@@ -8945,7 +9003,7 @@ void ofApp::drawGame() {
 					} else {
 						// Standard AOE (Deterministic Math)
 						long long uDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)cx, (float)cy), glm::vec2((float)unit.x, (float)unit.y));
-						if (uDistSq <= aoeDistSq) {
+						if (uDistSq * 25LL <= aoeDistSqScaled) {
 							auto losPath = getLineOfSightPath(glm::vec2((float)cx + 0.5f, (float)cy + 0.5f), glm::vec2((float)unit.x + 0.5f, (float)unit.y + 0.5f));
 							bool blocked = false;
 							for (const auto & step : losPath) {
@@ -15999,7 +16057,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Move out of wall/unit!", ofColor::red);
 					return;
 				} else {
-					EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = currentPlayerIndex;
+					strncpy(cmd.stringData, "TriggerGhostRelocate", sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
 					return;
 				}
 			}
@@ -17380,7 +17446,15 @@ void ofApp::keyPressed(int key) {
 				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Move out of wall/unit!", ofColor::red);
 				return;
 			} else {
-				EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(currentPlayerIndex);
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_PSEUDO_ACTION;
+				cmd.params[0] = currentPlayerIndex;
+				strncpy(cmd.stringData, "TriggerGhostRelocate", sizeof(cmd.stringData) - 1);
+				sendInputCommand(cmd, true);
 				return;
 			}
 		}
@@ -21544,10 +21618,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			Player & tpCaster = players[currentPlayerIndex];
 			glm::vec2 casterTile = { (float)tpCaster.x, (float)tpCaster.y };
 			glm::vec2 targetTile = { (float)destX, (float)destY };
-			long long maxRangeHalfTiles = ((long long)passedDiceRoll * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long maxDistSqScaled = (long long)passedDiceRoll * (long long)passedDiceRoll * 4LL;
 			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
-			bool inRange = (maxDistSq >= distSq);
+			bool inRange = (distSq * 25LL <= maxDistSqScaled);
 
 			bool isWall = board[destX][destY].hasWall;
 			bool isOccupied = board[destX][destY].hasPlayer && !(destX == tpCaster.x && destY == tpCaster.y);
@@ -22135,6 +22208,16 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			if (currentState == STATE_PAUSED) {
 				currentState = STATE_GAMEPLAY; // Close menu to show Game Over
+			}
+			break;
+		}
+
+		if (actionName == "TriggerGhostRelocate") {
+			int pIdx = cmd.params[0];
+			bool needsReloc = false;
+			CHECK_NEEDS_RELOCATE_INLINE(pIdx, needsReloc);
+			if (needsReloc) {
+				EXECUTE_TRIGGER_GHOST_RELOCATE_INLINE(pIdx);
 			}
 			break;
 		}
@@ -22936,10 +23019,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
 				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
 				int x0 = (int)cTile.x, y0 = (int)cTile.y;
 				int x1 = (int)tTile.x, y1 = (int)tTile.y;
@@ -22949,7 +23031,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -22979,7 +23061,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				return impact;
 			};
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			// Visual tracer uses floats, but impact logic is purely integer
@@ -23076,10 +23158,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
 				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
 				int x0 = (int)cTile.x, y0 = (int)cTile.y;
 				int x1 = (int)tTile.x, y1 = (int)tTile.y;
@@ -23089,7 +23170,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -23120,7 +23201,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			};
 
 			// Magic bolt ignores cover (goes through walls/units) until it reaches range
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, false);
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, false);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -23207,8 +23288,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
 			std::vector<int> aoeTargets;
 
-			long long maxAoeHalfTiles = ((long long)aoeRadiusFeet * 2LL) / 5LL;
-			long long maxAoeDistSq = maxAoeHalfTiles * maxAoeHalfTiles;
+			long long maxAoeDistSqScaled = (long long)aoeRadiusFeet * (long long)aoeRadiusFeet * 4LL;
 			glm::vec2 impactTileFloat((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y);
 			glm::vec2 impactCenter = impactTileFloat + 0.5f;
 
@@ -23220,7 +23300,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::vec2 targetTile((float)p.x, (float)p.y);
 				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, targetTile);
 
-				if (distSq <= maxAoeDistSq) {
+				if (distSq * 25LL <= maxAoeDistSqScaled) {
 					auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
 					bool blockedByWall = false;
 					for (const auto & stepP : losPath) {
@@ -23275,10 +23355,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
 				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
 				int x0 = (int)cTile.x, y0 = (int)cTile.y;
 				int x1 = (int)tTile.x, y1 = (int)tTile.y;
@@ -23288,7 +23367,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -23318,7 +23397,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				return impact;
 			};
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -23441,10 +23520,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
 				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
 				int x0 = (int)cTile.x, y0 = (int)cTile.y;
 				int x1 = (int)tTile.x, y1 = (int)tTile.y;
@@ -23454,7 +23532,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -23485,7 +23563,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			};
 
 			// FIX: Ethereal Jolt ignores walls and units (stopsOnObstacle = false)
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, false);
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, false);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -23575,10 +23653,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeTotal * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
 				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
 				int x0 = (int)cTile.x, y0 = (int)cTile.y;
 				int x1 = (int)tTile.x, y1 = (int)tTile.y;
@@ -23588,7 +23665,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -23618,7 +23695,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				return impact;
 			};
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -29293,15 +29370,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 
 		// Use the exact same scaled integer math the execution server uses!
-		long long maxRangeHalfTiles = ((long long)maxRangeFeet * 2LL) / 5LL;
-		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long maxDistSqScaled = (long long)maxRangeFeet * (long long)maxRangeFeet * 4LL;
 
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
 				glm::vec2 targetPos(x, y);
 				long long distSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
 
-				if (distSq <= maxDistSq) {
+				if (distSq * 25LL <= maxDistSqScaled) {
 					board[x][y].isTargetPreview = true;
 
 					bool isWall = board[x][y].hasWall;
@@ -29457,22 +29533,21 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (card.type == CARD_MAGIC_BOLT) {
 					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue; // Skip empty walls for bolt target
 
-					// FIX: Use mathematical rounding to match engine validation!
-					long long maxTotalHalfTiles = (long long)std::round((maxRangeFeet + maxAoeFeet) * 2.0 / 5.0);
-					long long maxTotalDistSq = maxTotalHalfTiles * maxTotalHalfTiles;
+					// FIX: Use pure deterministic integer math without truncation!
+					long long maxTotalDistSqScaled = (long long)(maxRangeFeet + maxAoeFeet) * (long long)(maxRangeFeet + maxAoeFeet) * 4LL;
 
-					if (distSq <= maxTotalDistSq) {
+					if (distSq * 25LL <= maxTotalDistSqScaled) {
 						glm::ivec2 impactTile = { tx, ty };
-						long long maxRangeHalfTiles = (long long)std::round(maxRangeFeet * 2.0 / 5.0);
-						long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+						long long maxDistSqScaled = (long long)maxRangeFeet * (long long)maxRangeFeet * 4LL;
 						long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
 
 						bool fallsShort = false;
-						if (neededDistSq > maxDistSq) {
+						if (neededDistSq * 25LL > maxDistSqScaled) {
 							fallsShort = true;
 							glm::vec2 dir = targetPos - casterPos;
 							if (glm::length(dir) > 0) dir = glm::normalize(dir);
-							glm::vec2 impactPos = casterPos + (dir * ((float)maxRangeHalfTiles / 2.0f));
+							// We can keep the visual float adjustment for impact Pos
+							glm::vec2 impactPos = casterPos + (dir * (maxRangeFeet / 5.0f));
 							impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
 						}
 
@@ -29489,8 +29564,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						if (tileHasOtherThan(impactTile.x, impactTile.y, currentPlayerIndex) && !board[impactTile.x][impactTile.y].hasWall) {
 							hitsSomeone = true;
 						} else {
-							long long aoeHalfTiles = (long long)std::round(maxAoeFeet * 2.0 / 5.0);
-							long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
+							long long aoeDistSqScaled = (long long)maxAoeFeet * (long long)maxAoeFeet * 4LL;
 
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue; // Cannot trigger validation on self
@@ -29498,7 +29572,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 								long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y));
 
-								if (pDistSq <= aoeDistSq) {
+								if (pDistSq * 25LL <= aoeDistSqScaled) {
 									auto innerLosPath = getLineOfSightPath(glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f), glm::vec2(players[i].x + 0.5f, players[i].y + 0.5f));
 									bool blockedByWall = false;
 									for (const auto & stepP : innerLosPath) {
@@ -29564,9 +29638,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// MUST HAVE LOS TO THE TARGET TILE ITSELF!
 					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
 						bool hitsSomeone = false;
-						// FIX: Apply mathematical rounding
-						long long aoeHalfTiles = (long long)std::round(maxAoeFeet * 2.0 / 5.0);
-						long long aoeDistSq = aoeHalfTiles * aoeHalfTiles;
+						// FIX: Apply deterministic un-truncated integer scaling
+						long long aoeDistSqScaled = (long long)maxAoeFeet * (long long)maxAoeFeet * 4LL;
 
 						for (size_t i = 0; i < players.size(); ++i) {
 							if ((int)i == currentPlayerIndex) continue; // Cannot trigger validation on self
@@ -29574,7 +29647,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 							long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y));
 
-							if (pDistSq <= aoeDistSq) {
+							if (pDistSq * 25LL <= aoeDistSqScaled) {
 								auto los = getClearLosRay(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y), card.type);
 								if (los.hasLos) {
 									hitsSomeone = true;
@@ -29714,15 +29787,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (card.type == CARD_PSIONIC_WAVE) {
 					// 1. Calculate Max Possible Radius
 					// Max roll on 2d20 is 40 feet (no flat bonus).
-					float maxRadiusFeet = 40.0f;
+					long long maxRadiusFeet = 40LL;
 
 					// FIX 4: Use pure deterministic integer math instead of floats!
-					long long maxRangeHalfTiles = ((long long)maxRadiusFeet * 2LL) / 5LL;
-					long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+					long long maxDistSqScaled = maxRadiusFeet * maxRadiusFeet * 4LL;
 					long long distSq = getFaceToFaceDistanceSquaredScaled(glm::vec2(px, py), glm::vec2(x, y));
 
 					// 3. Highlight Logic
-					if (distSq <= maxDistSq) {
+					if (distSq * 25LL <= maxDistSqScaled) {
 						isPreview = true; // Red Square (Potential Range)
 
 						// Compute Hit Chance Tooltip
@@ -34069,10 +34141,9 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	}
 
 	long long distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
-	// FIX: Use mathematical rounding to prevent 12ft (4.8) from truncating to 10ft (4)
-	long long maxRangeScaled = (long long)std::round(maxRangeFeet * 2.0 / 5.0);
+	long long maxRangeSqScaled = (long long)maxRangeFeet * (long long)maxRangeFeet * 4LL;
 
-	if (distScaledSq > maxRangeScaled * maxRangeScaled) {
+	if (distScaledSq * 25LL > maxRangeSqScaled) {
 		result.reason = INVALID_OUT_OF_RANGE;
 		return result;
 	}
@@ -34089,14 +34160,13 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			bool hasTargetInAoe = false;
 
 			if (cardType == CARD_MAGIC_BOLT) {
-				float maxAoeFeet = 20.0f;
-				long long maxAoeHalfTiles = (long long)std::round(maxAoeFeet * 2.0 / 5.0);
-				long long maxAoeDistSq = maxAoeHalfTiles * maxAoeHalfTiles;
+				long long maxAoeFeet = 20LL;
+				long long maxAoeDistSqScaled = maxAoeFeet * maxAoeFeet * 4LL;
 				for (size_t i = 0; i < players.size(); ++i) {
 					if (casterIndexForSelfChecks >= 0 && (int)i == casterIndexForSelfChecks) continue; // Cannot validate on self
 					if (players[i].health <= 0) continue;
 					long long distSq = getFaceToFaceDistanceSquaredScaled(targetTile, glm::vec2((float)players[i].x, (float)players[i].y));
-					if (distSq <= maxAoeDistSq) {
+					if (distSq * 25LL <= maxAoeDistSqScaled) {
 						auto innerLosPath = getLineOfSightPath(targetTile + 0.5f, glm::vec2((float)players[i].x + 0.5f, (float)players[i].y + 0.5f));
 						bool blockedByWall = false;
 						for (const auto & stepP : innerLosPath) {
