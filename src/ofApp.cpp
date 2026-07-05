@@ -28,13 +28,18 @@
 
 // --- CRITICAL FIX: OVERRIDE EXTERNAL SHUFFLES ---
 // Guarantees all internal deck shuffles bypass external/broken C++ distributions
-#define shuffleGameVector(deck, pidx)                                                              \
-	do {                                                                                           \
-		robust_deterministic_shuffle((deck), gameplayRNG);                                         \
-		if ((pidx) >= 0 && (pidx) < (int)players.size()) players[(pidx)].deckNeedsShuffle = false; \
+#define shuffleGameVector(deck, pidx)                                                                                                                      \
+	do {                                                                                                                                                   \
+		robust_deterministic_shuffle((deck), gameplayRNG);                                                                                                 \
+		if ((pidx) >= 0 && (pidx) < (int)players.size()) players[(pidx)].deckNeedsShuffle = false;                                                         \
+		if (isMultiplayer) writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "SHUFFLE: Unit " + std::to_string(pidx) + " | RNG state updated"); \
 	} while (0)
 
-#define deterministic_shuffle_gameplay(deck) robust_deterministic_shuffle((deck), gameplayRNG)
+#define deterministic_shuffle_gameplay(deck)                                                                                          \
+	do {                                                                                                                              \
+		robust_deterministic_shuffle((deck), gameplayRNG);                                                                            \
+		if (isMultiplayer) writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "SHUFFLE: Unknown unit | RNG state updated"); \
+	} while (0)
 // ------------------------------------------------
 
 static std::map<int, long long> s_pendingRemoteChecksums;
@@ -2540,6 +2545,9 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 }
 
 int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex) {
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "APPLY_DAMAGE: target=" + std::to_string(target.playerID) + " baseDmg=" + std::to_string(baseDamage) + " type=" + std::to_string(type) + " attacker=" + std::to_string(attackerIndex));
+	}
 	int dmg = baseDamage;
 	bool doubledHoly = false;
 	bool holyDoubled = false;
@@ -2707,6 +2715,10 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 
 	int finalDamageTaken = remaining;
 
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "APPLY_DAMAGE_RESULT: finalDamage=" + std::to_string(finalDamageTaken));
+	}
+
 	// TRACK STATS: Damage Dealt
 	if (finalDamageTaken > 0 && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
 		int owner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
@@ -2785,6 +2797,9 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 
 // Queue-only variant: queues MODIFY_STAT ops and writes applied amount into the current effect sequence blackboard
 void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, DamageType type, int attackerIndex, int outputSlot) {
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "APPLY_DAMAGE_QUEUED: target=" + std::to_string(target.playerID) + " baseDmg=" + std::to_string(baseDamage) + " type=" + std::to_string(type) + " attacker=" + std::to_string(attackerIndex) + " outputSlot=" + std::to_string(outputSlot));
+	}
 	int dmg = baseDamage;
 	bool doubledHoly = false;
 	bool holyDoubled = false;
@@ -2949,6 +2964,10 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 
 	if (outputSlot >= 0 && outputSlot < 16) {
 		currentEffectSequence.blackboard[outputSlot] = remaining;
+	}
+
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "APPLY_DAMAGE_QUEUED_RESULT: finalDamage=" + std::to_string(remaining) + " (written to slot)");
 	}
 
 	if (remaining > 0) {
@@ -3208,6 +3227,9 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 }
 
 Player * ofApp::spawnMinionDeterministically(int summonKind, int x, int y, int ownerPlayerID, int maxHP, int ap, int summonerPlayerID) {
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "SPAWN_MINION: kind=" + std::to_string(summonKind) + " owner=" + std::to_string(ownerPlayerID) + " at (" + std::to_string(x) + "," + std::to_string(y) + ") maxHP=" + std::to_string(maxHP));
+	}
 	Player created = initMinionFromKind(summonKind, ownerPlayerID, maxHP, ap, summonerPlayerID);
 	// Assign a unique playerID: choose max existing + 1
 	int maxID = -1;
@@ -3302,6 +3324,9 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, i
 			}
 
 			if (targetIndex != -1) {
+				if (isMultiplayer) {
+					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "KEY_PICKUP: Unit " + std::to_string(targetIndex) + " picked up key set " + std::to_string(keySet));
+				}
 				// Queue the draft safely so it doesn't interrupt ongoing Effect Sequences (like Earthquakes/Spawns)
 				networkPending.draftQueue.push_back((targetIndex << 16) | classToDraft);
 
@@ -7968,7 +7993,7 @@ void ofApp::updateGameLogic() {
 
 							int choice = 1;
 							if (interactingCardType == CARD_DISPEL)
-								choice = 2; // Default to Purge
+								choice = 1; // CRITICAL FIX: Default to Barrier to prevent multi-step targeting desyncs!
 							else if (interactingCardType == CARD_BURST_OF_LIGHT)
 								choice = 1; // Default to Dmg
 
@@ -16718,16 +16743,13 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				}
 			}
 
-			// CRITICAL FIX: Prevent cancelling any spell that has already started resolving over the network.
-			// Refunding AP locally while the opponent awaits a network packet causes an irrecoverable desync!
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentCardOutcome.apPaid && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
-				// The only exception is Shell Spike, which can be legally cancelled/skipped without a desync
-				// because it does not consume AP or cards from hand.
-				if (interactingCardType != CARD_FORM_OF_TORTOISE) {
-					ofLogNotice("Input") << "Right-click ignored: Cannot cancel a spell after it has begun resolving over the network.";
-					return;
-				}
+			// CRITICAL FIX: Prevent cancelling ANY spell that has started processing through the network state machine.
+			// By checking cardPlayState directly, we seal the Teleport AP refund exploit without relying on apPaid.
+			if (cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE || cardPlayState == CARD_PLAY_STATE_OUTCOME) {
+				ofLogNotice("Input") << "Right-click ignored: Cannot cancel a spell mid-resolution over the network.";
+				return;
 			}
+
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
 			if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
@@ -16887,6 +16909,19 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			if (!startedCardInteraction) {
 				selectedCardIndex = -1;
 				calculateTargetHighlights();
+			}
+		} else if (playerAction == PIECE_SELECTED) {
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gridX = floor(boardPos.x);
+			int gridY = floor(boardPos.y);
+			if (gridX >= 0 && gridX < BOARD_WIDTH && gridY >= 0 && gridY < BOARD_HEIGHT) {
+				if (board[gridX][gridY].isHighlighted) {
+					hoverPath = findShortestPath({ (float)selectedPieceGridX, (float)selectedPieceGridY }, { (float)gridX, (float)gridY });
+				} else {
+					hoverPath.clear();
+				}
+			} else {
+				hoverPath.clear();
 			}
 		}
 	}
@@ -17647,6 +17682,10 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "--- START NEW TURN --- Unit: " + std::to_string(currentPlayerIndex) + " | Starting Checksum: " + std::to_string(calculateChecksum()));
+	}
+
 	// Calculate Max Damage for the turn that just ended
 	for (int i = 0; i < 2; i++) {
 		if (matchStats[i].currentTurnDamage > matchStats[i].maxDamageInOneTurn) {
@@ -17658,6 +17697,13 @@ void ofApp::startNewTurn() {
 	// Mark that turn-start status effects are being handled so updateGame()
 	// does not prematurely send a separate turn-start packet to clients.
 	isHandlingTurnStartEffects = true;
+
+	// CRITICAL FIX: Lock the turn timer immediately so it doesn't instantly expire
+	// during long status effect animations (Fire/Poison/Sleep/Paralysis) causing infinite skipped turns!
+	turnStartDeferred = true;
+	turnStartDeferredAtFrame = (int)simulationFrame;
+	turnStartFrame = (int)simulationFrame;
+
 	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
 
 	if (isMultiplayer) {
@@ -18125,6 +18171,7 @@ void ofApp::startNewTurn() {
 		continueNewTurn();
 	}
 }
+//--------------------------------------------------------------
 
 void ofApp::requestStartNewTurn() {
 	// Always defer the turn start until the end of the current simulation tick.
@@ -18135,6 +18182,9 @@ void ofApp::requestStartNewTurn() {
 }
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "CONTINUE NEW TURN: Unit " + std::to_string(currentPlayerIndex) + " | Owner: " + std::to_string(getOwnerIdForActorIndex(currentPlayerIndex)));
+	}
 	// We've finished handling turn-start effects; allow updateGame() to send TurnStart.
 	isHandlingTurnStartEffects = false;
 	// Reset AP resolved marker for this new start
@@ -18600,9 +18650,7 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 	case CARD_INTERACTION_STATE_IDLE:
 		// NOTE: do NOT override `cardPlayState` here — UI closing should not
 		// forcibly reset the logical play-state. Removing this line prevents the
-		// UI from interrupting in-progress effect sequences that need to finish
-		// (e.g., menu-driven cards that queue effects and rely on the effect
-		// sequence to advance to CARD_PLAY_STATE_OUTCOME for AP deduction).
+		// UI from interrupting in-progress effect sequences that need to finish.
 		break;
 	case CARD_INTERACTION_STATE_TARGETING:
 		cardPlayState = CARD_PLAY_STATE_TARGETING;
@@ -18671,19 +18719,24 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 						opponentDecisionPlayerIndex = optPlayer;
 					}
 				} else {
-					// Same owner is deciding (caster or allied minion): do not pause turn timer.
-					if (turnTimerPaused && opponentDecisionTimerActive) {
-						turnTimerPaused = false;
-						turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-						turnTimerPausedRemainingFrames = 0;
-					}
-
+					// Same owner is deciding (caster or allied minion): check if it's a critical pause.
 					if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+						// CRITICAL FIX: We MUST pause the main turn timer here so that the primary timeout
+						// doesn't instantly trigger on the exact same frame and forcefully cancel this menu!
+						if (!turnTimerPaused) {
+							turnTimerPaused = true;
+							turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+						}
 						opponentDecisionTimerActive = true;
 						opponentDecisionStartFrame = simulationFrame;
 						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
 						opponentDecisionPlayerIndex = optPlayer;
 					} else {
+						if (turnTimerPaused && opponentDecisionTimerActive) {
+							turnTimerPaused = false;
+							turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+							turnTimerPausedRemainingFrames = 0;
+						}
 						opponentDecisionTimerActive = false;
 						opponentDecisionStartFrame = 0;
 						opponentDecisionPlayerIndex = -1;
@@ -20217,17 +20270,11 @@ int ofApp::computePassiveLuck(int playerIndex) {
 void ofApp::drawCard(bool sendPacket) {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "DRAW_CARD_CALL: Unit " + std::to_string(currentPlayerIndex) + " DeckSize=" + std::to_string(currentPlayer.deck.size()) + " DiscardSize=" + std::to_string(currentPlayer.discardPile.size()));
+	}
 
 	// --- CHANGE START: REMOVE ZOMBIE CLIENT CHECK ---
-	// In Deterministic mode, Clients manage their own decks.
-	/*
-    if (isMultiplayer && isClient() && !processingNetworkPacket) {
-        // Send packet code...
-        return;
-		cardIndex++;
-	}
-    */
-
 	// HOWEVER: We still need to tell the opponent "I drew a card" so they can
 	// decrement their view of our deck size and play the animation.
 	if (sendPacket && isMultiplayer && isCurrentPlayerLocal() && !processingNetworkPacket) {
@@ -20320,6 +20367,9 @@ void ofApp::drawCard(bool sendPacket) {
 	// --- PHASE 2: DRAW THE CARD ---
 	if (!currentPlayer.deck.empty()) {
 		Card newCard = currentPlayer.deck.back();
+		if (isMultiplayer) {
+			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "DRAW_CARD: Unit " + std::to_string(currentPlayerIndex) + " drew " + newCard.name);
+		}
 		currentPlayer.deck.pop_back();
 		ofLogNotice("DrawDebug") << "drawCard(): popped '" << newCard.name << "' from deck for playerIndex=" << currentPlayerIndex << " deckSizeNow=" << currentPlayer.deck.size();
 		// Commit the card immediately to the player's hand (animation is visual-only)
@@ -20906,6 +20956,10 @@ void ofApp::simulationTick() {
 
 			for (int idx : removeIndices) {
 				if (idx < 0 || idx >= (int)players.size()) continue;
+
+				if (isMultiplayer) {
+					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "UNIT_DIED: index=" + std::to_string(idx) + " playerID=" + std::to_string(players[idx].playerID) + " isMinion=" + std::to_string(players[idx].isMinion));
+				}
 
 				DeathMarker death;
 				death.x = players[idx].x;
@@ -22507,6 +22561,47 @@ void ofApp::updateEffectSequence() {
 
 bool ofApp::processEffectOp(EffectOp & op) {
 	ofLogNotice("EffectQueue") << "PROCESSING opType=" << (int)op.type << " curOpIndex=" << currentEffectSequence.currentOp;
+	if (isMultiplayer) {
+		std::string opLog = "PROCESS_EFFECT_OP: [" + std::to_string(currentEffectSequence.currentOp) + "] Type=" + std::to_string((int)op.type);
+		switch (op.type) {
+		case EffectOpType::DAMAGE:
+			opLog += " DAMAGE target=" + std::to_string(op.data.damage.targetIndex) + " amt=" + std::to_string(op.data.damage.fixedDamage);
+			break;
+		case EffectOpType::HEAL:
+			opLog += " HEAL target=" + std::to_string(op.data.heal.targetIndex) + " amt=" + std::to_string(op.data.heal.amount);
+			break;
+		case EffectOpType::MODIFY_STAT:
+			opLog += " MODIFY_STAT target=" + std::to_string(op.data.modifyStat.targetIndex) + " stat=" + std::to_string(op.data.modifyStat.statType) + " delta=" + std::to_string(op.data.modifyStat.delta);
+			break;
+		case EffectOpType::APPLY_STATUS:
+			opLog += " APPLY_STATUS target=" + std::to_string(op.data.status.targetIndex) + " status=" + std::to_string(op.data.status.statusType);
+			break;
+		case EffectOpType::REMOVE_STATUS:
+			opLog += " REMOVE_STATUS target=" + std::to_string(op.data.status.targetIndex) + " status=" + std::to_string(op.data.status.statusType);
+			break;
+		case EffectOpType::SPAWN_UNIT:
+			opLog += " SPAWN_UNIT to=(" + std::to_string(op.data.spawnUnit.toX) + "," + std::to_string(op.data.spawnUnit.toY) + ") kind=" + std::to_string(op.data.spawnUnit.summonKind) + " owner=" + std::to_string(op.data.spawnUnit.ownerPlayerID);
+			break;
+		case EffectOpType::MOVE_UNIT:
+			opLog += " MOVE_UNIT target=" + std::to_string(op.data.moveUnit.unitIndex) + " to=(" + std::to_string(op.data.moveUnit.toX) + "," + std::to_string(op.data.moveUnit.toY) + ")";
+			break;
+		case EffectOpType::CREATE_WALL:
+			opLog += " CREATE_WALL at=(" + std::to_string(op.data.createWall.x) + "," + std::to_string(op.data.createWall.y) + ") isMagic=" + std::to_string(op.data.createWall.isMagic);
+			break;
+		case EffectOpType::MODIFY_TILE:
+			opLog += " MODIFY_TILE at=(" + std::to_string(op.data.modifyTile.toX) + "," + std::to_string(op.data.modifyTile.toY) + ") setHasWall=" + std::to_string(op.data.modifyTile.setHasWall);
+			break;
+		case EffectOpType::DRAW_CARDS:
+			opLog += " DRAW_CARDS player=" + std::to_string(op.data.drawCards.playerIndex) + " count=" + std::to_string(op.data.drawCards.numCards);
+			break;
+		case EffectOpType::DISCARD_CARDS:
+			opLog += " DISCARD_CARDS player=" + std::to_string(op.data.drawCards.playerIndex) + " count=" + std::to_string(op.data.drawCards.numCards);
+			break;
+		default:
+			break; // Let standard tracing handle the rest
+		}
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, opLog);
+	}
 	bool opComplete = false;
 
 	switch (op.type) {
@@ -28837,6 +28932,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	Card playedCard = currentPlayer.hand[cardIndex];
 
+	if (isMultiplayer) {
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "PLAY_CARD: Unit " + std::to_string(currentPlayerIndex) + " (ID:" + std::to_string(currentPlayer.playerID) + ") played '" + playedCard.name + "' at (" + std::to_string(targetX) + "," + std::to_string(targetY) + ") BaseCost:" + std::to_string(playedCard.cost));
+	}
+
 	// === INITIALIZE UNIFIED CARD OUTCOME ===
 	resetCardState();
 	currentCardOutcome.cardType = playedCard.type;
@@ -30420,7 +30519,7 @@ void ofApp::cancelTargetingMode() {
 		targetingContext.onCancel();
 	}
 	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-	targetingContext = ofApp::TargetingContext();
+	targetingContext = {}; // CRITICAL FIX: Resolves C/C++ "qualified name is not allowed" syntax error
 	clearHighlights();
 }
 
@@ -35408,6 +35507,9 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 			names += draftOptions[i].name;
 		}
 		ofLogNotice("Draft") << "generateDraftOptions: class=" << classTier << " chosenPoolIdx=[" << idxs << "] names=[" << names << "]";
+		if (isMultiplayer) {
+			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "GENERATE_DRAFT_OPTIONS: Class=" + std::to_string(classTier) + " PoolIdx=[" + idxs + "] Cards=[" + names + "]");
+		}
 	}
 
 	if (classTier == 1)
@@ -37353,130 +37455,144 @@ long long ofApp::calculateChecksum() {
 		h *= FNV_PRIME;
 	};
 
-	// 1. GLOBAL & RNG
-	mix((uint64_t)globalTurnCounter);
-	mix((uint64_t)currentPlayerIndex);
-	mix((uint64_t)currentAP);
-	mix((uint64_t)gameplayRngAdvanceCount);
-	mix((uint64_t)currentMapSeed);
-	mix((uint64_t)nextSummonOrder);
+	// --- 1. GLOBAL & RNG ---
+	uint64_t h_global = FNV_OFFSET;
+	auto mix_global = [&](uint64_t v) { h_global ^= v; h_global *= FNV_PRIME; mix(v); };
 
-	// 2. GAME & DRAFT STATE
+	mix_global((uint64_t)globalTurnCounter);
+	mix_global((uint64_t)currentPlayerIndex);
+	mix_global((uint64_t)currentAP);
+	mix_global((uint64_t)gameplayRngAdvanceCount);
+	mix_global((uint64_t)currentMapSeed);
+	mix_global((uint64_t)nextSummonOrder);
+
+	// --- 2. GAME & DRAFT STATE ---
+	uint64_t h_state = FNV_OFFSET;
+	auto mix_state = [&](uint64_t v) { h_state ^= v; h_state *= FNV_PRIME; mix(v); };
+
 	GameState syncState = currentState;
 	if (isMultiplayer && (currentState == STATE_PAUSED || currentState == STATE_SETTINGS || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC)) {
 		syncState = pausedFromState;
 	}
-	mix((uint64_t)syncState);
-	mix((uint64_t)(isInGameDraft ? 1 : 0));
-	mix((uint64_t)(initialDraftComplete ? 1 : 0));
-	mix((uint64_t)draftStage);
-	mix((uint64_t)draftPlayerIndex);
-	mix((uint64_t)draftPicksRemaining);
-	mix((uint64_t)currentDraftClassTier);
+	mix_state((uint64_t)syncState);
+	mix_state((uint64_t)(isInGameDraft ? 1 : 0));
+	mix_state((uint64_t)(initialDraftComplete ? 1 : 0));
+	mix_state((uint64_t)draftStage);
+	mix_state((uint64_t)draftPlayerIndex);
+	mix_state((uint64_t)draftPicksRemaining);
+	mix_state((uint64_t)currentDraftClassTier);
 
-	mix((uint64_t)networkPending.draftQueue.size());
+	mix_state((uint64_t)networkPending.draftQueue.size());
 	for (int v : networkPending.draftQueue)
-		mix((uint64_t)v);
+		mix_state((uint64_t)v);
 
-	// 3. CARD INTERACTION & EFFECT PIPELINE
-	// Local UI states (cardInteractionState, interactingCardType, etc.) are removed
-	// from the checksum to prevent desyncs when a player interacts locally.
-
-	// TRANSIENT EFFECT STATES AND OPS REMOVED TO PREVENT FALSE DESYNCS
-	// WHEN PACKETS ARE RECEIVED MID-EFFECT-SEQUENCE
-
-	// 4. TRANSIENT SPELL STATES
-
-	// 5. KEYS & GRAVEYARD
-	mix((uint64_t)floatingKeyInstances.size());
+	mix_state((uint64_t)floatingKeyInstances.size());
 	for (const auto & k : floatingKeyInstances) {
-		mix((uint64_t)k.pos.x);
-		mix((uint64_t)k.pos.y);
-		mix((uint64_t)k.set);
+		mix_state((uint64_t)k.pos.x);
+		mix_state((uint64_t)k.pos.y);
+		mix_state((uint64_t)k.set);
 	}
 
-	mix((uint64_t)graveyard.size());
+	mix_state((uint64_t)graveyard.size());
 	for (const auto & g : graveyard) {
-		mix((uint64_t)g.x);
-		mix((uint64_t)g.y);
-		mix((uint64_t)g.deck.size());
+		mix_state((uint64_t)g.x);
+		mix_state((uint64_t)g.y);
+		mix_state((uint64_t)g.deck.size());
 	}
 
-	// 6. BOARD STATE
+	// --- 3. BOARD STATE ---
+	uint64_t h_board = FNV_OFFSET;
+	auto mix_board = [&](uint64_t v) { h_board ^= v; h_board *= FNV_PRIME; mix(v); };
+
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
-			mix((uint64_t)(board[x][y].hasWall ? 1 : 0));
-			mix((uint64_t)(board[x][y].isMagicWall ? 1 : 0));
-			mix((uint64_t)(board[x][y].hasPlayer ? 1 : 0));
+			mix_board((uint64_t)(board[x][y].hasWall ? 1 : 0));
+			mix_board((uint64_t)(board[x][y].isMagicWall ? 1 : 0));
+			mix_board((uint64_t)(board[x][y].hasPlayer ? 1 : 0));
 		}
 	}
 
-	// 7. PLAYER STATE
-	for (const auto & p : players) {
-		mix((uint64_t)p.playerID);
-		mix((uint64_t)p.ownerID);
-		mix((uint64_t)p.isMinion);
-		mix((uint64_t)p.summonOrder);
-		mix((uint64_t)p.x);
-		mix((uint64_t)p.y);
-		mix((uint64_t)p.health);
-		mix((uint64_t)p.maxHealth);
-		mix((uint64_t)p.block);
-		mix((uint64_t)p.ward);
-		mix((uint64_t)p.fortification);
-		mix((uint64_t)p.barrier);
-		mix((uint64_t)p.holyBlock);
-		mix((uint64_t)p.luck);
-		mix((uint64_t)p.bonusTurns);
-		mix((uint64_t)p.ap);
-		mix((uint64_t)p.onFire);
-		mix((uint64_t)p.isParalyzed);
-		mix((uint64_t)p.paralysisHeadsCount);
-		mix((uint64_t)p.isPoisoned);
-		mix((uint64_t)p.poisonReduction);
-		mix((uint64_t)p.nextTurnAPBonus);
-		mix((uint64_t)p.nextAttackAddPoison);
-		mix((uint64_t)p.nextTurnD10AP);
-		mix((uint64_t)p.nextTurnExtraDraw);
-		mix((uint64_t)p.replicateQueued);
-		mix((uint64_t)p.nextTurnBonusDiceFromMinions);
-		mix((uint64_t)p.strengthenElementsTurnsRemaining);
-		mix((uint64_t)p.sleepTurnsRemaining);
-		mix((uint64_t)p.freeHandCardTurns);
-		mix((uint64_t)p.summonedOnTurnCycle);
-		mix((uint64_t)p.inTortoiseForm);
-		mix((uint64_t)p.tortoiseDamageTaken);
-		mix((uint64_t)p.inGhostForm);
-		mix((uint64_t)p.ghostDamageTaken);
-		mix((uint64_t)p.freeKickTurns);
-		mix((uint64_t)p.defenseCycle);
+	// --- 4. PLAYER STATE ---
+	uint64_t h_players = FNV_OFFSET;
+	auto mix_players = [&](uint64_t v) { h_players ^= v; h_players *= FNV_PRIME; mix(v); };
 
-		// Hash card costs as well as types to catch discount-based desyncs
+	for (const auto & p : players) {
+		mix_players((uint64_t)p.playerID);
+		mix_players((uint64_t)p.ownerID);
+		mix_players((uint64_t)p.isMinion);
+		mix_players((uint64_t)p.summonOrder);
+		mix_players((uint64_t)p.x);
+		mix_players((uint64_t)p.y);
+		mix_players((uint64_t)p.health);
+		mix_players((uint64_t)p.maxHealth);
+		mix_players((uint64_t)p.block);
+		mix_players((uint64_t)p.ward);
+		mix_players((uint64_t)p.fortification);
+		mix_players((uint64_t)p.barrier);
+		mix_players((uint64_t)p.holyBlock);
+		mix_players((uint64_t)p.luck);
+		mix_players((uint64_t)p.bonusTurns);
+		mix_players((uint64_t)p.ap);
+		mix_players((uint64_t)p.onFire);
+		mix_players((uint64_t)p.isParalyzed);
+		mix_players((uint64_t)p.paralysisHeadsCount);
+		mix_players((uint64_t)p.isPoisoned);
+		mix_players((uint64_t)p.poisonReduction);
+		mix_players((uint64_t)p.nextTurnAPBonus);
+		mix_players((uint64_t)p.nextAttackAddPoison);
+		mix_players((uint64_t)p.nextTurnD10AP);
+		mix_players((uint64_t)p.nextTurnExtraDraw);
+		mix_players((uint64_t)p.replicateQueued);
+		mix_players((uint64_t)p.nextTurnBonusDiceFromMinions);
+		mix_players((uint64_t)p.strengthenElementsTurnsRemaining);
+		mix_players((uint64_t)p.sleepTurnsRemaining);
+		mix_players((uint64_t)p.freeHandCardTurns);
+		mix_players((uint64_t)p.summonedOnTurnCycle);
+		mix_players((uint64_t)p.inTortoiseForm);
+		mix_players((uint64_t)p.tortoiseDamageTaken);
+		mix_players((uint64_t)p.inGhostForm);
+		mix_players((uint64_t)p.ghostDamageTaken);
+		mix_players((uint64_t)p.freeKickTurns);
+		mix_players((uint64_t)p.defenseCycle);
+
 		auto mixCard = [&](const Card & c) {
-			mix((uint64_t)c.type);
-			mix((uint64_t)c.cost);
-			mix((uint64_t)c.value);
+			mix_players((uint64_t)c.type);
+			mix_players((uint64_t)c.cost);
+			mix_players((uint64_t)c.value);
 		};
 
-		mix((uint64_t)p.deck.size());
+		mix_players((uint64_t)p.deck.size());
 		for (const auto & c : p.deck)
 			mixCard(c);
 
-		mix((uint64_t)p.hand.size());
+		mix_players((uint64_t)p.hand.size());
 		for (const auto & c : p.hand)
 			mixCard(c);
 
-		mix((uint64_t)p.discardPile.size());
+		mix_players((uint64_t)p.discardPile.size());
 		for (const auto & c : p.discardPile)
 			mixCard(c);
 
-		mix((uint64_t)p.playedCardsPile.size());
+		mix_players((uint64_t)p.playedCardsPile.size());
 		for (const auto & c : p.playedCardsPile)
 			mixCard(c);
 
-		mix((uint64_t)p.cardsPlayedThisTurn.size());
+		mix_players((uint64_t)p.cardsPlayedThisTurn.size());
 		for (auto t : p.cardsPlayedThisTurn)
-			mix((uint64_t)t);
+			mix_players((uint64_t)t);
+	}
+
+	if (isMultiplayer) {
+		std::string chkStr = "CHECKSUM COMPONENTS | Final: " + std::to_string(h) + " | Global: " + std::to_string(h_global) + " | State: " + std::to_string(h_state) + " | Board: " + std::to_string(h_board) + " | Players: " + std::to_string(h_players);
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, chkStr);
+
+		std::string stateDump = "STATE DUMP | AP: " + std::to_string(currentAP) + " | RNG Adv: " + std::to_string(gameplayRngAdvanceCount) + " | CurPlayer: " + std::to_string(currentPlayerIndex);
+		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, stateDump);
+
+		for (const auto & p : players) {
+			std::string pStr = "  -> Unit " + std::to_string(p.playerID) + " (Own:" + std::to_string(p.ownerID) + ")" + " Pos:(" + std::to_string(p.x) + "," + std::to_string(p.y) + ")" + " HP:" + std::to_string(p.health) + "/" + std::to_string(p.maxHealth) + " D/H/D/P:" + std::to_string(p.deck.size()) + "/" + std::to_string(p.hand.size()) + "/" + std::to_string(p.discardPile.size()) + "/" + std::to_string(p.playedCardsPile.size()) + " B/W/F/B/HB:" + std::to_string(p.block) + "/" + std::to_string(p.ward) + "/" + std::to_string(p.fortification) + "/" + std::to_string(p.barrier) + "/" + std::to_string(p.holyBlock);
+			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, pStr);
+		}
 	}
 
 	return (long long)h;
@@ -38416,9 +38532,15 @@ void ofApp::logDeckStates(const std::string & reason) {
 // Simple deterministic dice resolver used by a few inline spawn paths.
 int ofApp::resolveDiceRoll(int numDice, int sides) {
 	int total = 0;
+	std::string rollStr = "DICE ROLL: " + std::to_string(numDice) + "d" + std::to_string(sides) + " -> [";
 	for (int i = 0; i < numDice; ++i) {
-		total += getGameRandom(1, sides);
+		int raw = getGameRandom(1, sides);
+		if (i > 0) rollStr += ", ";
+		rollStr += std::to_string(raw);
+		total += raw;
 	}
+	rollStr += "] = " + std::to_string(total) + " | RNG Advance: " + std::to_string(gameplayRngAdvanceCount);
+	if (isMultiplayer) writeLockstepTrace(steamManager.isHost(), globalTurnCounter, rollStr);
 	return total;
 }
 
@@ -38426,11 +38548,16 @@ int ofApp::resolveDiceRoll(int numDice, int sides) {
 int ofApp::resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & outRaw) {
 	outRaw.clear();
 	int totalRaw = 0;
+	std::string rollStr = "DICE ROLL DETAILED: " + std::to_string(numDice) + "d" + std::to_string(sides) + " -> [";
 	for (int i = 0; i < numDice; ++i) {
 		int raw = getGameRandom(1, sides);
 		outRaw.push_back(raw);
+		if (i > 0) rollStr += ", ";
+		rollStr += std::to_string(raw);
 		totalRaw += raw;
 	}
+	rollStr += "] = " + std::to_string(totalRaw) + " | RNG Advance: " + std::to_string(gameplayRngAdvanceCount);
+	if (isMultiplayer) writeLockstepTrace(steamManager.isHost(), globalTurnCounter, rollStr);
 	return totalRaw;
 }
 
