@@ -4674,6 +4674,14 @@ void ofApp::updateStateMachine() {
 			// FIX: If the game has already concluded, or we are viewing a desync, don't interrupt!
 			if (g_isGameOver || currentState == STATE_DESYNC) return;
 
+			if (g_isSpectator) {
+				ofLogNotice("Network") << "Host disconnected. Spectator match ended.";
+				addGameLog("Host disconnected. Match ended.");
+				g_isGameOver = true;
+				g_winnerID = 2; // Match Aborted / Draw
+				return;
+			}
+
 			bool inMatchState = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED || currentState == STATE_WAITING_FOR_RECONNECT);
 			if (inMatchState) {
 				if (!waitingForReconnect) {
@@ -17156,11 +17164,19 @@ void ofApp::keyPressed(int key) {
 		if (key == OF_KEY_RETURN) {
 			// If text was typed, send it
 			if (!chatInput.empty() && !isChatMinimized) {
+				// Prepare payload
+				std::string payload = chatInput;
+				if (isMultiplayer && myLocalPlayerID == 2) {
+					std::string myName = steamManager.getLocalPlayerName();
+					if (myName.empty()) myName = "Spectator";
+					payload = myName + "\a" + chatInput;
+				}
+
 				if (isMultiplayer) {
 					ChatMessagePacket pkt = {};
 					pkt.type = PKT_CHAT_MESSAGE;
 					pkt.playerID = myLocalPlayerID;
-					strncpy(pkt.message, chatInput.c_str(), 255);
+					strncpy(pkt.message, payload.c_str(), 255);
 					pkt.message[255] = '\0';
 					steamManager.sendPacket(&pkt, sizeof(pkt));
 				}
@@ -17169,7 +17185,9 @@ void ofApp::keyPressed(int key) {
 				ChatMessage msg;
 				if (isMultiplayer) {
 					if (myLocalPlayerID == 2) {
-						msg.playerName = "Spectator";
+						std::string myName = steamManager.getLocalPlayerName();
+						if (myName.empty()) myName = "Spectator";
+						msg.playerName = myName + " [Spectating]";
 					} else {
 						msg.playerName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
 					}
@@ -30846,6 +30864,7 @@ std::string ofApp::buildSnapshotString() {
 	ss << "SEED\t" << currentMapSeed << "\n";
 	ss << "RNG\t" << gameplayRNG << "\n";
 	ss << "RNGPOS\t" << gameplayRngAdvanceCount << "\n";
+	ss << "NAMES\t" << escapeField(player0SteamName) << "\t" << escapeField(player1SteamName) << "\n";
 
 	GameState syncState = currentState;
 	if (isMultiplayer && (currentState == STATE_PAUSED || currentState == STATE_SETTINGS || currentState == STATE_SAVE_BROWSER || currentState == STATE_DESYNC)) {
@@ -31224,7 +31243,11 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 			} else if (parts[0] == "RNGPOS" && parts.size() >= 2) {
 				tmpGameplayRngAdvanceCount = (uint64_t)std::stoull(parts[1]);
 				tmpHasGameplayRngAdvanceCount = true;
+			} else if (parts[0] == "NAMES" && parts.size() >= 3) {
+				player0SteamName = unescapeField(parts[1]);
+				player1SteamName = unescapeField(parts[2]);
 			} else if (parts[0] == "AFK" && parts.size() >= 6) {
+
 				tmpAfkStrikeCounts[0] = std::stoi(parts[1]);
 				tmpAfkStrikeCounts[1] = std::stoi(parts[2]);
 				tmpCurrentTurnOwnerID = std::stoi(parts[3]);
@@ -31648,10 +31671,16 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				}
 			}
 			// Restore names so the Turn Indicator text is correct
-			std::string p0Name = steamManager.isHost() ? steamManager.getLocalPlayerName() : steamManager.getOpponentName();
-			std::string p1Name = steamManager.isHost() ? steamManager.getOpponentName() : steamManager.getLocalPlayerName();
-			player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-			player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+			if (!g_isSpectator) {
+				std::string p0Name = steamManager.isHost() ? steamManager.getLocalPlayerName() : steamManager.getOpponentName();
+				std::string p1Name = steamManager.isHost() ? steamManager.getOpponentName() : steamManager.getLocalPlayerName();
+				player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
+				player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+			} else {
+				// Prevent the spectator from accidentally assigning their own name to Player 1!
+				if (player0SteamName.empty() || player0SteamName == steamManager.getLocalPlayerName()) player0SteamName = "Player 1";
+				if (player1SteamName.empty() || player1SteamName == steamManager.getLocalPlayerName()) player1SteamName = "Player 2";
+			}
 		}
 	} else {
 		// FIX: Only wipe multiplayer connection variables if we are ACTUALLY returning to singleplayer!
@@ -37211,19 +37240,28 @@ void ofApp::processNetworkPackets() {
 			// UI races and double-processing.
 			else if (header->type == PKT_CHAT_MESSAGE) {
 				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
-				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
+				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID;
 
 				ChatMessage msg;
 				if (isMultiplayer) {
 					if (pkt->playerID == 2) {
-						msg.playerName = "Spectator";
+						std::string raw = pkt->message;
+						size_t delim = raw.find('\a');
+						if (delim != std::string::npos) {
+							msg.playerName = raw.substr(0, delim) + " [Spectating]";
+							msg.message = raw.substr(delim + 1);
+						} else {
+							msg.playerName = "Spectator";
+							msg.message = raw;
+						}
 					} else {
 						msg.playerName = (pkt->playerID == 0) ? player0SteamName : player1SteamName;
+						msg.message = pkt->message;
 					}
 				} else {
 					msg.playerName = (pkt->playerID == 0) ? "Player 1" : "Player 2";
+					msg.message = pkt->message;
 				}
-				msg.message = pkt->message;
 				msg.timestamp = ofGetElapsedTimef();
 				chatHistory.push_back(msg);
 				if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {

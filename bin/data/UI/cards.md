@@ -354,7 +354,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = Flurries played this turn).
+- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = Flurry of Fists played this turn).
 ---
 
 ## 46. Form of Tortoise
