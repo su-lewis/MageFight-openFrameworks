@@ -139,32 +139,32 @@ jobs:
 
     - name: Send Changelog to Discord
       if: success()
-      shell: bash # Use standard Git Bash so the GitHub CLI (`gh`) and `jq` work natively
+      shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       run: |
-        # We must cd into the repo because we downloaded it to the "my_game_repo" subfolder
         cd my_game_repo
         
-        # 1. Ask GitHub API for the commit hash of the LAST SUCCESSFUL run of this exact workflow
+        # 1. Ask GitHub API for the commit hash of the LAST SUCCESSFUL run
         LAST_SHA=$(gh run list --workflow "${{ github.workflow }}" --status success --json headSha --jq '[.[].headSha | select(. != "${{ github.sha }}")][0]')
 
-        # 2. Extract commit messages between that old build and this new build
+        # 2. Extract commit messages and EXPORT to environment variable
         if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" == "null" ]; then
           echo "No previous successful build found. Falling back to last 5 commits."
-          COMMITS=$(git log -n 5 --no-merges --pretty=format:"• %s (\`%h\`)")
+          export RAW_COMMITS=$(git log -n 5 --no-merges --pretty=format:"• %s (\`%h\`)")
         else
           echo "Comparing $LAST_SHA to HEAD..."
-          COMMITS=$(git log ${LAST_SHA}..HEAD --no-merges --pretty=format:"• %s (\`%h\`)")
+          export RAW_COMMITS=$(git log ${LAST_SHA}..HEAD --no-merges --pretty=format:"• %s (\`%h\`)")
         fi
 
-        if [ -z "$COMMITS" ]; then
-          COMMITS="*No new commits since last build.*"
+        if [ -z "$RAW_COMMITS" ]; then
+          export RAW_COMMITS="*No new commits since last build.*"
         fi
 
-        # 3. Format the JSON safely using jq (prevents quotes/newlines from breaking the API call)
-        PAYLOAD=$(jq -n --arg content "🚀 **New Windows Build Compiled!**\n\n**Recent Changes:**\n$COMMITS" '{content: $content}')
+        # 3. Read directly from the $ENV object in jq. 
+        # This guarantees 100% safe JSON escaping regardless of quotes, newlines, or emojis in your commits!
+        PAYLOAD=$(jq -n '{content: ("🚀 **New Windows Build Compiled!**\n\n**Recent Changes:**\n" + $ENV.RAW_COMMITS)}')
 
-        # 4. Send the payload to Discord
+        # 4. Send to Discord
         curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
