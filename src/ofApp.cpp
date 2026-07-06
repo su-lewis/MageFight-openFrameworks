@@ -16579,6 +16579,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
 
+				if (candidate.type == CARD_SHOOT_ARROW && currentPlayer.deck.empty()) return false;
+
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth) return true;
@@ -16884,6 +16886,8 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
+
+				if (candidate.type == CARD_SHOOT_ARROW && currentPlayer.deck.empty()) return false;
 
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
@@ -18213,10 +18217,7 @@ void ofApp::startNewTurn() {
 
 		// Dark Shield special AP roll
 		if (startingPlayer.nextTurnBonusDiceFromMinions) {
-			int minionCount = 0;
-			for (const auto & p : players) {
-				if ((p.isSkeleton || p.isHellhound) && p.health > 0) minionCount++;
-			}
+			int minionCount = startingPlayer.tortoiseAccumulatedDamage;
 
 			lastAPDiceNum = minionCount;
 			lastAPDiceSides = 6;
@@ -18416,10 +18417,7 @@ void ofApp::continueNewTurn() {
 
 	// --- 1. Dark Shield special AP roll (REPLACES Normal AP Roll) ---
 	if (startingPlayer.nextTurnBonusDiceFromMinions) {
-		int minionCount = 0;
-		for (const auto & p : players) {
-			if ((p.isSkeleton || p.isHellhound) && p.health > 0) minionCount++;
-		}
+		int minionCount = startingPlayer.tortoiseAccumulatedDamage;
 
 		lastAPDiceNum = minionCount;
 		lastAPDiceSides = 6;
@@ -20844,7 +20842,7 @@ void ofApp::simulationTick() {
 							for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 								Player & p = players[pidx];
 								bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
-								if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0 && isSameTeam) {
+								if (p.isFaerie && p.x == nx && p.y == ny && isSameTeam) {
 									// Deterministic resurrection roll (decision-time via detailed resolver)
 									std::vector<int> rawRes;
 									int raw = resolveDiceRollDetailed(1, 4, rawRes);
@@ -25384,6 +25382,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				target.freeKickTurns += delta;
 				if (target.freeKickTurns > 2) target.freeKickTurns = 2; // Cap it so it doesn't stack infinitely
 				break;
+			case 97: // Custom: Dark Shield Dice Count
+				target.tortoiseAccumulatedDamage = delta;
+				break;
 			case 11: // Next-turn AP bonus
 				target.nextTurnAPBonus += delta;
 				if (delta != 0) {
@@ -28301,6 +28302,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		hbOp.data.modifyStat.deltaFromSlot = -1;
 		queueEffect(hbOp);
 
+		int minionCount = 0;
+		for (const auto & p : players) {
+			if ((p.isSkeleton || p.isHellhound) && p.health > 0) minionCount++;
+		}
+
+		EffectOp countOp = {};
+		countOp.type = EffectOpType::MODIFY_STAT;
+		countOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		countOp.data.modifyStat.statType = 97; // Custom: Dark Shield Dice Count
+		countOp.data.modifyStat.delta = minionCount;
+		countOp.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(countOp);
+
 		// Apply the AP modifier status for the start of the next turn
 		EffectOp statusOp = {};
 		statusOp.type = EffectOpType::APPLY_STATUS;
@@ -28652,6 +28666,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				resolvedTargetIndex = currentPlayerIndex;
 			else
 				return true;
+		}
+
+		if (currentPlayer.deck.empty()) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Deck Empty!", ofColor::red);
+			return true; // Abort, costs 1 deck card
 		}
 
 		beginEffectSequence();
