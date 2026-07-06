@@ -6,6 +6,13 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    
+    # --- CRITICAL FIX: Grant permission to read workflow history for the changelog ---
+    permissions:
+      contents: read
+      actions: read 
+    # -------------------------------------------------------------------------------
+
     defaults:
       run:
         shell: msys2 {0}
