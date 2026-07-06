@@ -63,6 +63,31 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 	file << logLine;
 }
 
+#ifdef _WIN32
+static int runHiddenWindowsCommand(const std::string & cmd) {
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_HIDE;
+	ZeroMemory(&pi, sizeof(pi));
+
+	std::vector<char> cmdBuffer(cmd.begin(), cmd.end());
+	cmdBuffer.push_back('\0');
+
+	if (CreateProcessA(NULL, cmdBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+		WaitForSingleObject(pi.hProcess, INFINITE);
+		DWORD exitCode = 0;
+		GetExitCodeProcess(pi.hProcess, &exitCode);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		return (int)exitCode;
+	}
+	return -1;
+}
+#endif
+
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
 	if (url.empty() || url.find("YOUR_") != std::string::npos) return;
 
@@ -107,21 +132,23 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			std::string args = "--max-time 10 -k -s -H \"Content-Type: application/json\" -H \"User-Agent: DiscordBot (MageFight, 1.0)\" -d @\"" + tmpFilename + "\" \"" + url + "\"";
 
 #ifdef _WIN32
-			for (auto & c : dataDir) {
+			std::string winDataDir = dataDir;
+			for (auto & c : winDataDir) {
 				if (c == '/') c = '\\';
 			}
-			std::string cmd1 = "cd /d \"" + dataDir + "\" && curl.exe " + args;
-			int sysRet = system(cmd1.c_str());
+			// Use /s /c "..." so cmd.exe preserves the inner quotes required by curl
+			std::string cmd1 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && curl.exe " + args + "\"";
+			int sysRet = runHiddenWindowsCommand(cmd1);
 
 			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
 			if (sysRet != 0) {
 				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
-				std::string cmd2 = "cd /d \"" + dataDir + "\" && Z:\\usr\\bin\\curl " + args;
-				system(cmd2.c_str());
+				std::string cmd2 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\curl " + args + "\"";
+				runHiddenWindowsCommand(cmd2);
 			}
 #else
 			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
-			system(cmd1.c_str());
+			int sysRet = system(cmd1.c_str());
 #endif
 
 			ofFile::removeFile(tmpPath, false);
@@ -164,7 +191,7 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 			std::string fileName = file.getFileName();
 
 			body += "--" + boundary + "\r\n";
-			body += "Content-Disposition: form-data; name=\"file" + std::to_string(i + 1) + "\"; filename=\"" + fileName + "\"\r\n";
+			body += "Content-Disposition: form-data; name=\"files[" + std::to_string(i) + "]\"; filename=\"" + fileName + "\"\r\n";
 			body += "Content-Type: text/plain\r\n\r\n";
 			body += fileBuf.getText() + "\r\n";
 		}
@@ -195,26 +222,27 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 			for (size_t i = 0; i < filePaths.size(); ++i) {
 				ofFile file(filePaths[i]);
 				std::string fileName = file.getFileName();
-				args += "-F \"file" + std::to_string(i + 1) + "=@" + fileName + "\" ";
+				args += "-F \"files[" + std::to_string(i) + "]=@" + fileName + "\" ";
 			}
 			args += "\"" + url + "\"";
 
 #ifdef _WIN32
-			for (auto & c : dataDir) {
+			std::string winDataDir = dataDir;
+			for (auto & c : winDataDir) {
 				if (c == '/') c = '\\';
 			}
-			std::string cmd1 = "cd /d \"" + dataDir + "\" && curl.exe " + args;
-			int sysRet = system(cmd1.c_str());
+			std::string cmd1 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && curl.exe " + args + "\"";
+			int sysRet = runHiddenWindowsCommand(cmd1);
 
 			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
 			if (sysRet != 0) {
 				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
-				std::string cmd2 = "cd /d \"" + dataDir + "\" && Z:\\usr\\bin\\curl " + args;
-				system(cmd2.c_str());
+				std::string cmd2 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\curl " + args + "\"";
+				runHiddenWindowsCommand(cmd2);
 			}
 #else
 			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
-			system(cmd1.c_str());
+			int sysRet = system(cmd1.c_str());
 #endif
 
 			ofFile::removeFile(tmpPath, false);
@@ -4989,21 +5017,17 @@ void ofApp::update() {
 					savedMainMenuVolume = mainMenuMusic.getVolume();
 					// Save current playback position (ms)
 					savedMainMenuPositionMS = mainMenuMusic.getPositionMS();
-					mainMenuMusic.setVolume(0.0f);
-					musicMutedDueToMinimize = true;
-					// Keep playing silently instead of stopping
+					// Audio continues playing while minimized!
 				}
 				if (g_gameMusic.isLoaded()) {
 					savedGameMusicVolume = g_gameMusic.getVolume();
-					g_gameMusic.setVolume(0.0f);
 				}
 				// Save and mute footstep sounds (if any)
 				savedFootstepVolumes.clear();
 				for (size_t i = 0; i < footstepSounds.size(); ++i) {
 					savedFootstepVolumes.push_back(footstepSounds[i].getVolume());
-					footstepSounds[i].setVolume(0.0f);
 				}
-				ofLogNotice("Power") << "Singleplayer inactive: visuals paused, FPS throttled, audio muted. Logic continues.";
+				ofLogNotice("Power") << "Singleplayer inactive: visuals paused, FPS throttled. Logic and Audio continues.";
 			}
 		} else {
 			if (gameSuspendedDueToInactivity) {
@@ -5018,20 +5042,7 @@ void ofApp::update() {
 					ofSetVerticalSync(false);
 					ofSetFrameRate(targetFPS);
 				}
-				// Restore audio to previous levels (per-player)
-				// Restore main menu music volume (it's still playing, just muted)
-				if (mainMenuMusic.isLoaded()) {
-					mainMenuMusic.setVolume(savedMainMenuVolume);
-					musicMutedDueToMinimize = false;
-				}
-				if (g_gameMusic.isLoaded()) {
-					g_gameMusic.setVolume(savedGameMusicVolume);
-				}
-				// Restore footstep volumes
-				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
-					footstepSounds[i].setVolume(savedFootstepVolumes[i]);
-				}
-				ofLogNotice("Power") << "Singleplayer active: visuals resumed and audio restored.";
+				ofLogNotice("Power") << "Singleplayer active: visuals resumed.";
 			}
 		}
 	}
@@ -37284,7 +37295,7 @@ void ofApp::processNetworkPackets() {
 			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
 
 			// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
-			std::string webhookURL = "YOUR_DESYNC_WEBHOOK_URL_HERE";
+			std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
 
 			std::string myName = steamManager.getLocalPlayerName();
 			if (myName.empty()) myName = "A Mage";
