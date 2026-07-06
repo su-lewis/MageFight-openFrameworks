@@ -12881,10 +12881,14 @@ void ofApp::drawGame() {
 
 		// Winner Text
 		std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY" : "DEFEAT";
+		if (g_isSpectator || myLocalPlayerID == 2) {
+			text = (g_winnerID == 0) ? (player0SteamName + " WINS") : (player1SteamName + " WINS");
+		}
 		if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
 		if (g_winnerID == 2) text = "MATCH DRAWN";
 
 		ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
+		if (g_isSpectator || myLocalPlayerID == 2) titleColor = ofColor::gold;
 		if (g_winnerID == 2) titleColor = ofColor::white;
 		drawPixelTextCentered(titleFont, text, cx, cy - 200.0f, 2.5f, titleColor);
 
@@ -14427,6 +14431,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (mpHostButton.inside(x, y)) {
+			g_isSpectator = false; // Force clear to guarantee they host as a real player
 			steamManager.createLobby();
 			addGameLog("Created Lobby. Waiting for opponent...");
 			g_isHostingLobby = true;
@@ -15330,7 +15335,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (pauseMenuQuitButton.inside(x, y)) {
-			if (isMultiplayer && !g_isGameOver) {
+			if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 2) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
@@ -15348,7 +15353,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Close the pause menu so we can see the Game Over screen!
 				currentState = STATE_GAMEPLAY;
 			} else {
-				// Only instantly exit if in singleplayer, or already at Game Over
+				// Only instantly exit if in singleplayer, already at Game Over, or Spectating
 				steamManager.leaveLobby();
 				isMultiplayer = false;
 				cleanupGame();
@@ -20854,8 +20859,11 @@ void ofApp::simulationTick() {
 									if (hp < 1) hp = 1;
 
 									int pct = roll * 25;
-									std::string calcStr = "Roll: " + ofToString(roll) + " (" + ofToString(pct) + "%) -> " + ofToString(hp) + " HP";
+									std::string calcStr = "Rolled " + ofToString(roll) + " X " + ofToString(pct) + "% = " + ofToString(hp) + " HP";
 									queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
+
+									// Visual Dice Roll for the Faerie Resurrection
+									queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
 
 									// NEW: Visual Tracer to show the magical link
 									queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
@@ -34644,6 +34652,8 @@ void ofApp::cleanupGame() {
 	clientSentReady = false;
 
 	g_opponentDecisionQueue.clear(); // Clear the decision queue!
+
+	g_isSpectator = false; // Safely reset spectator flag when match ends
 
 	// Reset Chat State to prevent Hotkeys from getting locked in menus
 	isChatOpen = false;
