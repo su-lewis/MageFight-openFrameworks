@@ -1,0 +1,100 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-06 16:52:21
+End Reason: Victory
+Seed: 377281114
+Turns: 4
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[16:48:36] --- MATCH STARTED ---
+[16:48:40] Turn 0: Player 2's turn
+[16:48:40] Autosaved turn-start (autosave.json)
+[16:48:51] Player 2 played Raise Dead
+[16:48:52] Turn 1: Player 1's turn
+[16:48:52] Autosaved turn-start (autosave.json)
+[16:48:54] Player 1 played Raise Dead
+[16:48:58] Unlimited time enabled (turn timer disabled).
+[16:48:59] Turn timer enabled.
+[16:49:02] Turn 1: Player 2's turn
+[16:49:02] Autosaved turn-start (autosave.json)
+[16:49:03] Turn 1: Player 2's turn
+[16:49:03] Autosaved turn-start (autosave.json)
+[16:49:04] Turn 2: Player 1's turn
+[16:49:04] Autosaved turn-start (autosave.json)
+[16:49:08] Player 1 moved to (0,5)
+[16:49:08] Turn 2: Player 1's turn
+[16:49:08] Autosaved turn-start (autosave.json)
+[16:49:09] Turn 2: Player 2's turn
+[16:49:09] Autosaved turn-start (autosave.json)
+[16:49:53] Turn 2: Player 2's turn
+[16:49:53] Autosaved turn-start (autosave.json)
+[16:49:56] Unlimited time enabled (turn timer disabled).
+[16:49:57] Turn timer enabled.
+[16:50:00] Player 2 moved to (11,0)
+[16:50:01] Player 2 played Raise Dead
+[16:50:02] Player 2 played Raise Dead
+[16:50:04] Player 2 moved to (10,0)
+[16:50:04] Player 2 played Raise Dead
+[16:50:06] Player 2 moved to (9,0)
+[16:50:07] Player 2 played Raise Dead
+[16:50:09] Player 2 moved to (8,0)
+[16:50:10] Player 2 played Raise Dead
+[16:50:27] Player 2 moved to (6,0)
+[16:50:29] Player 2 moved to (7,1)
+[16:50:31] Turn 3: Player 1's turn
+[16:50:31] Autosaved turn-start (autosave.json)
+[16:50:56] Unlimited time enabled (turn timer disabled).
+[16:50:58] Turn 3: Player 1's turn
+[16:50:58] Autosaved turn-start (autosave.json)
+[16:51:03] Turn 3: Player 2's turn
+[16:51:03] Autosaved turn-start (autosave.json)
+[16:51:10] Turn 3: Player 2's turn
+[16:51:10] Autosaved turn-start (autosave.json)
+[16:51:11] Turn 3: Player 2's turn
+[16:51:11] Autosaved turn-start (autosave.json)
+[16:51:12] Turn 3: Player 2's turn
+[16:51:12] Autosaved turn-start (autosave.json)
+[16:51:13] Turn 3: Player 2's turn
+[16:51:13] Autosaved turn-start (autosave.json)
+[16:51:14] Turn 3: Player 2's turn
+[16:51:14] Autosaved turn-start (autosave.json)
+[16:51:15] Turn 3: Player 2's turn
+[16:51:15] Autosaved turn-start (autosave.json)
+[16:51:15] Turn 4: Player 1's turn
+[16:51:15] Autosaved turn-start (autosave.json)
+[16:51:18] Turn 4: Player 1's turn
+[16:51:18] Autosaved turn-start (autosave.json)
+[16:51:20] Player 1 played Raise Dead
+[16:51:29] Turn timer enabled.
+[16:51:30] Player 1 moved to (0,7)
+[16:51:31] Player 1 played Raise Dead
+[16:51:32] Player 1 moved to (0,6)
+[16:51:33] Player 1 played Raise Dead
+[16:51:34] Player 1 moved to (1,6)
+[16:51:35] Player 1 played Raise Dead
+[16:51:36] Player 1 played Raise Dead
+[16:51:47] Player 1 moved to (1,5)
+[16:51:56] Player 1 moved to (2,5)
+[16:52:01] Player 1 moved to (4,5)
+[16:52:03] Player 1 moved to (7,6)
+[16:52:05] Player 1 moved to (8,3)
+[16:52:16] Player 1 played Necromancer's Blessing
+[16:52:20] Player 1 moved to (7,2)
+[16:52:21] Player 1 played Bash
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 14
+  Minions Spawned: 6
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 6
+  Total Healing: 0
+=====================

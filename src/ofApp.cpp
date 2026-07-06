@@ -270,6 +270,14 @@ static const int MENU_GHOST_RELOCATE = 5;
 static float g_menuAlphaMult = 1.0f;
 static uint32_t s_opponentRiMask = 0; // Tracks which cards the opponent selected
 
+static float g_p0_apBoxAlpha = 0.0f;
+static float g_p1_apBoxAlpha = 0.0f;
+static std::string g_p0_apText_cache = "0 AP";
+static std::string g_p1_apText_cache = "0 AP";
+
+static int g_p0_minionScrollIndex = 0;
+static int g_p1_minionScrollIndex = 0;
+
 // --- DRAW SYSTEM VARIABLES ---
 static int g_drawOfferPlayerID = -1; // -1 = None, 0 = Player 1 offered, 1 = Player 2 offered
 static ofRectangle g_pauseMenuDrawButton;
@@ -7582,11 +7590,19 @@ void ofApp::prepareGameVisualState() {
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 
-	float p0_topLimitY = std::max(0.0f, layoutSpacing.timerBarHeight);
+	// Determine Timer/Profile Height to push Minion UI down
+	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && (!draftOptions.empty() || isInGameDraft));
+	float profileH = 56.0f * scale; // Decreased height to match profile box
+	float profileY = (turnTimerEnabled && timerStateVisible) ? (layoutSpacing.timerBarHeight + 12.0f * scale) : (12.0f * scale);
+
+	// Increased padding to 24px so it completely clears the profile boxes
+	float p0_topLimitY = profileY + profileH + (24.0f * scale);
+	float p1_topLimitY = p0_topLimitY;
+
+	// Fixed bottom limits: always leave room for the AP box whether it is currently visible or not
 	const float minionBottomSafetyPad = 24.0f * scale;
 	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
-	float p1_topLimitY = p0_topLimitY;
-	float p1_bottomLimitY = p0_bottomLimitY;
+	float p1_bottomLimitY = std::max(p1_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
 
 	gap = (scale > 0.0f) ? (deckBottomGap / scale) : gap;
 
@@ -7606,20 +7622,21 @@ void ofApp::prepareGameVisualState() {
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 		float localAvailableHeight = bottomLimit - topLimit;
 		float actualEntryHeight = standardEntryHeight * scale;
-		actualEntryHeight *= (1.15f * 0.80f);
+		// Shrunk by an additional 5% to fit perfectly between Profile and AP Boxes
+		actualEntryHeight *= (1.15f * 0.80f * 0.95f);
 		float actualGap = gap * scale;
-		const int maxVisibleEntriesBeforeScroll = 5;
+		float itemH = actualEntryHeight + actualGap;
+
+		// Display exactly 4 entries at all times
+		const int maxVisibleEntriesBeforeScroll = 4;
 		const float maxVisibleHeight = (maxVisibleEntriesBeforeScroll * actualEntryHeight) + ((maxVisibleEntriesBeforeScroll - 1) * actualGap);
 		localAvailableHeight = std::min(localAvailableHeight, maxVisibleHeight);
 		localAvailableHeight = std::max(actualEntryHeight, localAvailableHeight);
+
 		float totalRequiredHeight = 0.0f;
 		if (!indices.empty()) {
 			totalRequiredHeight = indices.size() * actualEntryHeight + (indices.size() - 1) * actualGap;
 		}
-
-		float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
-		float maxScroll = std::max(0.0f, totalRequiredHeight - localAvailableHeight);
-		scrollRef = std::clamp(scrollRef, 0.0f, maxScroll);
 
 		if (listSide == 0) {
 			p0_minionTotalH = totalRequiredHeight;
@@ -7634,33 +7651,41 @@ void ofApp::prepareGameVisualState() {
 		}
 		minionPanelW = panelWidthScaled;
 
+		// --- Discrete Scroll Index Logic ---
+		int & scrollIdx = (listSide == 0) ? g_p0_minionScrollIndex : g_p1_minionScrollIndex;
+		int maxVisible = std::max(1, (int)(localAvailableHeight / itemH));
+		int maxScrollIdx = std::max(0, (int)indices.size() - maxVisible);
+
+		// Auto-Scroll to Active Player
 		if (currentPlayerIndex != lastAutoScrollTurnUnit && currentPlayerIndex >= 0) {
-			for (size_t i = 0; i < indices.size(); ++i) {
+			for (int i = 0; i < (int)indices.size(); ++i) {
 				if (indices[i] == currentPlayerIndex) {
-					float targetY = i * (actualEntryHeight + actualGap);
-					if (targetY < scrollRef) {
-						scrollRef = targetY;
-					} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
-						scrollRef = targetY + actualEntryHeight - localAvailableHeight;
-					}
+					if (i < scrollIdx)
+						scrollIdx = i;
+					else if (i > scrollIdx + maxVisible - 1)
+						scrollIdx = i - maxVisible + 1;
 					break;
 				}
 			}
 		}
 
+		// Auto-Scroll to Hovered Unit
 		if (this->hoveredUnitIndex != lastHoveredUnit && this->hoveredUnitIndex >= 0) {
-			for (size_t i = 0; i < indices.size(); ++i) {
+			for (int i = 0; i < (int)indices.size(); ++i) {
 				if (indices[i] == this->hoveredUnitIndex) {
-					float targetY = i * (actualEntryHeight + actualGap);
-					if (targetY < scrollRef) {
-						scrollRef = targetY;
-					} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
-						scrollRef = targetY + actualEntryHeight - localAvailableHeight;
-					}
+					if (i < scrollIdx)
+						scrollIdx = i;
+					else if (i > scrollIdx + maxVisible - 1)
+						scrollIdx = i - maxVisible + 1;
 					break;
 				}
 			}
 		}
+
+		// Clamp and assign visual scroll offset
+		scrollIdx = std::clamp(scrollIdx, 0, maxScrollIdx);
+		float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
+		scrollRef = scrollIdx * itemH;
 
 		for (size_t i = 0; i < indices.size(); ++i) {
 			int pIndex = indices[i];
@@ -10889,11 +10914,97 @@ void ofApp::drawGame() {
 		ofFill();
 	}
 
+	// HOISTED VARIABLES TO PREVENT SCOPE ERRORS
+	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
+
+	// --- DRAW PLAYER PROFILES (Top Corners) ---
+	float profileW = 250.0f * scale; // Decreased width
+	float profileH = 56.0f * scale; // Slightly thinner
+	float profileY = (turnTimerEnabled && timerStateVisible && shouldShowTopTimer) ? (8.0f * scale + 12.0f * scale) : (12.0f * scale);
+	float p0_profileX = ui.edgeInset;
+	float p1_profileX = ofGetWidth() - ui.edgeInset - profileW;
+
+	int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
+	string p0Name = (viewID == 0) ? player0SteamName : player1SteamName;
+	string p1Name = (viewID == 0) ? player1SteamName : player0SteamName;
+	if (!isMultiplayer) {
+		p0Name = "Player 1";
+		p1Name = "Player 2";
+	}
+
+	// Determine active states for glowing borders
+	bool p0Active = false;
+	bool p1Active = false;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		int activeOwnerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		if (isMultiplayer) {
+			p0Active = (activeOwnerID == viewID);
+			p1Active = (activeOwnerID != viewID);
+		} else {
+			p0Active = (activeOwnerID == 0);
+			p1Active = (activeOwnerID == 1);
+		}
+	}
+
+	auto drawProfile = [&](float x, float y, float w, float h, bool isLocal, string name, bool isActive) {
+		ofSetColor(20, 20, 25, 210);
+		ofDrawRectangle(x, y, w, h); // Non-rounded
+
+		ofColor teamColor = isLocal ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
+		ofColor strokeColor = (isActive && currentState == STATE_GAMEPLAY) ? teamColor : ofColor(teamColor.r * 0.4f, teamColor.g * 0.4f, teamColor.b * 0.4f, 180);
+
+		ofPath p;
+		p.rectangle(x, y, w, h);
+		p.setFilled(false);
+		p.setStrokeWidth((isActive && currentState == STATE_GAMEPLAY ? 3.0f : 2.0f) * scale);
+		p.setStrokeColor(strokeColor);
+		p.draw();
+
+		float avatarSize = h - 16.0f * scale;
+		float avatarX = isLocal ? (x + 8.0f * scale) : (x + w - avatarSize - 8.0f * scale);
+		float avatarY = y + 8.0f * scale;
+
+		ofSetColor(40, 40, 50, 255);
+		ofDrawRectangle(avatarX, avatarY, avatarSize, avatarSize); // Non-rounded avatar
+
+		ofSetColor(255);
+		if (isLocal && localAvatarReady) {
+			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+		} else if (!isLocal && opponentAvatarReady) {
+			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+		} else {
+			// Initial fallback
+			string init = "";
+			if (!name.empty()) init += name[0];
+			size_t sp = name.find(' ');
+			if (sp != string::npos && sp + 1 < name.size()) init += name[sp + 1];
+			ofRectangle ib = titleFont.getStringBoundingBox(init, 0, 0);
+			float iscale = (avatarSize * 0.5f) / std::max(ib.width, ib.height);
+			drawPixelTextCentered(titleFont, init, avatarX + avatarSize / 2, avatarY + avatarSize / 2, iscale, ofColor::white);
+		}
+
+		// Text
+		float textX = isLocal ? (avatarX + avatarSize + 12.0f * scale) : (x + 12.0f * scale);
+		float textW = w - avatarSize - 24.0f * scale;
+
+		ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
+		float fontS = 1.0f;
+		if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+
+		float ny = y + h / 2.0f;
+		float nx = isLocal ? (textX + nameBox.width * fontS / 2) : (textX + textW - nameBox.width * fontS / 2);
+		drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
+	};
+
+	drawProfile(p0_profileX, profileY, profileW, profileH, true, p0Name, p0Active);
+	drawProfile(p1_profileX, profileY, profileW, profileH, false, p1Name, p1Active);
+	// ------------------------------------------
+
 	float handBaseCardWidth = kCardPixelWidth;
 	float baseCardHeight = kCardPixelHeight;
 	float staticUICardWidth = (handBaseCardWidth * 0.45f) * scale;
 	float staticUICardHeight = (baseCardHeight * 0.45f) * scale;
-	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
+	// ------------------------------------------
 
 	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
 	float healthBarHeight = 65 * scale;
@@ -11290,13 +11401,9 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 		}
 
-		// 4. Draw AP Displays & Statuses (UPDATED)
-		string p0_apText = "0 AP";
-		string p1_apText = "? AP";
-
 		// Compute displayed AP for the active unit by summing finished AP/BONUS_AP rolls
 		int displayedAP = 0;
-		if (currentPlayerIndex >= 0) {
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			for (const auto & r : activeDiceRolls) {
 				if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual) {
 					// Only count dice that belong to the current unit (associatedUnit)
@@ -11315,20 +11422,18 @@ void ofApp::drawGame() {
 			}
 
 			Player & currentPlayer = players[currentPlayerIndex];
-			// In multiplayer, assign AP text based on local player perspective
+			// Cache the string securely before fading
 			if (isMultiplayer) {
-				// If current player is me, show my AP at bottom, otherwise at top
 				if (isMyTurn()) {
-					p0_apText = ofToString(displayedAP) + " AP";
+					g_p0_apText_cache = ofToString(displayedAP) + " AP";
 				} else {
-					p1_apText = ofToString(displayedAP) + " AP";
+					g_p1_apText_cache = ofToString(displayedAP) + " AP";
 				}
 			} else {
-				// Single player: use original logic
 				if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
-					p0_apText = ofToString(displayedAP) + " AP";
+					g_p0_apText_cache = ofToString(displayedAP) + " AP";
 				} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
-					p1_apText = ofToString(displayedAP) + " AP";
+					g_p1_apText_cache = ofToString(displayedAP) + " AP";
 				}
 			}
 		}
@@ -11377,7 +11482,7 @@ void ofApp::drawGame() {
 		if (hasPreviewCardForAP) {
 			apPreviewDisplayText = apCostPreviewText;
 		}
-		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
+		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(g_p0_apText_cache, 0, 0);
 		float p0_previewScale = quantizePixelTextScale(fontScale * 0.62f);
 		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(apPreviewDisplayText, 0, 0);
 		float apFontScale = quantizePixelTextScale(fontScale);
@@ -11405,13 +11510,22 @@ void ofApp::drawGame() {
 				if (activeOwnerID == 1) skipDrawP0AP = true;
 			}
 		}
-		if (!skipDrawP0AP) {
-			ofSetColor(0, 0, 0, 150);
+
+		float dtFrame = ofGetLastFrameTime();
+		if (dtFrame > 0.1f) dtFrame = 0.016f;
+		float alphaFadeSpeed = 8.0f;
+		g_p0_apBoxAlpha = skipDrawP0AP ? std::max(0.0f, g_p0_apBoxAlpha - alphaFadeSpeed * dtFrame) : std::min(1.0f, g_p0_apBoxAlpha + alphaFadeSpeed * dtFrame);
+
+		if (g_p0_apBoxAlpha > 0.01f) {
+			ofSetColor(0, 0, 0, 150 * g_p0_apBoxAlpha);
 			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
-			drawPixelTextCentered(titleFont, p0_apText, p0_apCenterX, p0_apCenterY, apFontScale, ofColor::green, 2, ofColor::black);
+
+			ofColor apTextCol(0, 255, 0, 255 * g_p0_apBoxAlpha);
+			ofColor apOutCol(0, 0, 0, 255 * g_p0_apBoxAlpha);
+			drawPixelTextCentered(titleFont, g_p0_apText_cache, p0_apCenterX, p0_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 
 			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
-				int alpha = (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f);
+				int alpha = (int)ofClamp(apPreviewAlpha * g_p0_apBoxAlpha, 0.0f, 255.0f);
 				ofColor previewColor(255, 70, 70, alpha);
 				ofColor outlineColor(0, 0, 0, alpha);
 				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) + (12.0f * scale);
@@ -11477,7 +11591,7 @@ void ofApp::drawGame() {
 		/// --- Draw P1 AP Box (RIGHT - Opponent) ---
 		// Position opponent AP above their discard pile (mirrored layout)
 		float p1_apCenterX = p1_discardRect.getCenter().x;
-		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
+		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(g_p1_apText_cache, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
 		// Place opponent AP box slightly above their discard pile
@@ -11502,13 +11616,18 @@ void ofApp::drawGame() {
 				if (activeOwnerID_p1 == 0) skipDrawP1AP = true;
 			}
 		}
-		if (!skipDrawP1AP) {
-			ofSetColor(0, 0, 0, 150);
+		g_p1_apBoxAlpha = skipDrawP1AP ? std::max(0.0f, g_p1_apBoxAlpha - alphaFadeSpeed * dtFrame) : std::min(1.0f, g_p1_apBoxAlpha + alphaFadeSpeed * dtFrame);
+
+		if (g_p1_apBoxAlpha > 0.01f) {
+			ofSetColor(0, 0, 0, 150 * g_p1_apBoxAlpha);
 			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
-			drawPixelTextCentered(titleFont, p1_apText, p1_apCenterX, p1_apCenterY, apFontScale, ofColor::green, 2, ofColor::black);
+
+			ofColor apTextCol(0, 255, 0, 255 * g_p1_apBoxAlpha);
+			ofColor apOutCol(0, 0, 0, 255 * g_p1_apBoxAlpha);
+			drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 
 			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
-				int alpha = (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f);
+				int alpha = (int)ofClamp(apPreviewAlpha * g_p1_apBoxAlpha, 0.0f, 255.0f);
 				ofColor previewColor(255, 70, 70, alpha);
 				ofColor outlineColor(0, 0, 0, alpha);
 				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) + (12.0f * scale);
@@ -11840,20 +11959,23 @@ void ofApp::drawGame() {
 
 				rerollButtonRect.set(btnX, btnY, btnW, btnH);
 
-				// Dark background like End Turn, cyan text like AP counter
-				ofSetColor(ofColor::darkSlateGray);
-				ofDrawRectRounded(rerollButtonRect, 8);
+				// Determine Alpha based on whose side it's anchored to
+				float currentAlpha = ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == viewID)) ? g_p0_apBoxAlpha : g_p1_apBoxAlpha;
 
-				// Yellow outline to indicate availability
-				ofPath p;
-				p.rectRounded(rerollButtonRect, 8);
-				p.setFilled(false);
-				p.setStrokeWidth(3 * scale);
-				p.setStrokeColor(ofColor::green);
-				p.draw();
+				if (currentAlpha > 0.01f) {
+					ofSetColor(47, 79, 79, 255 * currentAlpha); // Dark Slate Gray scaled
+					ofDrawRectRounded(rerollButtonRect, 8);
 
-				string txt = "Reroll AP";
-				drawStatText(uiFont, txt, btnX, btnY, btnW, btnH, ofColor::cyan, 1.0f);
+					ofPath p;
+					p.rectRounded(rerollButtonRect, 8);
+					p.setFilled(false);
+					p.setStrokeWidth(3 * scale);
+					p.setStrokeColor(ofColor(0, 255, 0, 255 * currentAlpha));
+					p.draw();
+
+					string txt = "Reroll AP";
+					drawStatText(uiFont, txt, btnX, btnY, btnW, btnH, ofColor(0, 255, 255, 255 * currentAlpha), 1.0f);
+				}
 			} else {
 				rerollButtonRect.set(-1000, -1000, 0, 0);
 			}
@@ -17044,13 +17166,17 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	ofRectangle p1Area(p1_minionLeft - 20 * scale, p1_minionTop, minionPanelW + 20 * scale, p1_minionViewH);
 
 	if (p0_minionTotalH > p0_minionViewH && p0Area.inside(x, y)) {
-		p0_minionScroll -= scrollY * 40.0f;
-		p0_minionScroll = std::clamp(p0_minionScroll, 0.0f, p0_minionTotalH - p0_minionViewH);
+		if (scrollY > 0)
+			g_p0_minionScrollIndex--;
+		else if (scrollY < 0)
+			g_p0_minionScrollIndex++;
 		return;
 	}
 	if (p1_minionTotalH > p1_minionViewH && p1Area.inside(x, y)) {
-		p1_minionScroll -= scrollY * 40.0f;
-		p1_minionScroll = std::clamp(p1_minionScroll, 0.0f, p1_minionTotalH - p1_minionViewH);
+		if (scrollY > 0)
+			g_p1_minionScrollIndex--;
+		else if (scrollY < 0)
+			g_p1_minionScrollIndex++;
 		return;
 	}
 
@@ -35196,9 +35322,7 @@ void ofApp::drawMinionManagerUI() {
 		int scW = (int)((minionPanelW + 60) * sfX);
 		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY);
 		int scH = (int)(viewH * sfY);
-		int screenH = ofGetViewportHeight();
-		scY = std::max(0, scY - 8);
-		scH = std::min(screenH - scY, scH + 16);
+		// Strictly enforce scissor bounds to prevent bleeding into the AP/Profile boxes
 		glScissor(scX, scY, scW, scH);
 
 		// --- Draw UI Panel ---
