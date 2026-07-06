@@ -111,10 +111,9 @@
 
 ## 15. Teleport
 - **AP Cost:** 5
-- **Targeting:** 3d6 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll, then choose an empty tile within that distance to teleport to. Can target through walls.
+- **Effect Text:** Roll 3d6 ft, then choose an empty tile within that distance to teleport to. Can target through walls.
 ---
 
 ## 16. Hasten
