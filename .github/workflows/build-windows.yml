@@ -34,6 +34,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         path: my_game_repo
+        fetch-depth: 0  # <--- CRITICAL: Downloads full git history so we can generate the changelog
 
     - name: Cache openFrameworks Framework
       id: cache-of
@@ -128,3 +129,35 @@ jobs:
         name: MageFight-Windows-Release
         path: openFrameworks/apps/myApps/MageFight/bin/
         retention-days: 1
+
+    - name: Send Changelog to Discord
+      if: success()
+      shell: bash # Use standard Git Bash so the GitHub CLI (`gh`) and `jq` work natively
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: |
+        # We must cd into the repo because we downloaded it to the "my_game_repo" subfolder
+        cd my_game_repo
+        
+        # 1. Ask GitHub API for the commit hash of the LAST SUCCESSFUL run of this exact workflow
+        LAST_SHA=$(gh run list --workflow "${{ github.workflow }}" --status success --json headSha --jq '[.[].headSha | select(. != "${{ github.sha }}")][0]')
+
+        # 2. Extract commit messages between that old build and this new build
+        if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" == "null" ]; then
+          echo "No previous successful build found. Falling back to last 5 commits."
+          COMMITS=$(git log -n 5 --no-merges --pretty=format:"• %s (\`%h\`)")
+        else
+          echo "Comparing $LAST_SHA to HEAD..."
+          COMMITS=$(git log ${LAST_SHA}..HEAD --no-merges --pretty=format:"• %s (\`%h\`)")
+        fi
+
+        if [ -z "$COMMITS" ]; then
+          COMMITS="*No new commits since last build.*"
+        fi
+
+        # 3. Format the JSON safely using jq (prevents quotes/newlines from breaking the API call)
+        PAYLOAD=$(jq -n --arg content "🚀 **New Windows Build Compiled!**\n\n**Recent Changes:**\n$COMMITS" '{content: $content}')
+
+        # 4. Send the payload to Discord
+        curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
