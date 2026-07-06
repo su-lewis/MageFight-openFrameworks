@@ -7592,15 +7592,15 @@ void ofApp::prepareGameVisualState() {
 
 	// Determine Timer/Profile Height to push Minion UI down
 	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && (!draftOptions.empty() || isInGameDraft));
-	float profileH = 56.0f * scale; // Decreased height to match profile box
+	float profileH = 56.0f * scale;
 	float profileY = (turnTimerEnabled && timerStateVisible) ? (layoutSpacing.timerBarHeight + 12.0f * scale) : (12.0f * scale);
 
-	// Increased padding to 24px so it completely clears the profile boxes
-	float p0_topLimitY = profileY + profileH + (24.0f * scale);
+	// Safe spacing so it never clips into Profile Box
+	float p0_topLimitY = profileY + profileH + (32.0f * scale);
 	float p1_topLimitY = p0_topLimitY;
 
-	// Fixed bottom limits: always leave room for the AP box whether it is currently visible or not
-	const float minionBottomSafetyPad = 24.0f * scale;
+	// FIXED Bottom Limits - Never expands into AP zone!
+	const float minionBottomSafetyPad = 32.0f * scale;
 	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
 	float p1_bottomLimitY = std::max(p1_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
 
@@ -7622,20 +7622,22 @@ void ofApp::prepareGameVisualState() {
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 		float localAvailableHeight = bottomLimit - topLimit;
 		float actualEntryHeight = standardEntryHeight * scale;
-		// Shrunk by an additional 5% to fit perfectly between Profile and AP Boxes
+		// Shrunk by an additional 5% to fit exactly 4 nicely
 		actualEntryHeight *= (1.15f * 0.80f * 0.95f);
 		float actualGap = gap * scale;
 		float itemH = actualEntryHeight + actualGap;
 
 		// Display exactly 4 entries at all times
-		const int maxVisibleEntriesBeforeScroll = 4;
-		const float maxVisibleHeight = (maxVisibleEntriesBeforeScroll * actualEntryHeight) + ((maxVisibleEntriesBeforeScroll - 1) * actualGap);
-		localAvailableHeight = std::min(localAvailableHeight, maxVisibleHeight);
-		localAvailableHeight = std::max(actualEntryHeight, localAvailableHeight);
+		int maxVisibleEntriesBeforeScroll = 4;
+		int maxVisible = std::max(1, (int)((localAvailableHeight + actualGap) / itemH));
+		maxVisible = std::min(maxVisible, maxVisibleEntriesBeforeScroll);
+
+		// Quantize view height so scroll tracks match the minion cards perfectly
+		localAvailableHeight = maxVisible * itemH - actualGap;
 
 		float totalRequiredHeight = 0.0f;
 		if (!indices.empty()) {
-			totalRequiredHeight = indices.size() * actualEntryHeight + (indices.size() - 1) * actualGap;
+			totalRequiredHeight = indices.size() * itemH - actualGap;
 		}
 
 		if (listSide == 0) {
@@ -7653,7 +7655,6 @@ void ofApp::prepareGameVisualState() {
 
 		// --- Discrete Scroll Index Logic ---
 		int & scrollIdx = (listSide == 0) ? g_p0_minionScrollIndex : g_p1_minionScrollIndex;
-		int maxVisible = std::max(1, (int)(localAvailableHeight / itemH));
 		int maxScrollIdx = std::max(0, (int)indices.size() - maxVisible);
 
 		// Auto-Scroll to Active Player
@@ -10917,12 +10918,17 @@ void ofApp::drawGame() {
 	// HOISTED VARIABLES TO PREVENT SCOPE ERRORS
 	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
 
+	float deckBottomGap = effectiveBottomGap(ui);
+	float sideInset = deckBottomGap;
+
 	// --- DRAW PLAYER PROFILES (Top Corners) ---
-	float profileW = 250.0f * scale; // Decreased width
-	float profileH = 56.0f * scale; // Slightly thinner
+	float profileW = 250.0f * scale;
+	float profileH = 56.0f * scale;
 	float profileY = (turnTimerEnabled && timerStateVisible && shouldShowTopTimer) ? (8.0f * scale + 12.0f * scale) : (12.0f * scale);
-	float p0_profileX = ui.edgeInset;
-	float p1_profileX = ofGetWidth() - ui.edgeInset - profileW;
+
+	// Match Minion UI edge positioning
+	float p0_profileX = sideInset;
+	float p1_profileX = ofGetWidth() - sideInset - profileW;
 
 	int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
 	string p0Name = (viewID == 0) ? player0SteamName : player1SteamName;
@@ -35318,11 +35324,14 @@ void ofApp::drawMinionManagerUI() {
 
 		// Setup Scissor clipping to hide overflowing elements
 		glEnable(GL_SCISSOR_TEST);
-		int scX = (int)((isLeft ? p0_minionLeft - 30 : p1_minionLeft - 30) * sfX);
-		int scW = (int)((minionPanelW + 60) * sfX);
-		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY);
-		int scH = (int)(viewH * sfY);
-		// Strictly enforce scissor bounds to prevent bleeding into the AP/Profile boxes
+		int scX = (int)((isLeft ? p0_minionLeft - 40 : p1_minionLeft - 40) * sfX);
+		int scW = (int)((minionPanelW + 80) * sfX);
+
+		// Add a safe bleed padding for the 3px stroke so it doesn't get sliced
+		int bleed = (int)(4.0f * scale * sfY);
+		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY) - bleed;
+		int scH = (int)(viewH * sfY) + (bleed * 2);
+
 		glScissor(scX, scY, scW, scH);
 
 		// --- Draw UI Panel ---
