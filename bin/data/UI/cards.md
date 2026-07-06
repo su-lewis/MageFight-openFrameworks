@@ -202,7 +202,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = **Skeletons** and **Hellhounds**).
+- **Effect Text:** Gain +7 Holy **Block**. Next turn, roll Xd6 for AP (X = all **Skeletons** and **Hellhounds**).
 ---
 
 ## 27. Drain Punch
@@ -224,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
+- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). For 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
 ---
 
 ## 30. Call for Wolves
@@ -291,7 +291,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Roll 1d20. If higher than their Health, **Destroy** them. If lower, apply **Sleep** for 1d6 turns. If already **Sleeping**, **Destroy** them.
+- **Effect Text:** Choose a target. Roll 1d20. If higher than their Health, **Destroy** them. If lower, apply **Sleep** for 1d6 turns. If already **Sleeping**, **Execute** them.
 ---
 
 ## 38. Summon Demon
@@ -448,7 +448,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Choose One:** Push an adjacent wall 1 tile (moving with it), dealing 2d4 damage to units hit (if trapped, they are **Destroyed**); or pull it 1 tile.
+- **Effect Text:** **Choose One:** Push an adjacent wall 1 tile (moving with it), dealing 2d4 damage to units hit (if trapped, they are **Executed**); or pull it 1 tile.
 ---
 
 ## 58. Consume Health Flagon

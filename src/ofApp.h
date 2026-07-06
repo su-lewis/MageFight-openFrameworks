@@ -838,7 +838,7 @@ struct Player {
 	std::string originalModelType = ""; // To restore original model
 	// Accumulated tortoise pending damage (0 = none). Replaces prior
 	// `pendingTortoiseDamage` (bool) + `pendingTortoiseDamageValue` (int).
-	int tortoiseAccumulatedDamage = 0;
+	int storedDarkShieldDice = 0;
 
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;

@@ -11458,7 +11458,7 @@ void ofApp::drawGame() {
 		if (localPlayer->nextTurnAPBonus > 0) drawStatusLine("+" + ofToString(localPlayer->nextTurnAPBonus) + " AP Next Turn", ofColor::green, "Grants extra Action Points next turn", p0_statusXStart, p0_statusY);
 		if (localPlayer->strengthenElementsTurnsRemaining > 0) drawStatusLine("Elem Buff (" + ofToString(localPlayer->strengthenElementsTurnsRemaining) + ")", ofColor::orange, "Strengthen Elements: Copies Fire/Electric cards to hand", p0_statusXStart, p0_statusY);
 		if (localPlayer->nextTurnD10AP) drawStatusLine("D10 AP", ofColor::white, "AP roll uses a d10 next turn", p0_statusXStart, p0_statusY);
-		if (localPlayer->freeKickTurns > 0) drawStatusLine("Kick: Free (" + ofToString(localPlayer->freeKickTurns) + ")", ofColor::white, "Next Kick costs 0 AP", p0_statusXStart, p0_statusY);
+		if (localPlayer->freeKickTurns > 0) drawStatusLine("Kick: Free", ofColor::white, "Kicks cost 0 AP this turn and next turn.", p0_statusXStart, p0_statusY);
 		if (localPlayer->hasRegeneration) drawStatusLine("Regeneration", ofColor(220, 20, 60), "Regeneration: Heals 1 HP at the start of turn", p0_statusXStart, p0_statusY);
 		if (localPlayer->onFire) drawStatusLine("Burning", ofColor::orange, "Burning: Takes 1d6 Fire damage at the start of turn (1-2 extinguishes)", p0_statusXStart, p0_statusY);
 		if (localPlayer->isPoisoned) drawStatusLine("Poisoned", ofColor::green, "Poisoned: Takes 1d6 Poison damage at start of turn (damage reduces by 1 each turn)", p0_statusXStart, p0_statusY);
@@ -11539,7 +11539,7 @@ void ofApp::drawGame() {
 		if (opponentPlayer->nextTurnAPBonus > 0) drawStatusLine("+" + ofToString(opponentPlayer->nextTurnAPBonus) + " AP Next Turn", ofColor::green, "Grants extra Action Points next turn", p1_statusXStart, p1_statusY);
 		if (opponentPlayer->strengthenElementsTurnsRemaining > 0) drawStatusLine("Elem Buff (" + ofToString(opponentPlayer->strengthenElementsTurnsRemaining) + ")", ofColor::orange, "Strengthen Elements: Copies Fire/Electric cards to hand", p1_statusXStart, p1_statusY);
 		if (opponentPlayer->nextTurnD10AP) drawStatusLine("D10 AP", ofColor::white, "AP roll uses a d10 next turn", p1_statusXStart, p1_statusY);
-		if (opponentPlayer->freeKickTurns > 0) drawStatusLine("Kick: Free (" + ofToString(opponentPlayer->freeKickTurns) + ")", ofColor::white, "Next Kick costs 0 AP", p1_statusXStart, p1_statusY);
+		if (opponentPlayer->freeKickTurns > 0) drawStatusLine("Kick: Free", ofColor::white, "Kicks cost 0 AP this turn and next turn.", p1_statusXStart, p1_statusY);
 		if (opponentPlayer->hasRegeneration) drawStatusLine("Regeneration", ofColor(220, 20, 60), "Regeneration: Heals 1 HP at the start of turn", p1_statusXStart, p1_statusY);
 		if (opponentPlayer->onFire) drawStatusLine("Burning", ofColor::orange, "Burning: Takes 1d6 Fire damage at the start of turn (1-2 extinguishes)", p1_statusXStart, p1_statusY);
 		if (opponentPlayer->isPoisoned) drawStatusLine("Poisoned", ofColor::green, "Poisoned: Takes 1d6 Poison damage at start of turn (damage reduces by 1 each turn)", p1_statusXStart, p1_statusY);
@@ -18217,7 +18217,7 @@ void ofApp::startNewTurn() {
 
 		// Dark Shield special AP roll
 		if (startingPlayer.nextTurnBonusDiceFromMinions) {
-			int minionCount = startingPlayer.tortoiseAccumulatedDamage;
+			int minionCount = startingPlayer.storedDarkShieldDice;
 
 			lastAPDiceNum = minionCount;
 			lastAPDiceSides = 6;
@@ -18417,7 +18417,7 @@ void ofApp::continueNewTurn() {
 
 	// --- 1. Dark Shield special AP roll (REPLACES Normal AP Roll) ---
 	if (startingPlayer.nextTurnBonusDiceFromMinions) {
-		int minionCount = startingPlayer.tortoiseAccumulatedDamage;
+		int minionCount = startingPlayer.storedDarkShieldDice;
 
 		lastAPDiceNum = minionCount;
 		lastAPDiceSides = 6;
@@ -20914,7 +20914,7 @@ void ofApp::simulationTick() {
 
 										// Synchronous logic (no visual deps)
 										dying.tortoiseDamageTaken = 0;
-										dying.tortoiseAccumulatedDamage = 0;
+										dying.storedDarkShieldDice = 0;
 										dying.ghostDamageTaken = 0;
 										dying.cardsPlayedThisTurn.clear();
 										dying.playedCardsPile.clear();
@@ -25383,7 +25383,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (target.freeKickTurns > 2) target.freeKickTurns = 2; // Cap it so it doesn't stack infinitely
 				break;
 			case 97: // Custom: Dark Shield Dice Count
-				target.tortoiseAccumulatedDamage = delta;
+				target.storedDarkShieldDice = delta;
 				break;
 			case 11: // Next-turn AP bonus
 				target.nextTurnAPBonus += delta;
@@ -25470,7 +25470,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				case STATUS_TORTOISE_FORM:
 					target.inTortoiseForm = true;
 					target.tortoiseDamageTaken = 0;
-					target.tortoiseAccumulatedDamage = 0;
 					break;
 				case STATUS_GHOST_FORM:
 					target.inGhostForm = true;
@@ -25523,7 +25522,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				case STATUS_TORTOISE_FORM:
 					target.inTortoiseForm = false;
 					target.tortoiseDamageTaken = 0;
-					target.tortoiseAccumulatedDamage = 0;
 					if (target.tortoiseFormCard.type == CARD_FORM_OF_TORTOISE) {
 						target.discardPile.push_back(target.tortoiseFormCard);
 						target.tortoiseFormCard.type = CARD_NONE;
@@ -30991,7 +30989,7 @@ std::string ofApp::buildSnapshotString() {
 		   << (p.isDemon ? 1 : 0) << "\t" << (p.isWallUnit ? 1 : 0) << "\t" << (p.isMagicWallUnit ? 1 : 0) << "\t"
 		   << (p.isKoboldKing ? 1 : 0) << "\t" << (p.isFaerie ? 1 : 0) << "\t" << (p.isAssistant ? 1 : 0) << "\t"
 		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
-		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.tortoiseAccumulatedDamage << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
+		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
 		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t" << p.nextTurnExtraDrawSetOnCycle << "\t"
 		   << p.fireApplierPlayerID << "\t" << p.poisonApplierPlayerID << "\t" << p.defenseCycle << "\t";
 
@@ -31412,7 +31410,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				p.freeKickTurns = std::stoi(parts[idx++]);
 				p.inTortoiseForm = (std::stoi(parts[idx++]) != 0);
 				p.tortoiseDamageTaken = std::stoi(parts[idx++]);
-				p.tortoiseAccumulatedDamage = std::stoi(parts[idx++]);
+				p.storedDarkShieldDice = std::stoi(parts[idx++]);
 				p.ownerID = std::stoi(parts[idx++]);
 				p.inGhostForm = (std::stoi(parts[idx++]) != 0);
 				p.ghostDamageTaken = std::stoi(parts[idx++]);
