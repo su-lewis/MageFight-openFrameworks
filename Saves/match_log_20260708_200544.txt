@@ -1,0 +1,72 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-08 20:05:44
+End Reason: Victory
+Seed: 3237524887
+Turns: 6
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[20:03:57] --- MATCH STARTED ---
+[20:04:01] Turn 0: Player 2's turn
+[20:04:01] Autosaved turn-start (autosave.json)
+[20:04:07] Player 2 played Study
+[20:04:09] Turn 1: Player 1's turn
+[20:04:09] Autosaved turn-start (autosave.json)
+[20:04:11] Player 1 moved to (0,7)
+[20:04:12] Turn 1: Player 2's turn
+[20:04:12] Autosaved turn-start (autosave.json)
+[20:04:14] Player 2 played Hasten
+[20:04:14] Turn 2: Player 1's turn
+[20:04:14] Autosaved turn-start (autosave.json)
+[20:04:17] Player 1 moved to (0,5)
+[20:04:18] Turn 2: Player 2's turn
+[20:04:18] Autosaved turn-start (autosave.json)
+[20:04:21] Player 2 played Study
+[20:04:23] Turn 3: Player 1's turn
+[20:04:23] Autosaved turn-start (autosave.json)
+[20:04:29] Player 1 moved to (4,4)
+[20:04:33] Turn 3: Player 2's turn
+[20:04:33] Autosaved turn-start (autosave.json)
+[20:04:36] Player 2 played Hasten
+[20:04:38] Player 2 moved to (12,1)
+[20:04:38] Turn 4: Player 1's turn
+[20:04:38] Autosaved turn-start (autosave.json)
+[20:04:41] Player 1 moved to (4,3)
+[20:04:41] Turn 4: Player 2's turn
+[20:04:41] Autosaved turn-start (autosave.json)
+[20:04:45] Player 2 moved to (12,2)
+[20:04:47] Player 2 moved to (11,3)
+[20:04:49] Player 2 moved to (10,3)
+[20:04:50] Turn 5: Player 1's turn
+[20:04:50] Autosaved turn-start (autosave.json)
+[20:04:57] Player 1 moved to (8,3)
+[20:05:00] Turn 5: Player 2's turn
+[20:05:00] Autosaved turn-start (autosave.json)
+[20:05:03] Player 2 played Hasten
+[20:05:05] Player 2 moved to (12,4)
+[20:05:08] Player 2 moved to (12,5)
+[20:05:08] Turn 6: Player 1's turn
+[20:05:08] Autosaved turn-start (autosave.json)
+[20:05:10] Player 1 moved to (8,4)
+[20:05:12] Turn 6: Player 2's turn
+[20:05:12] Autosaved turn-start (autosave.json)
+[20:05:23] Player 2 played Constitution Boon
+[20:05:39] Player 2 played Constitution Boon
+[20:05:44] Player 2 played Constitution Boon
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 8
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

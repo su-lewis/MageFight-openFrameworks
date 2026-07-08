@@ -3526,6 +3526,10 @@ void ofApp::registerAfkTimeoutForCurrentOwner() {
 	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) return;
 	if (currentTurnHadMeaningfulAction) return;
 
+	// FIX: Do not apply AFK penalties to the AI or in headless training mode!
+	// We want the AI to be able to safely explore doing nothing without forfeiting.
+	if (headless || isAIvsAI || (isVsAI && currentTurnOwnerID == 1)) return;
+
 	afkStrikeCounts[currentTurnOwnerID] = afkStrikeCounts[currentTurnOwnerID] + 1;
 	ofLogNotice("AFK") << "Owner " << currentTurnOwnerID << " timeout with no action. Strikes=" << afkStrikeCounts[currentTurnOwnerID];
 
@@ -3787,6 +3791,13 @@ void ofApp::setup() {
 	if (std::getenv("MAGEFIGHT_HEADLESS") != nullptr) {
 		headless = true;
 		ofLogNotice("Setup") << "Headless mode enabled via MAGEFIGHT_HEADLESS.";
+
+		// CRITICAL FIX: Explicitly disable the sound engine in headless mode
+		// to guarantee no audio decoders are initialized and no threads hang!
+		ofSoundStreamSettings nullSettings;
+		nullSettings.numOutputChannels = 0;
+		nullSettings.numInputChannels = 0;
+		ofSoundStreamSetup(nullSettings);
 	}
 	// Ensure saves directory exists
 	try {
@@ -3794,6 +3805,10 @@ void ofApp::setup() {
 		fs::path dir = getSavesDirPath();
 		if (!fs::exists(dir)) fs::create_directories(dir);
 	} catch (...) { }
+
+	// CRITICAL FIX: Turn off the turn timer entirely in Headless mode
+	// so the AI isn't artificially limited by "Time Expired" auto-skips!
+	if (headless) turnTimerEnabled = false;
 
 	// Runtime sanity: log sizes of important network packets to detect cross-platform layout mismatches
 	ofLogNotice("NetTrace") << "Packet sizeofs: PacketHeader=" << sizeof(PacketHeader)
@@ -4897,7 +4912,9 @@ void ofApp::updateStateMachine() {
 void ofApp::update() {
 	// --- SAFE ASYNC LEAVERBUSTER ---
 	static bool leaverBusterChecked = false;
-	if (!leaverBusterChecked && steamManager.isConnected()) {
+	// FIX: Do not hammer the Steam API in headless mode!
+	// Headless runs at 10,000+ FPS, which will crash the Steam IPC.
+	if (!leaverBusterChecked && steamManager.isConnected() && !headless) {
 		int currentElo = steamManager.getLocalElo();
 
 		// Wait until Steam cloud stats actually finish downloading!
@@ -5202,24 +5219,26 @@ void ofApp::update() {
 	if (currentState != prevState) {
 		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SAVE_BROWSER || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_MULTIPLAYER_MENU || stateBeforeSettings == STATE_SAVE_BROWSER)));
 
-		if (isMenuContext) {
-			if (mainMenuMusic.isLoaded()) {
-				if (!mainMenuMusic.isPlaying()) {
-					mainMenuMusic.play();
+		if (!headless) {
+			if (isMenuContext) {
+				if (mainMenuMusic.isLoaded()) {
+					if (!mainMenuMusic.isPlaying()) {
+						mainMenuMusic.play();
+					}
+				} else {
+					ofLogError("Audio") << "Main menu music not loaded.";
+				}
+				if (g_gameMusic.isPlaying()) {
+					g_gameMusic.stop();
 				}
 			} else {
-				ofLogError("Audio") << "Main menu music not loaded.";
-			}
-			if (g_gameMusic.isPlaying()) {
-				g_gameMusic.stop();
-			}
-		} else {
-			if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
-				if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
-			}
-			if (g_gameMusic.isLoaded()) {
-				if (!g_gameMusic.isPlaying()) {
-					g_gameMusic.play();
+				if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
+					if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
+				}
+				if (g_gameMusic.isLoaded()) {
+					if (!g_gameMusic.isPlaying()) {
+						g_gameMusic.play();
+					}
 				}
 			}
 		}
@@ -8085,6 +8104,7 @@ void ofApp::updateGameLogic() {
 		timerState = pausedFromState;
 	}
 
+	// In headless mode, the timer is disabled, so we skip all of this!
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
 			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
@@ -8516,7 +8536,8 @@ void ofApp::updateGameLogic() {
 	if (turnStartDeferred) {
 		// Wait exactly 48 deterministic ticks (0.8s) for dice to "finish spinning"
 		// instead of relying on real-world visual timers to prevent framerate desyncs.
-		if (simulationFrame >= (uint32_t)(turnStartDeferredAtFrame + 48)) {
+		// In headless AI training mode, skip this wait entirely!
+		if (headless || simulationFrame >= (uint32_t)(turnStartDeferredAtFrame + 48)) {
 			turnStartDeferred = false;
 			turnStartFrame = (int)simulationFrame;
 			ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
@@ -11813,6 +11834,10 @@ void ofApp::drawGame() {
 
 	// Check if it's my turn
 	bool myTurn = isMyTurn();
+
+	// CRITICAL FIX: In AI vs AI mode, it's never technically "My Turn" in the UI,
+	// but we must still show the End Turn button so it functions correctly!
+	if (isAIvsAI) myTurn = true;
 
 	// Determine if we are in an optional placement/targeting mode
 	bool isOptionalInteraction = false;
@@ -18079,6 +18104,12 @@ void ofApp::startNewTurn() {
 
 	if (players.empty()) return;
 
+	// In Headless training mode, bypass the start-of-turn delay so the AI can act instantly!
+	if (headless) {
+		turnStartDeferred = false;
+		turnStartFrame = (int)simulationFrame;
+	}
+
 	// --- 1. Handle the ENDING player's state ---
 	// NEW: Skip cleanup if the active player died, preventing out-of-bounds crashes
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && !activePlayerDied) {
@@ -18610,7 +18641,7 @@ void ofApp::continueNewTurn() {
 
 	// --- PLAY TURN START SOUND ---
 	static int s_lastTurnSoundPlayedCycle = -1;
-	if (currentTurnOwnerID == myLocalPlayerID && s_lastTurnSoundPlayedCycle != globalTurnCounter) {
+	if (!headless && currentTurnOwnerID == myLocalPlayerID && s_lastTurnSoundPlayedCycle != globalTurnCounter) {
 		if (s_sfxTurnStart.isLoaded()) {
 			float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
 			s_sfxTurnStart.setVolume(vol);
@@ -20892,7 +20923,14 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 		cmd.params[0] = currentPlayerIndex; // Tag the command so duplicates can be ignored
 	}
 	cmd.type = PKT_INPUT_COMMAND;
-	cmd.playerID = myLocalPlayerID;
+
+	// FIX: If we are the AI playing against itself, we must impersonate whoever is currently active!
+	// Otherwise, Player 0's client will drop Player 1's commands.
+	if (isAIvsAI && cmd.playerID != 0 && cmd.playerID != 1) {
+		cmd.playerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+	} else if (!isAIvsAI) {
+		cmd.playerID = myLocalPlayerID;
+	}
 
 	if (isMultiplayer) {
 		if (isClient()) {
@@ -22667,22 +22705,25 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 				}
 
+				// The attack handler requires the state machine to be running to resolve correctly!
+				resetCardInteraction();
+				currentCardOutcome.cardType = CARD_FORM_OF_TORTOISE; // Set dummy context
+				currentCardOutcome.apPaid = true; // No AP cost for the spike
+
 				EffectOp atkOp = {};
 				atkOp.type = EffectOpType::APPLY_ATTACK;
 				queueEffect(atkOp);
+
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			} else {
 				// User clicked Skip/Done, clear all remaining spikes
 				g_pendingShellSpikes = 0;
+				resetCardInteraction();
+				resetCardState();
 			}
 
-			// FIX: Both peers cleanly reset state together
-			resetCardInteraction();
-			resetCardState();
-
-			// Trigger the next spike if any remain!
-			if (g_pendingShellSpikes > 0) {
-				tryTriggerShellSpike();
-			}
+			// DO NOT call tryTriggerShellSpike here!
+			// It will fire automatically from updateEffectSequence when atkOp is done!
 			break;
 		}
 
@@ -31160,6 +31201,10 @@ bool ofApp::isMyTurn() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	int pid = players[currentPlayerIndex].playerID;
 	int oid = players[currentPlayerIndex].ownerID;
+	if (isAIvsAI) {
+		// Both sides are local in AI vs AI
+		return true;
+	}
 	if (isVsAI) {
 		// In Vs AI mode, my turn is strictly when Player 0 (Human) is active
 		return (pid == 0 || oid == 0);
@@ -31174,6 +31219,9 @@ bool ofApp::isCurrentPlayerLocal() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	const Player & p = players[currentPlayerIndex];
 	int activeID = p.isMinion ? p.ownerID : p.playerID;
+	if (isAIvsAI) {
+		return true; // Both sides are locally controlled by the Python script
+	}
 	if (isVsAI) {
 		return activeID == 0; // Only local if it's the human's unit
 	}
@@ -33966,6 +34014,26 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 	if (applied > 0) {
 		queueFloatingTextVisual(targetPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
+
+		// --- AI REWARD SHAPING (POINTS) ---
+		// If we are training the AI, give it points for dealing damage, and penalize it for taking damage!
+		if (headless && isAIvsAI && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
+			// The AI ID is the owner of the currently active unit (whose turn it is)
+			int aiID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+
+			// Figure out who the attacker and victim actually are (accounting for minions)
+			int attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
+			int victimOwner = target.isMinion ? target.ownerID : target.playerID;
+
+			if (attackerOwner == aiID && victimOwner != aiID) {
+				// The AI successfully hurt the enemy! Give it +0.2 points per damage dealt.
+				cumulativeReward += (applied * 0.2f);
+			} else if (victimOwner == aiID && attackerOwner != aiID) {
+				// The AI got hurt! Penalize it -0.2 points per damage taken.
+				cumulativeReward -= (applied * 0.2f);
+			}
+		}
+		// ----------------------------------
 
 		// --- AI REWARD SHAPING (POINTS) ---
 		// If we are training the AI, give it points for dealing damage, and penalize it for taking damage!
@@ -38531,16 +38599,21 @@ std::string ofApp::getDeckStateString(const Player & p) {
 // ==============================================================================
 // DEEP REINFORCEMENT LEARNING AI AGENT SCAFFOLDING
 // ==============================================================================
-
 void ofApp::updateAI() {
 	if (!isVsAI && !isAIvsAI) return;
 
-	// FIX: The AI was accidentally running during the Human's turn,
-	// evaluating its own deck, and spamming the "Draw Card" action infinitely
-	// onto the human player! Changing `!isMyTurn()` to `isMyTurn()` fixes this.
+	// FIX: In a Human vs AI match, prevent the AI from acting when it is the Human's turn!
 	if (isVsAI && !isAIvsAI && isMyTurn()) return;
 
+	// CRITICAL FIX: If we are in AI vs AI mode, ensure we actually wait for the C++
+	// state machine to settle on a valid player before asking the Python script!
+	if (isAIvsAI && (players.empty() || currentPlayerIndex < 0)) return;
+
 	if (endTurnLocked || g_isGameOver || currentState == STATE_DESYNC) return;
+
+	// CRITICAL FIX: Strictly forbid the AI from acting during the Initiative Roll,
+	// Menus, or Pauses. It can only act during pure Gameplay or Drafting!
+	if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) return;
 
 	bool isGameBusy = false;
 
@@ -38558,8 +38631,20 @@ void ofApp::updateAI() {
 	}
 
 	if (currentState == STATE_DRAFTING && draftOptions.empty()) isGameBusy = true;
+	if (draftNextScheduled || draftEndScheduled || draftAcceptLocked) isGameBusy = true;
+
+	// Prevent AI from spamming commands before the turn officially begins
+	if (turnStartDeferred) isGameBusy = true;
 
 	if (isGameBusy) return;
+
+	// --- AI DRAFT HANDLER ---
+	// If the game is in the Draft State, instantly bypass it so the AI can train gameplay.
+	if (currentState == STATE_DRAFTING && headless) {
+		debugSkipDraftRandomCards();
+		return;
+	}
+	// ------------------------
 
 	// If watching the AI play normally (not headless), add a tiny delay
 	if (!headless) {
@@ -38588,7 +38673,17 @@ std::vector<float> ofApp::extractGameStateForAI() {
 	state.push_back((float)draftPicksRemaining);
 
 	// The Network needs to see the board from the perspective of whoever's turn it is
-	int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+	int activeID = 1;
+	if (isAIvsAI) {
+		if (currentState == STATE_DRAFTING) {
+			activeID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : 0;
+		} else {
+			activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		}
+	} else if (isVsAI) {
+		// In Human vs AI, the AI is always Player 1!
+		activeID = 1;
+	}
 	int opponentID = (activeID == 1) ? 0 : 1;
 
 	// --- 2. MAIN PLAYER STATES (32 floats total) ---
@@ -38751,7 +38846,16 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 
 	// --- 1. GENERATE SPARSE ACTION MASK ---
 	std::vector<float> validActions;
-	int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+	int activeID = 1;
+	if (isAIvsAI) {
+		if (currentState == STATE_DRAFTING) {
+			activeID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : 0;
+		} else {
+			activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		}
+	} else if (isVsAI) {
+		activeID = 1;
+	}
 	int aiIdx = findPlayerIndexByID(activeID);
 
 	if (currentState == STATE_DRAFTING) {
@@ -38857,14 +38961,27 @@ void ofApp::executeAIAction(int actionIndex) {
 	cmd.type = PKT_INPUT_COMMAND;
 
 	// In AI vs AI, we command whoever is currently active.
-	cmd.playerID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
+	int activeID = 1;
+	if (isAIvsAI) {
+		if (currentState == STATE_DRAFTING) {
+			activeID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : 0;
+		} else {
+			activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		}
+	} else if (isVsAI) {
+		activeID = 1;
+	}
+	cmd.playerID = activeID;
 
-	cmd.commandId = nextCommandId++;
+	// FIX: Do NOT increment nextCommandId here! sendInputCommand handles that!
+	cmd.commandId = 0;
 	cmd.turnNumber = globalTurnCounter;
 
 	if (actionIndex == 0) {
 		// Action 0: End Turn
 		cmd.commandType = CMD_END_TURN;
+		// CRITICAL FIX: END_TURN requires params[0] to match currentPlayerIndex to pass validation!
+		cmd.params[0] = currentPlayerIndex;
 		sendInputCommand(cmd, true);
 		endTurnLocked = true;
 	} else if (actionIndex == 1) {
