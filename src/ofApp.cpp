@@ -31,7 +31,7 @@
 #define shuffleGameVector(deck, pidx)                                                                                                                      \
 	do {                                                                                                                                                   \
 		robust_deterministic_shuffle((deck), gameplayRNG);                                                                                                 \
-		if ((pidx) >= 0 && (pidx) < (int)players.size()) players[(pidx)].deckNeedsShuffle = false;                                                         \
+		if ((int)(pidx) >= 0 && (int)(pidx) < (int)players.size()) players[(int)(pidx)].deckNeedsShuffle = false;                                          \
 		if (isMultiplayer) writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "SHUFFLE: Unit " + std::to_string(pidx) + " | RNG state updated"); \
 	} while (0)
 
@@ -59,12 +59,12 @@ static std::pair<std::string, ofColor> getMageRank(int elo) {
 	if (elo < 800) return { "Draft Dodger", ofColor(240, 230, 140) }; // Faded Parchment / Cowardly Khaki
 
 	// The Standard Climb
-	if (elo < 900) return { "Kobold Fodder", ofColor(178, 34, 34) }; // Murky Kobold Red
-	if (elo < 1000) return { "Neophyte", ofColor(205, 127, 50) }; // Bronze
-	if (elo < 1100) return { "Spellsword", ofColor(192, 192, 192) }; // Silver / Steel
-	if (elo < 1200) return { "Hex Master", ofColor(255, 215, 0) }; // Brilliant Gold
-	if (elo < 1300) return { "Archmage", ofColor(0, 150, 255) }; // Glowing Arcane Blue
-	if (elo < 1400) return { "Reality Warper", ofColor(148, 0, 211) }; // Deep Void Purple
+	if (elo < 1000) return { "Kobold Fodder", ofColor(178, 34, 34) }; // Murky Kobold Red
+	if (elo < 1100) return { "Neophyte", ofColor(205, 127, 50) }; // Bronze
+	if (elo < 1200) return { "Spellsword", ofColor(192, 192, 192) }; // Silver / Steel
+	if (elo < 1300) return { "Hex Master", ofColor(255, 215, 0) }; // Brilliant Gold
+	if (elo < 1400) return { "Archmage", ofColor(0, 150, 255) }; // Glowing Arcane Blue
+	if (elo < 1500) return { "Reality Warper", ofColor(148, 0, 211) }; // Deep Void Purple
 	return { "Architect of Fate", ofColor(0, 255, 255) }; // Blinding Cyan
 }
 
@@ -166,6 +166,7 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 #else
 			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
 			int sysRet = system(cmd1.c_str());
+			(void)sysRet; // Suppress unused warning on Linux
 #endif
 
 			ofFile::removeFile(tmpPath, false);
@@ -260,6 +261,7 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 #else
 			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
 			int sysRet = system(cmd1.c_str());
+			(void)sysRet; // Suppress unused warning on Linux
 #endif
 
 			ofFile::removeFile(tmpPath, false);
@@ -325,6 +327,17 @@ static float g_mpLeaderboardScroll = 0.0f;
 
 static ofSoundPlayer g_gameMusic;
 static float savedGameMusicVolume = 0.0f;
+
+// --- NEW SFX PLAYERS ---
+static ofSoundPlayer s_sfxD6Roll;
+static ofSoundPlayer s_sfxCoinflip;
+static ofSoundPlayer s_sfxPotion;
+static ofSoundPlayer s_sfxHeal;
+static ofSoundPlayer s_sfxFireball;
+static ofSoundPlayer s_sfxHoverButton;
+static ofSoundPlayer s_sfxTurnStart;
+
+static std::string g_hoveredButtonId = "";
 
 bool g_isHostingLobby = false;
 bool g_isConnectingToLobby = false;
@@ -3878,6 +3891,22 @@ void ofApp::setup() {
 	g_gameMusic.setMultiPlay(false);
 	ofLogNotice("Audio") << "Game music loaded: " << (g_gameMusic.isLoaded() ? "yes" : "no");
 
+	// --- LOAD NEW SFX ---
+	s_sfxD6Roll.load("Sounds/SFX/DiceCoin/D6Roll.ogg");
+	s_sfxD6Roll.setMultiPlay(true);
+	s_sfxCoinflip.load("Sounds/SFX/DiceCoin/Coinflip.ogg");
+	s_sfxCoinflip.setMultiPlay(true);
+	s_sfxPotion.load("Sounds/SFX/Cards/Potion.ogg");
+	s_sfxPotion.setMultiPlay(true);
+	s_sfxHeal.load("Sounds/SFX/Cards/Heal.ogg");
+	s_sfxHeal.setMultiPlay(true);
+	s_sfxFireball.load("Sounds/SFX/Cards/Fireball.ogg");
+	s_sfxFireball.setMultiPlay(true);
+	s_sfxHoverButton.load("Sounds/SFX/Hand/HoverOverButton.ogg");
+	s_sfxHoverButton.setMultiPlay(true);
+	s_sfxTurnStart.load("Sounds/SFX/Player/TurnStart.ogg");
+	s_sfxTurnStart.setMultiPlay(true);
+
 	// Initialize settings audio state to match loaded player
 	settingsMenuVolume = mainMenuMusic.getVolume();
 	// default master/sfx if not loaded from settings
@@ -3924,7 +3953,7 @@ void ofApp::setup() {
 
 			for (const auto & sp : searchPaths) {
 				if (ofFile(sp).exists()) {
-					if (model.load(sp, true)) {
+					if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
 						ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
 
 						// CRITICAL FIX: Generate Mipmaps for the model textures!
@@ -5653,6 +5682,26 @@ void ofApp::draw() {
 	if (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0) {
 		this->drawActiveDraftPickedMoves();
 	}
+
+	// --- HOVER BUTTON SOUND RESOLUTION ---
+	static std::string s_lastHoveredBtn = "";
+	static float s_lastHoverSoundTime = 0.0f;
+
+	if (g_hoveredButtonId != s_lastHoveredBtn) {
+		if (!g_hoveredButtonId.empty() && s_sfxHoverButton.isLoaded()) {
+
+			// 1.0 second cooldown delay to prevent audio spam when sweeping the mouse!
+			// (If it feels too long, you can change the 1.0f down to 0.15f)
+			if (ofGetElapsedTimef() - s_lastHoverSoundTime >= 1.0f) {
+				float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+				s_sfxHoverButton.setVolume(vol);
+				s_sfxHoverButton.play();
+				s_lastHoverSoundTime = ofGetElapsedTimef();
+			}
+		}
+		s_lastHoveredBtn = g_hoveredButtonId;
+	}
+	g_hoveredButtonId = ""; // Reset for the next frame
 }
 
 //--------------------------------------------------------------
@@ -5669,6 +5718,7 @@ void ofApp::drawMainMenu() {
 
 	// --- DRAW BUTTONS ---
 	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
+		if (isHovered || rect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "mm_" + text;
 		ofSetColor(isHovered ? ofColor::lightGray : ofColor::white);
 		ofFill();
 		ofDrawRectRounded(rect, 15);
@@ -5753,6 +5803,7 @@ void ofApp::drawSettingsMenu() {
 
 	// Draw tabs
 	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
+		if (r.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_tab_" + label;
 		// Dark themed tabs with white text
 		ofSetColor(active ? ofColor(100) : ofColor(40));
 		ofDrawRectRounded(r, 8);
@@ -5780,6 +5831,8 @@ void ofApp::drawSettingsMenu() {
 
 		// --- Helper for drawing a setting row ---
 		auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
+			if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
+			if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
 			// Draw Label (centered)
 			ofSetColor(ofColor::white);
 			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
@@ -5862,6 +5915,7 @@ void ofApp::drawSettingsMenu() {
 			fsText = "Borderless";
 
 		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
+		if (settingsFullscreenButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_fs";
 		ofDrawRectangle(settingsFullscreenButton);
 		ofSetColor(ofColor::white);
 		ofRectangle fb = uiFont.getStringBoundingBox(fsText, 0, 0);
@@ -5995,6 +6049,7 @@ void ofApp::drawSettingsMenu() {
 	float menuBtnW = 420.0f * uiScale;
 	float menuBtnH = 72.0f * uiScale;
 	settingsBackButton.set(centerX - menuBtnW / 2.0f, ofGetHeight() * 0.8, menuBtnW, menuBtnH);
+	if (settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()) || settingsHoveredIndex == 0) g_hoveredButtonId = "set_back";
 	// Dark background with white text
 	ofSetColor(settingsHoveredIndex == 0 ? ofColor(80) : ofColor(40));
 	ofFill();
@@ -6024,10 +6079,12 @@ void ofApp::drawSingleplayerMenu() {
 	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, titleY);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
-		if (r.inside(ofGetMouseX(), ofGetMouseY()))
+		if (r.inside(ofGetMouseX(), ofGetMouseY())) {
 			ofSetColor(ofColor::lightGray);
-		else
+			g_hoveredButtonId = "sp_" + txt;
+		} else {
 			ofSetColor(ofColor::white);
+		}
 		ofDrawRectRounded(r, 12);
 
 		ofPath p;
@@ -6126,6 +6183,7 @@ void ofApp::drawSaveBrowser() {
 		// Draw
 		bool hovered = (saveBrowserHoveredIndex == (int)i);
 		bool pending = (networkPending.saveBrowserPendingIndex == (int)i);
+		if (hovered || r.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "save_file_" + ofToString(i);
 		// If pending selection, highlight it (lighter + white outline)
 		if (pending) {
 			ofSetColor(ofColor(240, 240, 240));
@@ -6174,6 +6232,7 @@ void ofApp::drawSaveBrowser() {
 	// Back button
 	saveBrowserBackButton.set(centerX - 180, ofGetHeight() - 120, 360, 64);
 	bool backHovered = (saveBrowserHoveredIndex == -2);
+	if (backHovered || saveBrowserBackButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "save_back";
 	ofSetColor(backHovered ? ofColor::lightGray : ofColor::white);
 	ofDrawRectRounded(saveBrowserBackButton, 12);
 	ofSetColor(ofColor::black);
@@ -6210,7 +6269,9 @@ void ofApp::drawSaveBrowser() {
 
 		// Confirm / Cancel buttons
 		saveBrowserConfirmLoadButton.set(confirmBox.getCenter().x - 160 - 12, confirmBox.getCenter().y + 18, 160, 44);
+		if (saveBrowserConfirmLoadButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "save_load";
 		saveBrowserConfirmCancelButton.set(confirmBox.getCenter().x + 12, confirmBox.getCenter().y + 18, 160, 44);
+		if (saveBrowserConfirmCancelButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "save_cancel";
 
 		ofSetColor(ofColor::lightGray);
 		ofDrawRectRounded(saveBrowserConfirmLoadButton, 8);
@@ -6275,6 +6336,7 @@ void ofApp::drawMultiplayerMenu() {
 			// Only render and map clickable rects that are within the visible list box
 			if (lRect.getBottom() > listY && lRect.getTop() < listY + listHeight) {
 				mpLobbyButtons.push_back(lRect);
+				if (lRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
 
 				bool inProgress = (lobbies[i].numPlayers >= 2); // 2 is the actual playing capacity
 
@@ -6303,7 +6365,12 @@ void ofApp::drawMultiplayerMenu() {
 	mpHostButton.set(leftColX + colW / 2.0f + 10, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
 
 	auto drawBtn = [&](const ofRectangle & r, const std::string & txt) {
-		ofSetColor(r.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::white);
+		if (r.inside(ofGetMouseX(), ofGetMouseY())) {
+			ofSetColor(ofColor::lightGray);
+			g_hoveredButtonId = "mp_" + txt;
+		} else {
+			ofSetColor(ofColor::white);
+		}
 		ofDrawRectRounded(r, 12);
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
@@ -6370,7 +6437,12 @@ void ofApp::drawMultiplayerMenu() {
 		drawPixelTextCentered(uiFont, sub, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f + 30.0f, 1.0f, ofColor::lightGray);
 
 		ofRectangle cancelBtn(ofGetWidth() / 2.0f - 100.0f, ofGetHeight() / 2.0f + 80.0f, 200.0f, 50.0f);
-		ofSetColor(cancelBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::white);
+		if (cancelBtn.inside(ofGetMouseX(), ofGetMouseY())) {
+			ofSetColor(ofColor::lightGray);
+			g_hoveredButtonId = "mp_cancel";
+		} else {
+			ofSetColor(ofColor::white);
+		}
 		ofDrawRectRounded(cancelBtn, 8);
 		drawPixelTextCentered(uiFont, "Cancel", cancelBtn.getCenter().x, cancelBtn.getCenter().y, 1.0f, ofColor::black);
 	}
@@ -11924,6 +11996,7 @@ void ofApp::drawGame() {
 
 	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
 	if (showEndTurn || showDoneBtn) {
+		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 		ofSetColor(ofColor::white);
 		string endTurnButtonText = showDoneBtn ? optionalBtnText : "End Turn";
 		// Use drawStatText to render the outlined, centered button text
@@ -12001,6 +12074,7 @@ void ofApp::drawGame() {
 				float currentAlpha = ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == viewID)) ? g_p0_apBoxAlpha : g_p1_apBoxAlpha;
 
 				if (currentAlpha > 0.01f) {
+					if (rerollButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_reroll";
 					ofSetColor(47, 79, 79, 255 * currentAlpha); // Dark Slate Gray scaled
 					ofDrawRectRounded(rerollButtonRect, 8);
 
@@ -12954,6 +13028,7 @@ void ofApp::drawGame() {
 		if (btnY < minTopMargin) btnY = minTopMargin;
 
 		riConfirmBtn.set(btnX, btnY, btnW, btnH);
+		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_ri_accept";
 		riCancelBtn.set(0, 0, 0, 0);
 
 		int validSelectedCount = 0;
@@ -13144,11 +13219,13 @@ void ofApp::drawGame() {
 		// Return to Menu & Save Replay Buttons
 		float uiScaleBtn = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 		gameOverReturnBtn.set(cx - 160 * uiScaleBtn, cy + 220 * uiScaleBtn, 150 * uiScaleBtn, 60 * uiScaleBtn);
+		if (gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "go_menu";
 		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
 		ofDrawRectRounded(gameOverReturnBtn, 10);
 		drawPixelTextCentered(uiFont, "Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f, ofColor::white);
 
 		gameOverReplayBtn.set(cx + 10 * uiScaleBtn, cy + 220 * uiScaleBtn, 150 * uiScaleBtn, 60 * uiScaleBtn);
+		if (gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) && !replaySavedThisMatch) g_hoveredButtonId = "go_replay";
 		if (replaySavedThisMatch) {
 			ofSetColor(ofColor::darkGreen);
 			ofDrawRectRounded(gameOverReplayBtn, 10);
@@ -16054,7 +16131,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Main Deck Click: Map the target deck rect dynamically based on local perspective
 			ofRectangle activeDeckRect = (activePlayer.playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
 			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
-			bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
 			bool activeAlreadyDrew = activePlayer.hasDrawnThisTurn;
 			if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
 				int localPlayerIndex = -1;
@@ -18531,6 +18607,18 @@ void ofApp::continueNewTurn() {
 	currentTurnOwnerID = getOwnerIdForActorIndex(currentPlayerIndex);
 	currentTurnHadMeaningfulAction = false;
 	currentTurnTimeoutProcessed = false;
+
+	// --- PLAY TURN START SOUND ---
+	static int s_lastTurnSoundPlayedCycle = -1;
+	if (currentTurnOwnerID == myLocalPlayerID && s_lastTurnSoundPlayedCycle != globalTurnCounter) {
+		if (s_sfxTurnStart.isLoaded()) {
+			float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+			s_sfxTurnStart.setVolume(vol);
+			s_sfxTurnStart.play();
+		}
+		s_lastTurnSoundPlayedCycle = globalTurnCounter;
+	}
+
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
 	selectedCardIndex = -1;
@@ -25336,6 +25424,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueEffect(healOp);
 				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
 
+				// --- PLAY HEAL SOUND ---
+				if (s_sfxHeal.isLoaded()) {
+					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+					s_sfxHeal.setVolume(sfxVol);
+					s_sfxHeal.play();
+				}
+
 				// FIX: Trigger only if the Tortoise ITSELF gains Health on its own turn!
 				bool isSpike = false;
 				if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
@@ -26098,6 +26193,16 @@ void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
 		newRoll.finalQuat = getDiceFaceRotation(newRoll.sides, newRoll.rawResult, wobbleAmount);
 
 		activeDiceRolls.push_back(newRoll);
+
+		// --- PLAY DICE/COIN SOUND ---
+		float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+		if (sides == 2 && s_sfxCoinflip.isLoaded()) {
+			s_sfxCoinflip.setVolume(sfxVol);
+			s_sfxCoinflip.play();
+		} else if (sides > 2 && s_sfxD6Roll.isLoaded()) {
+			s_sfxD6Roll.setVolume(sfxVol);
+			s_sfxD6Roll.play();
+		}
 	}
 }
 
@@ -29346,6 +29451,21 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		// Mark AP as paid for this card outcome so applyCardOutcomeEffects doesn't double-deduct
 		currentCardOutcome.apPaid = true;
+
+		// --- PLAY CARD SPECIFIC SFX ---
+		float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+		if (playedCard.type == CARD_CONSUME_HEALTH_POTION || playedCard.type == CARD_CONSUME_HEALTH_FLAGON) {
+			if (s_sfxPotion.isLoaded()) {
+				s_sfxPotion.setVolume(sfxVol);
+				s_sfxPotion.play();
+			}
+		}
+		if (playedCard.type == CARD_FIREBALL) {
+			if (s_sfxFireball.isLoaded()) {
+				s_sfxFireball.setVolume(sfxVol);
+				s_sfxFireball.play();
+			}
+		}
 
 		// Ensure authoritative AP struct matches the displayed/current AP
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -33130,6 +33250,7 @@ void ofApp::drawCardSpawnerUI() {
 
 	// Minus button
 	cardSpawnerMinusButton.set(quantityX, btnY, btnSize, btnSize);
+	if (cardSpawnerMinusButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "spawn_minus";
 	ofSetColor(60, 60, 60);
 	ofDrawRectRounded(cardSpawnerMinusButton, 5);
 	ofSetColor(ofColor::white);
@@ -33147,6 +33268,7 @@ void ofApp::drawCardSpawnerUI() {
 
 	// Plus button
 	cardSpawnerPlusButton.set(plusX, btnY, btnSize, btnSize);
+	if (cardSpawnerPlusButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "spawn_plus";
 	ofSetColor(60, 60, 60);
 	ofDrawRectRounded(cardSpawnerPlusButton, 5);
 	ofSetColor(ofColor::white);
@@ -33156,6 +33278,7 @@ void ofApp::drawCardSpawnerUI() {
 	float encBtnWidth = 40.0f;
 	float closeBtnX = barX + barWidth - 40;
 	cardSpawnerEncyclopediaButton.set(closeBtnX - encBtnWidth - 6, btnY, encBtnWidth, btnSize);
+	if (cardSpawnerEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "spawn_ency";
 	ofSetColor(70, 50, 100);
 	ofDrawRectRounded(cardSpawnerEncyclopediaButton, 5);
 	// Draw 3 horizontal lines (hamburger menu icon)
@@ -33172,6 +33295,7 @@ void ofApp::drawCardSpawnerUI() {
 
 	// Close button (X)
 	cardSpawnerCloseButton.set(closeBtnX, btnY, btnSize, btnSize);
+	if (cardSpawnerCloseButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "spawn_close";
 	ofSetColor(100, 40, 40);
 	ofDrawRectRounded(cardSpawnerCloseButton, 5);
 	ofSetColor(ofColor::white);
@@ -33194,6 +33318,7 @@ void ofApp::drawCardSpawnerUI() {
 			if (itemRect.inside(ofGetMouseX(), ofGetMouseY())) {
 				ofSetColor(70, 70, 100);
 				ofDrawRectRounded(itemRect, 4);
+				g_hoveredButtonId = "spawn_item_" + ofToString(i);
 			}
 
 			ofSetColor(ofColor::white);
@@ -33234,6 +33359,7 @@ void ofApp::drawCardEncyclopediaUI() {
 
 	// Close button
 	encyclopediaCloseButton.set(panelX + panelWidth - 45, panelY + 10, 30, 30);
+	if (encyclopediaCloseButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "ency_close";
 	ofSetColor(100, 40, 40);
 	ofDrawRectRounded(encyclopediaCloseButton, 5);
 	ofSetColor(ofColor::white);
@@ -33468,8 +33594,12 @@ void ofApp::drawCardEncyclopediaUI() {
 	// Draw Accept button at bottom center
 	encyclopediaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
 	ofSetColor(0, 160, 0);
-	if (encyclopediaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
+	if (encyclopediaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) {
+		ofSetColor(0, 200, 0);
+		g_hoveredButtonId = "ency_accept";
+	}
 	ofDrawRectRounded(encyclopediaAcceptButton, 8);
+
 	ofSetColor(255);
 	ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
 	uiFont.drawString("Accept", encyclopediaAcceptButton.getCenter().x - aBox.width / 2, encyclopediaAcceptButton.getCenter().y + aBox.height / 2 - 2);
@@ -33984,9 +34114,10 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 	}
 
 	// Draw primary card panel
-	if (primaryEnabled)
+	if (primaryEnabled) {
+		if (primaryRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "panel_primary";
 		ofSetColor(primaryAccent.r, primaryAccent.g, primaryAccent.b, 255 * g_menuAlphaMult);
-	else
+	} else
 		ofSetColor(90, 90, 90, 255 * g_menuAlphaMult);
 	ofDrawRectRounded(primaryRect, 10);
 	// small inner white inset for card-like look
@@ -33999,9 +34130,10 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 
 	// Draw secondary card panel if present
 	if (!secondaryLabel.empty()) {
-		if (secondaryEnabled)
+		if (secondaryEnabled) {
+			if (secondaryRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "panel_secondary";
 			ofSetColor(secondaryAccent.r, secondaryAccent.g, secondaryAccent.b, 255 * g_menuAlphaMult);
-		else
+		} else
 			ofSetColor(90, 90, 90, 255 * g_menuAlphaMult);
 		ofDrawRectRounded(secondaryRect, 10);
 		ofSetColor(255, 255, 255, 12 * g_menuAlphaMult);
@@ -34107,6 +34239,7 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		outRects.push_back(br);
 
 		bool en = (i < (int)enabled.size()) ? enabled[i] : true;
+		if (en && br.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "opt_card_" + ofToString(i);
 		ofColor accent = (i < (int)accents.size()) ? accents[i] : ofColor(120, 120, 120);
 		if (en)
 			ofSetColor(accent.r, accent.g, accent.b, 255 * g_menuAlphaMult);
@@ -36614,6 +36747,7 @@ void ofApp::drawDraftScreen() {
 		acceptAlpha = acceptScale; // simple alpha linked to scale for pop-in
 
 		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
+		if (draftAcceptButtonRect.inside(ofGetMouseX(), ofGetMouseY()) && showAccept && canAccept) g_hoveredButtonId = "draft_accept";
 		drawAcceptButtonShared(draftAcceptButtonRect, canAccept, acceptScale, acceptAlpha);
 	} else {
 		// Hide accept: clear the rect so hits are ignored
@@ -36915,8 +37049,9 @@ void ofApp::drawPauseMenu() {
 
 	auto drawBtn = [&](const ofRectangle & r, const std::string & txt, int index) {
 		if (r.width <= 0 || r.height <= 0) return;
-		if (pauseMenuHoveredIndex == index) {
+		if (pauseMenuHoveredIndex == index || r.inside(ofGetMouseX(), ofGetMouseY())) {
 			ofSetColor(ofColor::lightGray);
+			g_hoveredButtonId = "pm_" + txt;
 		} else {
 			ofSetColor(ofColor::white);
 		}
@@ -36966,11 +37101,13 @@ void ofApp::drawPauseMenu() {
 			ofSetColor(200);
 			drawPixelTextCentered(uiFont, "Accept Draw?", g_pauseMenuDrawButton.getCenter().x, g_pauseMenuDrawButton.y - 10, 0.7f, ofColor::white);
 
-			ofSetColor(pauseMenuHoveredIndex == 6 ? ofColor(100, 255, 100) : ofColor(50, 200, 50));
+			if (g_pauseMenuDrawYesButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "pm_draw_yes";
+			ofSetColor(pauseMenuHoveredIndex == 6 || g_pauseMenuDrawYesButton.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(100, 255, 100) : ofColor(50, 200, 50));
 			ofDrawRectRounded(g_pauseMenuDrawYesButton, 12.0f);
 			drawPixelTextCentered(uiFont, "Yes", g_pauseMenuDrawYesButton.getCenter().x, g_pauseMenuDrawYesButton.getCenter().y, 1.0f, ofColor::black);
 
-			ofSetColor(pauseMenuHoveredIndex == 7 ? ofColor(255, 100, 100) : ofColor(200, 50, 50));
+			if (g_pauseMenuDrawNoButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "pm_draw_no";
+			ofSetColor(pauseMenuHoveredIndex == 7 || g_pauseMenuDrawNoButton.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(255, 100, 100) : ofColor(200, 50, 50));
 			ofDrawRectRounded(g_pauseMenuDrawNoButton, 12.0f);
 			drawPixelTextCentered(uiFont, "No", g_pauseMenuDrawNoButton.getCenter().x, g_pauseMenuDrawNoButton.getCenter().y, 1.0f, ofColor::black);
 		}
