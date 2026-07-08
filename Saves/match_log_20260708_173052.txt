@@ -1,0 +1,38 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-08 17:30:52
+End Reason: Victory
+Seed: 1424574710
+Turns: 0
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[17:29:38] --- MATCH STARTED ---
+[17:29:42] Turn 0: Player 2's turn
+[17:29:42] Autosaved turn-start (autosave.json)
+[17:29:56] Player 2 moved to (1,8)
+[17:30:03] Player 2 played Add Poison
+[17:30:04] Player 2 played Drain Punch
+[17:30:19] Player 2 played Add Poison
+[17:30:23] Player 2 played Punch
+[17:30:28] Player 2 played Heal
+[17:30:40] Player 2 played Drain Punch
+[17:30:47] Player 2 played Heal
+[17:30:50] Player 2 played Add Poison
+[17:30:52] Player 2 played Drain Punch
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 9
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 16
+=====================

@@ -12157,12 +12157,10 @@ void ofApp::drawGame() {
 						ofSetColor(ofColor::green);
 						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 					}
-
 					if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-						bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
-						bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_HAND_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECROMANCER_S_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_HEALTH_FLAGON || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+						bool isAttack = (card.baseDamage > 0 || card.damageDiceNum > 0 || card.type == CARD_SHIELD_BASH || card.type == CARD_MASTER_FIST || card.type == CARD_ROCK_CRUSH || card.type == CARD_FLAIL || card.type == CARD_SHOOT_ARROW || card.type == CARD_FLURRY_OF_FISTS || card.type == CARD_FORTIFY);
 
-						if (isDirectDamageCard && !isExcluded) {
+						if (isAttack) {
 							ofSetColor(255, 140, 0);
 							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 						}
@@ -22569,13 +22567,21 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (targetIdx != -1) {
 				if (!isProcessingEffect) beginEffectSequence();
 
-				EffectOp dmgOp = {};
-				dmgOp.type = EffectOpType::DAMAGE;
-				dmgOp.data.damage.targetIndex = targetIdx;
-				dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
-				dmgOp.data.damage.fixedDamage = 3;
-				dmgOp.data.damage.damageFromSlot = -1;
-				queueEffect(dmgOp);
+				currentEffectSequence.blackboard[0] = 3;
+				currentCardOutcome.attackDamageType = DAMAGE_PHYSICAL;
+				currentCardOutcome.attackTargetIndices.clear();
+				currentCardOutcome.attackTargetIndices.push_back(targetIdx);
+
+				if (players[currentPlayerIndex].nextAttackAddPoison) {
+					std::vector<int> rawPsn;
+					int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+					currentEffectSequence.blackboard[1] = psnRoll;
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+				}
+
+				EffectOp atkOp = {};
+				atkOp.type = EffectOpType::APPLY_ATTACK;
+				queueEffect(atkOp);
 			} else {
 				// User clicked Skip/Done, clear all remaining spikes
 				g_pendingShellSpikes = 0;
@@ -27772,14 +27778,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		// 4. Apply AOE Damage (Reads from baseDamage in cards.json)
-		for (int tIdx : targetsToDamage) {
-			EffectOp dmgOp = {};
-			dmgOp.type = EffectOpType::DAMAGE;
-			dmgOp.data.damage.targetIndex = tIdx;
-			dmgOp.data.damage.damageType = playedCard.damageType;
-			dmgOp.data.damage.fixedDamage = playedCard.baseDamage;
-			dmgOp.data.damage.damageFromSlot = -1;
-			queueEffect(dmgOp);
+		if (!targetsToDamage.empty()) {
+			currentEffectSequence.blackboard[0] = playedCard.baseDamage;
+			currentCardOutcome.attackDamageType = playedCard.damageType;
+			currentCardOutcome.attackTargetIndices.clear();
+			for (int tIdx : targetsToDamage) {
+				currentCardOutcome.attackTargetIndices.push_back(tIdx);
+			}
+
+			if (currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING)) {
+				std::vector<int> rawPsn;
+				int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+				currentEffectSequence.blackboard[1] = psnRoll;
+				queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			}
+
+			EffectOp atk = {};
+			atk.type = EffectOpType::APPLY_ATTACK;
+			queueEffect(atk);
 		}
 
 		playedSuccessfully = true;

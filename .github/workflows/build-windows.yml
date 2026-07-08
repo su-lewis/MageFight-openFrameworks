@@ -146,25 +146,29 @@ jobs:
       run: |
         cd my_game_repo
         
+        # Get the current date and time (e.g., 2024-10-24 17:30)
+        export CURRENT_DATE=$(date +"%Y-%m-%d %H:%M")
+        
         # 1. Ask GitHub API for the commit hash of the LAST SUCCESSFUL run
         LAST_SHA=$(gh run list --workflow "${{ github.workflow }}" --status success --json headSha --jq '[.[].headSha | select(. != "${{ github.sha }}")][0]')
 
         # 2. Extract commit messages and EXPORT to environment variable
+        # Changed format to "- %s" (uses standard dash to fix encoding '?' bugs, and removes commit IDs)
         if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" == "null" ]; then
           echo "No previous successful build found. Falling back to last 5 commits."
-          export RAW_COMMITS=$(git log -n 5 --no-merges --pretty=format:"• %s (\`%h\`)")
+          export RAW_COMMITS=$(git log -n 5 --no-merges --pretty=format:"- %s")
         else
           echo "Comparing $LAST_SHA to HEAD..."
-          export RAW_COMMITS=$(git log ${LAST_SHA}..HEAD --no-merges --pretty=format:"• %s (\`%h\`)")
+          export RAW_COMMITS=$(git log ${LAST_SHA}..HEAD --no-merges --pretty=format:"- %s")
         fi
 
         if [ -z "$RAW_COMMITS" ]; then
-          export RAW_COMMITS="*No new commits since last build.*"
+          export RAW_COMMITS="- No new commits since last build."
         fi
 
         # 3. Read directly from the $ENV object in jq. 
-        # This guarantees 100% safe JSON escaping regardless of quotes, newlines, or emojis in your commits!
-        PAYLOAD=$(jq -n '{content: ("🚀 **New Windows Build Compiled!**\n\n**Recent Changes:**\n" + $ENV.RAW_COMMITS)}')
+        # Replaced the hardcoded title with the dynamic Date/Time!
+        PAYLOAD=$(jq -n '{content: ("**" + $ENV.CURRENT_DATE + "**\n\nRecent Changes:\n" + $ENV.RAW_COMMITS)}')
 
         # 4. Send to Discord
         curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
