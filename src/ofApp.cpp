@@ -51,6 +51,23 @@ static std::vector<std::string> s_fullMatchLog;
 // --- NEW: OPPONENT DECISION QUEUE ---
 static std::deque<int> g_opponentDecisionQueue;
 
+// --- MAGE RANKINGS ---
+static std::pair<std::string, ofColor> getMageRank(int elo) {
+	// The Shame Tiers (When the dice betray you)
+	if (elo < 600) return { "Target Dummy", ofColor(186, 140, 99) }; // Burlap / Wood Brown
+	if (elo < 700) return { "Wall Bumper", ofColor(112, 128, 144) }; // Slate / Stone Gray
+	if (elo < 800) return { "Draft Dodger", ofColor(240, 230, 140) }; // Faded Parchment / Cowardly Khaki
+
+	// The Standard Climb
+	if (elo < 900) return { "Kobold Fodder", ofColor(178, 34, 34) }; // Murky Kobold Red
+	if (elo < 1000) return { "Neophyte", ofColor(205, 127, 50) }; // Bronze
+	if (elo < 1100) return { "Spellsword", ofColor(192, 192, 192) }; // Silver / Steel
+	if (elo < 1200) return { "Hex Master", ofColor(255, 215, 0) }; // Brilliant Gold
+	if (elo < 1300) return { "Archmage", ofColor(0, 150, 255) }; // Glowing Arcane Blue
+	if (elo < 1400) return { "Reality Warper", ofColor(148, 0, 211) }; // Deep Void Purple
+	return { "Architect of Fate", ofColor(0, 255, 255) }; // Blinding Cyan
+}
+
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
 	// Use a fixed filename so it overwrites every match and prevents folder bloat
 	std::string role = isHost ? "host" : "client";
@@ -300,6 +317,7 @@ struct DefenseRecord {
 static std::map<int, std::vector<DefenseRecord>> g_playerDefenses;
 
 static bool g_pendingShellSpike = false;
+static int g_pendingShellSpikes = 0;
 static bool g_activePlayerDiedThisTurn = false;
 
 static float g_mpLobbyScroll = 0.0f;
@@ -2639,8 +2657,8 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 
 	bool targetNearWall = false;
 	bool attackerNearWall = false;
-	if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
-	if (attackerPtr && attackerPtr != &target && attackerPtr->x >= 0 && attackerPtr->x < BOARD_WIDTH && attackerPtr->y >= 0 && attackerPtr->y < BOARD_HEIGHT) attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
+	if (!target.isMagicWallUnit && target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
+	if (attackerPtr && attackerPtr != &target && !attackerPtr->isMagicWallUnit && attackerPtr->x >= 0 && attackerPtr->x < BOARD_WIDTH && attackerPtr->y >= 0 && attackerPtr->y < BOARD_HEIGHT) attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
 	wallEffectCount = (targetNearWall ? 1 : 0) + (attackerNearWall ? 1 : 0);
 
 	if (type == DAMAGE_MAGIC && wallEffectCount > 0) {
@@ -2897,8 +2915,8 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 
 	bool targetNearWall = false;
 	bool attackerNearWall = false;
-	if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
-	if (attackerPtr && attackerPtr != &target && attackerPtr->x >= 0 && attackerPtr->x < BOARD_WIDTH && attackerPtr->y >= 0 && attackerPtr->y < BOARD_HEIGHT) attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
+	if (!target.isMagicWallUnit && target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
+	if (attackerPtr && attackerPtr != &target && !attackerPtr->isMagicWallUnit && attackerPtr->x >= 0 && attackerPtr->x < BOARD_WIDTH && attackerPtr->y >= 0 && attackerPtr->y < BOARD_HEIGHT) attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
 	wallEffectCount = (targetNearWall ? 1 : 0) + (attackerNearWall ? 1 : 0);
 
 	if (type == DAMAGE_MAGIC && wallEffectCount > 0) {
@@ -4941,15 +4959,13 @@ void ofApp::update() {
 		// ELO DRAW MATH: If g_winnerID == 2, give 0.5 points to both!
 		float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
 
-		// Dynamic K-Factor based on current rating
-		float kFactor = 24.0f; // Standard bracket
-		if (myElo < 1200)
-			kFactor = 40.0f; // Fast climb for beginners
-		else if (myElo > 2000)
-			kFactor = 16.0f; // Highly stable for grandmasters
+		// Zero-Sum Dynamic K-Factor (Averages both players' certainty to prevent Elo inflation/ghost points)
+		float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
+		float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
+		float avgK = (myK + oppK) / 2.0f;
 
 		// True skill calculation
-		eloChange = (int)round(kFactor * (myActual - myExpected));
+		eloChange = (int)round(avgK * (myActual - myExpected));
 
 		myElo += eloChange;
 		if (myElo < 300) {
@@ -4973,19 +4989,20 @@ void ofApp::update() {
 			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : ((g_winnerID == myLocalPlayerID) ? myName : oppName);
 
 			int myPreGameElo = myElo - eloChange;
-			float oppExpected = 1.0f / (1.0f + pow(10.0f, (myPreGameElo - opponentElo) / 400.0f));
-			float oppActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f);
-			float oppK = (opponentElo < 1200) ? 40.0f : (opponentElo > 2000 ? 16.0f : 24.0f);
-			int oppEloChange = (int)round(oppK * (oppActual - oppExpected));
+			// Strict Zero-Sum: Opponent loses exactly what you gained (or vice versa)
+			int oppEloChange = -eloChange;
 			int newOppElo = std::max(300, opponentElo + oppEloChange);
 
 			std::string signMe = (eloChange >= 0) ? "+" : "";
 			std::string signOpp = (oppEloChange >= 0) ? "+" : "";
 
+			auto rankMe = getMageRank(myElo);
+			auto rankOpp = getMageRank(newOppElo);
+
 			// Using normal \n now because our sanitizer handles it!
 			std::string msg = "⚔️ **DUEL FINISHED** ⚔️\n";
-			msg += "**" + myName + "** (" + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
-			msg += "**" + oppName + "** (" + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
+			msg += "**" + myName + "** (" + rankMe.first + ", " + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
+			msg += "**" + oppName + "** (" + rankOpp.first + ", " + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
 			msg += "🏆 **Winner:** " + winnerName;
 
 			sendDiscordWebhook(historyWebhook, msg);
@@ -6324,10 +6341,11 @@ void ofApp::drawMultiplayerMenu() {
 				ofSetColor(ofColor::gold);
 				uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
 
-				ofSetColor(ofColor::white);
-				uiFont.drawString(entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
+				auto rank = getMageRank(entry.score);
+				ofSetColor(rank.second);
+				uiFont.drawString(entry.name + " [" + rank.first + "]", rightColX + 90 * uiScale, lbY + 40 * uiScale);
 
-				ofSetColor(ofColor::green);
+				ofSetColor(ofColor::white);
 				std::string scoreStr = std::to_string(entry.score);
 				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
 				uiFont.drawString(scoreStr, rightColX + colW - sb.width - 20, lbY + 40 * uiScale);
@@ -6558,7 +6576,7 @@ void ofApp::setupGame() {
 	graveyard.clear();
 	floatingKeyInstances.clear();
 
-	g_pendingShellSpike = false;
+	g_pendingShellSpikes = 0;
 	g_actionHistory.clear();
 	g_playerDefenses.clear();
 	turnTimerEnabled = true; // Ensure turn timer is enabled for every game
@@ -9524,7 +9542,7 @@ void ofApp::drawGame() {
 
 					glDisable(GL_POLYGON_OFFSET_FILL);
 					ofSetColor(unitTint);
-					ofDisableBlendMode();
+					ofEnableAlphaBlending();
 				}
 			}
 			glDisable(GL_NORMALIZE); // Clean up lag fix
@@ -10947,7 +10965,7 @@ void ofApp::drawGame() {
 		}
 	}
 
-	auto drawProfile = [&](float x, float y, float w, float h, bool isLocal, string name, bool isActive) {
+	auto drawProfile = [&](float x, float y, float w, float h, bool isLocal, string name, bool isActive, int elo) {
 		ofSetColor(20, 20, 25, 210);
 		ofDrawRectangle(x, y, w, h); // Non-rounded
 
@@ -10988,17 +11006,36 @@ void ofApp::drawGame() {
 		float textX = isLocal ? (avatarX + avatarSize + 12.0f * scale) : (x + 12.0f * scale);
 		float textW = w - avatarSize - 24.0f * scale;
 
-		ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
-		float fontS = 1.0f;
-		if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+		if (elo >= 0) {
+			auto rank = getMageRank(elo);
+			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
+			float fontS = 1.0f;
+			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
 
-		float ny = y + h / 2.0f;
-		float nx = isLocal ? (textX + nameBox.width * fontS / 2) : (textX + textW - nameBox.width * fontS / 2);
-		drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
+			float ny = y + h * 0.35f;
+			float nx = isLocal ? (textX + nameBox.width * fontS / 2) : (textX + textW - nameBox.width * fontS / 2);
+			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
+
+			std::string rankStr = rank.first + " (" + std::to_string(elo) + ")";
+			ofRectangle rankBox = uiFont.getStringBoundingBox(rankStr, 0, 0);
+			float rFontS = 0.75f;
+			if (rankBox.width * rFontS > textW) rFontS = textW / rankBox.width;
+			float rnx = isLocal ? (textX + rankBox.width * rFontS / 2) : (textX + textW - rankBox.width * rFontS / 2);
+			drawPixelTextCentered(uiFont, rankStr, rnx, y + h * 0.7f, rFontS, rank.second);
+		} else {
+			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
+			float fontS = 1.0f;
+			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+			float ny = y + h / 2.0f;
+			float nx = isLocal ? (textX + nameBox.width * fontS / 2) : (textX + textW - nameBox.width * fontS / 2);
+			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
+		}
 	};
 
-	drawProfile(p0_profileX, profileY, profileW, profileH, true, p0Name, p0Active);
-	drawProfile(p1_profileX, profileY, profileW, profileH, false, p1Name, p1Active);
+	int p0Elo = isMultiplayer ? ((viewID == 0) ? myElo : opponentElo) : -1;
+	int p1Elo = isMultiplayer ? ((viewID == 0) ? opponentElo : myElo) : -1;
+	drawProfile(p0_profileX, profileY, profileW, profileH, true, p0Name, p0Active, p0Elo);
+	drawProfile(p1_profileX, profileY, profileW, profileH, false, p1Name, p1Active, p1Elo);
 	// ------------------------------------------
 
 	float handBaseCardWidth = kCardPixelWidth;
@@ -13056,47 +13093,34 @@ void ofApp::drawGame() {
 			if (localAvatarReady) localAvatarImage.draw(panel.x + 50, panel.y + 30, 100, 100);
 			drawPixelTextCentered(uiFont, steamManager.getLocalPlayerName(), panel.x + 100, panel.y + 155, 1.0f, ofColor::white);
 
-			std::string eloStr = "Rating: " + std::to_string(myElo);
+			auto myRank = getMageRank(myElo);
+			std::string eloStr = myRank.first + " (" + std::to_string(myElo) + ")";
 			if (eloCalculated) {
 				std::string sign = (eloChange >= 0) ? "+" : "";
-				eloStr += " (" + sign + std::to_string(eloChange) + ")";
+				eloStr += " [" + sign + std::to_string(eloChange) + "]";
 			}
-			ofColor eloCol = (eloChange > 0) ? ofColor::green : ((eloChange < 0) ? ofColor::red : ofColor::white);
-			drawPixelTextCentered(uiFont, eloStr, panel.x + 100, panel.y + 190, 1.0f, eloCol);
+			// Use the rank color for the rank text
+			drawPixelTextCentered(uiFont, eloStr, panel.x + 100, panel.y + 190, 1.0f, myRank.second);
 
 			// Opponent Player (Right)
 			ofSetColor(255);
 			if (opponentAvatarReady) opponentAvatarImage.draw(panel.x + panelW - 150, panel.y + 30, 100, 100);
 			drawPixelTextCentered(uiFont, steamManager.getOpponentName(), panel.x + panelW - 100, panel.y + 155, 1.0f, ofColor::white);
 
-			// Calculate opponent's actual change using their own Dynamic K-Factor
+			// Strict Zero-Sum for opponent
 			int oppEloChange = 0;
 			if (eloCalculated) {
-				// Reconstruct pre-game Elo for accurate math
-				int myPreGameElo = myElo - eloChange;
-				float oppExpected = 1.0f / (1.0f + pow(10.0f, (myPreGameElo - opponentElo) / 400.0f));
-				float oppActual = (g_winnerID != myLocalPlayerID) ? 1.0f : 0.0f;
-
-				float oppK = 24.0f;
-				if (opponentElo < 1200)
-					oppK = 40.0f;
-				else if (opponentElo > 2000)
-					oppK = 16.0f;
-
-				oppEloChange = (int)round(oppK * (oppActual - oppExpected));
-
-				if (opponentElo + oppEloChange < 300) {
-					oppEloChange = 300 - opponentElo;
-				}
+				oppEloChange = -eloChange;
 			}
+			int finalOppElo = std::max(300, opponentElo + oppEloChange);
 
-			std::string oppEloStr = "Rating: " + std::to_string(opponentElo + oppEloChange);
+			auto oppRank = getMageRank(finalOppElo);
+			std::string oppEloStr = oppRank.first + " (" + std::to_string(finalOppElo) + ")";
 			if (eloCalculated) {
 				std::string sign = (oppEloChange >= 0) ? "+" : "";
-				oppEloStr += " (" + sign + std::to_string(oppEloChange) + ")";
+				oppEloStr += " [" + sign + std::to_string(oppEloChange) + "]";
 			}
-			ofColor oppEloCol = (oppEloChange > 0) ? ofColor::green : ((oppEloChange < 0) ? ofColor::red : ofColor::white);
-			drawPixelTextCentered(uiFont, oppEloStr, panel.x + panelW - 100, panel.y + 190, 1.0f, oppEloCol);
+			drawPixelTextCentered(uiFont, oppEloStr, panel.x + panelW - 100, panel.y + 190, 1.0f, oppRank.second);
 
 			// VS text in middle
 			drawPixelTextCentered(titleFont, "VS", cx, panel.y + 100, 1.5f, ofColor::white);
@@ -22533,10 +22557,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (actionName == "Shell Spike") {
 			int targetIdx = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIdx = (int)i;
-					break;
+			if (targetX != -1 && targetY != -1) {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == targetX && players[i].y == targetY) {
+						targetIdx = (int)i;
+						break;
+					}
 				}
 			}
 
@@ -22550,11 +22576,19 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				dmgOp.data.damage.fixedDamage = 3;
 				dmgOp.data.damage.damageFromSlot = -1;
 				queueEffect(dmgOp);
+			} else {
+				// User clicked Skip/Done, clear all remaining spikes
+				g_pendingShellSpikes = 0;
 			}
 
 			// FIX: Both peers cleanly reset state together
 			resetCardInteraction();
 			resetCardState();
+
+			// Trigger the next spike if any remain!
+			if (g_pendingShellSpikes > 0) {
+				tryTriggerShellSpike();
+			}
 			break;
 		}
 
@@ -22800,8 +22834,7 @@ void ofApp::updateEffectSequence() {
 
 		// Trigger any pending Shell Spikes after the entire effect sequence completes
 		// ONLY if we are idling (e.g. from regeneration). If a card was played, applyCardOutcomeEffects handles it!
-		if (g_pendingShellSpike && cardPlayState == CARD_PLAY_STATE_IDLE) {
-			g_pendingShellSpike = false;
+		if (g_pendingShellSpikes > 0 && cardPlayState == CARD_PLAY_STATE_IDLE) {
 			tryTriggerShellSpike(); // FIX: Let both peers trigger it so their states match!
 		}
 		return;
@@ -25301,7 +25334,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				bool isSpike = false;
 				if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
-				if (isSpike) g_pendingShellSpike = true;
+				if (isSpike) g_pendingShellSpikes += std::max(1, target.tortoiseFormCard.value);
 			} else {
 				queueFloatingTextVisual(tPos, "Full HP", ofColor::gray);
 			}
@@ -25454,7 +25487,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						bool isSpike = false;
 						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
-						if (isSpike) g_pendingShellSpike = true;
+						if (isSpike) g_pendingShellSpikes += std::max(1, target.tortoiseFormCard.value);
 					}
 				}
 				break;
@@ -25474,7 +25507,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						bool isSpike = false;
 						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
-						if (isSpike) g_pendingShellSpike = true;
+						if (isSpike) g_pendingShellSpikes += std::max(1, target.tortoiseFormCard.value);
 					}
 				}
 				break;
@@ -25494,7 +25527,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						bool isSpike = false;
 						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
-						if (isSpike) g_pendingShellSpike = true;
+						if (isSpike) g_pendingShellSpikes += std::max(1, target.tortoiseFormCard.value);
 					}
 				}
 				break;
@@ -25514,7 +25547,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						bool isSpike = false;
 						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
-						if (isSpike) g_pendingShellSpike = true;
+						if (isSpike) g_pendingShellSpikes += std::max(1, target.tortoiseFormCard.value);
 					}
 				}
 				break;
@@ -25538,7 +25571,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						bool isSpike = false;
 						if (target.inTortoiseForm && targetIndex == currentPlayerIndex) isSpike = true;
 
-						if (isSpike) g_pendingShellSpike = true;
+						if (isSpike) g_pendingShellSpikes += std::max(1, target.tortoiseFormCard.value);
 					}
 				}
 				break;
@@ -25636,7 +25669,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					ofLogNotice("Status") << "APPLY_STATUS: STATUS_ON_FIRE applied to idx=" << tidx << " playerID=" << target.playerID;
 					break;
 				case STATUS_TORTOISE_FORM:
-					target.inTortoiseForm = true;
+					if (target.inTortoiseForm) {
+						target.tortoiseFormCard.value += 1;
+					} else {
+						target.inTortoiseForm = true;
+						target.tortoiseFormCard.value = 1;
+					}
 					target.tortoiseDamageTaken = 0;
 					break;
 				case STATUS_GHOST_FORM:
@@ -25693,6 +25731,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (target.tortoiseFormCard.type == CARD_FORM_OF_TORTOISE) {
 						target.discardPile.push_back(target.tortoiseFormCard);
 						target.tortoiseFormCard.type = CARD_NONE;
+						target.tortoiseFormCard.value = 0;
 					}
 					break;
 				case STATUS_GHOST_FORM:
@@ -26287,8 +26326,7 @@ void ofApp::applyCardOutcomeEffects() {
 	if (currentCardOutcome.casterIndex < 0 || currentCardOutcome.casterIndex >= (int)players.size()) {
 		ofLogWarning("CardOutcome") << "Caster died or is invalid. Skipping hand/AP modifications.";
 		resetCardInteraction();
-		if (g_pendingShellSpike) {
-			g_pendingShellSpike = false;
+		if (g_pendingShellSpikes > 0) {
 			if (isCurrentPlayerLocal()) {
 				tryTriggerShellSpike();
 			}
@@ -26335,8 +26373,7 @@ void ofApp::applyCardOutcomeEffects() {
 	// from the hand during command processing.
 	resetCardInteraction();
 
-	if (g_pendingShellSpike) {
-		g_pendingShellSpike = false;
+	if (g_pendingShellSpikes > 0) {
 		tryTriggerShellSpike(); // FIX: Let both peers enter targeting mode to pass Checksum!
 	}
 }
@@ -28130,12 +28167,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_FORM_OF_TORTOISE: {
-		if (currentPlayer.inTortoiseForm) {
-			ofLogNotice("Form of Tortoise") << "Already in tortoise form!";
-			return true;
-		}
 		beginEffectSequence();
-		currentPlayer.tortoiseFormCard = playedCard;
 
 		if (currentPlayer.isMagicWallUnit)
 			currentPlayer.originalModelType = "magic_wall_unit";
@@ -28162,12 +28194,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		else
 			currentPlayer.originalModelType = "player";
 
-		EffectOp apTort = {};
-		apTort.type = EffectOpType::APPLY_STATUS;
-		apTort.data.status.targetIndex = currentPlayerIndex;
-		apTort.data.status.statusType = STATUS_TORTOISE_FORM;
-		apTort.data.status.duration = 0;
-		queueEffect(apTort);
+		if (!currentPlayer.inTortoiseForm) {
+			currentPlayer.tortoiseFormCard = playedCard;
+			currentPlayer.tortoiseFormCard.value = 1;
+		}
 
 		EffectOp maxHpOp;
 		maxHpOp.type = EffectOpType::MODIFY_STAT;
@@ -28183,6 +28213,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		healOp.data.heal.amount = 5;
 		healOp.data.heal.amountFromSlot = -1;
 		queueEffect(healOp);
+
+		EffectOp apTort = {};
+		apTort.type = EffectOpType::APPLY_STATUS;
+		apTort.data.status.targetIndex = currentPlayerIndex;
+		apTort.data.status.statusType = STATUS_TORTOISE_FORM;
+		apTort.data.status.duration = 0;
+		queueEffect(apTort);
 
 		EffectOp addDispelOp1 = {};
 		addDispelOp1.type = EffectOpType::ADD_CARD_TO_DECK;
@@ -31257,7 +31294,7 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << interactionTargetTile.x << "\t" << interactionTargetTile.y
 	   << "\t" << magicHandTargetTile.x << "\t" << magicHandTargetTile.y
 	   << "\t" << (opponentInteraction.open ? 1 : 0) << "\t" << opponentInteraction.type << "\t" << opponentInteraction.targetIndex << "\t" << opponentInteraction.hoveredChoice << "\t" << opponentInteraction.cardIndex
-	   << "\t" << (g_pendingShellSpike ? 1 : 0) << "\t" << ghostRelocateTargetIndex << "\t" << magicBlastTargetPlayerIndex << "\t" << magicBlastChoicesRemaining
+	   << "\t" << g_pendingShellSpikes << "\t" << ghostRelocateTargetIndex << "\t" << magicBlastTargetPlayerIndex << "\t" << magicBlastChoicesRemaining
 	   << "\t" << amnesiaTargetPlayerIndex << "\t" << numCardsToRemove << "\t" << amnesiaChooserPlayerID << "\t" << blockingBoonPendingCasterIndex << "\n";
 
 	ss << "GHOST_CHOICES\t" << ghostRelocateChoices.size();
@@ -31393,7 +31430,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	int tmpOppTarget = -1;
 	int tmpOppHover = -1;
 	int tmpOppCard = -1;
-	bool tmpPendingShellSpike = false;
+	int tmpPendingShellSpikes = 0;
 	int tmpGhostRelocateTargetIndex = -1;
 	int tmpMagicBlastTargetPlayerIndex = -1;
 	int tmpMagicBlastChoicesRemaining = 0;
@@ -31770,7 +31807,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				tmpOppTarget = std::stoi(parts[11]);
 				tmpOppHover = std::stoi(parts[12]);
 				tmpOppCard = std::stoi(parts[13]);
-				tmpPendingShellSpike = (std::stoi(parts[14]) != 0);
+				tmpPendingShellSpikes = std::stoi(parts[14]);
 				tmpGhostRelocateTargetIndex = std::stoi(parts[15]);
 				tmpMagicBlastTargetPlayerIndex = std::stoi(parts[16]);
 				tmpMagicBlastChoicesRemaining = std::stoi(parts[17]);
@@ -32087,7 +32124,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	opponentInteraction.hoveredChoice = tmpOppHover;
 	opponentInteraction.cardIndex = tmpOppCard;
 
-	g_pendingShellSpike = tmpPendingShellSpike;
+	g_pendingShellSpikes = tmpPendingShellSpikes;
 	ghostRelocateTargetIndex = tmpGhostRelocateTargetIndex;
 	magicBlastTargetPlayerIndex = tmpMagicBlastTargetPlayerIndex;
 	magicBlastChoicesRemaining = tmpMagicBlastChoicesRemaining;
@@ -32880,7 +32917,10 @@ void ofApp::tryTriggerShellSpike() {
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// FIX: Both peers must enter Targeting state to pass Checksum
-	if (!currentPlayer.inTortoiseForm) return;
+	if (!currentPlayer.inTortoiseForm || g_pendingShellSpikes <= 0) {
+		g_pendingShellSpikes = 0;
+		return;
+	}
 
 	// Check if there are any adjacent units (ANY unit, including allies)
 	bool hasAdjacentUnit = false;
@@ -32899,6 +32939,8 @@ void ofApp::tryTriggerShellSpike() {
 	}
 
 	if (hasAdjacentUnit) {
+		g_pendingShellSpikes--; // Consume one spike
+
 		// Enter centralized tortoise damage targeting mode
 		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_FORM_OF_TORTOISE);
 		calculateTargetHighlights(); // Show green highlights on valid targets
@@ -32907,6 +32949,8 @@ void ofApp::tryTriggerShellSpike() {
 		// Halt card state machine so target click can complete before outcome finalization
 		advanceCardState(CARD_PLAY_STATE_TARGETING);
 		ofLogNotice("Tortoise Form") << "Triggered Shell Spike damage - choose adjacent target.";
+	} else {
+		g_pendingShellSpikes = 0; // No valid targets, discard remaining spikes
 	}
 }
 //--------------------------------------------------------------
@@ -33496,7 +33540,9 @@ void ofApp::applyDispelEffect(int statusID) {
 	}
 
 	// FIX: Let both peers enter targeting mode!
-	tryTriggerShellSpike();
+	if (g_pendingShellSpikes > 0) {
+		tryTriggerShellSpike();
+	}
 
 	// Always clear dispel UI transient state.
 	statusSelectLabels.clear();
@@ -35655,7 +35701,7 @@ void ofApp::drawMinionManagerUI() {
 				ofPopMatrix();
 				glDisable(GL_POLYGON_OFFSET_FILL);
 				ofSetColor(unitTint);
-				ofDisableBlendMode();
+				ofEnableAlphaBlending();
 			}
 		}
 

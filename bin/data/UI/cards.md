@@ -424,7 +424,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Create a Magic Wall in an adjacent wall or empty tile. Surrounding units take and deal double Magic damage, but half Physical damage.
+- **Effect Text:** Create a Magic Wall in an adjacent empty tile. Surrounding units take and deal double Magic damage, but half Physical damage.
 ---
 
 ## 55. Earthquake
