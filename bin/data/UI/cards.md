@@ -167,7 +167,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Skeleton** in an adjacent empty tile. It has **Regeneration**. If a unit died there last turn, shuffle a random card from their deck into the **Skeleton's**.
+- **Effect Text:** **Summon** a **Skeleton** in an adjacent empty tile. It has **Regeneration**. If a unit died there this or last turn, shuffle a random card from its deck into the **Skeleton's**.
 - **Deck:** 2x Punch, 2x Hand Block
 - **AP:** 1d6
 - **HP:** 1d6

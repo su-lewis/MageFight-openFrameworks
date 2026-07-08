@@ -2601,13 +2601,20 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 	}
 
 	auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
-		if (board[x][y].hasWall && board[x][y].isMagicWall) return true;
+		auto checkTile = [&](int tx, int ty) {
+			if (board[tx][ty].hasWall && board[tx][ty].isMagicWall) return true;
+			for (const auto & p : players) {
+				if (p.health > 0 && p.isMagicWallUnit && p.x == tx && p.y == ty) return true;
+			}
+			return false;
+		};
+		if (checkTile(x, y)) return true;
 		for (int dx = -1; dx <= 1; ++dx)
 			for (int dy = -1; dy <= 1; ++dy) {
 				if (dx == 0 && dy == 0) continue;
 				int nx = x + dx, ny = y + dy;
 				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-					if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
+					if (checkTile(nx, ny)) return true;
 				}
 			}
 		return false;
@@ -2852,13 +2859,20 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 	}
 
 	auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
-		if (board[x][y].hasWall && board[x][y].isMagicWall) return true;
+		auto checkTile = [&](int tx, int ty) {
+			if (board[tx][ty].hasWall && board[tx][ty].isMagicWall) return true;
+			for (const auto & p : players) {
+				if (p.health > 0 && p.isMagicWallUnit && p.x == tx && p.y == ty) return true;
+			}
+			return false;
+		};
+		if (checkTile(x, y)) return true;
 		for (int dx = -1; dx <= 1; ++dx)
 			for (int dy = -1; dy <= 1; ++dy) {
 				if (dx == 0 && dy == 0) continue;
 				int nx = x + dx, ny = y + dy;
 				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-					if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
+					if (checkTile(nx, ny)) return true;
 				}
 			}
 		return false;
@@ -6661,6 +6675,19 @@ void ofApp::setupGame() {
 			player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
 			player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 		}
+
+		if (isMultiplayer && myLocalPlayerID != 2) {
+			// Broadcast our actual local Steam name to the opponent to fix the "Opponent" API delay bug!
+			std::string myName = steamManager.getLocalPlayerName();
+			if (myName.empty()) myName = (myLocalPlayerID == 0) ? "Player 1" : "Player 2";
+			ChatMessagePacket syncPkt = {};
+			syncPkt.type = PKT_CHAT_MESSAGE;
+			syncPkt.playerID = myLocalPlayerID;
+			std::string payload = "\aSYNC_NAME:" + myName;
+			strncpy(syncPkt.message, payload.c_str(), 255);
+			syncPkt.message[255] = '\0';
+			steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
+		}
 	}
 
 	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
@@ -8995,80 +9022,32 @@ void ofApp::drawGame() {
 			if (isSplashCard && board[unit.x][unit.y].hasWall) return 0.0f;
 
 			bool isCaster = (&unit == &players[currentPlayerIndex]);
+			if (isCaster && !isSplashCard) return 0.0f;
 
-			// If it's the caster, ONLY show % if it's a splash card
-			if (isCaster && !isSplashCard) {
-				return 0.0f;
-			}
-
-			// Ranged / direct-target cards use the precomputed unit-tile hit chance.
-			if (!isSplashCard) {
-				// Only show % if the tile is actually targetable
-				if (board[unit.x][unit.y].hasTooltipInfo && board[unit.x][unit.y].isTargetable) {
-					return board[unit.x][unit.y].hitChance;
-				}
-				return 0.0f;
-			}
-
-			// AOE/Splash cards:
-			float bestChance = 0.0f;
-
-			// Direct targeting chance (if the unit itself can be clicked directly, and isn't the caster)
-			if (board[unit.x][unit.y].isTargetable && board[unit.x][unit.y].hasTooltipInfo && !isCaster) {
-				bestChance = board[unit.x][unit.y].hitChance;
-			}
-
-			int aoeFeet = 0;
-			if (card.type == CARD_MAGIC_BOLT || card.isAoe) {
-				aoeFeet = (card.aoeRadiusDiceNum > 0) ? (card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20;
-			}
-
-			long long aoeDistSqScaled = (long long)aoeFeet * (long long)aoeFeet * 4LL;
-
-			for (int cx = 0; cx < BOARD_WIDTH; ++cx) {
-				for (int cy = 0; cy < BOARD_HEIGHT; ++cy) {
-					if (!board[cx][cy].isTargetable) continue;
-
-					bool reaches = false;
-
-					if (card.type == CARD_MAGIC_BLAST) {
-						int dx = std::abs(unit.x - cx);
-						int dy = std::abs(unit.y - cy);
-						if (dx + dy == 1) reaches = true;
-					} else if (card.type == CARD_CHAIN_LIGHTNING) {
-						int dx = std::abs(unit.x - cx);
-						int dy = std::abs(unit.y - cy);
-						if (dx <= 1 && dy <= 1 && (dx > 0 || dy > 0)) {
-							bool blocked = false;
-							if (dx == 1 && dy == 1) {
-								if (isTileWall(cx + (unit.x - cx), cy) && isTileWall(cx, cy + (unit.y - cy))) blocked = true;
-							}
-							if (!blocked) reaches = true;
-						}
-					} else {
-						// Standard AOE (Deterministic Math)
-						long long uDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)cx, (float)cy), glm::vec2((float)unit.x, (float)unit.y));
-						if (uDistSq * 25LL <= aoeDistSqScaled) {
-							auto losPath = getLineOfSightPath(glm::vec2((float)cx + 0.5f, (float)cy + 0.5f), glm::vec2((float)unit.x + 0.5f, (float)unit.y + 0.5f));
-							bool blocked = false;
-							for (const auto & step : losPath) {
-								if ((int)step.x == cx && (int)step.y == cy) continue;
-								if ((int)step.x == unit.x && (int)step.y == unit.y) break;
-								if (isTileWall((int)step.x, (int)step.y)) {
-									blocked = true;
-									break;
-								}
-							}
-							if (!blocked) reaches = true;
-						}
-					}
-
-					if (reaches) {
-						bestChance = std::max(bestChance, board[cx][cy].hitChance);
+			// Psionic Wave originates from the caster only
+			if (card.type == CARD_PSIONIC_WAVE) {
+				if (isCaster) return 0.0f;
+				long long distSq = getFaceToFaceDistanceSquaredScaled(glm::vec2(players[currentPlayerIndex].x, players[currentPlayerIndex].y), glm::vec2(unit.x, unit.y));
+				int minRoll = (int)ceil(sqrt((double)distSq) * 2.5);
+				if (minRoll < 2) minRoll = 2;
+				if (minRoll > 40) return 0.0f;
+				// 2d20 hit chance
+				int successCount = 0;
+				for (int d1 = 1; d1 <= 20; ++d1) {
+					for (int d2 = 1; d2 <= 20; ++d2) {
+						if (d1 + d2 >= minRoll) successCount++;
 					}
 				}
+				return (float)successCount / 400.0f;
 			}
-			return bestChance;
+
+			// For all other cards, the "Preview Chance" shown over the unit's head
+			// should simply be the chance of hitting that unit DIRECTLY if you clicked on them.
+			if (board[unit.x][unit.y].hasTooltipInfo && board[unit.x][unit.y].isTargetable && !isCaster) {
+				return board[unit.x][unit.y].hitChance;
+			}
+
+			return 0.0f;
 		};
 
 		// --- LIGHTING ---
@@ -10102,6 +10081,22 @@ void ofApp::drawGame() {
 								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 									magicWallEffectTiles[nx][ny] = true;
 								}
+							}
+						}
+					}
+				}
+			}
+
+			for (const auto & p : players) {
+				if (p.health > 0 && p.isMagicWallUnit) {
+					// Mark all adjacent and diagonal tiles for magic wall units
+					for (int dx = -1; dx <= 1; dx++) {
+						for (int dy = -1; dy <= 1; dy++) {
+							if (dx == 0 && dy == 0) continue; // Don't mark the unit itself
+							int nx = p.x + dx;
+							int ny = p.y + dy;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								magicWallEffectTiles[nx][ny] = true;
 							}
 						}
 					}
@@ -12445,6 +12440,7 @@ void ofApp::drawGame() {
 		};
 
 		std::vector<std::vector<std::string>> visibleWrappedBlocks;
+		std::vector<float> visibleAlphas;
 		if (!isChatOpen) {
 			for (int i = (int)chatHistory.size() - 1; i >= 0; --i) {
 				const ChatMessage & msg = chatHistory[i];
@@ -12454,10 +12450,22 @@ void ofApp::drawGame() {
 				// FIX: Increased linger time to 10 seconds so players can read longer messages
 				if (currentTime - msg.timestamp < 10.0f) {
 					visibleWrappedBlocks.push_back(lines);
+
+					// Fade out smoothly in the last 2 seconds
+					float age = currentTime - msg.timestamp;
+					float alpha = 1.0f;
+					if (age > 8.0f) {
+						alpha = 1.0f - ((age - 8.0f) / 2.0f);
+					}
+					visibleAlphas.push_back(alpha);
+
 					hasLingering = true;
 				}
 			}
-			if (hasLingering) std::reverse(visibleWrappedBlocks.begin(), visibleWrappedBlocks.end());
+			if (hasLingering) {
+				std::reverse(visibleWrappedBlocks.begin(), visibleWrappedBlocks.end());
+				std::reverse(visibleAlphas.begin(), visibleAlphas.end());
+			}
 		}
 
 		bool shouldShowChat = isChatOpen || hasLingering;
@@ -12466,29 +12474,26 @@ void ofApp::drawGame() {
 			chatScrollOffset = 0;
 			const UILayoutSpacing uiLayout = buildUILayoutSpacing(scale, turnTimerEnabled);
 			float margin = uiLayout.chatInset + uiLayout.timerBarHeight;
-			float chatX = margin;
-			float chatY = margin + tabHeight + chatBoxHeight;
 
-			// Minion UI collision logic
-			bool hasLocalMinions = false;
-			for (const auto & p : players) {
-				if (p.isMinion && p.ownerID == myLocalPlayerID) {
-					hasLocalMinions = true;
-					break;
-				}
+			float chatY = margin + tabHeight + chatBoxHeight;
+			float chatX = margin;
+
+			// FIX: Always place chat to the right of the minion UI area, even if empty
+			float smallGap = 12.0f * scale;
+			float expectedMinionRight = p0_minionLeft + minionPanelW;
+			if (expectedMinionRight <= 0.0f) {
+				expectedMinionRight = effectiveBottomGap(uiLayout) + (510.0f * scale);
 			}
-			if (hasLocalMinions && minionPanelW > 0.0f) {
-				float smallGap = 12.0f * scale;
-				float minionRight = p0_minionLeft + minionPanelW;
-				float endTurnLeft = endTurnButtonRect.x;
-				float leftBound = minionRight + smallGap;
-				float rightBound = endTurnLeft - smallGap;
-				if (rightBound - leftBound > 150.0f * scale) {
-					chatX = leftBound;
-					chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
-				} else {
-					chatX = margin;
-				}
+
+			float endTurnLeft = endTurnButtonRect.x > 0 ? endTurnButtonRect.x : (ofGetWidth() / 2.0f);
+			float leftBound = expectedMinionRight + smallGap;
+			float rightBound = endTurnLeft - smallGap;
+
+			if (rightBound - leftBound > 150.0f * scale) {
+				chatX = leftBound;
+				chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+			} else {
+				chatX = margin;
 			}
 
 			if (isChatOpen) {
@@ -12712,14 +12717,19 @@ void ofApp::drawGame() {
 				// Reduce spacing so it starts nicely at the top
 				float messageY = closedContentTop + messageHeight * 0.8f;
 
+				int blockIdx = 0;
 				for (const auto & blk : visibleWrappedBlocks) {
+					float alpha = visibleAlphas[blockIdx++];
+					int alpha255 = (int)(alpha * 255);
+					int shadow200 = (int)(alpha * 200);
+
 					for (const auto & line : blk) {
 						if (messageY > closedContentBottom) break; // Don't bleed out the bottom
 
 						// Text shadow
-						drawPixelTextBaseline(uiFont, line, chatX + 11, messageY + 1, 1.0f, ofColor(0, 0, 0, 200));
+						drawPixelTextBaseline(uiFont, line, chatX + 11, messageY + 1, 1.0f, ofColor(0, 0, 0, shadow200));
 						// Text front
-						drawPixelTextBaseline(uiFont, line, chatX + 10, messageY, 1.0f, ofColor::white);
+						drawPixelTextBaseline(uiFont, line, chatX + 10, messageY, 1.0f, ofColor(255, 255, 255, alpha255));
 						messageY += messageHeight;
 					}
 				}
@@ -27170,6 +27180,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.attackDamageType = DAMAGE_PHYSICAL;
 			currentCardOutcome.attackTargetIndices.push_back(unitIdx);
 
+			if (currentPlayer.nextAttackAddPoison) {
+				std::vector<int> rawPsn;
+				int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+				currentEffectSequence.blackboard[1] = psnRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			}
+
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(dmgOp);
@@ -27769,6 +27786,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.attackTargetIndices.clear();
 			currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
 
+			if (currentPlayer.nextAttackAddPoison) {
+				std::vector<int> rawPsn;
+				int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+				currentEffectSequence.blackboard[1] = psnRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			}
+
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(dmgOp);
@@ -28032,6 +28056,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				currentCardOutcome.attackDamageType = DAMAGE_PHYSICAL;
 				currentCardOutcome.attackTargetIndices.clear();
 				currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
+
+				if (currentPlayer.nextAttackAddPoison) {
+					std::vector<int> rawPsn;
+					int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+					currentEffectSequence.blackboard[1] = psnRoll;
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+				}
 
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::APPLY_ATTACK;
@@ -28384,6 +28415,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.attackTargetIndices.clear();
 			currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
 
+			if (currentPlayer.nextAttackAddPoison) {
+				std::vector<int> rawPsn;
+				int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+				currentEffectSequence.blackboard[1] = psnRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			}
+
 			EffectOp damageOp = {};
 			damageOp.type = EffectOpType::APPLY_ATTACK;
 			queueEffect(damageOp);
@@ -28630,6 +28668,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.attackDamageType = playedCard.damageType;
 			currentCardOutcome.attackTargetIndices.clear();
 			currentCardOutcome.attackTargetIndices.push_back(resolvedTargetIndex);
+
+			if (currentPlayer.nextAttackAddPoison) {
+				std::vector<int> rawPsn;
+				int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+				currentEffectSequence.blackboard[1] = psnRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			}
 
 			EffectOp dmgOp = {};
 			dmgOp.type = EffectOpType::APPLY_ATTACK;
@@ -28986,6 +29031,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 						currentCardOutcome.attackTargetIndices.push_back(targetIdx);
 					}
 				}
+			}
+
+			if (currentPlayer.nextAttackAddPoison) {
+				std::vector<int> rawPsn;
+				int psnRoll = resolveDiceRollDetailed(1, 6, rawPsn);
+				currentEffectSequence.blackboard[1] = psnRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 			}
 
 			EffectOp atk = {};
@@ -31804,10 +31856,8 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 			}
 			// Restore names so the Turn Indicator text is correct
 			if (!g_isSpectator) {
-				std::string p0Name = steamManager.isHost() ? steamManager.getLocalPlayerName() : steamManager.getOpponentName();
-				std::string p1Name = steamManager.isHost() ? steamManager.getOpponentName() : steamManager.getLocalPlayerName();
-				player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-				player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+				// FIX: Do NOT overwrite the names that were just parsed from the snapshot!
+				// steamManager.getOpponentName() can return "Opponent" due to Steam API delays.
 			} else {
 				// Prevent the spectator from accidentally assigning their own name to Player 1!
 				if (player0SteamName.empty() || player0SteamName == steamManager.getLocalPlayerName()) player0SteamName = "Player 1";
@@ -37373,6 +37423,17 @@ void ofApp::processNetworkPackets() {
 			// UI races and double-processing.
 			else if (header->type == PKT_CHAT_MESSAGE) {
 				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
+
+				std::string rawMsg = pkt->message;
+				if (rawMsg.rfind("\aSYNC_NAME:", 0) == 0) {
+					std::string syncedName = rawMsg.substr(11);
+					if (pkt->playerID == 0)
+						player0SteamName = syncedName;
+					else if (pkt->playerID == 1)
+						player1SteamName = syncedName;
+					continue; // Hidden system message
+				}
+
 				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID;
 
 				ChatMessage msg;
