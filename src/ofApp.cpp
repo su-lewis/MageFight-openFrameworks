@@ -3865,7 +3865,7 @@ void ofApp::setup() {
 	}
 
 	// Load main menu music (data path: bin/data/Sounds/Music/...)
-	mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.ogg");
+	mainMenuMusic.load("Sounds/Music/MainMenu.ogg");
 	mainMenuMusic.setLoop(true);
 	mainMenuMusic.setVolume(0.6f);
 	mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
@@ -4122,28 +4122,28 @@ void ofApp::setup() {
 	// Note: Path points to Sounds/Player/
 	for (int i = 1; i <= 6; i++) {
 		ofSoundPlayer step;
-		if (step.load("Sounds/Player/step" + ofToString(i) + ".wav")) {
+		if (step.load("Sounds/SFX/Player/step" + ofToString(i) + ".wav")) {
 			step.setMultiPlay(true);
 			step.setVolume(0.5f);
 			footstepSounds.push_back(step);
 		} else {
-			ofLogError("Sound") << "Could not load Sounds/Player/step" << i << ".wav";
+			ofLogError("Sound") << "Could not load Sounds/SFX/Player/step" << i << ".wav";
 		}
 	}
 
 	// --- Dragging loop sound (Hand) ---
-	if (draggingHandLoop.load("Sounds/Hand/CardDragging.ogg")) {
+	if (draggingHandLoop.load("Sounds/SFX/Hand/CardDragging.ogg")) {
 		draggingHandLoop.setMultiPlay(false);
 		draggingHandLoop.setLoop(true);
 		draggingHandLoop.setVolume(0.0f);
 	} else {
-		ofLogError("Sound") << "Could not load Sounds/Hand/CardDragging.ogg";
+		ofLogError("Sound") << "Could not load Sounds/SFX/Hand/CardDragging.ogg";
 	}
 
-	if (cardHoverSound.load("Sounds/Hand/CardHover.ogg")) {
+	if (cardHoverSound.load("Sounds/SFX/Hand/CardHover.ogg")) {
 		cardHoverSound.setMultiPlay(true);
 	} else {
-		ofLogWarning("Sound") << "Could not load Sounds/Hand/CardHover.ogg";
+		ofLogWarning("Sound") << "Could not load Sounds/SFX/Hand/CardHover.ogg";
 	}
 
 	// --- 6. MESH GENERATION (Walls & Floor) ---
