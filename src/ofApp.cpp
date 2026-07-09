@@ -14771,11 +14771,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 		auto lobbies = steamManager.getLobbyList();
 		for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
 			if (mpLobbyButtons[i].inside(x, y)) {
-				if (lobbies[i].numPlayers >= lobbies[i].maxPlayers) {
-					addGameLog("Lobby appears full, but attempting to reclaim disconnected spot...");
+				bool inProgress = (lobbies[i].numPlayers >= 2);
+				if (inProgress) {
+					g_isSpectator = true;
+					addGameLog("Joining match in progress as spectator...");
+				} else {
+					g_isSpectator = false;
+					if (lobbies[i].numPlayers >= lobbies[i].maxPlayers) {
+						addGameLog("Lobby appears full, but attempting to reclaim disconnected spot...");
+					}
+					addGameLog("Joining lobby...");
 				}
+
 				steamManager.joinLobbyByID(lobbies[i].lobbyID);
-				addGameLog("Joining lobby...");
 				g_isConnectingToLobby = true;
 				return;
 			}
