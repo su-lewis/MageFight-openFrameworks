@@ -3881,635 +3881,641 @@ void ofApp::setup() {
 		ofLogNotice("Setup") << "App icon loaded successfully.";
 	}
 
-	cardBackImage.load("UI/card_back.png");
-	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
-	if (cardBackImage.isAllocated()) {
-		cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		cardBackImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-	}
-	if (cardSpriteSheet.isAllocated()) {
-		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-	}
+	// FIX: Skip ALL graphical, model, and audio loading in headless mode to save massive memory!
+	if (!headless) {
+		cardBackImage.load("UI/card_back.png");
+		// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
+		if (cardBackImage.isAllocated()) {
+			cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			cardBackImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+		}
+		if (cardSpriteSheet.isAllocated()) {
+			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+		}
 
-	// Load main menu music (data path: bin/data/Sounds/Music/...)
-	mainMenuMusic.load("Sounds/Music/MainMenu.ogg");
-	mainMenuMusic.setLoop(true);
-	mainMenuMusic.setVolume(0.6f);
-	mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
-	ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
+		// Load main menu music (data path: bin/data/Sounds/Music/...)
+		mainMenuMusic.load("Sounds/Music/MainMenu.ogg");
+		mainMenuMusic.setLoop(true);
+		mainMenuMusic.setVolume(0.6f);
+		mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
+		ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
 
-	// Load game music
-	g_gameMusic.load("Sounds/Music/DungeonAmbience.ogg");
-	g_gameMusic.setLoop(true);
-	g_gameMusic.setVolume(0.6f);
-	g_gameMusic.setMultiPlay(false);
-	ofLogNotice("Audio") << "Game music loaded: " << (g_gameMusic.isLoaded() ? "yes" : "no");
+		// Load game music
+		g_gameMusic.load("Sounds/Music/DungeonAmbience.ogg");
+		g_gameMusic.setLoop(true);
+		g_gameMusic.setVolume(0.6f);
+		g_gameMusic.setMultiPlay(false);
+		ofLogNotice("Audio") << "Game music loaded: " << (g_gameMusic.isLoaded() ? "yes" : "no");
 
-	// --- LOAD NEW SFX ---
-	s_sfxD6Roll.load("Sounds/SFX/DiceCoin/D6Roll.ogg");
-	s_sfxD6Roll.setMultiPlay(true);
-	s_sfxCoinflip.load("Sounds/SFX/DiceCoin/Coinflip.ogg");
-	s_sfxCoinflip.setMultiPlay(true);
-	s_sfxPotion.load("Sounds/SFX/Cards/Potion.ogg");
-	s_sfxPotion.setMultiPlay(true);
-	s_sfxHeal.load("Sounds/SFX/Cards/Heal.ogg");
-	s_sfxHeal.setMultiPlay(true);
-	s_sfxFireball.load("Sounds/SFX/Cards/Fireball.ogg");
-	s_sfxFireball.setMultiPlay(true);
-	s_sfxHoverButton.load("Sounds/SFX/Hand/HoverOverButton.ogg");
-	s_sfxHoverButton.setMultiPlay(true);
-	s_sfxTurnStart.load("Sounds/SFX/Player/TurnStart.ogg");
-	s_sfxTurnStart.setMultiPlay(true);
+		// --- LOAD NEW SFX ---
+		s_sfxD6Roll.load("Sounds/SFX/DiceCoin/D6Roll.ogg");
+		s_sfxD6Roll.setMultiPlay(true);
+		s_sfxCoinflip.load("Sounds/SFX/DiceCoin/Coinflip.ogg");
+		s_sfxCoinflip.setMultiPlay(true);
+		s_sfxPotion.load("Sounds/SFX/Cards/Potion.ogg");
+		s_sfxPotion.setMultiPlay(true);
+		s_sfxHeal.load("Sounds/SFX/Cards/Heal.ogg");
+		s_sfxHeal.setMultiPlay(true);
+		s_sfxFireball.load("Sounds/SFX/Cards/Fireball.ogg");
+		s_sfxFireball.setMultiPlay(true);
+		s_sfxHoverButton.load("Sounds/SFX/Hand/HoverOverButton.ogg");
+		s_sfxHoverButton.setMultiPlay(true);
+		s_sfxTurnStart.load("Sounds/SFX/Player/TurnStart.ogg");
+		s_sfxTurnStart.setMultiPlay(true);
 
-	// Initialize settings audio state to match loaded player
-	settingsMenuVolume = mainMenuMusic.getVolume();
-	// default master/sfx if not loaded from settings
-	settingsMasterVolume = 1.0f;
-	settingsSfxVolume = 0.8f;
+		// Initialize settings audio state to match loaded player
+		settingsMenuVolume = mainMenuMusic.getVolume();
+		// default master/sfx if not loaded from settings
+		settingsMasterVolume = 1.0f;
+		settingsSfxVolume = 0.8f;
 
-	// Initialize default key bindings if empty — simplified: only Chat (Enter)
-	if (settingsKeyBindings.empty()) {
-		settingsKeyBindings.push_back({ "Chat", OF_KEY_RETURN });
-	}
+		// Initialize default key bindings if empty — simplified: only Chat (Enter)
+		if (settingsKeyBindings.empty()) {
+			settingsKeyBindings.push_back({ "Chat", OF_KEY_RETURN });
+		}
 
-	// --- SET DEFAULTS BEFORE LOADING ---
-	g_windowModeState = 1; // Default to Fullscreen
-	isFullscreen = true;
+		// --- SET DEFAULTS BEFORE LOADING ---
+		g_windowModeState = 1; // Default to Fullscreen
+		isFullscreen = true;
 
-	int monitorRefreshRate = 60;
-	GLFWmonitor * primary = glfwGetPrimaryMonitor();
-	if (primary) {
-		const GLFWvidmode * mode = glfwGetVideoMode(primary);
-		monitorRefreshRate = mode->refreshRate;
-	}
-	float fpsDefault = (float)monitorRefreshRate;
-	if (fpsDefault >= 300.0f) {
-		settingsFramerateSliderValue = 0.999f;
-	} else {
-		settingsFramerateSliderValue = std::min(0.998f, std::max(0.0f, (fpsDefault - 15.0f) / (300.0f - 15.0f)));
-	}
+		int monitorRefreshRate = 60;
+		GLFWmonitor * primary = glfwGetPrimaryMonitor();
+		if (primary) {
+			const GLFWvidmode * mode = glfwGetVideoMode(primary);
+			monitorRefreshRate = mode->refreshRate;
+		}
+		float fpsDefault = (float)monitorRefreshRate;
+		if (fpsDefault >= 300.0f) {
+			settingsFramerateSliderValue = 0.999f;
+		} else {
+			settingsFramerateSliderValue = std::min(0.998f, std::max(0.0f, (fpsDefault - 15.0f) / (300.0f - 15.0f)));
+		}
 
-	// Load persisted settings (overrides defaults)
-	loadSettings();
+		// Load persisted settings (overrides defaults)
+		loadSettings();
 
-	// --- LOAD NEW STANDARDIZED MODELS ---
+		// --- LOAD NEW STANDARDIZED MODELS ---
 
-	auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
-		model.setScaleNormalization(false);
-		bool loaded = false;
-		for (const auto & path : candidates) {
-			// Check standard relative paths
-			std::vector<std::string> searchPaths = {
-				path,
-				"data/" + path,
-				"bin/data/" + path
-			};
+		auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
+			model.setScaleNormalization(false);
+			bool loaded = false;
+			for (const auto & path : candidates) {
+				// Check standard relative paths
+				std::vector<std::string> searchPaths = {
+					path,
+					"data/" + path,
+					"bin/data/" + path
+				};
 
-			for (const auto & sp : searchPaths) {
-				if (ofFile(sp).exists()) {
-					if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
-						ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
+				for (const auto & sp : searchPaths) {
+					if (ofFile(sp).exists()) {
+						if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
+							ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
 
-						// CRITICAL FIX: Generate Mipmaps for the model textures!
-						// This stops the models from becoming crunchy/pixelated when zooming out.
-						for (unsigned int i = 0; i < model.getMeshCount(); i++) {
-							if (model.getMeshHelper(i).hasTexture()) {
-								ofTexture & tex = model.getMeshHelper(i).getTextureRef();
-								tex.generateMipmap();
-								tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+							// CRITICAL FIX: Generate Mipmaps for the model textures!
+							// This stops the models from becoming crunchy/pixelated when zooming out.
+							for (unsigned int i = 0; i < model.getMeshCount(); i++) {
+								if (model.getMeshHelper(i).hasTexture()) {
+									ofTexture & tex = model.getMeshHelper(i).getTextureRef();
+									tex.generateMipmap();
+									tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+								}
 							}
-						}
 
-						loaded = true;
-						break;
+							loaded = true;
+							break;
+						}
 					}
 				}
+				if (loaded) break;
 			}
-			if (loaded) break;
+
+			if (!loaded) {
+				ofLogError("Models") << "FAILED TO LOAD MODEL. Searched for:";
+				for (const auto & p : candidates)
+					ofLogError("Models") << " - " << p;
+			}
+			model.disableMaterials();
+		};
+
+		// Provide the subfolder paths as well as the old root paths just in case!
+		loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
+		loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
+		loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
+		loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
+		loadModelSafe(koboldModel, { "Units/Kobold/Kobold1/Kobold1.fbx" });
+		loadModelSafe(koboldKingModel, { "Units/KoboldKing/KoboldKing.fbx" });
+		loadModelSafe(hellhoundModel, { "Units/Hellhound/Hellhound.fbx" });
+		loadModelSafe(demonModel, { "Units/Demon/Demon.fbx" });
+		loadModelSafe(tortoiseModel, { "Units/Tortoise/Tortoise.fbx" });
+		loadModelSafe(ghostModel, { "Units/Ghost/Ghost.fbx" });
+		loadModelSafe(wallUnitModel, { "Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx" });
+
+		// CRITICAL FIX: Force the Wall Unit texture back to Nearest (Pixel Art) filtering!
+		// This overrides the automatic smoothing applied by loadModelSafe.
+		for (unsigned int i = 0; i < wallUnitModel.getMeshCount(); i++) {
+			if (wallUnitModel.getMeshHelper(i).hasTexture()) {
+				ofTexture & tex = wallUnitModel.getMeshHelper(i).getTextureRef();
+				tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			}
 		}
 
-		if (!loaded) {
-			ofLogError("Models") << "FAILED TO LOAD MODEL. Searched for:";
-			for (const auto & p : candidates)
-				ofLogError("Models") << " - " << p;
-		}
-		model.disableMaterials();
-	};
+		loadModelSafe(assistantModel, { "Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx", "Units/Wizard.fbx" });
+		loadModelSafe(faerieModel, { "Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx", "Units/Faerie.fbx" });
 
-	// Provide the subfolder paths as well as the old root paths just in case!
-	loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
-	loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
-	loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
-	loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
-	loadModelSafe(koboldModel, { "Units/Kobold/Kobold1/Kobold1.fbx" });
-	loadModelSafe(koboldKingModel, { "Units/KoboldKing/KoboldKing.fbx" });
-	loadModelSafe(hellhoundModel, { "Units/Hellhound/Hellhound.fbx" });
-	loadModelSafe(demonModel, { "Units/Demon/Demon.fbx" });
-	loadModelSafe(tortoiseModel, { "Units/Tortoise/Tortoise.fbx" });
-	loadModelSafe(ghostModel, { "Units/Ghost/Ghost.fbx" });
-	loadModelSafe(wallUnitModel, { "Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx" });
+		// Retain dynamic Golem variant textures (since spell-logic swaps them)
+		auto loadDynamicTex = [](ofTexture & tex, const std::string & path) {
+			if (ofLoadImage(tex, path)) {
+				tex.generateMipmap();
+				tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+			}
+		};
+		loadDynamicTex(golemTexBase, "Units/Golem/texture_base.png");
+		loadDynamicTex(golemTexRock, "Units/Golem/texture_rock.png");
+		loadDynamicTex(golemTexFire, "Units/Golem/texture_fire.png");
+		loadDynamicTex(golemTexElectric, "Units/Golem/texture_electric.png");
 
-	// CRITICAL FIX: Force the Wall Unit texture back to Nearest (Pixel Art) filtering!
-	// This overrides the automatic smoothing applied by loadModelSafe.
-	for (unsigned int i = 0; i < wallUnitModel.getMeshCount(); i++) {
-		if (wallUnitModel.getMeshHelper(i).hasTexture()) {
-			ofTexture & tex = wallUnitModel.getMeshHelper(i).getTextureRef();
-			tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		}
-	}
+		ofLogNotice("Setup") << "All standard 3D models loaded successfully.";
 
-	loadModelSafe(assistantModel, { "Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx", "Units/Wizard.fbx" });
-	loadModelSafe(faerieModel, { "Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx", "Units/Faerie.fbx" });
+		// --- 3. BOARD & SKYBOX ---
+		ofLoadImage(wallTexture, "Board/wall.png");
+		wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-	// Retain dynamic Golem variant textures (since spell-logic swaps them)
-	auto loadDynamicTex = [](ofTexture & tex, const std::string & path) {
-		if (ofLoadImage(tex, path)) {
-			tex.generateMipmap();
-			tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
-		}
-	};
-	loadDynamicTex(golemTexBase, "Units/Golem/texture_base.png");
-	loadDynamicTex(golemTexRock, "Units/Golem/texture_rock.png");
-	loadDynamicTex(golemTexFire, "Units/Golem/texture_fire.png");
-	loadDynamicTex(golemTexElectric, "Units/Golem/texture_electric.png");
+		// Dark variant used when there's a wall to the north within 2 tiles
+		ofLoadImage(wallDarkTexture, "Board/wallDark.png");
+		wallDarkTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-	ofLogNotice("Setup") << "All standard 3D models loaded successfully.";
+		// Load Board Tile Textures (Tile1.png to Tile4.png) — randomized per-tile
+		floorTextures.clear();
+		floorMeshes.clear();
 
-	// --- 3. BOARD & SKYBOX ---
-	ofLoadImage(wallTexture, "Board/wall.png");
-	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		// Loop from 1 to 4 (Tile1.png .. Tile4.png)
+		for (int i = 1; i <= 4; i++) {
+			ofTexture tex;
+			string filename = "Board/Tile" + ofToString(i) + ".png";
 
-	// Dark variant used when there's a wall to the north within 2 tiles
-	ofLoadImage(wallDarkTexture, "Board/wallDark.png");
-	wallDarkTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			if (ofLoadImage(tex, filename)) {
+				tex.generateMipmap();
+				tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+				tex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				floorTextures.push_back(tex);
 
-	// Load Board Tile Textures (Tile1.png to Tile4.png) — randomized per-tile
-	floorTextures.clear();
-	floorMeshes.clear();
-
-	// Loop from 1 to 4 (Tile1.png .. Tile4.png)
-	for (int i = 1; i <= 4; i++) {
-		ofTexture tex;
-		string filename = "Board/Tile" + ofToString(i) + ".png";
-
-		if (ofLoadImage(tex, filename)) {
-			tex.generateMipmap();
-			tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
-			tex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-			floorTextures.push_back(tex);
-
-			ofMesh m;
-			m.setMode(OF_PRIMITIVE_TRIANGLES);
-			floorMeshes.push_back(m);
-			ofLogNotice("Setup") << "Loaded board tile: " << filename;
-		} else {
-			ofLogError("Setup") << "Failed to load " << filename;
-		}
-	}
-
-	// --- Load Floating Key Frames (gold/silver/bronze sets) ---
-	keyTextures.clear();
-	keyTexturesSilver.clear();
-	keyTexturesBronze.clear();
-	keyAnimSequence.clear();
-	{
-		std::vector<std::string> goldFiles = { "Board/keys_1_1.png", "Board/keys_1_2.png", "Board/keys_1_3.png", "Board/keys_1_4.png", "Board/keys_1_5.png" };
-		for (const auto & f : goldFiles) {
-			ofTexture t;
-			if (ofLoadImage(t, f)) {
-				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-				keyTextures.push_back(t);
-				ofLogNotice("Setup") << "Loaded key frame: " << f;
+				ofMesh m;
+				m.setMode(OF_PRIMITIVE_TRIANGLES);
+				floorMeshes.push_back(m);
+				ofLogNotice("Setup") << "Loaded board tile: " << filename;
 			} else {
-				ofLogError("Setup") << "Failed to load key frame: " << f;
+				ofLogError("Setup") << "Failed to load " << filename;
 			}
 		}
 
-		std::vector<std::string> silverFiles = { "Board/keys_2_1.png", "Board/keys_2_2.png", "Board/keys_2_3.png", "Board/keys_2_4.png", "Board/keys_2_5.png" };
-		for (const auto & f : silverFiles) {
-			ofTexture t;
-			if (ofLoadImage(t, f)) {
-				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-				keyTexturesSilver.push_back(t);
-				ofLogNotice("Setup") << "Loaded silver key frame: " << f;
+		// --- Load Floating Key Frames (gold/silver/bronze sets) ---
+		keyTextures.clear();
+		keyTexturesSilver.clear();
+		keyTexturesBronze.clear();
+		keyAnimSequence.clear();
+		{
+			std::vector<std::string> goldFiles = { "Board/keys_1_1.png", "Board/keys_1_2.png", "Board/keys_1_3.png", "Board/keys_1_4.png", "Board/keys_1_5.png" };
+			for (const auto & f : goldFiles) {
+				ofTexture t;
+				if (ofLoadImage(t, f)) {
+					t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+					t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+					keyTextures.push_back(t);
+					ofLogNotice("Setup") << "Loaded key frame: " << f;
+				} else {
+					ofLogError("Setup") << "Failed to load key frame: " << f;
+				}
+			}
+
+			std::vector<std::string> silverFiles = { "Board/keys_2_1.png", "Board/keys_2_2.png", "Board/keys_2_3.png", "Board/keys_2_4.png", "Board/keys_2_5.png" };
+			for (const auto & f : silverFiles) {
+				ofTexture t;
+				if (ofLoadImage(t, f)) {
+					t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+					t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+					keyTexturesSilver.push_back(t);
+					ofLogNotice("Setup") << "Loaded silver key frame: " << f;
+				}
+			}
+
+			std::vector<std::string> bronzeFiles = { "Board/keys_3_1.png", "Board/keys_3_2.png", "Board/keys_3_3.png", "Board/keys_3_4.png", "Board/keys_3_5.png" };
+			for (const auto & f : bronzeFiles) {
+				ofTexture t;
+				if (ofLoadImage(t, f)) {
+					t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+					t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+					keyTexturesBronze.push_back(t);
+					ofLogNotice("Setup") << "Loaded bronze key frame: " << f;
+				}
+			}
+
+			// Sequence: 1_1, 1_2, 1_5, 1_4, 1_3, 1_4, 1_5, 1_2 (no duplicate 1_1)
+			if (keyTextures.size() >= 5) {
+				keyAnimSequence = { 0, 1, 4, 3, 2, 3, 4, 1 };
+			} else {
+				for (int i = 0; i < (int)keyTextures.size(); ++i)
+					keyAnimSequence.push_back(i);
+			}
+			keyAnimSeqPos = 0;
+			keyAnimTimer = 0.0f;
+
+			// Initialize floating key instances: gold keys (set=1)
+			floatingKeyInstances.clear();
+			floatingKeyInstances.push_back({ glm::ivec2(4, 4), 1 });
+			floatingKeyInstances.push_back({ glm::ivec2(6, 4), 1 });
+			floatingKeyInstances.push_back({ glm::ivec2(8, 4), 1 });
+
+			// Silver keys (set=2) per user request
+			floatingKeyInstances.push_back({ glm::ivec2(0, 0), 2 });
+			floatingKeyInstances.push_back({ glm::ivec2(6, 1), 2 });
+			floatingKeyInstances.push_back({ glm::ivec2(12, 4), 2 });
+			floatingKeyInstances.push_back({ glm::ivec2(12, 8), 2 });
+			floatingKeyInstances.push_back({ glm::ivec2(6, 7), 2 });
+			floatingKeyInstances.push_back({ glm::ivec2(0, 4), 2 });
+
+			// Bronze keys (set=3) per user request
+			floatingKeyInstances.push_back({ glm::ivec2(4, 0), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(8, 0), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(11, 3), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(11, 5), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(8, 8), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(4, 8), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(1, 3), 3 });
+			floatingKeyInstances.push_back({ glm::ivec2(1, 5), 3 });
+
+			// Keep legacy single-key coordinates in sync with first instance (if any)
+			if (!floatingKeyInstances.empty()) {
+				keyAnimTileX = floatingKeyInstances[0].pos.x;
+				keyAnimTileY = floatingKeyInstances[0].pos.y;
 			}
 		}
 
-		std::vector<std::string> bronzeFiles = { "Board/keys_3_1.png", "Board/keys_3_2.png", "Board/keys_3_3.png", "Board/keys_3_4.png", "Board/keys_3_5.png" };
-		for (const auto & f : bronzeFiles) {
-			ofTexture t;
-			if (ofLoadImage(t, f)) {
-				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-				keyTexturesBronze.push_back(t);
-				ofLogNotice("Setup") << "Loaded bronze key frame: " << f;
+		// --- 4. DICE TEXTURES & COIN ---
+		// Note: Paths point to specific Dice/ subfolders
+		ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
+		ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
+		ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png");
+		ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
+
+		ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
+		// Use nearest filtering and mipmaps for a crisp pixel coin appearance
+		coinFacesTexture.generateMipmap();
+		coinFacesTexture.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+
+		// --- 5. SOUNDS ---
+		// Note: Path points to Sounds/Player/
+		for (int i = 1; i <= 6; i++) {
+			ofSoundPlayer step;
+			if (step.load("Sounds/SFX/Player/step" + ofToString(i) + ".wav")) {
+				step.setMultiPlay(true);
+				step.setVolume(0.5f);
+				footstepSounds.push_back(step);
+			} else {
+				ofLogError("Sound") << "Could not load Sounds/SFX/Player/step" << i << ".wav";
 			}
 		}
 
-		// Sequence: 1_1, 1_2, 1_5, 1_4, 1_3, 1_4, 1_5, 1_2 (no duplicate 1_1)
-		if (keyTextures.size() >= 5) {
-			keyAnimSequence = { 0, 1, 4, 3, 2, 3, 4, 1 };
+		// --- Dragging loop sound (Hand) ---
+		if (draggingHandLoop.load("Sounds/SFX/Hand/CardDragging.ogg")) {
+			draggingHandLoop.setMultiPlay(false);
+			draggingHandLoop.setLoop(true);
+			draggingHandLoop.setVolume(0.0f);
 		} else {
-			for (int i = 0; i < (int)keyTextures.size(); ++i)
-				keyAnimSequence.push_back(i);
+			ofLogError("Sound") << "Could not load Sounds/SFX/Hand/CardDragging.ogg";
 		}
-		keyAnimSeqPos = 0;
-		keyAnimTimer = 0.0f;
 
-		// Initialize floating key instances: gold keys (set=1)
-		floatingKeyInstances.clear();
-		floatingKeyInstances.push_back({ glm::ivec2(4, 4), 1 });
-		floatingKeyInstances.push_back({ glm::ivec2(6, 4), 1 });
-		floatingKeyInstances.push_back({ glm::ivec2(8, 4), 1 });
-
-		// Silver keys (set=2) per user request
-		floatingKeyInstances.push_back({ glm::ivec2(0, 0), 2 });
-		floatingKeyInstances.push_back({ glm::ivec2(6, 1), 2 });
-		floatingKeyInstances.push_back({ glm::ivec2(12, 4), 2 });
-		floatingKeyInstances.push_back({ glm::ivec2(12, 8), 2 });
-		floatingKeyInstances.push_back({ glm::ivec2(6, 7), 2 });
-		floatingKeyInstances.push_back({ glm::ivec2(0, 4), 2 });
-
-		// Bronze keys (set=3) per user request
-		floatingKeyInstances.push_back({ glm::ivec2(4, 0), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(8, 0), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(11, 3), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(11, 5), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(8, 8), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(4, 8), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(1, 3), 3 });
-		floatingKeyInstances.push_back({ glm::ivec2(1, 5), 3 });
-
-		// Keep legacy single-key coordinates in sync with first instance (if any)
-		if (!floatingKeyInstances.empty()) {
-			keyAnimTileX = floatingKeyInstances[0].pos.x;
-			keyAnimTileY = floatingKeyInstances[0].pos.y;
-		}
-	}
-
-	// --- 4. DICE TEXTURES & COIN ---
-	// Note: Paths point to specific Dice/ subfolders
-	ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
-	ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
-	ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png");
-	ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
-
-	ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
-	// Use nearest filtering and mipmaps for a crisp pixel coin appearance
-	coinFacesTexture.generateMipmap();
-	coinFacesTexture.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
-
-	// --- 5. SOUNDS ---
-	// Note: Path points to Sounds/Player/
-	for (int i = 1; i <= 6; i++) {
-		ofSoundPlayer step;
-		if (step.load("Sounds/SFX/Player/step" + ofToString(i) + ".wav")) {
-			step.setMultiPlay(true);
-			step.setVolume(0.5f);
-			footstepSounds.push_back(step);
+		if (cardHoverSound.load("Sounds/SFX/Hand/CardHover.ogg")) {
+			cardHoverSound.setMultiPlay(true);
 		} else {
-			ofLogError("Sound") << "Could not load Sounds/SFX/Player/step" << i << ".wav";
+			ofLogWarning("Sound") << "Could not load Sounds/SFX/Hand/CardHover.ogg";
 		}
-	}
 
-	// --- Dragging loop sound (Hand) ---
-	if (draggingHandLoop.load("Sounds/SFX/Hand/CardDragging.ogg")) {
-		draggingHandLoop.setMultiPlay(false);
-		draggingHandLoop.setLoop(true);
-		draggingHandLoop.setVolume(0.0f);
-	} else {
-		ofLogError("Sound") << "Could not load Sounds/SFX/Hand/CardDragging.ogg";
-	}
-
-	if (cardHoverSound.load("Sounds/SFX/Hand/CardHover.ogg")) {
-		cardHoverSound.setMultiPlay(true);
-	} else {
-		ofLogWarning("Sound") << "Could not load Sounds/SFX/Hand/CardHover.ogg";
-	}
-
-	// --- 6. MESH GENERATION (Walls & Floor) ---
-	// (This code remains unchanged as it generates geometry programmatically)
-	float wallSize = TILE_SIZE * 0.8f;
-	wallMesh.clear();
-	wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
-	wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
-	wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
-	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
-	wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
-	wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
-	wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
-	wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
-	for (int i = 0; i < 4; i++)
-		wallMesh.addNormal(ofPoint(0, 1, 0));
-	wallMesh.addIndex(0);
-	wallMesh.addIndex(1);
-	wallMesh.addIndex(2);
-	wallMesh.addIndex(0);
-	wallMesh.addIndex(2);
-	wallMesh.addIndex(3);
-
-	// D6 Mesh Gen
-	d6Mesh.clear();
-	d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	float size = 1.0f;
-	const float atlasWidth = 333.0f, atlasHeight = 225.0f;
-	glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
-	glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
-	glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
-	auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
-		int baseIndex = d6Mesh.getNumVertices();
-		d6Mesh.addVertex(v1 * size);
-		d6Mesh.addTexCoord({ t_min.x, t_max.y });
-		d6Mesh.addVertex(v2 * size);
-		d6Mesh.addTexCoord({ t_max.x, t_max.y });
-		d6Mesh.addVertex(v3 * size);
-		d6Mesh.addTexCoord({ t_max.x, t_min.y });
-		d6Mesh.addVertex(v4 * size);
-		d6Mesh.addTexCoord({ t_min.x, t_min.y });
+		// --- 6. MESH GENERATION (Walls & Floor) ---
+		// (This code remains unchanged as it generates geometry programmatically)
+		float wallSize = TILE_SIZE * 0.8f;
+		wallMesh.clear();
+		wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+		wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
+		wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
+		wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
+		wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
+		wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
+		wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
+		wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
+		wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
 		for (int i = 0; i < 4; i++)
-			d6Mesh.addNormal(normal);
-		d6Mesh.addIndex(baseIndex);
-		d6Mesh.addIndex(baseIndex + 1);
-		d6Mesh.addIndex(baseIndex + 2);
-		d6Mesh.addIndex(baseIndex);
-		d6Mesh.addIndex(baseIndex + 2);
-		d6Mesh.addIndex(baseIndex + 3);
-	};
-	addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
-	addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
-	addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
-	addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
-	addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
-	addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
+			wallMesh.addNormal(ofPoint(0, 1, 0));
+		wallMesh.addIndex(0);
+		wallMesh.addIndex(1);
+		wallMesh.addIndex(2);
+		wallMesh.addIndex(0);
+		wallMesh.addIndex(2);
+		wallMesh.addIndex(3);
 
-	// --- 7. DICE MODELS ---
-	ofxAssimpModelLoader tempLoader;
+		// D6 Mesh Gen
+		d6Mesh.clear();
+		d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+		float size = 1.0f;
+		const float atlasWidth = 333.0f, atlasHeight = 225.0f;
+		glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
+		glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
+		glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
+		glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
+		glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
+		glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
+		auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
+			int baseIndex = d6Mesh.getNumVertices();
+			d6Mesh.addVertex(v1 * size);
+			d6Mesh.addTexCoord({ t_min.x, t_max.y });
+			d6Mesh.addVertex(v2 * size);
+			d6Mesh.addTexCoord({ t_max.x, t_max.y });
+			d6Mesh.addVertex(v3 * size);
+			d6Mesh.addTexCoord({ t_max.x, t_min.y });
+			d6Mesh.addVertex(v4 * size);
+			d6Mesh.addTexCoord({ t_min.x, t_min.y });
+			for (int i = 0; i < 4; i++)
+				d6Mesh.addNormal(normal);
+			d6Mesh.addIndex(baseIndex);
+			d6Mesh.addIndex(baseIndex + 1);
+			d6Mesh.addIndex(baseIndex + 2);
+			d6Mesh.addIndex(baseIndex);
+			d6Mesh.addIndex(baseIndex + 2);
+			d6Mesh.addIndex(baseIndex + 3);
+		};
+		addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
+		addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
+		addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
+		addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
+		addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
+		addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
 
-	auto centerMeshRobust = [](ofMesh & mesh) {
-		if (mesh.getNumVertices() == 0) return;
-		glm::vec3 minB(1e9f);
-		glm::vec3 maxB(-1e9f);
-		for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
-			glm::vec3 v = mesh.getVertex(i);
-			minB = glm::min(minB, v);
-			maxB = glm::max(maxB, v);
-		}
-		glm::vec3 center = (minB + maxB) * 0.5f;
-		float maxDist = 0.0f;
-		for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
-			glm::vec3 v = mesh.getVertex(i) - center;
-			mesh.setVertex(i, v);
-			maxDist = std::max(maxDist, glm::length(v));
-		}
-		if (maxDist > 0.0f) {
-			float scale = 1.0f / maxDist;
+		// --- 7. DICE MODELS ---
+		ofxAssimpModelLoader tempLoader;
+
+		auto centerMeshRobust = [](ofMesh & mesh) {
+			if (mesh.getNumVertices() == 0) return;
+			glm::vec3 minB(1e9f);
+			glm::vec3 maxB(-1e9f);
 			for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
-				mesh.setVertex(i, mesh.getVertex(i) * scale);
+				glm::vec3 v = mesh.getVertex(i);
+				minB = glm::min(minB, v);
+				maxB = glm::max(maxB, v);
+			}
+			glm::vec3 center = (minB + maxB) * 0.5f;
+			float maxDist = 0.0f;
+			for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
+				glm::vec3 v = mesh.getVertex(i) - center;
+				mesh.setVertex(i, v);
+				maxDist = std::max(maxDist, glm::length(v));
+			}
+			if (maxDist > 0.0f) {
+				float scale = 1.0f / maxDist;
+				for (std::size_t i = 0; i < mesh.getNumVertices(); ++i) {
+					mesh.setVertex(i, mesh.getVertex(i) * scale);
+				}
+			}
+		};
+
+		// Load D4
+		if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
+			d4Mesh = tempLoader.getMesh(0);
+			centerMeshRobust(d4Mesh);
+		}
+		// Load D10
+		if (tempLoader.load("Dice/D10/d10.obj")) {
+			d10Mesh = tempLoader.getMesh(0);
+			centerMeshRobust(d10Mesh);
+		}
+		// Load D20
+		if (tempLoader.load("Dice/D20/d20.obj")) {
+			d20Mesh = tempLoader.getMesh(0);
+			centerMeshRobust(d20Mesh);
+		}
+		// Coin Mesh Gen
+		coinMesh.clear();
+		coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+		const float coinRadius = 2.0f;
+		const float coinThickness = 0.2f;
+		const int coinResolution = 32;
+		ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
+		ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
+
+		int topCenterIndex = coinMesh.getNumVertices();
+		coinMesh.addVertex({ 0, coinThickness / 2.0f, 0 });
+		coinMesh.addNormal({ 0, 1, 0 });
+		coinMesh.addTexCoord({ headsUV.getCenter().x, headsUV.getCenter().y });
+		coinMesh.addColor(ofColor::white);
+		for (int i = 0; i <= coinResolution; i++) {
+			float angle = (float)i / coinResolution * TWO_PI;
+			coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
+			coinMesh.addNormal({ 0, 1, 0 });
+			coinMesh.addTexCoord({ headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle)) });
+			coinMesh.addColor(ofColor::white);
+		}
+		for (int i = 0; i < coinResolution; i++) {
+			coinMesh.addIndex(topCenterIndex);
+			coinMesh.addIndex(topCenterIndex + 1 + i);
+			coinMesh.addIndex(topCenterIndex + 1 + i + 1);
+		}
+
+		int bottomCenterIndex = coinMesh.getNumVertices();
+		coinMesh.addVertex({ 0, -coinThickness / 2.0f, 0 });
+		coinMesh.addNormal({ 0, -1, 0 });
+		coinMesh.addTexCoord({ tailsUV.getCenter().x, tailsUV.getCenter().y });
+		coinMesh.addColor(ofColor::white);
+		for (int i = 0; i <= coinResolution; i++) {
+			float angle = (float)i / coinResolution * TWO_PI;
+			coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
+			coinMesh.addNormal({ 0, -1, 0 });
+			coinMesh.addTexCoord({ tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle)) });
+			coinMesh.addColor(ofColor::white);
+		}
+		for (int i = 0; i < coinResolution; i++) {
+			coinMesh.addIndex(bottomCenterIndex);
+			coinMesh.addIndex(bottomCenterIndex + 1 + i + 1);
+			coinMesh.addIndex(bottomCenterIndex + 1 + i);
+		}
+
+		ofColor edgeColor = ofColor::goldenRod;
+		int edgeStartIndex = coinMesh.getNumVertices();
+		for (int i = 0; i <= coinResolution; i++) {
+			float angle = (float)i / coinResolution * TWO_PI;
+			glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
+			coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
+			coinMesh.addNormal(normal);
+			coinMesh.addColor(edgeColor);
+			coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
+			coinMesh.addNormal(normal);
+			coinMesh.addColor(edgeColor);
+		}
+		for (int i = 0; i < coinResolution; i++) {
+			int current = edgeStartIndex + i * 2;
+			int next = edgeStartIndex + (i + 1) * 2;
+			coinMesh.addIndex(current);
+			coinMesh.addIndex(next);
+			coinMesh.addIndex(current + 1);
+			coinMesh.addIndex(next);
+			coinMesh.addIndex(next + 1);
+			coinMesh.addIndex(current + 1);
+		}
+
+		// --- 8. POST SHADERS (P key cycle) ---
+		pixelArtShaderLoaded = pixelArtShader.load("Shaders/pixel_art");
+		c64ShaderLoaded = c64Shader.load("Shaders/c64");
+		if (!pixelArtShaderLoaded) {
+			ofLogWarning("PixelArt") << "Failed to load shader pair: Shaders/pixel_art.{vert,frag}";
+		}
+		if (!c64ShaderLoaded) {
+			ofLogWarning("PixelArt") << "Failed to load shader pair: Shaders/c64.{vert,frag}";
+		}
+
+		// --- 9. MATERIALS & LIGHTS ---
+
+		// 1. Material Settings
+		modelMaterial.setShininess(10);
+		modelMaterial.setSpecularColor(ofColor(50, 50, 50));
+		modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
+		modelMaterial.setAmbientColor(ofColor(255, 255, 255));
+
+		// 1. GLOBAL AMBIENT
+		// Make the ambient slightly darker so the board isn't too bright
+		ofSetGlobalAmbientColor(ofColor(50, 50, 50));
+
+		lights.clear();
+
+		// 2. KEY LIGHT (Main Illumination)
+		keyLight.setup();
+		keyLight.setPointLight();
+		keyLight.setPosition(50, 150, 50); // Raised Y to 150 for better spread
+		// Neutral white light, boosted brightness
+		keyLight.setDiffuseColor(ofColor(140, 140, 140));
+		keyLight.setSpecularColor(ofColor(50, 50, 50));
+		keyLight.setAttenuation(1.0f, 0.005f, 0.0f);
+		lights.push_back(keyLight);
+
+		// 3. RIM LIGHT (Backlight)
+		rimLight.setup();
+		rimLight.setPointLight();
+		rimLight.setPosition(-50, 30, -50);
+		// Very subtle warm glow, not deep red
+		rimLight.setDiffuseColor(ofColor(80, 60, 50));
+		rimLight.setSpecularColor(ofColor(50, 0, 0));
+		lights.push_back(rimLight);
+
+		// 5. HEADLIGHT (Torch)
+		headlight.setup();
+		headlight.setPointLight();
+		headlight.setDiffuseColor(ofColor(220, 170, 100));
+		headlight.setSpecularColor(ofColor(255, 200, 150));
+		headlight.setAttenuation(1.0f, 0.001f, 0.0f);
+
+		// 6. UI LIGHT (For FBOs)
+		uiLight.setup();
+		uiLight.setPointLight();
+		uiLight.setDiffuseColor(ofColor::white);
+		uiLight.setPosition(0, 100, 200); // Positioned in front and above
+		// END ADD
+
+		// Adjust FOV based on aspect ratio to maintain consistent scale
+		float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
+		float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
+		cam.setupPerspective(false, fov, 0.1f, 100000);
+		cam2.setupPerspective(false, fov, 0.1f, 100000); // Same settings for cam2
+
+		// --- SHADOW TEXTURE GENERATION ---
+		ofPixels pix;
+		pix.allocate(64, 64, OF_PIXELS_RGBA);
+		for (int x = 0; x < 64; x++) {
+			for (int y = 0; y < 64; y++) {
+				float dist = ofDist(x, y, 32, 32);
+				float alpha = ofMap(dist, 0, 32, 200, 0, true);
+				pix.setColor(x, y, ofColor(0, 0, 0, alpha));
 			}
 		}
-	};
-
-	// Load D4
-	if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
-		d4Mesh = tempLoader.getMesh(0);
-		centerMeshRobust(d4Mesh);
-	}
-	// Load D10
-	if (tempLoader.load("Dice/D10/d10.obj")) {
-		d10Mesh = tempLoader.getMesh(0);
-		centerMeshRobust(d10Mesh);
-	}
-	// Load D20
-	if (tempLoader.load("Dice/D20/d20.obj")) {
-		d20Mesh = tempLoader.getMesh(0);
-		centerMeshRobust(d20Mesh);
-	}
-	// Coin Mesh Gen
-	coinMesh.clear();
-	coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	const float coinRadius = 2.0f;
-	const float coinThickness = 0.2f;
-	const int coinResolution = 32;
-	ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
-	ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
-
-	int topCenterIndex = coinMesh.getNumVertices();
-	coinMesh.addVertex({ 0, coinThickness / 2.0f, 0 });
-	coinMesh.addNormal({ 0, 1, 0 });
-	coinMesh.addTexCoord({ headsUV.getCenter().x, headsUV.getCenter().y });
-	coinMesh.addColor(ofColor::white);
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal({ 0, 1, 0 });
-		coinMesh.addTexCoord({ headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle)) });
-		coinMesh.addColor(ofColor::white);
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		coinMesh.addIndex(topCenterIndex);
-		coinMesh.addIndex(topCenterIndex + 1 + i);
-		coinMesh.addIndex(topCenterIndex + 1 + i + 1);
-	}
-
-	int bottomCenterIndex = coinMesh.getNumVertices();
-	coinMesh.addVertex({ 0, -coinThickness / 2.0f, 0 });
-	coinMesh.addNormal({ 0, -1, 0 });
-	coinMesh.addTexCoord({ tailsUV.getCenter().x, tailsUV.getCenter().y });
-	coinMesh.addColor(ofColor::white);
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal({ 0, -1, 0 });
-		coinMesh.addTexCoord({ tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle)) });
-		coinMesh.addColor(ofColor::white);
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		coinMesh.addIndex(bottomCenterIndex);
-		coinMesh.addIndex(bottomCenterIndex + 1 + i + 1);
-		coinMesh.addIndex(bottomCenterIndex + 1 + i);
-	}
-
-	ofColor edgeColor = ofColor::goldenRod;
-	int edgeStartIndex = coinMesh.getNumVertices();
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
-		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal(normal);
-		coinMesh.addColor(edgeColor);
-		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal(normal);
-		coinMesh.addColor(edgeColor);
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		int current = edgeStartIndex + i * 2;
-		int next = edgeStartIndex + (i + 1) * 2;
-		coinMesh.addIndex(current);
-		coinMesh.addIndex(next);
-		coinMesh.addIndex(current + 1);
-		coinMesh.addIndex(next);
-		coinMesh.addIndex(next + 1);
-		coinMesh.addIndex(current + 1);
-	}
-
-	// --- 8. POST SHADERS (P key cycle) ---
-	pixelArtShaderLoaded = pixelArtShader.load("Shaders/pixel_art");
-	c64ShaderLoaded = c64Shader.load("Shaders/c64");
-	if (!pixelArtShaderLoaded) {
-		ofLogWarning("PixelArt") << "Failed to load shader pair: Shaders/pixel_art.{vert,frag}";
-	}
-	if (!c64ShaderLoaded) {
-		ofLogWarning("PixelArt") << "Failed to load shader pair: Shaders/c64.{vert,frag}";
-	}
-
-	// --- 9. MATERIALS & LIGHTS ---
-
-	// 1. Material Settings
-	modelMaterial.setShininess(10);
-	modelMaterial.setSpecularColor(ofColor(50, 50, 50));
-	modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
-	modelMaterial.setAmbientColor(ofColor(255, 255, 255));
-
-	// 1. GLOBAL AMBIENT
-	// Make the ambient slightly darker so the board isn't too bright
-	ofSetGlobalAmbientColor(ofColor(50, 50, 50));
-
-	lights.clear();
-
-	// 2. KEY LIGHT (Main Illumination)
-	keyLight.setup();
-	keyLight.setPointLight();
-	keyLight.setPosition(50, 150, 50); // Raised Y to 150 for better spread
-	// Neutral white light, boosted brightness
-	keyLight.setDiffuseColor(ofColor(140, 140, 140));
-	keyLight.setSpecularColor(ofColor(50, 50, 50));
-	keyLight.setAttenuation(1.0f, 0.005f, 0.0f);
-	lights.push_back(keyLight);
-
-	// 3. RIM LIGHT (Backlight)
-	rimLight.setup();
-	rimLight.setPointLight();
-	rimLight.setPosition(-50, 30, -50);
-	// Very subtle warm glow, not deep red
-	rimLight.setDiffuseColor(ofColor(80, 60, 50));
-	rimLight.setSpecularColor(ofColor(50, 0, 0));
-	lights.push_back(rimLight);
-
-	// 5. HEADLIGHT (Torch)
-	headlight.setup();
-	headlight.setPointLight();
-	headlight.setDiffuseColor(ofColor(220, 170, 100));
-	headlight.setSpecularColor(ofColor(255, 200, 150));
-	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
-
-	// 6. UI LIGHT (For FBOs)
-	uiLight.setup();
-	uiLight.setPointLight();
-	uiLight.setDiffuseColor(ofColor::white);
-	uiLight.setPosition(0, 100, 200); // Positioned in front and above
-	// END ADD
-
-	// Adjust FOV based on aspect ratio to maintain consistent scale
-	float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
-	float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
-	cam.setupPerspective(false, fov, 0.1f, 100000);
-	cam2.setupPerspective(false, fov, 0.1f, 100000); // Same settings for cam2
-
-	// --- SHADOW TEXTURE GENERATION ---
-	ofPixels pix;
-	pix.allocate(64, 64, OF_PIXELS_RGBA);
-	for (int x = 0; x < 64; x++) {
-		for (int y = 0; y < 64; y++) {
-			float dist = ofDist(x, y, 32, 32);
-			float alpha = ofMap(dist, 0, 32, 200, 0, true);
-			pix.setColor(x, y, ofColor(0, 0, 0, alpha));
-		}
-	}
-	shadowTexture.setFromPixels(pix);
+		shadowTexture.setFromPixels(pix);
+	} // <-- Close the first !headless asset loading block here!
 
 	// --- 9. LOAD CARD DATA ---
 	// Note: Path points to Config/ folder
+	// CRITICAL FIX: The card definitions must still be loaded in headless mode!
 	loadCardData("Config/cards.json");
 
-	// --- 10. SCREEN SETTINGS ---
-	availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
-	int screenW = ofGetScreenWidth();
-	int screenH = ofGetScreenHeight();
-	bool found = false;
-	for (size_t i = 0; i < availableResolutions.size(); ++i) {
-		if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
-			currentResolutionIndex = static_cast<int>(i);
-			found = true;
-			break;
-		}
-	}
-	if (!found) {
-		availableResolutions.push_back(glm::vec2(screenW, screenH));
-		currentResolutionIndex = availableResolutions.size() - 1;
-	}
-
-	// (Monitor refresh rate defaults moved above loadSettings)
-
-	// --- GENERATE PIXEL ART FIRE TEXTURE ---
-	ofPixels firePix;
-	firePix.allocate(128, 32, OF_PIXELS_RGBA);
-
-	for (int f = 0; f < 4; f++) { // 4 Frames
-		int xOffset = f * 32;
-		for (int y = 0; y < 32; y++) {
-			for (int x = 0; x < 32; x++) {
-				// y=0 is top, y=31 is bottom
-				float ny = y / 31.0f;
-				float nx = (x - 15.5f) / 15.5f; // -1 to 1
-
-				// Flame base envelope: wider at bottom, pinches to a point at top
-				float width = std::pow(ny, 0.8f);
-				float envelope = width - std::abs(nx);
-
-				// Animated noise (scrolls UP across the 4 frames)
-				float n = ofNoise(x * 0.15f, y * 0.15f - f * 0.6f);
-
-				// Combine envelope and noise
-				float flame = envelope + (n - 0.5f) * 1.2f;
-
-				unsigned char alpha = 0;
-				ofColor c(0, 0, 0, 0);
-
-				// If it's inside the flame shape (and not touching the very top edge)
-				if (flame > 0.1f && y > 2) {
-					alpha = 255;
-					// Core is hottest (yellow), edges/tips are cooler (red)
-					float heat = flame * ny;
-					if (heat > 0.5f)
-						c = ofColor(255, 255, 0); // Yellow core
-					else if (heat > 0.2f)
-						c = ofColor(255, 120, 0); // Orange mid
-					else
-						c = ofColor(255, 30, 0); // Red edges
-				}
-
-				firePix.setColor(xOffset + x, y, ofColor(c, alpha));
+	if (!headless) {
+		// --- 10. SCREEN SETTINGS ---
+		availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
+		int screenW = ofGetScreenWidth();
+		int screenH = ofGetScreenHeight();
+		bool found = false;
+		for (size_t i = 0; i < availableResolutions.size(); ++i) {
+			if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
+				currentResolutionIndex = static_cast<int>(i);
+				found = true;
+				break;
 			}
 		}
-	}
-	fireTexture.setFromPixels(firePix);
-	fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		if (!found) {
+			availableResolutions.push_back(glm::vec2(screenW, screenH));
+			currentResolutionIndex = availableResolutions.size() - 1;
+		}
 
-	// --- ALLOCATE FBO FOR MINION UI ---
-	ofFbo::Settings fboSettings;
-	// Increase FBO resolution so model previews are larger and crisper
-	fboSettings.width = 512;
-	fboSettings.height = 512;
-	fboSettings.internalformat = GL_RGBA;
-	fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
-	modelFbo.allocate(fboSettings);
+		// (Monitor refresh rate defaults moved above loadSettings)
+
+		// --- GENERATE PIXEL ART FIRE TEXTURE ---
+		ofPixels firePix;
+		firePix.allocate(128, 32, OF_PIXELS_RGBA);
+
+		for (int f = 0; f < 4; f++) { // 4 Frames
+			int xOffset = f * 32;
+			for (int y = 0; y < 32; y++) {
+				for (int x = 0; x < 32; x++) {
+					// y=0 is top, y=31 is bottom
+					float ny = y / 31.0f;
+					float nx = (x - 15.5f) / 15.5f; // -1 to 1
+
+					// Flame base envelope: wider at bottom, pinches to a point at top
+					float width = std::pow(ny, 0.8f);
+					float envelope = width - std::abs(nx);
+
+					// Animated noise (scrolls UP across the 4 frames)
+					float n = ofNoise(x * 0.15f, y * 0.15f - f * 0.6f);
+
+					// Combine envelope and noise
+					float flame = envelope + (n - 0.5f) * 1.2f;
+
+					unsigned char alpha = 0;
+					ofColor c(0, 0, 0, 0);
+
+					// If it's inside the flame shape (and not touching the very top edge)
+					if (flame > 0.1f && y > 2) {
+						alpha = 255;
+						// Core is hottest (yellow), edges/tips are cooler (red)
+						float heat = flame * ny;
+						if (heat > 0.5f)
+							c = ofColor(255, 255, 0); // Yellow core
+						else if (heat > 0.2f)
+							c = ofColor(255, 120, 0); // Orange mid
+						else
+							c = ofColor(255, 30, 0); // Red edges
+					}
+
+					firePix.setColor(xOffset + x, y, ofColor(c, alpha));
+				}
+			}
+		}
+		fireTexture.setFromPixels(firePix);
+		fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
+		// --- ALLOCATE FBO FOR MINION UI ---
+		ofFbo::Settings fboSettings;
+		// Increase FBO resolution so model previews are larger and crisper
+		fboSettings.width = 512;
+		fboSettings.height = 512;
+		fboSettings.internalformat = GL_RGBA;
+		fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
+		modelFbo.allocate(fboSettings);
+	} // <-- Close the !headless asset loading block here!
 
 	// --- FINAL APPLY SETTINGS ---
 	applySettings();
@@ -4540,13 +4546,18 @@ void ofApp::setup() {
 		setupGame(); // Naturally begins Initiative Roll -> Real Drafting Phase!
 	}
 
-	// Connect to Python AI if in training mode
-	if (headless && isAIvsAI) {
+	// Connect to Python AI if in training mode or Singleplayer vs AI!
+	// (ZMQ connections in C++ are non-blocking, so this is 100% safe to do unconditionally)
+	if (true) {
 		zmqContext = new zmq::context_t(1);
-		zmqSocket = new zmq::socket_t(*zmqContext, zmq::socket_type::req); // Request socket
-		zmqSocket->connect("tcp://localhost:5555");
+		zmqSocket = new zmq::socket_t(*zmqContext, zmq::socket_type::rep); // REP socket
+		std::string port = "5555";
+		if (std::getenv("MAGEFIGHT_PORT") != nullptr) port = std::getenv("MAGEFIGHT_PORT");
+
+		// 🟢 THE C++ GAME IS THE SERVER (It waits for the AI to connect)
+		zmqSocket->bind("tcp://*:" + port);
 		zmqConnected = true;
-		ofLogNotice("AI") << "Connected to Python ZMQ Server on port 5555";
+		ofLogNotice("AI") << "Bound C++ Game to port " << port;
 	}
 }
 //--------------------------------------------------------------
@@ -4900,6 +4911,12 @@ void ofApp::updateStateMachine() {
 			deltaTime = 0.0f;
 		}
 
+		// FIX: Clamp delta time in visual mode to prevent massive "time-warp" catchups
+		// when the main thread blocks waiting for the Python AI ZMQ socket!
+		if (!headless && deltaTime > SIMULATION_TIMESTEP * 1.5f) {
+			deltaTime = SIMULATION_TIMESTEP * 1.5f;
+		}
+
 		simulationAccumulator += deltaTime;
 		while (simulationAccumulator >= SIMULATION_TIMESTEP) {
 			simulationTick();
@@ -4947,7 +4964,19 @@ void ofApp::update() {
 
 	// --- HYPER-SPEED TRAINING RESET ---
 	if (g_isGameOver && headless && isAIvsAI) {
-		float finalReward = (g_winnerID == 1) ? 10.0f : -10.0f; // +10 for AI win, -10 for Human win
+		float finalReward = -10.0f; // Default to loss penalty for the active perspective
+
+		if (g_winnerID != 2) { // If the game did not end in a draw/tie
+			// Resolve the owner ID of the active unit on the final step
+			int activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+
+			// If the active player matches the winning ID, award them the victory bonus!
+			if (activeID == g_winnerID) {
+				finalReward = 10.0f;
+			}
+		} else {
+			finalReward = 0.0f; // Ties get exactly 0.0
+		}
 
 		// Send final state to Python so it learns from the win/loss
 		std::vector<float> finalState = extractGameStateForAI();
@@ -5199,7 +5228,8 @@ void ofApp::update() {
 	}
 
 	// If client is waiting for authoritative DraftOptions for too long, request a snapshot
-	if (isClient() && waitingForDraftOptionsStartTime > 0.0f) {
+	// FIX: Do not run this check in headless mode (no visual draft)
+	if (!headless && isClient() && waitingForDraftOptionsStartTime > 0.0f) {
 		float now = ofGetElapsedTimef();
 		if (now - waitingForDraftOptionsStartTime > waitingForDraftOptionsTimeout) {
 			ofLogWarning("Draft") << "Client: waiting for DraftOptions timed out. Requesting authoritative snapshot.";
@@ -6469,6 +6499,14 @@ void ofApp::drawMultiplayerMenu() {
 
 //--------------------------------------------------------------
 void ofApp::applySettings() {
+	// SPEEDUP FIX: Bypass V-Sync and framerate caps in headless mode!
+	// This will unlock your CPU to train at 2,000+ FPS instead of 72 FPS.
+	if (headless) {
+		ofSetVerticalSync(false);
+		ofSetFrameRate(0);
+		return;
+	}
+
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
@@ -14409,7 +14447,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			isMultiplayer = false;
 			myLocalPlayerID = 0; // The human is Player 1
 			setupGame();
-			currentState = STATE_GAMEPLAY;
+			// setupGame() -> startInitiativePhase() cleanly sets STATE_INITIATIVE_ROLL
 			return;
 		}
 		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
@@ -14652,7 +14690,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (singleplayerNewGameButton.inside(x, y)) {
 			isMultiplayer = false;
 			isLoadingGame = true; // setupGame will be called by update loop
-			currentState = STATE_GAMEPLAY;
 			isReplayMode = false;
 			return;
 		}
@@ -18063,6 +18100,12 @@ void ofApp::startNewTurn() {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "--- START NEW TURN --- Unit: " + std::to_string(currentPlayerIndex) + " | Starting Checksum: " + std::to_string(calculateChecksum()));
 	}
 
+	// --- ADD THIS FIX AT THE VERY TOP OF startNewTurn() ---
+	// Forcefully wipe any lingering menu/targeting states from the previous turn
+	cancelAllTargeting();
+	resetCardState();
+	// ------------------------------------------------------
+
 	// Calculate Max Damage for the turn that just ended
 	for (int i = 0; i < 2; i++) {
 		if (matchStats[i].currentTurnDamage > matchStats[i].maxDamageInOneTurn) {
@@ -18570,6 +18613,10 @@ void ofApp::continueNewTurn() {
 	// Reset AP resolved marker for this new start
 	apResolvedThisTurn = false;
 	endTurnLocked = false;
+
+	// FIX: Ensure the AI is completely unlocked when entering the gameplay phase!
+	draftAcceptLocked = false;
+
 	Player & startingPlayer = players[currentPlayerIndex];
 
 	// Ensure temp luck is correct for the starting player before AP is rolled
@@ -20924,16 +20971,16 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	}
 	cmd.type = PKT_INPUT_COMMAND;
 
-	// FIX: If we are the AI playing against itself, we must impersonate whoever is currently active!
-	// Otherwise, Player 0's client will drop Player 1's commands.
-	if (isAIvsAI && cmd.playerID != 0 && cmd.playerID != 1) {
-		cmd.playerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-	} else if (!isAIvsAI) {
+	// In AI vs AI, we don't need to override the playerID here.
+	// The `executeAIAction` function is now responsible for setting the correct `cmd.playerID`
+	// based on the active player for that specific command.
+	if (!isAIvsAI) {
 		cmd.playerID = myLocalPlayerID;
 	}
 
 	if (isMultiplayer) {
-		if (isClient()) {
+		// In AI-vs-AI, we are BOTH the host and the client. Bypass the isClient() check!
+		if (isClient() && !isAIvsAI) {
 			cmd.seq = ++watchdogClientActionCounter;
 			cmd.clientActionID = cmd.seq; // Tag with local prediction ID
 			cmd.commandId = 0; // Host assigns the official ID
@@ -22138,7 +22185,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		break;
 	}
 	case CMD_ACCEPT_DRAFT: {
-		int cmdDraftPlayerIdx = cmd.params[0]; // RENAME TO PREVENT SHADOWING
+		int cmdDraftPlayerIdx = cmd.params[0];
 		int classTier = cmd.params[1];
 		int copiesPerCard = cmd.params[2];
 		int pick0 = cmd.params[3];
@@ -22162,58 +22209,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (pick1 >= 0) picks.push_back(pick1);
 		if (pick2 >= 0) picks.push_back(pick2);
 
-		// Diagnostic: log incoming picks and current selectedDraftIndices snapshot
-		{
-			std::string pickStr = "";
-			for (size_t ii = 0; ii < picks.size(); ++ii) {
-				if (ii) pickStr += ", ";
-				pickStr += std::to_string(picks[ii]);
-			}
-			std::string selStr = "";
-			for (size_t ii = 0; ii < selectedDraftIndices.size(); ++ii) {
-				if (ii) selStr += ", ";
-				selStr += std::to_string(selectedDraftIndices[ii]);
-			}
-			ofLogNotice("Lockstep") << "CMD_ACCEPT_DRAFT received: player=" << cmdDraftPlayerIdx << " classTier=" << classTier << " copiesPerCard=" << copiesPerCard << " picks(size=" << picks.size() << ")=[" << pickStr << "] selectedDraftIndices(size=" << selectedDraftIndices.size() << ")=[" << selStr << "]";
-		}
-		int beforeSize = (int)p.deck.size();
-		std::vector<std::string> addedNames;
-		for (int poolIdx : picks) {
-			if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
-				ofLogWarning("Lockstep") << "CMD_ACCEPT_DRAFT: ignoring invalid poolIdx=" << poolIdx << " for class " << classTier;
-				continue;
-			}
-			for (int k = 0; k < copiesPerCard; ++k) {
-				try {
-					p.deck.push_back((*pool)[poolIdx]);
-					addedNames.push_back((*pool)[poolIdx].name);
-				} catch (const std::bad_alloc & e) {
-					ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: memory allocation failed while adding card to deck: " << e.what();
-					break;
-				}
-			}
-		}
-		int afterSize = (int)p.deck.size();
-		ofLogNotice("Lockstep") << "CMD_ACCEPT_DRAFT applied: player=" << cmdDraftPlayerIdx << " beforeSize=" << beforeSize << " afterSize=" << afterSize << " added=" << (afterSize - beforeSize);
-		if (!addedNames.empty()) {
-			std::string list = "";
-			for (size_t ai = 0; ai < addedNames.size(); ++ai) {
-				if (ai) list += ", ";
-				list += addedNames[ai];
-			}
-			ofLogNotice("Lockstep") << "Added cards: " << list;
-		}
-		// After adding cards, perform deterministic shuffle of the target player's deck
-		deterministic_shuffle_gameplay(p.deck);
-		if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size()) {
-			players[cmdDraftPlayerIdx].deckNeedsShuffle = false;
-		}
-		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << cmdDraftPlayerIdx << " picks=" << picks.size() << " (shuffled)";
-
-		// Spawn visual animations for picked cards and vanish the rest (visual-only)
-		// We skip this if we are the ones who sent it, because our local optimistic UI
-		// already spawned the flying cards and shuffle instantly for responsiveness!
-		if (cmd.playerID != (uint32_t)myLocalPlayerID) {
+		// Always spawn visual drafting flight-paths for the AI in singleplayer vs AI mode!
+		if (cmd.playerID != (uint32_t)myLocalPlayerID || (isVsAI && cmd.playerID == 1)) {
 
 			// Schedule visual shuffle and animations consistent with click-path timing
 			float cardAnimDuration = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f;
@@ -22222,7 +22219,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				startShuffleVisual(cmdDraftPlayerIdx, cardAnimDuration);
 			}
 
-			// Minion-specific shuffle visual (as done in click handler)
 			if (targetIsMinion) {
 				ShuffleAnimation s;
 				s.playerIndex = cmdDraftPlayerIdx;
@@ -22255,10 +22251,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 			int nowFrameLocal = (int)simulationFrame;
 
-			// Create picked-card fly animations (use authoritative picks from the command)
-			const std::vector<Card> * pool = &class1Cards;
-			if (currentDraftClassTier == 2) pool = &class2Cards;
-			if (currentDraftClassTier == 3) pool = &class3Cards;
+			const std::vector<Card> * poolAnim = &class1Cards;
+			if (currentDraftClassTier == 2) poolAnim = &class2Cards;
+			if (currentDraftClassTier == 3) poolAnim = &class3Cards;
 			for (int poolIdx : picks) {
 				int slot = -1;
 				for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
@@ -22268,14 +22263,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					}
 				}
 
-				// FALLBACK: If the visual draft UI got out of sync for the opponent,
-				// force the animation to spawn from the center of the screen anyway!
-				if (slot < 0) slot = 1;
+				if (slot < 0) slot = 1; // Fallback to center slot if unmapped
 
 				float cx = startX + static_cast<float>(slot) * (cardW + spacing);
 				glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
 				DraftPickedMove mv;
-				mv.card = (*pool)[poolIdx];
+				mv.card = (*poolAnim)[poolIdx];
 				mv.startFrame = nowFrameLocal;
 				mv.delayFrames = draftAnimHoldFrames;
 				mv.durationFrames = (int)(0.35f * (float)turnTimerFramesPerSecond + 0.5f);
@@ -22306,9 +22299,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				scheduleDraftPickedMove(mv);
 			}
 
-			// Hide all option slots immediately; picked cards are shown via
-			// `activeDraftPickedMoves` so remove the originals to avoid
-			// duplicated visuals.
 			for (size_t si = 0; si < draftOptionUI.size(); ++si) {
 				auto & ui = draftOptionUI[si];
 				if (!ui.hidden) {
@@ -22320,28 +22310,46 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
-		selectedDraftIndices.clear();
+		int beforeSize = (int)p.deck.size();
+		std::vector<std::string> addedNames;
+		for (int poolIdx : picks) {
+			if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
+				ofLogWarning("Lockstep") << "CMD_ACCEPT_DRAFT: ignoring invalid poolIdx=" << poolIdx;
+				continue;
+			}
+			for (int k = 0; k < copiesPerCard; ++k) {
+				p.deck.push_back((*pool)[poolIdx]);
+				addedNames.push_back((*pool)[poolIdx].name);
+			}
+		}
+		deterministic_shuffle_gameplay(p.deck);
+		if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size()) {
+			players[cmdDraftPlayerIdx].deckNeedsShuffle = false;
+		}
 
+		selectedDraftIndices.clear();
 		addTimeBonusToTurn(cmdDraftPlayerIdx, 5);
 
+		// --- CRITICAL UNCONDITIONAL RESET FIX ---
+		// Guarantee these are cleared after ANY selection to prevent permanent action thread freezes
+		draftAcceptLocked = false;
+		draftAcceptApplied = false;
+		// ----------------------------------------
+
 		if (initialDraftComplete) {
-			// In-game drafts (Key pickups, Constitution Boon, Demon death)
 			if (isInGameDraft && this->draftPlayerIndex == cmdDraftPlayerIdx) {
 				isInGameDraft = false;
 			} else {
-				// The client lagged and the draft hasn't visually popped up for them yet.
-				// We need to intercept and destroy the pending visual trigger so it doesn't pop up late!
 				bool intercepted = false;
 				for (auto it = pendingVisualKeyDraftQueue.begin(); it != pendingVisualKeyDraftQueue.end();) {
 					if (it->targetIndex == cmdDraftPlayerIdx) {
 						it = pendingVisualKeyDraftQueue.erase(it);
 						intercepted = true;
-						break; // Only erase the one matching the current accept
+						break;
 					} else {
 						++it;
 					}
 				}
-				// If it wasn't a key pickup, intercept it from the logical chain queue
 				if (!intercepted) {
 					for (auto it = networkPending.draftQueue.begin(); it != networkPending.draftQueue.end();) {
 						int targetPlayerIdx = (*it >> 16) & 0xFFFF;
@@ -22358,36 +22366,32 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			resumeTurnTimerIfPausedForOpponent(cmdDraftPlayerIdx);
 			currentState = STATE_GAMEPLAY;
-
-			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
-
-			break; // <--- CRUCIAL: Stops it from falling through to the pre-game draft logic!
+			break;
 		}
 
-		// Advance draft flow from authoritative classTier in the command.
-		// Do not rely on local draftStage here; drift can cause class-1 loops.
 		float delay = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f + 0.9f + 0.1f;
+		if (headless) delay = 0.01f;
+
 		if (classTier <= 1) {
-			// Completed Class 1 for this player -> next is Class 2 for same player.
 			this->draftPlayerIndex = cmdDraftPlayerIdx;
 			draftStage = 1;
 			scheduleGenerateDraftOptions(2, delay);
 		} else {
-			// Completed Class 2 (or higher) for this player -> next player or end draft.
 			int nextPlayerIdx = (cmdDraftPlayerIdx + 1) % 2;
+
+			// If the other player has not drafted yet, switch to them
 			if (players[nextPlayerIdx].deck.empty()) {
 				this->draftPlayerIndex = nextPlayerIdx;
 				draftStage = 0;
 				scheduleGenerateDraftOptions(1, delay);
 			} else {
+				// Both players are fully drafted! Schedule the transition to gameplay
 				draftEndScheduled = true;
-				// Convert seconds to exact lockstep simulation frames!
 				draftEndAt = (float)(simulationFrame + (uint32_t)(delay * turnTimerFramesPerSecond));
 				draftEndNextPlayerIndex = nextPlayerIdx;
 				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
 			}
 		}
-		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
 		break;
 	}
 
@@ -22428,6 +22432,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 		break;
 	}
+
 	case CMD_END_TURN: {
 		// If the network delivers a duplicate End Turn for an actor who already ended their turn, drop it!
 		if (cmd.params[0] != currentPlayerIndex) {
@@ -22435,10 +22440,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
+		// --- CRITICAL RULE FIX: BLOCK ENDING TURN DURING ACTIVE SELECTIONS ---
+		if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
+			ofLogWarning("Lockstep") << "CMD_END_TURN rejected: Cannot end turn while a card menu choice or target selection is pending!";
+			break; // Forcefully exit and reject the command
+		}
+		// ---------------------------------------------------------------------
 
-		// Let startNewTurn() and continueNewTurn() handle the turnStartDeferred flags internally
-		// so that the checksum is evaluated with identical state on both peers.
+		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
 		startNewTurn();
 		break;
 	}
@@ -28513,10 +28522,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		wolfSummonCount = 0;
 		wolfSummonStage = 1;
 
-		// FIX: BOTH peers must enter PLACING state to block their command queues synchronously!
+		// FIX: Both peers must enter PLACING state to block their command queues synchronously!
 		updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_WOLVES);
 
-		if (isCurrentPlayerLocal()) {
+		// FIX: Do not skip the draft for the AI! Let the AI learn how to draft!
+		if (!headless && isCurrentPlayerLocal()) {
 			calculateTargetHighlights();
 			queueFloatingTextVisual(gridToWorld(cx, cy), "Place Wolf", ofColor::gold);
 		} else {
@@ -31198,6 +31208,18 @@ const Card * ofApp::findCardByName(const std::string & name) const {
 
 //--------------------------------------------------------------
 bool ofApp::isMyTurn() const {
+	// FIX: Make the turn check Draft-Aware so it correctly tracks who is currently picking cards!
+	if (currentState == STATE_DRAFTING) {
+		if (isAIvsAI) return true;
+		if (isVsAI) {
+			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+				int owner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
+				return owner == 0; // It's the human's turn to draft if draftPlayerIndex belongs to Player 0
+			}
+			return true;
+		}
+	}
+
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	int pid = players[currentPlayerIndex].playerID;
 	int oid = players[currentPlayerIndex].ownerID;
@@ -31216,12 +31238,18 @@ bool ofApp::isMyTurn() const {
 //--------------------------------------------------------------
 bool ofApp::isCurrentPlayerLocal() const {
 	if (myLocalPlayerID == 2) return false; // Spectators cannot act locally
+	if (isAIvsAI) {
+		// FIX: The AI should only act when the game is in the gameplay or drafting state!
+		if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) {
+			return false;
+		}
+		return true; // Both sides are locally controlled by the Python script
+	}
+
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	const Player & p = players[currentPlayerIndex];
 	int activeID = p.isMinion ? p.ownerID : p.playerID;
-	if (isAIvsAI) {
-		return true; // Both sides are locally controlled by the Python script
-	}
+
 	if (isVsAI) {
 		return activeID == 0; // Only local if it's the human's unit
 	}
@@ -34016,41 +34044,33 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		queueFloatingTextVisual(targetPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
 
 		// --- AI REWARD SHAPING (POINTS) ---
-		// If we are training the AI, give it points for dealing damage, and penalize it for taking damage!
-		if (headless && isAIvsAI && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
+		// Consolidates rewards to prevent double-accumulation, and supports status damage (attackerIndex == -1)
+		if (headless && isAIvsAI) {
 			// The AI ID is the owner of the currently active unit (whose turn it is)
 			int aiID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 
-			// Figure out who the attacker and victim actually are (accounting for minions)
-			int attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
-			int victimOwner = target.isMinion ? target.ownerID : target.playerID;
-
-			if (attackerOwner == aiID && victimOwner != aiID) {
-				// The AI successfully hurt the enemy! Give it +0.2 points per damage dealt.
-				cumulativeReward += (applied * 0.2f);
-			} else if (victimOwner == aiID && attackerOwner != aiID) {
-				// The AI got hurt! Penalize it -0.2 points per damage taken.
-				cumulativeReward -= (applied * 0.2f);
+			// Figure out who the true attacker is (accounting for direct casts and start-of-turn status damage)
+			int attackerOwner = -1;
+			if (attackerIndex >= 0 && attackerIndex < (int)players.size()) {
+				attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
+			} else {
+				if (type == DAMAGE_FIRE && target.fireApplierPlayerID != -1) {
+					attackerOwner = target.fireApplierPlayerID;
+				} else if (type == DAMAGE_POISON && target.poisonApplierPlayerID != -1) {
+					attackerOwner = target.poisonApplierPlayerID;
+				}
 			}
-		}
-		// ----------------------------------
 
-		// --- AI REWARD SHAPING (POINTS) ---
-		// If we are training the AI, give it points for dealing damage, and penalize it for taking damage!
-		if (headless && isAIvsAI && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
-			// The AI ID is the owner of the currently active unit (whose turn it is)
-			int aiID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-
-			// Figure out who the attacker and victim actually are (accounting for minions)
-			int attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
 			int victimOwner = target.isMinion ? target.ownerID : target.playerID;
 
-			if (attackerOwner == aiID && victimOwner != aiID) {
-				// The AI successfully hurt the enemy! Give it +0.2 points per damage dealt.
-				cumulativeReward += (applied * 0.2f);
-			} else if (victimOwner == aiID && attackerOwner != aiID) {
-				// The AI got hurt! Penalize it -0.2 points per damage taken.
-				cumulativeReward -= (applied * 0.2f);
+			if (attackerOwner != -1) {
+				if (attackerOwner == aiID && victimOwner != aiID) {
+					// The AI successfully hurt the enemy! Give it +0.2 points per damage dealt.
+					cumulativeReward += (applied * 0.2f);
+				} else if (victimOwner == aiID && attackerOwner != aiID) {
+					// The AI got hurt! Penalize it -0.2 points per damage taken.
+					cumulativeReward -= (applied * 0.2f);
+				}
 			}
 		}
 		// ----------------------------------
@@ -35075,6 +35095,11 @@ void ofApp::debugSkipDraftRandomCards() {
 	players[currentPlayerIndex].ap = currentAP;
 	hasDrawnCardsThisTurn = false;
 
+	// In singleplayer/AI, we must set the first player explicitly to match the initiative roll winner.
+	if (!isMultiplayer) {
+		currentPlayerIndex = draftPlayerIndex;
+	}
+
 	// NO DRAWING - decks are pre-populated with cards from draft
 
 	// Set state to gameplay
@@ -35283,13 +35308,16 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// - content source: UI/cards.md
 	// - field layout/scales are configured directly in CardTemplateLayout (this .cpp)
 	// Keeps template base image if markdown build fails.
-	const std::string cardTemplatePath = findCardTemplatePath();
-	if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet)) {
-		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-		ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
-	} else {
-		ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
+	// FIX: Skip generating this 10,500x10,500 image atlas in headless mode to save 440MB of RAM per instance!
+	if (!headless) {
+		const std::string cardTemplatePath = findCardTemplatePath();
+		if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet)) {
+			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
+		} else {
+			ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
+		}
 	}
 }
 
@@ -38620,7 +38648,12 @@ void ofApp::updateAI() {
 	// FIX: Prevent the AI from thinking/spamming if it already has commands waiting to execute!
 	if (!commandQueue.empty() || isExecutingLockstepCommand) isGameBusy = true;
 
-	if (isProcessingEffect || isEarthquakeActive || isPlayerAnimating) isGameBusy = true;
+	// ADD THIS: Prevent ZMQ decisions during the draft card intro scale-up in visual mode
+	if (currentState == STATE_DRAFTING && !headless && !draftDisplayInteractiveEnabled) isGameBusy = true;
+
+	// Allow the AI to draft even if a walking animation hasn't finished its final frame
+	if (isProcessingEffect || isEarthquakeActive) isGameBusy = true;
+	if (currentState != STATE_DRAFTING && isPlayerAnimating) isGameBusy = true;
 	for (const auto & roll : activeDiceRolls) {
 		if (!roll.isFinishedVisual) isGameBusy = true;
 	}
@@ -38639,11 +38672,7 @@ void ofApp::updateAI() {
 	if (isGameBusy) return;
 
 	// --- AI DRAFT HANDLER ---
-	// If the game is in the Draft State, instantly bypass it so the AI can train gameplay.
-	if (currentState == STATE_DRAFTING && headless) {
-		debugSkipDraftRandomCards();
-		return;
-	}
+	// The AI now handles drafting via its standard action loop. This block has been disabled.
 	// ------------------------
 
 	// If watching the AI play normally (not headless), add a tiny delay
@@ -38681,8 +38710,7 @@ std::vector<float> ofApp::extractGameStateForAI() {
 			activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 		}
 	} else if (isVsAI) {
-		// In Human vs AI, the AI is always Player 1!
-		activeID = 1;
+		activeID = 1; // In Human vs AI, the AI is always Player 1
 	}
 	int opponentID = (activeID == 1) ? 0 : 1;
 
@@ -38715,20 +38743,38 @@ std::vector<float> ofApp::extractGameStateForAI() {
 	encodePlayer(activeID); // The AI making the decision
 	encodePlayer(opponentID); // The Enemy
 
-	// --- 3. AI HAND (70 floats: Bag of Cards) ---
-	std::vector<float> handCounts(70, 0.0f);
+	// --- 3. CARD KNOWLEDGE (420 floats: 6 zones x 70 cards) ---
+	auto encodeCardZone = [&](const std::vector<Card> & zone) {
+		std::vector<float> counts(70, 0.0f);
+		for (const auto & c : zone) {
+			int cId = (int)c.type - 1; // CARD_NONE is 0, cards are 1-70
+			if (cId >= 0 && cId < 70) counts[cId] += 1.0f;
+		}
+		for (float f : counts)
+			state.push_back(f);
+	};
+
 	int aiIdx = findPlayerIndexByID(activeID);
 	if (aiIdx >= 0) {
-		for (const Card & c : players[aiIdx].hand) {
-			int cardId = (int)c.type - 1; // Assuming CARD_NONE is 0, cards are 1-70
-			if (cardId >= 0 && cardId < 70) handCounts[cardId] += 1.0f;
-		}
+		encodeCardZone(players[aiIdx].hand);
+		encodeCardZone(players[aiIdx].deck);
+		encodeCardZone(players[aiIdx].discardPile);
+	} else {
+		for (int i = 0; i < 210; i++)
+			state.push_back(0.0f);
 	}
-	for (float f : handCounts)
-		state.push_back(f);
 
-	// --- 4. DRAFT OPTIONS (70 floats: Bag of Cards) ---
-	// If drafting, tells the AI which cards are currently on screen to pick from.
+	int enIdx = findPlayerIndexByID(opponentID);
+	if (enIdx >= 0) {
+		encodeCardZone(players[enIdx].hand);
+		encodeCardZone(players[enIdx].deck);
+		encodeCardZone(players[enIdx].discardPile);
+	} else {
+		for (int i = 0; i < 210; i++)
+			state.push_back(0.0f);
+	}
+
+	// --- 4. DRAFT OPTIONS (70 floats) ---
 	std::vector<float> draftCounts(70, 0.0f);
 	if (currentState == STATE_DRAFTING) {
 		for (const Card & c : draftOptions) {
@@ -38740,16 +38786,13 @@ std::vector<float> ofApp::extractGameStateForAI() {
 		state.push_back(f);
 
 	// --- 5. BOARD SPATIAL GRID (165 tiles * 33 floats = 5445 floats) ---
-	// This flattens the 15x11 grid so your Neural Network can run 2D Convolutions over it.
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
 			const Tile & t = board[x][y];
 
-			// Environment (2 floats)
 			state.push_back(t.hasWall ? 1.0f : 0.0f);
 			state.push_back(t.isMagicWall ? 1.0f : 0.0f);
 
-			// Keys (3 floats)
 			float hasGold = 0, hasSilver = 0, hasBronze = 0;
 			for (const auto & k : floatingKeyInstances) {
 				if (k.pos.x == x && k.pos.y == y) {
@@ -38765,22 +38808,18 @@ std::vector<float> ofApp::extractGameStateForAI() {
 			state.push_back(hasSilver);
 			state.push_back(hasBronze);
 
-			// Occupancy (1 float)
 			state.push_back(t.hasPlayer ? 1.0f : 0.0f);
 
-			// Occupant Details (27 floats)
 			bool foundOccupant = false;
 			for (size_t i = 0; i < players.size(); ++i) {
 				const Player & p = players[i];
 				if (p.x == x && p.y == y && p.health > 0) {
 					foundOccupant = true;
 
-					// Ownership: 1.0 for AI team, -1.0 for Human team
 					int owner = p.isMinion ? p.ownerID : p.playerID;
-					state.push_back(owner == 1 ? 1.0f : -1.0f);
+					state.push_back(owner == activeID ? 1.0f : -1.0f);
 
-					// Unit Type One-Hot (12 floats)
-					state.push_back(!p.isMinion ? 1.0f : 0.0f); // Main Player
+					state.push_back(!p.isMinion ? 1.0f : 0.0f);
 					state.push_back(p.isKobold ? 1.0f : 0.0f);
 					state.push_back(p.isWolf ? 1.0f : 0.0f);
 					state.push_back(p.isHellhound ? 1.0f : 0.0f);
@@ -38793,7 +38832,6 @@ std::vector<float> ofApp::extractGameStateForAI() {
 					state.push_back((p.isWallUnit && !p.isMagicWallUnit) ? 1.0f : 0.0f);
 					state.push_back(p.isMagicWallUnit ? 1.0f : 0.0f);
 
-					// Combat Stats (7 floats)
 					state.push_back((float)p.health);
 					state.push_back((float)p.maxHealth);
 					state.push_back((float)p.block);
@@ -38802,7 +38840,6 @@ std::vector<float> ofApp::extractGameStateForAI() {
 					state.push_back((float)p.barrier);
 					state.push_back((float)p.holyBlock);
 
-					// Status Effects (7 floats)
 					state.push_back(p.onFire ? 1.0f : 0.0f);
 					state.push_back(p.isPoisoned ? 1.0f : 0.0f);
 					state.push_back(p.isParalyzed ? 1.0f : 0.0f);
@@ -38811,11 +38848,10 @@ std::vector<float> ofApp::extractGameStateForAI() {
 					state.push_back(p.inGhostForm ? 1.0f : 0.0f);
 					state.push_back(p.hasRegeneration ? 1.0f : 0.0f);
 
-					break; // Only encode top occupant if multiple are somehow here
+					break;
 				}
 			}
 
-			// If empty, pad the occupant data with zeros to keep tensor shape strict
 			if (!foundOccupant) {
 				for (int i = 0; i < 27; ++i)
 					state.push_back(0.0f);
@@ -38827,24 +38863,8 @@ std::vector<float> ofApp::extractGameStateForAI() {
 }
 
 int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, bool done) {
-	if (!zmqConnected) {
-		// Fallback random/basic logic if Python is not connected
-		if (currentState == STATE_DRAFTING) return 30;
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) return 10;
-		int activeID = isAIvsAI ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 1;
-		int aiIdx = findPlayerIndexByID(activeID);
-		if (aiIdx >= 0) {
-			Player & aiPlayer = players[aiIdx];
-			bool hasDrawn = (activeID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-			if (!hasDrawn && !aiPlayer.deck.empty()) return 1;
-			for (int i = 0; i < (int)aiPlayer.hand.size(); ++i) {
-				if (aiPlayer.ap >= aiPlayer.hand[i].cost) return 10000 + i * (BOARD_WIDTH * BOARD_HEIGHT);
-			}
-		}
-		return 0; // End Turn
-	}
+	if (!zmqConnected) return 0;
 
-	// --- 1. GENERATE SPARSE ACTION MASK ---
 	std::vector<float> validActions;
 	int activeID = 1;
 	if (isAIvsAI) {
@@ -38859,30 +38879,37 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 	int aiIdx = findPlayerIndexByID(activeID);
 
 	if (currentState == STATE_DRAFTING) {
-		validActions.push_back(30.0f);
-		validActions.push_back(31.0f);
-		validActions.push_back(32.0f);
+		validActions.push_back(20.0f);
+		validActions.push_back(21.0f);
+		validActions.push_back(22.0f);
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-		for (int i = 10; i <= 29; i++)
-			validActions.push_back((float)i);
-		for (int i = 40; i <= 140; i++)
-			validActions.push_back((float)i);
+		// Toggle Menus (Amnesia/Renewed Inspiration)
+		if (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_RENEWED_INSPIRATION) {
+			for (int i = 0; i < 70; i++)
+				validActions.push_back((float)(2200 + i));
+			validActions.push_back(2300.0f); // Accept Button
+		} else {
+			// Standard Menus
+			for (int i = 10; i <= 19; i++)
+				validActions.push_back((float)i);
+		}
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			for (int x = 0; x < BOARD_WIDTH; x++) {
-				if (board[x][y].isTargetable) validActions.push_back((float)(1000 + y * BOARD_WIDTH + x));
+				if (board[x][y].isTargetable) validActions.push_back((float)(300 + y * BOARD_WIDTH + x));
 			}
 		}
 	} else {
-		validActions.push_back(0.0f); // End turn is always valid
+		validActions.push_back(0.0f); // End Turn
 
 		if (aiIdx >= 0) {
 			Player & aiPlayer = players[aiIdx];
 			bool hasDrawn = (activeID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-			if (!hasDrawn && !aiPlayer.deck.empty()) {
-				validActions.push_back(1.0f);
+			if (!hasDrawn && (!aiPlayer.deck.empty() || !aiPlayer.discardPile.empty())) {
+				validActions.push_back(1.0f); // Draw
 			}
 
+			// Assistant Reroll
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == activeID && !players[i].assistantRerollUsedThisTurn) {
 					if (abs(players[i].x - players[currentPlayerIndex].x) + abs(players[i].y - players[currentPlayerIndex].y) <= 1) {
@@ -38892,15 +38919,42 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 				}
 			}
 
-			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				for (int x = 0; x < BOARD_WIDTH; x++) {
-					int dist = abs(x - aiPlayer.x) + abs(y - aiPlayer.y);
-					if (dist > 0 && dist <= aiPlayer.ap && !board[x][y].hasWall && !board[x][y].hasPlayer) {
-						validActions.push_back((float)(200 + y * BOARD_WIDTH + x));
+			// 🧠 SMART PATHFINDING: The AI can no longer bump into walls!
+			std::vector<std::vector<int>> distMap(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, 9999));
+			std::queue<glm::ivec2> q;
+			q.push({ aiPlayer.x, aiPlayer.y });
+			distMap[aiPlayer.x][aiPlayer.y] = 0;
+			bool isGhost = aiPlayer.inGhostForm;
+
+			while (!q.empty()) {
+				glm::ivec2 curr = q.front();
+				q.pop();
+				int d = distMap[curr.x][curr.y];
+
+				if (d > 0 && d <= aiPlayer.ap && !board[curr.x][curr.y].hasWall && !board[curr.x][curr.y].hasPlayer) {
+					validActions.push_back((float)(100 + curr.y * BOARD_WIDTH + curr.x)); // Move Action
+				}
+
+				if (d < aiPlayer.ap) {
+					glm::ivec2 dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+					for (auto dir : dirs) {
+						int nx = curr.x + dir.x;
+						int ny = curr.y + dir.y;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							bool blocked = false;
+							if (!isGhost && (board[nx][ny].hasWall || board[nx][ny].hasPlayer)) {
+								blocked = true;
+							}
+							if (!blocked && distMap[nx][ny] == 9999) {
+								distMap[nx][ny] = d + 1;
+								q.push({ nx, ny });
+							}
+						}
 					}
 				}
 			}
 
+			// Valid Card Plays
 			int savedInteractionState = cardInteractionState;
 			int savedInteractingCardIdx = interactingCardIndex;
 
@@ -38914,14 +38968,14 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 					for (int y = 0; y < BOARD_HEIGHT; y++) {
 						for (int x = 0; x < BOARD_WIDTH; x++) {
 							if (board[x][y].isTargetable) {
-								validActions.push_back((float)(10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (y * BOARD_WIDTH + x)));
+								validActions.push_back((float)(500 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (y * BOARD_WIDTH + x)));
 								hasTargets = true;
 							}
 						}
 					}
 
 					if (!hasTargets && (aiPlayer.hand[i].targeting == TARGET_NONE || aiPlayer.hand[i].targeting == TARGET_SELF)) {
-						validActions.push_back((float)(10000 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (aiPlayer.y * BOARD_WIDTH + aiPlayer.x)));
+						validActions.push_back((float)(500 + i * (BOARD_WIDTH * BOARD_HEIGHT) + (aiPlayer.y * BOARD_WIDTH + aiPlayer.x)));
 					}
 				}
 			}
@@ -38931,16 +38985,14 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 		}
 	}
 
-	// --- 2. BUILD ZMQ PAYLOAD ---
 	std::vector<float> payload;
 	payload.reserve(3 + state.size() + validActions.size());
 	payload.push_back(done ? 1.0f : 0.0f);
 	payload.push_back(reward);
 	payload.insert(payload.end(), state.begin(), state.end());
-	payload.push_back(-1.0f); // Separator between state and sparse action mask
+	payload.push_back(-1.0f); // Separator
 	payload.insert(payload.end(), validActions.begin(), validActions.end());
 
-	// --- 3. COMMUNICATE WITH PYTHON ---
 	zmq::message_t request(payload.size() * sizeof(float));
 	memcpy(request.data(), payload.data(), payload.size() * sizeof(float));
 	zmqSocket->send(request, zmq::send_flags::none);
@@ -38948,19 +39000,17 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 	zmq::message_t reply;
 	auto res = zmqSocket->recv(reply, zmq::recv_flags::none);
 
-	if (res.has_value()) {
-		int action = -1;
-		memcpy(&action, reply.data(), sizeof(int));
-		return action;
+	int actionIndex = 0;
+	if (res.has_value() && reply.size() >= sizeof(int)) {
+		actionIndex = *static_cast<int *>(reply.data());
 	}
-	return 0;
+	return actionIndex;
 }
 
 void ofApp::executeAIAction(int actionIndex) {
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
 
-	// In AI vs AI, we command whoever is currently active.
 	int activeID = 1;
 	if (isAIvsAI) {
 		if (currentState == STATE_DRAFTING) {
@@ -38972,26 +39022,20 @@ void ofApp::executeAIAction(int actionIndex) {
 		activeID = 1;
 	}
 	cmd.playerID = activeID;
-
-	// FIX: Do NOT increment nextCommandId here! sendInputCommand handles that!
 	cmd.commandId = 0;
 	cmd.turnNumber = globalTurnCounter;
 
 	if (actionIndex == 0) {
-		// Action 0: End Turn
 		cmd.commandType = CMD_END_TURN;
-		// CRITICAL FIX: END_TURN requires params[0] to match currentPlayerIndex to pass validation!
 		cmd.params[0] = currentPlayerIndex;
-		sendInputCommand(cmd, true);
 		endTurnLocked = true;
+		sendInputCommand(cmd, true);
 	} else if (actionIndex == 1) {
-		// Action 1: Draw Cards
 		cmd.commandType = CMD_DRAW_CARDS;
 		cmd.params[0] = currentPlayerIndex;
 		cmd.params[1] = players[currentPlayerIndex].isDemon ? 3 : 2;
 		sendInputCommand(cmd, true);
 	} else if (actionIndex == 2) {
-		// Action 2: Assistant AP Reroll
 		int assistantIndex = -1;
 		for (int i = 0; i < (int)players.size(); i++) {
 			if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == players[currentPlayerIndex].playerID && !players[i].assistantRerollUsedThisTurn) {
@@ -39007,10 +39051,9 @@ void ofApp::executeAIAction(int actionIndex) {
 			strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
 			sendInputCommand(cmd, true);
 		}
-	} else if (actionIndex >= 10 && actionIndex <= 29) {
-		// Action 10-29: Menu Choices (Choice 1 through 10)
-		int choice = (actionIndex - 10) + 1; // Menus usually 1-based (1 or 2)
-		if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) choice -= 1; // Ghost relocate is 0-based
+	} else if (actionIndex >= 10 && actionIndex <= 19) {
+		int choice = (actionIndex - 10) + 1;
+		if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) choice -= 1;
 
 		cmd.commandType = CMD_MENU_CHOICE;
 		cmd.params[0] = interactingCardType;
@@ -39022,18 +39065,15 @@ void ofApp::executeAIAction(int actionIndex) {
 			cmd.params[5] = magicHandTargetTile.y;
 		}
 		sendInputCommand(cmd, true);
-	} else if (actionIndex >= 30 && actionIndex <= 32) {
-		// Action 30-32: Draft Selection (Combinations)
-		int draftPick = actionIndex - 30; // 0, 1, or 2
+	} else if (actionIndex >= 20 && actionIndex <= 22) {
+		int draftPick = actionIndex - 20;
 		if (currentDraftOptionPoolIndices.size() >= 3) {
 			cmd.commandType = CMD_ACCEPT_DRAFT;
 			cmd.params[0] = draftPlayerIndex;
 			cmd.params[1] = currentDraftClassTier;
 
 			if (!isInGameDraft && draftStage == 0) {
-				// Initial Draft Phase 1 (Class 1): Must pick 2 Cards (gets 2 copies each)
 				cmd.params[2] = 2; // Copies
-				// AI combinations: 0=[0,1], 1=[0,2], 2=[1,2]
 				if (draftPick == 0) {
 					cmd.params[3] = currentDraftOptionPoolIndices[0];
 					cmd.params[4] = currentDraftOptionPoolIndices[1];
@@ -39046,86 +39086,18 @@ void ofApp::executeAIAction(int actionIndex) {
 				}
 				cmd.params[5] = -1;
 			} else {
-				// Initial Draft Phase 2 (Class 2) or In-Game Draft: Pick 1 card (gets 1 copy)
 				cmd.params[2] = 1; // Copies
 				cmd.params[3] = currentDraftOptionPoolIndices[draftPick];
 				cmd.params[4] = -1;
 				cmd.params[5] = -1;
 			}
-
 			sendInputCommand(cmd, true);
 			draftAcceptLocked = true;
 		}
-	} else if (actionIndex >= 40 && actionIndex <= 139) {
-		// Action 40-139: Toggle Amnesia/Renewed Inspiration UI Cards
-		int toggleIdx = actionIndex - 40;
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-			if (interactingCardType == CARD_AMNESIA) {
-				auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), toggleIdx);
-				if (it != amnesiaSelectedIndices.end())
-					amnesiaSelectedIndices.erase(it);
-				else if (amnesiaSelectedIndices.size() < (size_t)numCardsToRemove)
-					amnesiaSelectedIndices.push_back(toggleIdx);
-			} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
-				auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), toggleIdx);
-				if (it != renewedSelectedHandIndices.end())
-					renewedSelectedHandIndices.erase(it);
-				else
-					renewedSelectedHandIndices.push_back(toggleIdx);
-			}
-		}
-	} else if (actionIndex == 140) {
-		// Action 140: Click the Accept Button for Amnesia / Renewed Inspiration
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-			if (interactingCardType == CARD_AMNESIA && amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) {
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = (int)CARD_AMNESIA;
-				cmd.params[1] = amnesiaTargetPlayerIndex;
-				cmd.params[2] = 3;
-				cmd.params[3] = interactingCardIndex;
-
-				uint32_t maskLow = 0;
-				uint32_t maskHigh = 0;
-				for (int idx : amnesiaSelectedIndices) {
-					if (idx < 32)
-						maskLow |= (1U << idx);
-					else if (idx < 64)
-						maskHigh |= (1U << (idx - 32));
-				}
-				cmd.params[4] = (int)maskLow;
-				cmd.params[5] = (int)maskHigh;
-
-				sendInputCommand(cmd, true);
-				amnesiaDeckCopy.clear();
-				amnesiaSelectedIndices.clear();
-				resetCardInteraction();
-			} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
-				cmd.commandType = CMD_RENEWED_INSPIRATION;
-				cmd.params[0] = currentPlayerIndex;
-				cmd.params[1] = renewedSelectedHandIndices.size();
-				cmd.params[2] = interactingCardIndex;
-
-				uint32_t maskLow = 0;
-				uint32_t maskHigh = 0;
-				for (int idx : renewedSelectedHandIndices) {
-					if (idx < 32)
-						maskLow |= (1U << idx);
-					else if (idx < 64)
-						maskHigh |= (1U << (idx - 32));
-				}
-				cmd.params[4] = (int)maskLow;
-				cmd.params[5] = (int)maskHigh;
-
-				sendInputCommand(cmd, true);
-				renewedSelectedHandIndices.clear();
-				resetCardInteraction();
-			}
-		}
-	} else if (actionIndex >= 200 && actionIndex <= 364) {
-		// Action 200-364: Move Current Unit to specific Tile Index (0-164)
-		int tileIdx = actionIndex - 200;
-		int tx = tileIdx % BOARD_WIDTH; // 0 to 14
-		int ty = tileIdx / BOARD_WIDTH; // 0 to 10
+	} else if (actionIndex >= 100 && actionIndex <= 264) {
+		int tileIdx = actionIndex - 100;
+		int tx = tileIdx % BOARD_WIDTH;
+		int ty = tileIdx / BOARD_WIDTH;
 
 		cmd.commandType = CMD_MOVE_UNIT;
 		cmd.params[0] = players[currentPlayerIndex].x;
@@ -39133,19 +39105,15 @@ void ofApp::executeAIAction(int actionIndex) {
 		cmd.params[2] = tx;
 		cmd.params[3] = ty;
 		sendInputCommand(cmd, true);
-	} else if (actionIndex >= 1000 && actionIndex <= 1164) {
-		// Action 1000-1164: Raw Target Click on Tile Index (0-164)
-		// Used for resolving Teleport destinations, Shell Spike, and Kobold/Wolf Placement
-		int tileIdx = actionIndex - 1000;
+	} else if (actionIndex >= 300 && actionIndex <= 464) {
+		int tileIdx = actionIndex - 300;
 		int tx = tileIdx % BOARD_WIDTH;
 		int ty = tileIdx / BOARD_WIDTH;
 		handleCardTargetClick(tx, ty);
-	} else if (actionIndex >= 10000) {
-		// Action 10000+: Play Card from Hand at (X, Y)
-		// We decode the single integer back into HandIndex, X, and Y
-		int encodedVal = actionIndex - 10000;
-		int tileIdx = encodedVal % (BOARD_WIDTH * BOARD_HEIGHT); // 0 to 164
-		int handIndex = encodedVal / (BOARD_WIDTH * BOARD_HEIGHT); // 0 to MaxHandSize
+	} else if (actionIndex >= 500 && actionIndex <= 2150) {
+		int encodedVal = actionIndex - 500;
+		int tileIdx = encodedVal % (BOARD_WIDTH * BOARD_HEIGHT);
+		int handIndex = encodedVal / (BOARD_WIDTH * BOARD_HEIGHT);
 
 		int tx = tileIdx % BOARD_WIDTH;
 		int ty = tileIdx / BOARD_WIDTH;
@@ -39154,6 +39122,67 @@ void ofApp::executeAIAction(int actionIndex) {
 		cmd.params[0] = handIndex;
 		cmd.params[1] = tx;
 		cmd.params[2] = ty;
+		sendInputCommand(cmd, true);
+	} else if (actionIndex >= 2200 && actionIndex <= 2299) {
+		int toggleIdx = actionIndex - 2200;
+		if (interactingCardType == CARD_AMNESIA) {
+			auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), toggleIdx);
+			if (it != amnesiaSelectedIndices.end())
+				amnesiaSelectedIndices.erase(it);
+			else if (amnesiaSelectedIndices.size() < (size_t)numCardsToRemove)
+				amnesiaSelectedIndices.push_back(toggleIdx);
+		} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+			auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), toggleIdx);
+			if (it != renewedSelectedHandIndices.end())
+				renewedSelectedHandIndices.erase(it);
+			else
+				renewedSelectedHandIndices.push_back(toggleIdx);
+		}
+	} else if (actionIndex == 2300) {
+		if (interactingCardType == CARD_AMNESIA && amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) {
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = (int)CARD_AMNESIA;
+			cmd.params[1] = amnesiaTargetPlayerIndex;
+			cmd.params[2] = 3;
+			cmd.params[3] = interactingCardIndex;
+
+			uint32_t maskLow = 0, maskHigh = 0;
+			for (int idx : amnesiaSelectedIndices) {
+				if (idx < 32)
+					maskLow |= (1U << idx);
+				else if (idx < 64)
+					maskHigh |= (1U << (idx - 32));
+			}
+			cmd.params[4] = (int)maskLow;
+			cmd.params[5] = (int)maskHigh;
+
+			sendInputCommand(cmd, true);
+			amnesiaDeckCopy.clear();
+			amnesiaSelectedIndices.clear();
+			resetCardInteraction();
+		} else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+			cmd.commandType = CMD_RENEWED_INSPIRATION;
+			cmd.params[0] = currentPlayerIndex;
+			cmd.params[1] = renewedSelectedHandIndices.size();
+			cmd.params[2] = interactingCardIndex;
+
+			uint32_t maskLow = 0, maskHigh = 0;
+			for (int idx : renewedSelectedHandIndices) {
+				if (idx < 32)
+					maskLow |= (1U << idx);
+				else if (idx < 64)
+					maskHigh |= (1U << (idx - 32));
+			}
+			cmd.params[4] = (int)maskLow;
+			cmd.params[5] = (int)maskHigh;
+
+			sendInputCommand(cmd, true);
+			renewedSelectedHandIndices.clear();
+			resetCardInteraction();
+		}
+	} else if (actionIndex == 99999) {
+		cmd.commandType = CMD_PSEUDO_ACTION;
+		strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
 		sendInputCommand(cmd, true);
 	}
 }

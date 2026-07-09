@@ -1,0 +1,111 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-09 00:47:05
+End Reason: Victory
+Seed: 704646213
+Turns: 12
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[00:44:27] --- MATCH STARTED ---
+[00:44:40] Turn 1: Player 1's turn
+[00:44:40] Autosaved turn-start (autosave.json)
+[00:44:43] Player 1 played Sprint
+[00:44:44] Player 1 moved to (1,5)
+[00:44:46] Turn 1: Player 2's turn
+[00:44:46] Autosaved turn-start (autosave.json)
+[00:44:47] Player 2 moved to (11,0)
+[00:44:47] Player 2 moved to (11,1)
+[00:44:48] Turn 2: Player 1's turn
+[00:44:48] Autosaved turn-start (autosave.json)
+[00:44:50] Player 1 played Study
+[00:44:53] Player 1 moved to (2,5)
+[00:44:53] Turn 2: Player 2's turn
+[00:44:53] Autosaved turn-start (autosave.json)
+[00:44:54] Player 2 moved to (11,0)
+[00:44:54] Player 2 moved to (7,0)
+[00:45:50] Turn 3: Player 1's turn
+[00:45:50] Autosaved turn-start (autosave.json)
+[00:45:53] Player 1 moved to (4,4)
+[00:45:56] Player 1 moved to (4,2)
+[00:45:57] Turn 3: Player 2's turn
+[00:45:57] Autosaved turn-start (autosave.json)
+[00:45:58] Player 2 moved to (5,0)
+[00:45:58] Player 2 moved to (5,1)
+[00:45:59] Turn 4: Player 1's turn
+[00:45:59] Autosaved turn-start (autosave.json)
+[00:46:01] Player 1 moved to (5,2)
+[00:46:02] Turn 4: Player 2's turn
+[00:46:02] Autosaved turn-start (autosave.json)
+[00:46:02] Player 2 moved to (5,0)
+[00:46:03] Turn 5: Player 1's turn
+[00:46:03] Autosaved turn-start (autosave.json)
+[00:46:05] Turn 5: Player 2's turn
+[00:46:05] Autosaved turn-start (autosave.json)
+[00:46:06] Player 2 moved to (1,0)
+[00:46:08] Turn 6: Player 1's turn
+[00:46:08] Autosaved turn-start (autosave.json)
+[00:46:15] Player 1 moved to (2,3)
+[00:46:16] Turn 6: Player 2's turn
+[00:46:16] Autosaved turn-start (autosave.json)
+[00:46:17] Player 2 moved to (3,0)
+[00:46:17] Player 2 moved to (2,0)
+[00:46:17] Turn 7: Player 1's turn
+[00:46:17] Autosaved turn-start (autosave.json)
+[00:46:20] Player 1 moved to (1,3)
+[00:46:23] Turn 7: Player 2's turn
+[00:46:23] Autosaved turn-start (autosave.json)
+[00:46:23] Player 2 moved to (1,0)
+[00:46:24] Player 2 moved to (3,0)
+[00:46:24] Player 2 moved to (1,0)
+[00:46:25] Turn 8: Player 1's turn
+[00:46:25] Autosaved turn-start (autosave.json)
+[00:46:28] Player 1 moved to (1,1)
+[00:46:29] Turn 8: Player 2's turn
+[00:46:29] Autosaved turn-start (autosave.json)
+[00:46:30] Player 2 moved to (0,0)
+[00:46:32] Turn 9: Player 1's turn
+[00:46:32] Autosaved turn-start (autosave.json)
+[00:46:35] Player 1 moved to (0,1)
+[00:46:36] Player 1 played Stab
+[00:46:37] Turn 9: Player 2's turn
+[00:46:37] Autosaved turn-start (autosave.json)
+[00:46:39] Player 2 moved to (1,0)
+[00:46:39] Player 2 moved to (3,0)
+[00:46:40] Player 2 moved to (2,0)
+[00:46:40] Turn 10: Player 1's turn
+[00:46:40] Autosaved turn-start (autosave.json)
+[00:46:44] Player 1 moved to (0,0)
+[00:46:45] Player 1 played Stab
+[00:46:48] Turn 10: Player 2's turn
+[00:46:48] Autosaved turn-start (autosave.json)
+[00:46:49] Player 2 moved to (1,0)
+[00:46:49] Player 2 moved to (3,0)
+[00:46:50] Turn 11: Player 1's turn
+[00:46:50] Autosaved turn-start (autosave.json)
+[00:46:52] Player 1 played Sprint
+[00:46:54] Player 1 moved to (0,4)
+[00:46:57] Player 1 moved to (0,3)
+[00:46:58] Turn 11: Player 2's turn
+[00:46:58] Autosaved turn-start (autosave.json)
+[00:46:59] Player 2 moved to (2,0)
+[00:46:59] Turn 12: Player 1's turn
+[00:46:59] Autosaved turn-start (autosave.json)
+[00:47:03] Player 1 moved to (1,0)
+[00:47:05] Player 1 played Rock Crush
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 5
+  Cards Played: 6
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
