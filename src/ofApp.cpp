@@ -3516,6 +3516,11 @@ void ofApp::handleOwnerForfeit(int loserOwnerId, const std::string & reason) {
 	// Instead of kicking to menu, trigger the beautiful Game Over screen
 	g_isGameOver = true;
 	g_winnerID = winnerOwnerId;
+
+	// Force the game out of draft/initiative states so the Game Over screen draws correctly
+	if (currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL) {
+		currentState = STATE_GAMEPLAY;
+	}
 }
 
 void ofApp::registerAfkTimeoutForCurrentOwner() {
@@ -6458,13 +6463,18 @@ void ofApp::drawMultiplayerMenu() {
 				uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
 
 				auto rank = getMageRank(entry.score);
-				ofSetColor(rank.second);
-				uiFont.drawString(entry.name + " [" + rank.first + "]", rightColX + 90 * uiScale, lbY + 40 * uiScale);
-
 				ofSetColor(ofColor::white);
+				uiFont.drawString(entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
+
 				std::string scoreStr = std::to_string(entry.score);
 				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
-				uiFont.drawString(scoreStr, rightColX + colW - sb.width - 20, lbY + 40 * uiScale);
+				float scoreX = rightColX + colW - sb.width - 20;
+				uiFont.drawString(scoreStr, scoreX, lbY + 40 * uiScale);
+
+				std::string rankStr = "[" + rank.first + "]";
+				ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
+				ofSetColor(rank.second);
+				uiFont.drawString(rankStr, scoreX - rb.width - 15 * uiScale, lbY + 40 * uiScale);
 			}
 			lbY += btnH + 5.0f * uiScale;
 		}
@@ -11143,22 +11153,27 @@ void ofApp::drawGame() {
 			float fontS = 1.0f;
 			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
 
+			float qFontS = std::max(0.5f, std::round(fontS * 2.0f) / 2.0f);
 			float ny = y + h * 0.35f;
-			float nx = isLocal ? (textX + nameBox.width * fontS / 2) : (textX + textW - nameBox.width * fontS / 2);
+			float nx = textX + (nameBox.x + nameBox.width * 0.5f) * qFontS;
 			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
 
 			std::string rankStr = rank.first + " (" + std::to_string(elo) + ")";
 			ofRectangle rankBox = uiFont.getStringBoundingBox(rankStr, 0, 0);
 			float rFontS = 0.75f;
 			if (rankBox.width * rFontS > textW) rFontS = textW / rankBox.width;
-			float rnx = isLocal ? (textX + rankBox.width * rFontS / 2) : (textX + textW - rankBox.width * rFontS / 2);
+
+			float qRFontS = std::max(0.5f, std::round(rFontS * 2.0f) / 2.0f);
+			float rnx = textX + (rankBox.x + rankBox.width * 0.5f) * qRFontS;
 			drawPixelTextCentered(uiFont, rankStr, rnx, y + h * 0.7f, rFontS, rank.second);
 		} else {
 			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
 			float fontS = 1.0f;
 			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+
+			float qFontS = std::max(0.5f, std::round(fontS * 2.0f) / 2.0f);
 			float ny = y + h / 2.0f;
-			float nx = isLocal ? (textX + nameBox.width * fontS / 2) : (textX + textW - nameBox.width * fontS / 2);
+			float nx = textX + (nameBox.x + nameBox.width * 0.5f) * qFontS;
 			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
 		}
 	};
