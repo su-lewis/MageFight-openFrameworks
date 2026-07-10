@@ -157,11 +157,25 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 			std::string cmd1 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && curl.exe " + args + "\"";
 			int sysRet = runHiddenWindowsCommand(cmd1);
 
-			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
+			// If Windows/Wine curl.exe fails, escape Proton/Wine library sandbox via Z: or Y: drive mapping
 			if (sysRet != 0) {
-				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
-				std::string cmd2 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\curl " + args + "\"";
-				runHiddenWindowsCommand(cmd2);
+				ofLogWarning("Discord") << "curl.exe failed. Attempting native host curl via sandbox escape...";
+
+				// Try to use 'env' to strip sandboxed Proton library paths, preventing host curl from crashing
+				std::string cmdEscZ = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH curl " + args + "\"";
+				sysRet = runHiddenWindowsCommand(cmdEscZ);
+
+				if (sysRet != 0) {
+					// Fallback to Y: drive (sometimes used on macOS Whisky/Wine mappings)
+					std::string cmdEscY = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Y:\\usr\\bin\\env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH curl " + args + "\"";
+					sysRet = runHiddenWindowsCommand(cmdEscY);
+				}
+
+				if (sysRet != 0) {
+					// Hard fallback directly to Z: drive curl if env tool is missing
+					std::string cmdDirectZ = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\curl " + args + "\"";
+					sysRet = runHiddenWindowsCommand(cmdDirectZ);
+				}
 			}
 #else
 			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
@@ -252,11 +266,25 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 			std::string cmd1 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && curl.exe " + args + "\"";
 			int sysRet = runHiddenWindowsCommand(cmd1);
 
-			// If Windows/Wine curl.exe fails, explicitly call the native Linux curl via Proton's Z: drive mapping!
+			// If Windows/Wine curl.exe fails, escape Proton/Wine library sandbox via Z: or Y: drive mapping
 			if (sysRet != 0) {
-				ofLogWarning("Discord") << "curl.exe failed. Attempting native Linux curl via Proton Z: drive...";
-				std::string cmd2 = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\curl " + args + "\"";
-				runHiddenWindowsCommand(cmd2);
+				ofLogWarning("Discord") << "curl.exe failed. Attempting native host curl via sandbox escape...";
+
+				// Try to use 'env' to strip sandboxed Proton library paths, preventing host curl from crashing
+				std::string cmdEscZ = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH curl " + args + "\"";
+				sysRet = runHiddenWindowsCommand(cmdEscZ);
+
+				if (sysRet != 0) {
+					// Fallback to Y: drive (sometimes used on macOS Whisky/Wine mappings)
+					std::string cmdEscY = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Y:\\usr\\bin\\env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH curl " + args + "\"";
+					sysRet = runHiddenWindowsCommand(cmdEscY);
+				}
+
+				if (sysRet != 0) {
+					// Hard fallback directly to Z: drive curl if env tool is missing
+					std::string cmdDirectZ = "cmd.exe /s /c \"cd /d \"" + winDataDir + "\" && Z:\\usr\\bin\\curl " + args + "\"";
+					sysRet = runHiddenWindowsCommand(cmdDirectZ);
+				}
 			}
 #else
 			std::string cmd1 = "cd \"" + dataDir + "\" && curl " + args;
@@ -279,8 +307,23 @@ struct ActionHistoryEntry {
 	std::string cardName;
 	Card card;
 	int playerID;
+	int rangeRoll = -1;
+	int damageRoll = -1;
+	int utilityRoll = -1;
+	std::string menuChoice = "";
+	std::vector<std::string> destroyedCardNames;
+
+	// Movement tracking parameters
+	bool isMovement = false;
+	int fromX = -1;
+	int fromY = -1;
+	int toX = -1;
+	int toY = -1;
+	std::vector<glm::vec2> movementPath;
+	int actorIndex = -1;
 };
 static std::vector<ActionHistoryEntry> g_actionHistory;
+static int s_hoveredHistoryIndex = -1; // App-level tracker for 3D visual rendering
 
 // Menu type for ghost relocation (when ghost materializes inside a wall)
 static const int MENU_GHOST_RELOCATE = 5;
@@ -2598,6 +2641,38 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 	he.cardName = playedCard.name;
 	he.card = playedCard;
 	he.playerID = (playerIndex >= 0 && playerIndex < (int)players.size()) ? (players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID) : -1;
+
+	// Capture range, damage, and utility rolls from outcome logs
+	he.rangeRoll = currentCardOutcome.namedDiceResults.count("status_range") ? currentCardOutcome.namedDiceResults["status_range"] : -1;
+	if (he.rangeRoll == -1 && currentEffectSequence.blackboard[0] > 0) {
+		he.rangeRoll = currentEffectSequence.blackboard[0];
+	}
+
+	he.damageRoll = currentCardOutcome.namedDiceResults.count("status_damage") ? currentCardOutcome.namedDiceResults["status_damage"] : -1;
+	if (he.damageRoll == -1 && currentEffectSequence.blackboard[1] > 0) {
+		he.damageRoll = currentEffectSequence.blackboard[1];
+	} else if (he.damageRoll == -1 && currentEffectSequence.blackboard[0] > 0 && playedCard.baseDamage > 0) {
+		he.damageRoll = currentEffectSequence.blackboard[0];
+	}
+
+	he.menuChoice = interactionMenuChoice;
+
+	// Capture Shoot Arrow sacrifices or Mind Theft stolen targets
+	if (playedCard.type == CARD_SHOOT_ARROW && currentCardOutcome.destroyedCardType != CARD_NONE) {
+		for (const auto & base : allCards) {
+			if (base.type == currentCardOutcome.destroyedCardType) {
+				he.destroyedCardNames.push_back(base.name);
+				break;
+			}
+		}
+	}
+	if (playedCard.type == CARD_MIND_THEFT && currentCardOutcome.targetPlayerIndex >= 0) {
+		int tidx = currentCardOutcome.targetPlayerIndex;
+		if (tidx < (int)players.size() && !players[tidx].deck.empty()) {
+			he.destroyedCardNames.push_back(players[tidx].deck.back().name);
+		}
+	}
+
 	g_actionHistory.push_back(he);
 	if (g_actionHistory.size() > 8) g_actionHistory.erase(g_actionHistory.begin());
 
@@ -5634,6 +5709,24 @@ void ofApp::draw() {
 
 	// Headless smoke-test mode: skip all rendering to avoid GL/texture calls
 	if (headless) return;
+
+	// Pre-calculate active action history hover index so 3D pass can draw coordinates/ghosts
+	s_hoveredHistoryIndex = -1;
+	if (currentState == STATE_GAMEPLAY && !g_actionHistory.empty()) {
+		float uiScale = getUIScaleFromHeight(ofGetHeight());
+		float iconSize = 46.0f * uiScale;
+		float spacing = 8.0f * uiScale;
+		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
+		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
+		float startY = 12.0f * uiScale;
+		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
+			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
+			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
+				s_hoveredHistoryIndex = (int)i;
+				break;
+			}
+		}
+	}
 
 	// --- LOADING SCREEN ---
 	if (isLoadingGame) {
@@ -10352,6 +10445,94 @@ void ofApp::drawGame() {
 		// Draw expanding AOE rings for Magic Bolt / Psionic Wave previews
 		drawExpandingAOERings(0.05f);
 
+		// --- DRAW 3D GHOST MOVEMENT PREVIEWS ---
+		if (s_hoveredHistoryIndex != -1 && s_hoveredHistoryIndex < (int)g_actionHistory.size()) {
+			const auto & entry = g_actionHistory[s_hoveredHistoryIndex];
+			if (entry.isMovement && entry.fromX != -1) {
+				// 1. Draw ghostly past position (blue) and destination (green)
+				drawTileGlow(entry.fromX, entry.fromY, ofColor(100, 180, 255, 180), 4.0f);
+				drawTileGlow(entry.toX, entry.toY, ofColor(100, 255, 100, 180), 4.0f);
+
+				// 2. Draw walked path dots
+				ofPushStyle();
+				ofEnableDepthTest();
+				glDepthMask(GL_FALSE);
+				ofSetColor(0, 255, 100, 195);
+				for (size_t p = 1; p < entry.movementPath.size(); p++) {
+					glm::vec3 stepPos = gridToWorld((int)entry.movementPath[p].x, (int)entry.movementPath[p].y);
+					float h = 0.08f;
+					if (board[(int)entry.movementPath[p].x][(int)entry.movementPath[p].y].hasWall) {
+						h = (TILE_SIZE * 0.5f) + 0.08f;
+					}
+					ofPushMatrix();
+					ofTranslate(stepPos.x, h, stepPos.z);
+					ofRotateXDeg(90);
+					ofDrawCircle(0, 0, TILE_SIZE * 0.22f); // Walked path indicator
+					ofPopMatrix();
+				}
+				glDepthMask(GL_TRUE);
+				ofPopStyle();
+
+				// 3. Draw semi-transparent model of the actor at the starting tile
+				if (entry.actorIndex >= 0 && entry.actorIndex < (int)players.size()) {
+					const Player & p = players[entry.actorIndex];
+					ofxAssimpModelLoader * currentModel = &playerModel;
+					if (p.inTortoiseForm)
+						currentModel = &tortoiseModel;
+					else if (p.inGhostForm)
+						currentModel = &ghostModel;
+					else if (p.isSkeleton)
+						currentModel = &skeletonModel;
+					else if (p.isGolem)
+						currentModel = &golemModel;
+					else if (p.isWolf)
+						currentModel = &wolfModel;
+					else if (p.isHellhound)
+						currentModel = &hellhoundModel;
+					else if (p.isDemon)
+						currentModel = &demonModel;
+					else if (p.isKobold)
+						currentModel = &koboldModel;
+					else if (p.isKoboldKing)
+						currentModel = &koboldKingModel;
+					else if (p.isFaerie)
+						currentModel = &faerieModel;
+					else if (p.isWallUnit)
+						currentModel = &wallUnitModel;
+					else if (p.isAssistant)
+						currentModel = &assistantModel;
+
+					glm::vec3 startWorld = gridToWorld(entry.fromX, entry.fromY);
+					glm::mat4 modelMat(1.0f);
+					modelMat = glm::translate(modelMat, glm::vec3(startWorld.x, 0.0f, startWorld.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(p.facingAngle), glm::vec3(0, 1, 0));
+					float modelVisualScale = 0.02f;
+					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
+
+					ofPushStyle();
+					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+					ofSetColor(255, 255, 255, 110); // Translucent ghostly model
+					ofEnableDepthTest();
+					glDepthMask(GL_FALSE);
+
+					ofPushMatrix();
+					ofMultMatrix(modelMat);
+					ofMultMatrix(currentModel->getModelMatrix());
+					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+						ofPushMatrix();
+						ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+						ofPopMatrix();
+					}
+					ofPopMatrix();
+
+					glDepthMask(GL_TRUE);
+					ofDisableBlendMode();
+					ofPopStyle();
+				}
+			}
+		}
+
 		ofSetColor(255); // FIX: Prevent color bleed from outlines into the transparent walls
 
 		// --- DRAW TILE HIGHLIGHTS ---
@@ -13166,23 +13347,124 @@ void ofApp::drawGame() {
 			float sw = g_actionHistory[i].card.textureRect.width * 0.7f;
 			float sh = g_actionHistory[i].card.textureRect.width * 0.7f;
 
-			drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
+			// Draw either card artwork or boots icon depending on entry type
+			if (g_actionHistory[i].isMovement) {
+				ofSetColor(24, 28, 38);
+				ofDrawRectRounded(iconRect, 6);
+
+				// Draw boot/movement arrow vector icon programmatically
+				ofNoFill();
+				ofSetColor(0, 255, 120);
+				ofSetLineWidth(3 * scale);
+				ofDrawLine(iconRect.x + 10 * scale, iconRect.getBottom() - 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale);
+				ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 18 * scale, iconRect.y + 10 * scale);
+				ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 18 * scale);
+				ofFill();
+			} else {
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
+			}
 
 			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
+				const auto & entry = g_actionHistory[i];
+
+				// --- TRIGGER DETAILED OVERHEAD HOVER TOOLTIP ---
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+
+				if (entry.isMovement) {
+					tooltipText = "Unit Move: (" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ") -> (" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")";
+				} else {
+					tooltipText = entry.cardName;
+					if (entry.rangeRoll > 0) tooltipText += " [Range Roll: " + ofToString(entry.rangeRoll) + " ft]";
+					if (entry.damageRoll > 0) tooltipText += " [Dmg Roll: " + ofToString(entry.damageRoll) + "]";
+					if (!entry.destroyedCardNames.empty()) {
+						tooltipText += " (Destroyed: ";
+						for (size_t c = 0; c < entry.destroyedCardNames.size(); c++) {
+							if (c > 0) tooltipText += ", ";
+							tooltipText += entry.destroyedCardNames[c];
+						}
+						tooltipText += ")";
+					}
+				}
+
+				// Lift variables to parent scope so they are visible for both card faces and details sidebar calculations
 				float hoverW = kCardPixelWidth * kHandCardVisualScale * scale * kHandHoverScale;
 				float hoverH = kCardPixelHeight * kHandCardVisualScale * scale * kHandHoverScale;
 				float hoverX = iconRect.getCenter().x - hoverW / 2.0f;
 				float hoverY = iconRect.getBottom() + 10.0f * scale;
 
-				// Keep it entirely on-screen
 				if (hoverY + hoverH > ofGetHeight() - 10.0f) {
 					hoverY = ofGetHeight() - hoverH - 10.0f;
 				}
 				if (hoverX < 10.0f) hoverX = 10.0f;
 				if (hoverX + hoverW > ofGetWidth() - 10.0f) hoverX = ofGetWidth() - hoverW - 10.0f;
 
-				ofSetColor(255);
-				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, g_actionHistory[i].card, hoverX, hoverY, hoverW, hoverH, nullptr);
+				// Only draw floating card face for standard card plays
+				if (!entry.isMovement) {
+					ofSetColor(255);
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, hoverX, hoverY, hoverW, hoverH, nullptr);
+				}
+
+				// --- Companion Details Sidebar ---
+				float infoW = 220.0f * scale;
+				float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 10.0f * scale);
+				float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
+				if (infoX + infoW > ofGetWidth() - 10.0f) {
+					infoX = hoverX - infoW - 10.0f * scale;
+				}
+
+				ofRectangle infoRect(infoX, infoY, infoW, entry.isMovement ? 160 * scale : hoverH);
+				ofSetColor(18, 18, 22, 235);
+				ofDrawRectRounded(infoRect, 12 * scale);
+				ofNoFill();
+				ofSetLineWidth(2 * scale);
+				ofSetColor(120, 120, 140, 200);
+				ofDrawRectRounded(infoRect, 12 * scale);
+				ofFill();
+
+				float curY = infoRect.y + 24 * scale;
+				auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
+					ofSetColor(180, 180, 190);
+					uiFont.drawString(label, infoRect.x + 14 * scale, curY);
+					ofSetColor(valCol);
+					uiFont.drawString(val, infoRect.x + 110 * scale, curY);
+					curY += 26 * scale;
+				};
+
+				ofSetColor(255, 215, 0);
+				uiFont.drawString("Action Details", infoRect.x + 14 * scale, curY);
+				curY += 30 * scale;
+
+				if (entry.isMovement) {
+					drawLine("Start Tile:", "(" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ")", ofColor::cyan);
+					drawLine("End Tile:", "(" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")", ofColor::green);
+					drawLine("Tiles Moved:", ofToString(std::max(0, (int)entry.movementPath.size() - 1)), ofColor::gold);
+				} else {
+					if (entry.rangeRoll > 0) {
+						drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
+					}
+					if (entry.damageRoll > 0) {
+						drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
+					}
+					if (entry.utilityRoll > 0) {
+						drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
+					}
+					if (!entry.menuChoice.empty()) {
+						drawLine("Choice:", entry.menuChoice, ofColor::gold);
+					}
+					if (!entry.destroyedCardNames.empty()) {
+						curY += 6 * scale;
+						ofSetColor(240, 100, 100);
+						uiFont.drawString("Destroyed:", infoRect.x + 14 * scale, curY);
+						curY += 22 * scale;
+
+						for (const auto & cName : entry.destroyedCardNames) {
+							ofSetColor(255, 255, 255);
+							uiFont.drawString("- " + cName, infoRect.x + 22 * scale, curY);
+							curY += 22 * scale;
+						}
+					}
+				}
 			}
 		}
 	}
@@ -14350,9 +14632,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Dismiss card animations early if clicked
 	if (button == OF_MOUSE_BUTTON_LEFT && !activeCardDisplays.empty()) {
 		float scale = getUIScaleFromHeight(ofGetHeight());
-		(void)scale;
-		float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-		float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+		float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
+		float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * scale;
 
 		bool dismissed = false;
 		for (auto it = activeCardDisplays.begin(); it != activeCardDisplays.end(); ++it) {
@@ -21851,6 +22132,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// Validate target index
 			if (targetIndex >= 0 && targetIndex < (int)players.size()) {
 				Player & target = players[targetIndex];
+
+				// Record the destroyed cards into the history
+				if (!g_actionHistory.empty() && g_actionHistory.back().card.type == CARD_AMNESIA) {
+					for (int idx : sel) {
+						if (idx >= 0 && idx < (int)target.deck.size()) {
+							g_actionHistory.back().destroyedCardNames.push_back(target.deck[idx].name);
+						}
+					}
+				}
 
 				// Remove selected indices from the target's deck in descending order
 				std::sort(sel.begin(), sel.end(), std::greater<int>());
@@ -29638,13 +29928,20 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex, bool forceVisi
 
 	if (!isOpponent && !forceVisibleForAllPlayers) return; // Only show opponent's plays
 
+	// Hearthstone-style: Replace any currently visible card displays instantly
+	activeCardDisplays.clear();
+
 	PlayedCardDisplay disp;
 	disp.card = card;
 	disp.startTime = ofGetElapsedTimef();
 
-	disp.startPos = getCardDisplayUIPosition(playerIndex);
+	// Centered on the opponent's side of the screen (safely clear of edge-anchored profiles/minions)
+	float cx = ofGetWidth() / 2.0f;
+	float cy = ofGetHeight() * (myLocalPlayerID == 0 ? 0.30f : 0.70f);
+
+	disp.startPos = glm::vec2(cx, cy);
 	disp.currentPos = disp.startPos;
-	disp.startScale = 1.0f; // Hand hover size equivalent
+	disp.startScale = 2.4f; // Hearthstone-style larger presentation scale
 	disp.currentScale = disp.startScale;
 	disp.currentAlpha = 255.0f;
 	activeCardDisplays.push_back(disp);
@@ -38556,6 +38853,26 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 
 	// Log the movement
 	addGameLog(getPlayerSteamName(playerIndex) + " moved to (" + ofToString(targetX) + "," + ofToString(targetY) + ")");
+
+	// Record movement in Action History
+	ActionHistoryEntry he;
+	he.isMovement = true;
+	he.playerID = p.isMinion ? p.ownerID : p.playerID;
+	he.actorIndex = playerIndex;
+	he.fromX = prevX;
+	he.fromY = prevY;
+	he.toX = targetX;
+	he.toY = targetY;
+
+	if (pathOverride && pathOverride->size() > 1) {
+		he.movementPath = *pathOverride;
+	} else {
+		std::vector<glm::vec2> path = findShortestPathForPlayer(playerIndex, { (float)prevX, (float)prevY }, { (float)targetX, (float)targetY });
+		he.movementPath = path;
+	}
+
+	g_actionHistory.push_back(he);
+	if (g_actionHistory.size() > 8) g_actionHistory.erase(g_actionHistory.begin());
 
 	// Safety: Prevent ending movement on a tile occupied by another unit.
 	// Movement selection should normally prevent this, but enforce here
