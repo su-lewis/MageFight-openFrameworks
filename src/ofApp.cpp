@@ -7502,18 +7502,8 @@ void ofApp::prepareGameVisualState() {
 		}
 	}
 
-	for (size_t i = 0; i < activeFloatingTexts.size(); ++i) {
-		std::vector<size_t> groupIdx;
-		for (size_t j = 0; j < activeFloatingTexts.size(); ++j) {
-			if (glm::length(activeFloatingTexts[j].anchorPos - activeFloatingTexts[i].anchorPos) < 0.01f) groupIdx.push_back(j);
-		}
-		if (groupIdx.size() <= 1) continue;
-		std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) { return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime; });
-		for (size_t k = 0; k < groupIdx.size(); ++k) {
-			activeFloatingTexts[groupIdx[k]].xOffset = ((float)k - ((float)groupIdx.size() - 1.0f) * 0.5f) * 0.8f;
-			activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
-		}
-	}
+	// Removal of the forced horizontal realignment block.
+	// This allows each text block to rise and drift organically in 3D space using its unique random speeds.
 
 	for (auto & anim : activeStolenCardAnimations) {
 		float elapsed = time - anim.startTime;
@@ -22436,7 +22426,37 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			glm::vec2 casterTile = { (float)tpCaster.x, (float)tpCaster.y };
 			glm::vec2 targetTile = { (float)destX, (float)destY };
 			long long maxDistSqScaled = (long long)passedDiceRoll * (long long)passedDiceRoll * 4LL;
-			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+
+			// Mirror the exact wall-ignoring face distance formula used in highlight calculations
+			auto getTeleportDistanceSquaredScaledLocal = [](glm::vec2 cTile, glm::vec2 tTile) {
+				int cx = (int)cTile.x;
+				int cy = (int)cTile.y;
+				int tx = (int)tTile.x;
+				int ty = (int)tTile.y;
+				int cx2 = cx * 2 + 1;
+				int cy2 = cy * 2 + 1;
+				int tx2 = tx * 2 + 1;
+				int ty2 = ty * 2 + 1;
+				int faceDirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+				std::vector<std::pair<int, int>> validCasterFaces;
+				std::vector<std::pair<int, int>> validTargetFaces;
+				for (int i = 0; i < 4; ++i) {
+					validCasterFaces.push_back({ cx2 + faceDirs[i][0], cy2 + faceDirs[i][1] });
+					validTargetFaces.push_back({ tx2 + faceDirs[i][0], ty2 + faceDirs[i][1] });
+				}
+				long long best = LLONG_MAX;
+				for (const auto & cFace : validCasterFaces) {
+					for (const auto & tFace : validTargetFaces) {
+						long long dx = (long long)cFace.first - tFace.first;
+						long long dy = (long long)cFace.second - tFace.second;
+						long long d2 = dx * dx + dy * dy;
+						if (d2 < best) best = d2;
+					}
+				}
+				return best;
+			};
+
+			long long distSq = getTeleportDistanceSquaredScaledLocal(casterTile, targetTile);
 			bool inRange = (distSq * 25LL <= maxDistSqScaled);
 
 			bool isWall = board[destX][destY].hasWall;
@@ -31415,47 +31435,25 @@ void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, st
 		}
 	}
 
-	// If an existing floating text of the same category is active at this anchor,
-	// append to it (e.g., combine same-type dice results).
-	for (auto & ef : activeFloatingTexts) {
-		float dist = glm::length(ef.anchorPos - pos);
-		if (dist < 0.01f && (now - ef.startTime) < ef.duration) {
-			if (!category.empty() && ef.category == category) {
-				ef.text += " + " + text;
-				ef.duration = std::max(ef.duration, 1.5f) + 0.5f; // extend life
-				return;
-			}
-		}
-	}
-
-	// Count how many active texts already occupy this anchor so we can place
-	// the new one offset (non-overlapping). New ones are given a horizontal
-	// slot but we also apply a small vertical offset so simultaneous texts
-	// are readable.
-	int groupCount = 0;
-	for (const auto & ef : activeFloatingTexts) {
-		float dist = glm::length(ef.anchorPos - pos);
-		if (dist < 0.01f && (now - ef.startTime) < ef.duration) groupCount++;
-	}
+	// Removal of '+' combination/appending logic. Floating texts are now 100% individual.
 
 	FloatingText ft;
 	ft.text = text;
 	ft.anchorPos = pos;
-	float hSpacing = 0.9f; // horizontal separation in world units
-	float vSpacing = 0.45f; // vertical separation in world units
-	float baseHeight = 1.6f; // starting height above unit
 
-	// Assign initial offsets so newly spawned texts are staggered both
-	// horizontally and vertically to avoid overlapping.
-	ft.xOffset = groupCount * hSpacing;
-	ft.worldPos = pos + glm::vec3(ft.xOffset, baseHeight + groupCount * vSpacing, 0);
+	float baseHeight = 1.6f; // Starting height above unit
 
-	// Slight drift: slower upward motion so text remains readable longer
-	std::uniform_real_distribution<float> driftDist(-0.18f, 0.18f);
-	ft.velocity = glm::vec3(driftDist(visualRNG), 0.9f, driftDist(visualRNG));
-	// Ensure longer default duration (struct default is 3.0s), but let callers
-	// override via category detection above if needed.
+	// Distribute starting height slightly so simultaneous texts don't spawn completely layered
+	std::uniform_real_distribution<float> startHeightOffset(0.0f, 0.4f);
+	ft.worldPos = pos + glm::vec3(0.0f, baseHeight + startHeightOffset(visualRNG), 0.0f);
+
+	// Clean organic drift: vertical speeds are randomized so they separate naturally as they float up
+	std::uniform_real_distribution<float> speedDist(0.8f, 1.4f);
+	std::uniform_real_distribution<float> driftDist(-0.25f, 0.25f);
+	ft.velocity = glm::vec3(driftDist(visualRNG), speedDist(visualRNG), driftDist(visualRNG));
+
 	ft.startTime = now;
+	ft.duration = 3.0f; // Standard default duration
 	ft.color = color;
 	ft.category = category;
 	activeFloatingTexts.push_back(ft);
