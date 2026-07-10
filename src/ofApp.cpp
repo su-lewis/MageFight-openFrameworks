@@ -12842,7 +12842,7 @@ void ofApp::drawGame() {
 		float currentTime = ofGetElapsedTimef();
 		bool hasLingering = false;
 
-		float chatMaxWidth = 450 * scale;
+		float chatMaxWidth = 300 * scale; // Shrunk from 450 to 300 for a compact, non-overlapping footprint
 		float chatBoxHeight = 360 * scale; // FIXED SIZE
 		float tabHeight = 25 * scale;
 		float messageHeight = 18 * scale;
@@ -12850,23 +12850,47 @@ void ofApp::drawGame() {
 
 		auto wrapText = [&](const std::string & text, float maxWidth) {
 			std::vector<std::string> lines;
-			std::string currentLine;
-			for (char c : text) {
-				if (c == '\n') {
-					if (!currentLine.empty()) lines.push_back(currentLine);
-					currentLine.clear();
-					continue;
+			std::stringstream ss(text);
+			std::string paragraph;
+
+			// Process paragraph chunks separated by manual newlines
+			while (std::getline(ss, paragraph, '\n')) {
+				std::stringstream wordStream(paragraph);
+				std::string word;
+				std::string currentLine;
+
+				while (wordStream >> word) {
+					std::string testLine = currentLine.empty() ? word : (currentLine + " " + word);
+					if (uiFont.stringWidth(testLine) <= maxWidth) {
+						currentLine = testLine;
+					} else {
+						if (!currentLine.empty()) {
+							lines.push_back(currentLine);
+						}
+
+						// If a single word itself is wider than the maximum width limit (e.g. a long URL),
+						// fallback to character-by-character wrapping for that word to prevent overflow.
+						if (uiFont.stringWidth(word) > maxWidth) {
+							std::string subWord;
+							for (char c : word) {
+								std::string testChar = subWord + c;
+								if (uiFont.stringWidth(testChar) <= maxWidth) {
+									subWord = testChar;
+								} else {
+									lines.push_back(subWord);
+									subWord = std::string(1, c);
+								}
+							}
+							currentLine = subWord;
+						} else {
+							currentLine = word;
+						}
+					}
 				}
-				if (currentLine.empty() && c == ' ') continue;
-				std::string testLine = currentLine + c;
-				if (uiFont.stringWidth(testLine) <= maxWidth || currentLine.empty()) {
-					currentLine = testLine;
-				} else {
+				if (!currentLine.empty() || lines.empty()) {
 					lines.push_back(currentLine);
-					currentLine = std::string(1, c);
 				}
 			}
-			if (!currentLine.empty()) lines.push_back(currentLine);
 			if (lines.empty()) lines.push_back("");
 			return lines;
 		};
@@ -12928,6 +12952,16 @@ void ofApp::drawGame() {
 				chatX = margin;
 			}
 
+			// Calculate the absolute left boundary of the card history bar to prevent overlapping
+			float historyIconSize = 46.0f * scale;
+			float historySpacing = 8.0f * scale;
+			float maxHistoryW = 8.0f * historyIconSize + 7.0f * historySpacing;
+			float historyLeft = (ofGetWidth() / 2.0f) - (maxHistoryW / 2.0f);
+
+			// Limit the chat box width so it terminates nicely before the card history starts
+			float safetyBuffer = 10.0f * scale;
+			chatMaxWidth = std::min(chatMaxWidth, historyLeft - chatX - safetyBuffer);
+
 			if (isChatOpen) {
 				chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
 
@@ -12977,9 +13011,32 @@ void ofApp::drawGame() {
 				float contentBottom = chatY - contentPadding;
 
 				if (currentChatTab == ChatTab::CHAT) {
+					string charCount = ofToString(chatInput.length()) + " / " + ofToString(maxChatInputLength);
+					ofRectangle countBox = uiFont.getStringBoundingBox(charCount, 0, 0);
+
+					// Dynamic Badge Color mapping based on limit usage
+					int len = chatInput.length();
+					ofColor badgeBg(35, 35, 45, 200);
+					ofColor textCol(180, 180, 195);
+					if (len >= maxChatInputLength) {
+						badgeBg = ofColor(120, 25, 25, 220); // Crimson red alert at limit
+						textCol = ofColor(255, 120, 120);
+					} else if (len >= maxChatInputLength * 0.8) {
+						badgeBg = ofColor(110, 85, 20, 210); // Gold warning at 80%
+						textCol = ofColor(255, 225, 120);
+					}
+
+					float badgeW = countBox.width + 16.0f * scale;
+					float badgeH = countBox.height + 10.0f * scale;
+					float badgeX = chatX + chatMaxWidth - badgeW - 8.0f * scale;
+					float badgeY = chatY - contentPadding - badgeH;
+
 					string displayText = "> " + chatInput;
 					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) displayText += "_";
-					auto wrappedInput = wrapText(displayText, chatMaxWidth - 20);
+
+					// Restrict input text layout width to never cross the badge boundaries
+					float maxInputW = chatMaxWidth - badgeW - 24.0f * scale;
+					auto wrappedInput = wrapText(displayText, maxInputW);
 					int inputLines = wrappedInput.size();
 					contentBottom -= (inputLines * messageHeight + 2.0f * scale);
 
@@ -13011,9 +13068,12 @@ void ofApp::drawGame() {
 						inputY += messageHeight;
 					}
 
-					// Draw length
-					string charCount = ofToString(chatInput.length()) + "/" + ofToString(maxChatInputLength);
-					uiFont.drawString(charCount, chatX + chatMaxWidth - 60, chatY - contentPadding - (inputLines - 1) * messageHeight);
+					// Draw Improved length pill-badge
+					ofSetColor(badgeBg);
+					ofDrawRectRounded(badgeX, badgeY, badgeW, badgeH, 6 * scale);
+
+					ofSetColor(textCol);
+					uiFont.drawString(charCount, badgeX + 8.0f * scale, badgeY + countBox.height + 4.0f * scale);
 
 				} else if (currentChatTab == ChatTab::LOG) {
 					float logY = contentTop + messageHeight;
