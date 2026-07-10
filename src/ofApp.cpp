@@ -10840,8 +10840,26 @@ void ofApp::drawGame() {
 					int aimX = opponentHoverGridX;
 					int aimY = opponentHoverGridY;
 					if (aimX >= 0 && aimX < BOARD_WIDTH && aimY >= 0 && aimY < BOARD_HEIGHT) {
-						worldTarget = gridToWorld(aimX, aimY);
-						hasValidTarget = true;
+						// SECURITY CHECK: Verify opponent's hovered card actually requires targeting!
+						bool needsTarget = true;
+						int oppPlayerIdx = -1;
+						int oppID = (myLocalPlayerID == 0) ? 1 : 0;
+						for (size_t k = 0; k < players.size(); ++k) {
+							if (players[k].playerID == oppID && !players[k].isMinion) {
+								oppPlayerIdx = (int)k;
+								break;
+							}
+						}
+						if (oppPlayerIdx != -1 && opponentHoverCardIndex >= 0 && opponentHoverCardIndex < (int)players[oppPlayerIdx].hand.size()) {
+							const Card & oppCard = players[oppPlayerIdx].hand[opponentHoverCardIndex];
+							if (oppCard.targeting == TARGET_NONE || oppCard.targeting == TARGET_SELF) {
+								needsTarget = false;
+							}
+						}
+						if (needsTarget) {
+							worldTarget = gridToWorld(aimX, aimY);
+							hasValidTarget = true;
+						}
 					}
 				}
 			}
@@ -11409,8 +11427,8 @@ void ofApp::drawGame() {
 		}
 	};
 
-	int p0Elo = isMultiplayer ? ((viewID == 0) ? myElo : opponentElo) : -1;
-	int p1Elo = isMultiplayer ? ((viewID == 0) ? opponentElo : myElo) : -1;
+	int p0Elo = isMultiplayer ? myElo : -1;
+	int p1Elo = isMultiplayer ? opponentElo : -1;
 	drawProfile(p0_profileX, profileY, profileW, profileH, true, p0Name, p0Active, p0Elo);
 	drawProfile(p1_profileX, profileY, profileW, profileH, false, p1Name, p1Active, p1Elo);
 	// ------------------------------------------
@@ -12793,28 +12811,34 @@ void ofApp::drawGame() {
 	}
 
 	// --- Draw Played Card Animation (Center of screen) ---
-	for (const auto & anim : activePlayedCardAnimations) {
-		ofSetColor(255, anim.currentAlpha);
-		float w = animCardBaseWidth * anim.currentScale;
-		float h = animCardBaseHeight * anim.currentScale;
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h, nullptr);
+	if (!isMyTurn()) {
+		for (const auto & anim : activePlayedCardAnimations) {
+			ofSetColor(255, anim.currentAlpha);
+			float w = animCardBaseWidth * anim.currentScale;
+			float h = animCardBaseHeight * anim.currentScale;
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h, nullptr);
+		}
 	}
 
 	// --- Draw Amnesia Removal Animation ---
-	for (const auto & anim : activeRemovedCardAnimations) {
-		ofSetColor(255, anim.currentAlpha);
-		float w = animCardBaseWidth * anim.currentScale;
-		float h = animCardBaseHeight * anim.currentScale;
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
+	if (!isMyTurn()) {
+		for (const auto & anim : activeRemovedCardAnimations) {
+			ofSetColor(255, anim.currentAlpha);
+			float w = animCardBaseWidth * anim.currentScale;
+			float h = animCardBaseHeight * anim.currentScale;
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
+		}
 	}
 
 	// --- Draw Card Played Display (UI-based popup after card is played) ---
-	for (const auto & disp : activeCardDisplays) {
-		ofSetColor(255, disp.currentAlpha);
-		float globalScale = getUIScaleFromHeight(ofGetHeight());
-		float w = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
-		float h = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, disp.card, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h, nullptr);
+	if (!isMyTurn()) {
+		for (const auto & disp : activeCardDisplays) {
+			ofSetColor(255, disp.currentAlpha);
+			float globalScale = getUIScaleFromHeight(ofGetHeight());
+			float w = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
+			float h = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, disp.card, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h, nullptr);
+		}
 	}
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
@@ -24056,14 +24080,26 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, targetTile);
 
 				if (distSq * 25LL <= maxAoeDistSqScaled) {
-					auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
 					bool blockedByWall = false;
-					for (const auto & stepP : losPath) {
-						if ((int)stepP.x == currentCardOutcome.primaryTarget.x && (int)stepP.y == currentCardOutcome.primaryTarget.y) continue;
-						if ((int)stepP.x == p.x && (int)stepP.y == p.y) break;
-						if (isTileWall((int)stepP.x, (int)stepP.y)) {
+					int pDx = std::abs(p.x - currentCardOutcome.primaryTarget.x);
+					int pDy = std::abs(p.y - currentCardOutcome.primaryTarget.y);
+					if (pDx == 1 && pDy == 1) {
+						// Diagonal pinch rule: blocked only if both side tiles are walls
+						bool wall1 = isTileWall(currentCardOutcome.primaryTarget.x + (p.x - currentCardOutcome.primaryTarget.x), currentCardOutcome.primaryTarget.y);
+						bool wall2 = isTileWall(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y + (p.y - currentCardOutcome.primaryTarget.y));
+						if (wall1 && wall2) {
 							blockedByWall = true;
-							break;
+						}
+					} else {
+						// Standard line of sight pathing for non-diagonal tiles
+						auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
+						for (const auto & stepP : losPath) {
+							if ((int)stepP.x == currentCardOutcome.primaryTarget.x && (int)stepP.y == currentCardOutcome.primaryTarget.y) continue;
+							if ((int)stepP.x == p.x && (int)stepP.y == p.y) break;
+							if (isTileWall((int)stepP.x, (int)stepP.y)) {
+								blockedByWall = true;
+								break;
+							}
 						}
 					}
 					if (!blockedByWall) aoeTargets.push_back((int)i);
@@ -30242,10 +30278,43 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		// Use the exact same scaled integer math the execution server uses!
 		long long maxDistSqScaled = (long long)maxRangeFeet * (long long)maxRangeFeet * 4LL;
 
+		// Teleport can pass through obstacles, so we calculate the absolute straight-line face-to-face distance
+		auto getTeleportDistanceSquaredScaled = [&](glm::vec2 cTile, glm::vec2 tTile) {
+			int cx = (int)cTile.x;
+			int cy = (int)cTile.y;
+			int tx = (int)tTile.x;
+			int ty = (int)tTile.y;
+
+			int cx2 = cx * 2 + 1;
+			int cy2 = cy * 2 + 1;
+			int tx2 = tx * 2 + 1;
+			int ty2 = ty * 2 + 1;
+
+			int faceDirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			std::vector<std::pair<int, int>> validCasterFaces;
+			std::vector<std::pair<int, int>> validTargetFaces;
+
+			for (int i = 0; i < 4; ++i) {
+				validCasterFaces.push_back({ cx2 + faceDirs[i][0], cy2 + faceDirs[i][1] });
+				validTargetFaces.push_back({ tx2 + faceDirs[i][0], ty2 + faceDirs[i][1] });
+			}
+
+			long long best = LLONG_MAX;
+			for (const auto & cFace : validCasterFaces) {
+				for (const auto & tFace : validTargetFaces) {
+					long long dx = (long long)cFace.first - tFace.first;
+					long long dy = (long long)cFace.second - tFace.second;
+					long long d2 = dx * dx + dy * dy;
+					if (d2 < best) best = d2;
+				}
+			}
+			return best;
+		};
+
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
 				glm::vec2 targetPos(x, y);
-				long long distSq = getFaceToFaceDistanceSquaredScaled(casterPos, targetPos);
+				long long distSq = getTeleportDistanceSquaredScaled(casterPos, targetPos);
 
 				if (distSq * 25LL <= maxDistSqScaled) {
 					board[x][y].isTargetPreview = true;
@@ -30443,14 +30512,26 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y));
 
 								if (pDistSq * 25LL <= aoeDistSqScaled) {
-									auto innerLosPath = getLineOfSightPath(glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f), glm::vec2(players[i].x + 0.5f, players[i].y + 0.5f));
 									bool blockedByWall = false;
-									for (const auto & stepP : innerLosPath) {
-										if ((int)stepP.x == impactTile.x && (int)stepP.y == impactTile.y) continue;
-										if ((int)stepP.x == players[i].x && (int)stepP.y == players[i].y) break;
-										if (isTileWall((int)stepP.x, (int)stepP.y)) {
+									int pDx = std::abs(players[i].x - impactTile.x);
+									int pDy = std::abs(players[i].y - impactTile.y);
+									if (pDx == 1 && pDy == 1) {
+										// Diagonal pinch rule: blocked only if both side tiles are walls
+										bool wall1 = isTileWall(impactTile.x + (players[i].x - impactTile.x), impactTile.y);
+										bool wall2 = isTileWall(impactTile.x, impactTile.y + (players[i].y - impactTile.y));
+										if (wall1 && wall2) {
 											blockedByWall = true;
-											break;
+										}
+									} else {
+										// Standard line of sight pathing for non-diagonal tiles
+										auto innerLosPath = getLineOfSightPath(glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f), glm::vec2(players[i].x + 0.5f, players[i].y + 0.5f));
+										for (const auto & stepP : innerLosPath) {
+											if ((int)stepP.x == impactTile.x && (int)stepP.y == impactTile.y) continue;
+											if ((int)stepP.x == players[i].x && (int)stepP.y == players[i].y) break;
+											if (isTileWall((int)stepP.x, (int)stepP.y)) {
+												blockedByWall = true;
+												break;
+											}
 										}
 									}
 									if (!blockedByWall) {
