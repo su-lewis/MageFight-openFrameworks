@@ -54,6 +54,13 @@ static std::deque<int> g_opponentDecisionQueue;
 // --- WIN STREAK TRACKING ---
 static int s_winStreak = 0;
 
+// --- GAME OVER ANIMATION TRACKERS ---
+static float s_gameOverScreenStartTime = 0.0f;
+static int s_startingLevel = 1;
+static int s_startingXP = 0;
+static int s_xpGained = 0;
+static bool s_hasCachedGameOverVisuals = false;
+
 // --- MAGE RANKINGS ---
 static std::pair<std::string, ofColor> getMageRank(int elo) {
 	// The Shame Tiers (When the dice betray you)
@@ -5181,15 +5188,100 @@ void ofApp::update() {
 						   << ", Change: " << eloChange << ", New Rating: " << myElo
 						   << ", Streak: " << s_winStreak << ", Final K_avg: " << avgK;
 
-		// Module 3: Endurance Engine (Separating ELO from XP)
+		// Module 3: Endurance Engine (Performance & Length-Based XP)
 		int baseXP = 100;
-		int bonusXP = 0;
+		int winXP = (g_winnerID == myLocalPlayerID) ? 50 : 0;
+		int marathonBonusXP = 0;
+
+		// 1. Length-Based Marathon Bonus
 		if (globalTurnCounter >= 30) {
 			int extraIntervals = (globalTurnCounter - 30) / 5;
-			bonusXP = (int)(baseXP * (0.25f * extraIntervals));
-			std::string marathonMsg = "Marathon Bonus Active! Turn Count: " + std::to_string(globalTurnCounter)
-				+ ". Bonus XP awarded: +" + std::to_string(bonusXP) + "%";
-			addGameLog(marathonMsg);
+			marathonBonusXP = extraIntervals * 25;
+		}
+
+		// 2. Action/Performance-Based Bonuses (Capped to prevent exploits)
+		int myIndex = getLocalPlayerIndex();
+		int summonXP = 0;
+		int healingXP = 0;
+		int cardPlayXP = 0;
+
+		if (myIndex >= 0 && myIndex < 2) {
+			const auto & stats = matchStats[myIndex];
+
+			// Minions: +5 XP per spawn, capped at 25 XP
+			summonXP = std::min(25, stats.minionsSpawned * 5);
+
+			// Healing: +1 XP per 2 HP restored, capped at 20 XP
+			healingXP = std::min(20, stats.totalHealing / 2);
+
+			// Cards Played: +1 XP per card, capped at 30 XP
+			cardPlayXP = std::min(30, stats.cardsPlayed);
+		}
+
+		// Calculate final XP sum
+		int totalXPToGain = baseXP + winXP + marathonBonusXP + summonXP + healingXP + cardPlayXP;
+
+		// Alias to resolve scope lookup for the Discord Webhook block further down
+		int bonusXP = marathonBonusXP;
+
+		// Apply XP and Level progress via Steamworks API
+		int32_t currentXP = 0;
+		int32_t currentLevel = 1;
+
+		if (steamManager.isConnected() && SteamUserStats()) {
+			// Retrieve current progress
+			SteamUserStats()->GetStat("account_xp", &currentXP);
+			SteamUserStats()->GetStat("account_level", &currentLevel);
+			if (currentLevel < 1) {
+				currentLevel = 1;
+			}
+
+			// Cache initial states for the Game Over animation
+			s_startingLevel = currentLevel;
+			s_startingXP = currentXP;
+			s_xpGained = totalXPToGain;
+			s_hasCachedGameOverVisuals = true;
+			s_gameOverScreenStartTime = ofGetElapsedTimef();
+
+			// Add earned XP
+			currentXP += totalXPToGain;
+			bool leveledUp = false;
+
+			// Ramped leveling curve (TF2-style quadratic progression):
+			// Starts fast (660 XP for Lvl 1), then curves upward at higher levels.
+			while (true) {
+				int32_t xpRequired = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
+				if (currentXP >= xpRequired) {
+					currentXP -= xpRequired;
+					currentLevel++;
+					leveledUp = true;
+				} else {
+					break;
+				}
+			}
+
+			// Save updated progress back to Steam
+			SteamUserStats()->SetStat("account_xp", currentXP);
+			SteamUserStats()->SetStat("account_level", currentLevel);
+			SteamUserStats()->StoreStats();
+
+			// Log progress to the player
+			std::string xpLog = "Gained " + std::to_string(totalXPToGain) + " Account XP (";
+			xpLog += "Base: " + std::to_string(baseXP);
+			if (winXP > 0) xpLog += ", Win: +" + std::to_string(winXP);
+			if (marathonBonusXP > 0) xpLog += ", Marathon: +" + std::to_string(marathonBonusXP);
+			if (summonXP > 0) xpLog += ", Summoner: +" + std::to_string(summonXP);
+			if (healingXP > 0) xpLog += ", Healer: +" + std::to_string(healingXP);
+			if (cardPlayXP > 0) xpLog += ", Tactician: +" + std::to_string(cardPlayXP);
+			xpLog += ").";
+
+			if (leveledUp) {
+				xpLog += " LEVEL UP! You are now Account Level " + std::to_string(currentLevel) + "!";
+			} else {
+				int32_t nextLevelThreshold = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
+				xpLog += " Progress: " + std::to_string(currentXP) + " / " + std::to_string(nextLevelThreshold) + " XP to next level.";
+			}
+			addGameLog(xpLog);
 		}
 
 		// --- DISCORD GAME HISTORY WEBHOOK ---
@@ -6608,18 +6700,38 @@ void ofApp::drawMultiplayerMenu() {
 				ofSetColor(40, 40, 50);
 				ofDrawRectRounded(lbRect, 8.0f);
 
+				// Rank Number
 				ofSetColor(ofColor::gold);
 				uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
+
+				// Safely fetch your local level from Steamworks for your row
+				int accountLevel = 0;
+				if (steamManager.isConnected() && SteamUserStats() && entry.name == steamManager.getLocalPlayerName()) {
+					int32_t lvl = 1;
+					SteamUserStats()->GetStat("account_level", &lvl);
+					accountLevel = lvl;
+				}
 
 				auto rank = getMageRank(entry.score);
 				ofSetColor(ofColor::white);
 				uiFont.drawString(entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
 
+				// Render Level Badge if available
+				if (accountLevel > 0) {
+					std::string lvlStr = "Lvl " + std::to_string(accountLevel);
+					ofRectangle nameBox = uiFont.getStringBoundingBox(entry.name, 0, 0);
+					ofSetColor(0, 180, 255);
+					uiFont.drawString(lvlStr, rightColX + 105 * uiScale + nameBox.width, lbY + 40 * uiScale);
+				}
+
+				// Score Display
 				std::string scoreStr = std::to_string(entry.score);
 				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
 				float scoreX = rightColX + colW - sb.width - 20;
+				ofSetColor(ofColor::white);
 				uiFont.drawString(scoreStr, scoreX, lbY + 40 * uiScale);
 
+				// Rank Badge
 				std::string rankStr = "[" + rank.first + "]";
 				ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
 				ofSetColor(rank.second);
@@ -13705,10 +13817,19 @@ void ofApp::drawGame() {
 		drawPixelTextCentered(titleFont, text, cx, cy - 200.0f, 2.5f, titleColor);
 
 		if (isMultiplayer) {
-			// Draw Avatars & Elo Panel
+			// Safe guard: initialize start timer if it was missed
+			if (s_gameOverScreenStartTime <= 0.0f) {
+				s_gameOverScreenStartTime = ofGetElapsedTimef();
+			}
+
+			// Calculate progress over a 2.5-second animation window
+			float progress = ofClamp((ofGetElapsedTimef() - s_gameOverScreenStartTime) / 2.5f, 0.0f, 1.0f);
+			float easedProgress = progress * (2.0f - progress); // ease-out quad
+
+			// Draw Avatars & Elo Panel (Expanded height to fit XP and Levels)
 			float panelW = 700;
-			float panelH = 220;
-			ofRectangle panel(cx - panelW / 2, cy - 100, panelW, panelH);
+			float panelH = 310;
+			ofRectangle panel(cx - panelW / 2, cy - 140, panelW, panelH);
 			ofSetColor(30, 30, 40, 240);
 			ofDrawRectRounded(panel, 15);
 			ofNoFill();
@@ -13722,13 +13843,16 @@ void ofApp::drawGame() {
 			if (localAvatarReady) localAvatarImage.draw(panel.x + 50, panel.y + 30, 100, 100);
 			drawPixelTextCentered(uiFont, steamManager.getLocalPlayerName(), panel.x + 100, panel.y + 155, 1.0f, ofColor::white);
 
-			auto myRank = getMageRank(myElo);
-			std::string eloStr = myRank.first + " (" + std::to_string(myElo) + ")";
+			// Animate local Elo counting up/down
+			int localStartElo = myElo - eloChange;
+			int localCurrentElo = (int)ofLerp(localStartElo, myElo, easedProgress);
+			auto myRank = getMageRank(localCurrentElo);
+			std::string eloStr = myRank.first + " (" + std::to_string(localCurrentElo) + ")";
 			if (eloCalculated) {
 				std::string sign = (eloChange >= 0) ? "+" : "";
-				eloStr += " [" + sign + std::to_string(eloChange) + "]";
+				int displayedChange = (int)round(eloChange * easedProgress);
+				eloStr += " [" + sign + std::to_string(displayedChange) + "]";
 			}
-			// Use the rank color for the rank text
 			drawPixelTextCentered(uiFont, eloStr, panel.x + 100, panel.y + 190, 1.0f, myRank.second);
 
 			// Opponent Player (Right)
@@ -13736,23 +13860,64 @@ void ofApp::drawGame() {
 			if (opponentAvatarReady) opponentAvatarImage.draw(panel.x + panelW - 150, panel.y + 30, 100, 100);
 			drawPixelTextCentered(uiFont, steamManager.getOpponentName(), panel.x + panelW - 100, panel.y + 155, 1.0f, ofColor::white);
 
-			// Strict Zero-Sum for opponent
-			int oppEloChange = 0;
-			if (eloCalculated) {
-				oppEloChange = -eloChange;
-			}
-			int finalOppElo = std::max(300, opponentElo + oppEloChange);
-
-			auto oppRank = getMageRank(finalOppElo);
-			std::string oppEloStr = oppRank.first + " (" + std::to_string(finalOppElo) + ")";
+			// Animate opponent Elo counting down/up
+			int oppEloChange = -eloChange;
+			int oppStartElo = opponentElo;
+			int oppFinalElo = std::max(300, opponentElo + oppEloChange);
+			int oppCurrentElo = (int)ofLerp(oppStartElo, oppFinalElo, easedProgress);
+			auto oppRank = getMageRank(oppCurrentElo);
+			std::string oppEloStr = oppRank.first + " (" + std::to_string(oppCurrentElo) + ")";
 			if (eloCalculated) {
 				std::string sign = (oppEloChange >= 0) ? "+" : "";
-				oppEloStr += " [" + sign + std::to_string(oppEloChange) + "]";
+				int displayedOppChange = (int)round(oppEloChange * easedProgress);
+				oppEloStr += " [" + sign + std::to_string(displayedOppChange) + "]";
 			}
 			drawPixelTextCentered(uiFont, oppEloStr, panel.x + panelW - 100, panel.y + 190, 1.0f, oppRank.second);
 
 			// VS text in middle
-			drawPixelTextCentered(titleFont, "VS", cx, panel.y + 100, 1.5f, ofColor::white);
+			drawPixelTextCentered(titleFont, "VS", cx, panel.y + 80, 1.5f, ofColor::white);
+
+			// --- XP PROGRESS BAR ANIMATION (Bottom of Panel) ---
+			if (s_hasCachedGameOverVisuals) {
+				float barX = panel.x + 50;
+				float barY = panel.y + 245;
+				float barW = panelW - 100;
+				float barH = 18;
+
+				// Interpolate counting XP
+				long long accumulatedXP = s_startingXP + (long long)round(s_xpGained * easedProgress);
+				int tempLevel = s_startingLevel;
+
+				while (true) {
+					int32_t xpRequired = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
+					if (accumulatedXP >= xpRequired) {
+						accumulatedXP -= xpRequired;
+						tempLevel++;
+					} else {
+						break;
+					}
+				}
+
+				int32_t xpThreshold = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
+				float xpPct = (float)accumulatedXP / (float)xpThreshold;
+
+				// Draw XP Bar Container
+				ofSetColor(20, 20, 25, 255);
+				ofDrawRectRounded(barX, barY, barW, barH, 6);
+
+				// Draw XP Fill
+				ofSetColor(0, 180, 255, 255);
+				ofDrawRectRounded(barX, barY, barW * xpPct, barH, 6);
+
+				// Level Text & XP Progress
+				ofSetColor(255);
+				std::string levelText = "Account Level " + std::to_string(tempLevel);
+				std::string progressText = std::to_string(accumulatedXP) + " / " + std::to_string(xpThreshold) + " XP";
+
+				uiFont.drawString(levelText, barX, barY - 6);
+				ofRectangle pBox = uiFont.getStringBoundingBox(progressText, 0, 0);
+				uiFont.drawString(progressText, barX + barW - pBox.width, barY - 6);
+			}
 		}
 
 		// --- DRAW STATS ---
@@ -35635,6 +35800,10 @@ void ofApp::debugSkipDraftRandomCards() {
 void ofApp::cleanupGame() {
 	s_pendingRemoteChecksums.clear();
 	s_pendingLocalChecksums.clear();
+
+	// Reset game over visualization values
+	s_hasCachedGameOverVisuals = false;
+	s_gameOverScreenStartTime = 0.0f;
 
 	players.clear();
 	activeDiceRolls.clear();
