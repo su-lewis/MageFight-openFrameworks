@@ -21669,13 +21669,18 @@ void ofApp::simulationTick() {
 								for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 									Player & p = players[pidx];
 									bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
-									if (p.isFaerie && p.x == nx && p.y == ny && isSameTeam) {
-										// Deterministic resurrection roll (decision-time via detailed resolver)
+
+									// The adjacent Faerie must be either alive or currently undergoing her dramatic death delay countdown
+									bool isFaerieAvailable = p.isFaerie && (p.health > 0 || s_playerDeathDelayMap.find(p.playerID) != s_playerDeathDelayMap.end()) && isSameTeam;
+
+									if (isFaerieAvailable && p.x == nx && p.y == ny) {
+										// Deterministic resurrection roll (1d4)
 										std::vector<int> rawRes;
 										int raw = resolveDiceRollDetailed(1, 4, rawRes);
 										int luckBonus = p.luck + computePassiveLuck((int)pidx);
-										int roll = raw + luckBonus; // may exceed 4; that's intentional
+										int roll = raw + luckBonus;
 										if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
+
 										// Show dice visual for the faerie roll
 										int hp = (dying.maxHealth * roll) / 4;
 										if (hp < 1) hp = 1;
@@ -21687,134 +21692,46 @@ void ofApp::simulationTick() {
 										// Visual Dice Roll for the Faerie Resurrection
 										queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
 
-										// NEW: Visual Tracer to show the magical link
+										// Visual Tracer showing magical link
 										queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
 
-										{
-											EffectOp wait = {};
-											wait.type = EffectOpType::WAIT_VISUAL;
-											wait.data.damage.fixedDamage = 1;
-											queueEffect(wait);
+										// Restore HP and clear status effects immediately in-place
+										dying.health = hp;
+										dying.onFire = false;
+										dying.isPoisoned = false;
+										dying.isParalyzed = false;
+										dying.sleepTurnsRemaining = 0;
+										dying.replicateQueued = false;
+										dying.nextAttackAddPoison = false;
+										dying.nextTurnD10AP = false;
+										dying.nextTurnExtraDraw = false;
+										dying.nextTurnBonusDiceFromMinions = false;
+										dying.strengthenElementsTurnsRemaining = 0;
+										dying.inTortoiseForm = false;
+										dying.inGhostForm = false;
 
-											EffectOp setHp = {};
-											setHp.type = EffectOpType::MODIFY_STAT;
-											setHp.data.modifyStat.targetIndex = (int)i;
-											setHp.data.modifyStat.statType = 0; // HP
-											setHp.data.modifyStat.delta = hp - dying.health;
-											setHp.data.modifyStat.deltaFromSlot = -1;
-											queueEffect(setHp);
+										// Clear defensive statistics
+										dying.ward = 0;
+										dying.block = 0;
+										dying.fortification = 0;
+										dying.barrier = 0;
+										dying.holyBlock = 0;
+										dying.nextTurnAPBonus = 0;
+										dying.shocksPlayedThisTurn = 0;
+										dying.flurryOfFistsStacks = 0;
 
-											auto qRm = [&](int sType) {
-												EffectOp rm = {};
-												rm.type = EffectOpType::REMOVE_STATUS;
-												rm.data.status.targetIndex = (int)i; // Remove from DYING unit
-												rm.data.status.statusType = sType;
-												rm.data.status.duration = 0;
-												queueEffect(rm);
-											};
-											qRm(STATUS_ON_FIRE);
-											qRm(STATUS_POISONED);
-											qRm(STATUS_PARALYZED);
-											qRm(STATUS_REPLICATE_QUEUED);
-											qRm(STATUS_ADD_POISON);
-											qRm(STATUS_NEXT_TURN_D10AP);
-											qRm(STATUS_NEXT_TURN_EXTRA_DRAW);
-											qRm(STATUS_NEXT_TURN_BONUS_DICE);
-											qRm(STATUS_STRENGTHEN_ELEMENTS);
-											qRm(STATUS_TORTOISE_FORM);
-											qRm(STATUS_GHOST_FORM);
+										dying.tortoiseDamageTaken = 0;
+										dying.storedDarkShieldDice = 0;
+										dying.ghostDamageTaken = 0;
+										dying.cardsPlayedThisTurn.clear();
+										dying.playedCardsPile.clear();
+										dying.summonedOnTurnCycle = globalTurnCounter;
 
-											auto qClear = [&](int statType, int delta) {
-												EffectOp c = {};
-												c.type = EffectOpType::MODIFY_STAT;
-												c.data.modifyStat.targetIndex = (int)i;
-												c.data.modifyStat.statType = statType;
-												c.data.modifyStat.delta = delta;
-												c.data.modifyStat.deltaFromSlot = -1;
-												queueEffect(c);
-											};
-											qClear(8, -dying.ward);
-											qClear(5, -dying.block);
-											qClear(13, -dying.fortification);
-											qClear(6, -dying.barrier);
-											qClear(7, -dying.holyBlock);
-											qClear(11, -dying.nextTurnAPBonus);
-											qClear(12, -dying.shocksPlayedThisTurn);
-											qClear(14, -dying.flurryOfFistsStacks);
+										// (Deck recycling/shuffling block removed to preserve current deck state)
 
-											// Synchronous logic (no visual deps)
-											dying.tortoiseDamageTaken = 0;
-											dying.storedDarkShieldDice = 0;
-											dying.ghostDamageTaken = 0;
-											dying.cardsPlayedThisTurn.clear();
-											dying.playedCardsPile.clear();
-											dying.summonedOnTurnCycle = globalTurnCounter;
-
-											int resurrectedIndex = findPlayerIndexByID(dying.playerID);
-											if (resurrectedIndex >= 0) {
-												if (!dying.discardPile.empty()) {
-													dying.deck.insert(dying.deck.end(), dying.discardPile.begin(), dying.discardPile.end());
-													dying.discardPile.clear();
-													shuffleGameVector(dying.deck, resurrectedIndex);
-												}
-											}
-
-											// FIX: Resurrect Minions as Minions, and Players as Players!
-											if (dying.isMinion) {
-												// Find the summonKind by looking at the flags
-												int sKind = 10; // Default Wall
-												if (dying.isKobold)
-													sKind = 1;
-												else if (dying.isWolf)
-													sKind = 2;
-												else if (dying.isHellhound)
-													sKind = 3;
-												else if (dying.isDemon)
-													sKind = 4;
-												else if (dying.isKoboldKing)
-													sKind = 5;
-												else if (dying.isAssistant)
-													sKind = 6;
-												else if (dying.isFaerie)
-													sKind = 7;
-												else if (dying.isGolem)
-													sKind = 8;
-												else if (dying.isSkeleton)
-													sKind = 9;
-												else if (dying.isWallUnit && !dying.isMagicWallUnit)
-													sKind = 10;
-												else if (dying.isMagicWallUnit)
-													sKind = 11;
-
-												EffectOp spawnM = {};
-												spawnM.type = EffectOpType::SPAWN_UNIT;
-												spawnM.data.spawnUnit.toX = dying.x;
-												spawnM.data.spawnUnit.toY = dying.y;
-												spawnM.data.spawnUnit.summonKind = sKind;
-												spawnM.data.spawnUnit.ownerPlayerID = dying.ownerID;
-												spawnM.data.spawnUnit.summonerPlayerID = dying.directSummonerID;
-												spawnM.data.spawnUnit.maxHealth = hp; // Use the rolled HP
-												spawnM.data.spawnUnit.maxHealthFromSlot = -1;
-												spawnM.data.spawnUnit.ap = dying.ap; // Keep their AP
-
-												// Hack: Pass the original playerID through variant to force-restore it
-												spawnM.data.spawnUnit.variant = dying.playerID;
-												queueEffect(spawnM);
-											} else {
-												EffectOp spawn = {};
-												spawn.type = EffectOpType::SPAWN_PLAYER;
-												spawn.data.spawnPlayer.x = dying.x;
-												spawn.data.spawnPlayer.y = dying.y;
-												spawn.data.spawnPlayer.playerID = dying.playerID;
-												spawn.data.spawnPlayer.deckChoice = 0;
-												queueEffect(spawn);
-											}
-
-											if (!isProcessingEffect) beginEffectSequence();
-										}
 										resurrected = true;
 										queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie for " << hp << " HP.";
+										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie in-place for " << hp << " HP.";
 									}
 								}
 							}
