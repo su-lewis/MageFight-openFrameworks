@@ -6622,7 +6622,6 @@ void ofApp::drawMultiplayerMenu() {
 //--------------------------------------------------------------
 void ofApp::applySettings() {
 	// SPEEDUP FIX: Bypass V-Sync and framerate caps in headless mode!
-	// This will unlock your CPU to train at 2,000+ FPS instead of 72 FPS.
 	if (headless) {
 		ofSetVerticalSync(false);
 		ofSetFrameRate(0);
@@ -6632,12 +6631,6 @@ void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-
-	// FIX: Allow the window to minimize and prevent it from forcing itself always-on-top!
-	if (win) {
-		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
-		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
-	}
 
 	if (g_windowModeState == 1) { // Standard Fullscreen
 		if (ofGetWindowMode() != OF_FULLSCREEN) {
@@ -6678,21 +6671,13 @@ void ofApp::applySettings() {
 		isFullscreen = false;
 	}
 
-	// Framerate: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
-	int targetFPS = 0;
-	if (settingsFramerateSliderValue >= 0.999f) {
-		// Unlimited: do not cap (disable vsync and let the OS/runtime run uncapped)
-		ofSetVerticalSync(false);
-		ofSetFrameRate(0);
-	} else {
-		targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-		targetFPS = std::min(targetFPS, 300);
-		// Disable vertical sync so the explicit frame rate cap is honored by ofSetFrameRate
-		ofSetVerticalSync(false);
-		ofSetFrameRate(targetFPS);
+	// CRITICAL FIX: Explicitly apply GLFW window attributes AFTER all window changes are complete.
+	// Fullscreen changes reset the GLFW context on Windows, wiping out focus and minimize hooks!
+	if (win) {
+		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
+		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
+		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_TRUE);
 	}
-
-	recalculateUI(ofGetWidth(), ofGetHeight());
 
 	// --- 11. POST PROCESSING (Optional, used for 3D world only) ---
 	{
