@@ -21579,6 +21579,7 @@ void ofApp::simulationTick() {
 	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
 	// ONLY check if there are no pending spells processing so array indices don't shift!
 	if (!isProcessingEffect && !isEarthquakeActive) {
+		static std::map<int, int> s_playerDeathDelayMap; // Maps playerID -> remaining delay ticks (deterministic)
 		std::vector<int> removeIndices;
 		bool p0Died = false;
 		bool p1Died = false;
@@ -21605,197 +21606,216 @@ void ofApp::simulationTick() {
 
 			if (!shouldDie) continue;
 
-			// Attempt Faerie resurrection if applicable
-			Player & dying = players[i];
-			bool resurrected = false;
-			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-				// Check orthogonally-adjacent tiles for an alive Faerie.
-				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-						if (abs(dx) + abs(dy) == 1) { // orthogonal only
-							int nx = dying.x + dx, ny = dying.y + dy;
-							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-							for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
-								Player & p = players[pidx];
-								bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
-								if (p.isFaerie && p.x == nx && p.y == ny && isSameTeam) {
-									// Deterministic resurrection roll (decision-time via detailed resolver)
-									std::vector<int> rawRes;
-									int raw = resolveDiceRollDetailed(1, 4, rawRes);
-									int luckBonus = p.luck + computePassiveLuck((int)pidx);
-									int roll = raw + luckBonus; // may exceed 4; that's intentional
-									if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
-									// Show dice visual for the faerie roll
-									int hp = (dying.maxHealth * roll) / 4;
-									if (hp < 1) hp = 1;
+			// Handle Dramatic Death Delay (1.2 seconds of suspense)
+			int pID = players[i].playerID;
+			if (s_playerDeathDelayMap.find(pID) == s_playerDeathDelayMap.end()) {
+				// Attempt Faerie resurrection immediately before initiating delay
+				Player & dying = players[i];
+				bool resurrected = false;
+				if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+					// Check orthogonally-adjacent tiles for an alive Faerie.
+					for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+						for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+							if (abs(dx) + abs(dy) == 1) { // orthogonal only
+								int nx = dying.x + dx, ny = dying.y + dy;
+								if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+								for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+									Player & p = players[pidx];
+									bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
+									if (p.isFaerie && p.x == nx && p.y == ny && isSameTeam) {
+										// Deterministic resurrection roll (decision-time via detailed resolver)
+										std::vector<int> rawRes;
+										int raw = resolveDiceRollDetailed(1, 4, rawRes);
+										int luckBonus = p.luck + computePassiveLuck((int)pidx);
+										int roll = raw + luckBonus; // may exceed 4; that's intentional
+										if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
+										// Show dice visual for the faerie roll
+										int hp = (dying.maxHealth * roll) / 4;
+										if (hp < 1) hp = 1;
 
-									int pct = roll * 25;
-									std::string calcStr = "Rolled " + ofToString(roll) + " X " + ofToString(pct) + "% = " + ofToString(hp) + " HP";
-									queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
+										int pct = roll * 25;
+										std::string calcStr = "Rolled " + ofToString(roll) + " X " + ofToString(pct) + "% = " + ofToString(hp) + " HP";
+										queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
 
-									// Visual Dice Roll for the Faerie Resurrection
-									queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
+										// Visual Dice Roll for the Faerie Resurrection
+										queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
 
-									// NEW: Visual Tracer to show the magical link
-									queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
+										// NEW: Visual Tracer to show the magical link
+										queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
 
-									{
-										EffectOp wait = {};
-										wait.type = EffectOpType::WAIT_VISUAL;
-										wait.data.damage.fixedDamage = 1;
-										queueEffect(wait);
+										{
+											EffectOp wait = {};
+											wait.type = EffectOpType::WAIT_VISUAL;
+											wait.data.damage.fixedDamage = 1;
+											queueEffect(wait);
 
-										EffectOp setHp = {};
-										setHp.type = EffectOpType::MODIFY_STAT;
-										setHp.data.modifyStat.targetIndex = (int)i;
-										setHp.data.modifyStat.statType = 0; // HP
-										setHp.data.modifyStat.delta = hp - dying.health;
-										setHp.data.modifyStat.deltaFromSlot = -1;
-										queueEffect(setHp);
+											EffectOp setHp = {};
+											setHp.type = EffectOpType::MODIFY_STAT;
+											setHp.data.modifyStat.targetIndex = (int)i;
+											setHp.data.modifyStat.statType = 0; // HP
+											setHp.data.modifyStat.delta = hp - dying.health;
+											setHp.data.modifyStat.deltaFromSlot = -1;
+											queueEffect(setHp);
 
-										auto qRm = [&](int sType) {
-											EffectOp rm = {};
-											rm.type = EffectOpType::REMOVE_STATUS;
-											rm.data.status.targetIndex = (int)i; // Remove from DYING unit
-											rm.data.status.statusType = sType;
-											rm.data.status.duration = 0;
-											queueEffect(rm);
-										};
-										qRm(STATUS_ON_FIRE);
-										qRm(STATUS_POISONED);
-										qRm(STATUS_PARALYZED);
-										qRm(STATUS_REPLICATE_QUEUED);
-										qRm(STATUS_ADD_POISON);
-										qRm(STATUS_NEXT_TURN_D10AP);
-										qRm(STATUS_NEXT_TURN_EXTRA_DRAW);
-										qRm(STATUS_NEXT_TURN_BONUS_DICE);
-										qRm(STATUS_STRENGTHEN_ELEMENTS);
-										qRm(STATUS_TORTOISE_FORM);
-										qRm(STATUS_GHOST_FORM);
+											auto qRm = [&](int sType) {
+												EffectOp rm = {};
+												rm.type = EffectOpType::REMOVE_STATUS;
+												rm.data.status.targetIndex = (int)i; // Remove from DYING unit
+												rm.data.status.statusType = sType;
+												rm.data.status.duration = 0;
+												queueEffect(rm);
+											};
+											qRm(STATUS_ON_FIRE);
+											qRm(STATUS_POISONED);
+											qRm(STATUS_PARALYZED);
+											qRm(STATUS_REPLICATE_QUEUED);
+											qRm(STATUS_ADD_POISON);
+											qRm(STATUS_NEXT_TURN_D10AP);
+											qRm(STATUS_NEXT_TURN_EXTRA_DRAW);
+											qRm(STATUS_NEXT_TURN_BONUS_DICE);
+											qRm(STATUS_STRENGTHEN_ELEMENTS);
+											qRm(STATUS_TORTOISE_FORM);
+											qRm(STATUS_GHOST_FORM);
 
-										auto qClear = [&](int statType, int delta) {
-											EffectOp c = {};
-											c.type = EffectOpType::MODIFY_STAT;
-											c.data.modifyStat.targetIndex = (int)i;
-											c.data.modifyStat.statType = statType;
-											c.data.modifyStat.delta = delta;
-											c.data.modifyStat.deltaFromSlot = -1;
-											queueEffect(c);
-										};
-										qClear(8, -dying.ward);
-										qClear(5, -dying.block);
-										qClear(13, -dying.fortification);
-										qClear(6, -dying.barrier);
-										qClear(7, -dying.holyBlock);
-										qClear(11, -dying.nextTurnAPBonus);
-										qClear(12, -dying.shocksPlayedThisTurn);
-										qClear(14, -dying.flurryOfFistsStacks);
+											auto qClear = [&](int statType, int delta) {
+												EffectOp c = {};
+												c.type = EffectOpType::MODIFY_STAT;
+												c.data.modifyStat.targetIndex = (int)i;
+												c.data.modifyStat.statType = statType;
+												c.data.modifyStat.delta = delta;
+												c.data.modifyStat.deltaFromSlot = -1;
+												queueEffect(c);
+											};
+											qClear(8, -dying.ward);
+											qClear(5, -dying.block);
+											qClear(13, -dying.fortification);
+											qClear(6, -dying.barrier);
+											qClear(7, -dying.holyBlock);
+											qClear(11, -dying.nextTurnAPBonus);
+											qClear(12, -dying.shocksPlayedThisTurn);
+											qClear(14, -dying.flurryOfFistsStacks);
 
-										// Synchronous logic (no visual deps)
-										dying.tortoiseDamageTaken = 0;
-										dying.storedDarkShieldDice = 0;
-										dying.ghostDamageTaken = 0;
-										dying.cardsPlayedThisTurn.clear();
-										dying.playedCardsPile.clear();
-										dying.summonedOnTurnCycle = globalTurnCounter;
+											// Synchronous logic (no visual deps)
+											dying.tortoiseDamageTaken = 0;
+											dying.storedDarkShieldDice = 0;
+											dying.ghostDamageTaken = 0;
+											dying.cardsPlayedThisTurn.clear();
+											dying.playedCardsPile.clear();
+											dying.summonedOnTurnCycle = globalTurnCounter;
 
-										int resurrectedIndex = findPlayerIndexByID(dying.playerID);
-										if (resurrectedIndex >= 0) {
-											if (!dying.discardPile.empty()) {
-												dying.deck.insert(dying.deck.end(), dying.discardPile.begin(), dying.discardPile.end());
-												dying.discardPile.clear();
-												shuffleGameVector(dying.deck, resurrectedIndex);
+											int resurrectedIndex = findPlayerIndexByID(dying.playerID);
+											if (resurrectedIndex >= 0) {
+												if (!dying.discardPile.empty()) {
+													dying.deck.insert(dying.deck.end(), dying.discardPile.begin(), dying.discardPile.end());
+													dying.discardPile.clear();
+													shuffleGameVector(dying.deck, resurrectedIndex);
+												}
 											}
+
+											// FIX: Resurrect Minions as Minions, and Players as Players!
+											if (dying.isMinion) {
+												// Find the summonKind by looking at the flags
+												int sKind = 10; // Default Wall
+												if (dying.isKobold)
+													sKind = 1;
+												else if (dying.isWolf)
+													sKind = 2;
+												else if (dying.isHellhound)
+													sKind = 3;
+												else if (dying.isDemon)
+													sKind = 4;
+												else if (dying.isKoboldKing)
+													sKind = 5;
+												else if (dying.isAssistant)
+													sKind = 6;
+												else if (dying.isFaerie)
+													sKind = 7;
+												else if (dying.isGolem)
+													sKind = 8;
+												else if (dying.isSkeleton)
+													sKind = 9;
+												else if (dying.isWallUnit && !dying.isMagicWallUnit)
+													sKind = 10;
+												else if (dying.isMagicWallUnit)
+													sKind = 11;
+
+												EffectOp spawnM = {};
+												spawnM.type = EffectOpType::SPAWN_UNIT;
+												spawnM.data.spawnUnit.toX = dying.x;
+												spawnM.data.spawnUnit.toY = dying.y;
+												spawnM.data.spawnUnit.summonKind = sKind;
+												spawnM.data.spawnUnit.ownerPlayerID = dying.ownerID;
+												spawnM.data.spawnUnit.summonerPlayerID = dying.directSummonerID;
+												spawnM.data.spawnUnit.maxHealth = hp; // Use the rolled HP
+												spawnM.data.spawnUnit.maxHealthFromSlot = -1;
+												spawnM.data.spawnUnit.ap = dying.ap; // Keep their AP
+
+												// Hack: Pass the original playerID through variant to force-restore it
+												spawnM.data.spawnUnit.variant = dying.playerID;
+												queueEffect(spawnM);
+											} else {
+												EffectOp spawn = {};
+												spawn.type = EffectOpType::SPAWN_PLAYER;
+												spawn.data.spawnPlayer.x = dying.x;
+												spawn.data.spawnPlayer.y = dying.y;
+												spawn.data.spawnPlayer.playerID = dying.playerID;
+												spawn.data.spawnPlayer.deckChoice = 0;
+												queueEffect(spawn);
+											}
+
+											if (!isProcessingEffect) beginEffectSequence();
 										}
-
-										// FIX: Resurrect Minions as Minions, and Players as Players!
-										if (dying.isMinion) {
-											// Find the summonKind by looking at the flags
-											int sKind = 10; // Default Wall
-											if (dying.isKobold)
-												sKind = 1;
-											else if (dying.isWolf)
-												sKind = 2;
-											else if (dying.isHellhound)
-												sKind = 3;
-											else if (dying.isDemon)
-												sKind = 4;
-											else if (dying.isKoboldKing)
-												sKind = 5;
-											else if (dying.isAssistant)
-												sKind = 6;
-											else if (dying.isFaerie)
-												sKind = 7;
-											else if (dying.isGolem)
-												sKind = 8;
-											else if (dying.isSkeleton)
-												sKind = 9;
-											else if (dying.isWallUnit && !dying.isMagicWallUnit)
-												sKind = 10;
-											else if (dying.isMagicWallUnit)
-												sKind = 11;
-
-											EffectOp spawnM = {};
-											spawnM.type = EffectOpType::SPAWN_UNIT;
-											spawnM.data.spawnUnit.toX = dying.x;
-											spawnM.data.spawnUnit.toY = dying.y;
-											spawnM.data.spawnUnit.summonKind = sKind;
-											spawnM.data.spawnUnit.ownerPlayerID = dying.ownerID;
-											spawnM.data.spawnUnit.summonerPlayerID = dying.directSummonerID;
-											spawnM.data.spawnUnit.maxHealth = hp; // Use the rolled HP
-											spawnM.data.spawnUnit.maxHealthFromSlot = -1;
-											spawnM.data.spawnUnit.ap = dying.ap; // Keep their AP
-
-											// Hack: Pass the original playerID through variant to force-restore it
-											spawnM.data.spawnUnit.variant = dying.playerID;
-											queueEffect(spawnM);
-										} else {
-											EffectOp spawn = {};
-											spawn.type = EffectOpType::SPAWN_PLAYER;
-											spawn.data.spawnPlayer.x = dying.x;
-											spawn.data.spawnPlayer.y = dying.y;
-											spawn.data.spawnPlayer.playerID = dying.playerID;
-											spawn.data.spawnPlayer.deckChoice = 0;
-											queueEffect(spawn);
-										}
-
-										if (!isProcessingEffect) beginEffectSequence();
+										resurrected = true;
+										queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie for " << hp << " HP.";
 									}
-									resurrected = true;
-									queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-									ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie for " << hp << " HP.";
 								}
 							}
 						}
 					}
 				}
+
+				if (resurrected) {
+					continue; // Bypassed death sequence
+				} else {
+					s_playerDeathDelayMap[pID] = 72; // Lock in the 1.2s suspense timer
+					continue; // Stay alive on screen during countdown
+				}
 			}
 
-			if (!resurrected) {
-				// Demon Death: If a Demon dies, its killer gets to draft a Class 3 card!
-				if (dying.isDemon) {
-					int killerID = -1;
-					auto it = g_lastDamagerMap.find(dying.playerID);
-					if (it != g_lastDamagerMap.end()) killerID = it->second;
+			// Countdown ticks
+			if (s_playerDeathDelayMap[pID] > 0) {
+				s_playerDeathDelayMap[pID]--;
+				continue; // Delay active; do not delete yet
+			}
 
-					if (killerID != -1) {
-						int killerIdx = findPlayerIndexByID(killerID);
-						if (killerIdx != -1) {
-							// Queue the draft so it happens cleanly after all other effects resolve
-							networkPending.draftQueue.push_back((killerIdx << 16) | 3); // Class 3
-							queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Demon Slain! (Draft C3)", ofColor::gold);
-						}
+			// Suspense expired! Proceed to actual board cleanup
+			s_playerDeathDelayMap.erase(pID);
+
+			Player & dying = players[i];
+			// Demon Death: If a Demon dies, its killer gets to draft a Class 3 card!
+			if (dying.isDemon) {
+				int killerID = -1;
+				auto it = g_lastDamagerMap.find(dying.playerID);
+				if (it != g_lastDamagerMap.end()) killerID = it->second;
+
+				if (killerID != -1) {
+					int killerIdx = findPlayerIndexByID(killerID);
+					if (killerIdx != -1) {
+						// Queue the draft so it happens cleanly after all other effects resolve
+						networkPending.draftQueue.push_back((killerIdx << 16) | 3); // Class 3
+						queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Demon Slain! (Draft C3)", ofColor::gold);
 					}
 				}
+			}
 
-				// Mark this unit for removal from the board
-				removeIndices.push_back((int)i);
+			// Mark this unit for removal from the board
+			removeIndices.push_back((int)i);
 
-				// Track which main player died
-				if (!players[i].isMinion) {
-					if (players[i].playerID == 0) p0Died = true;
-					if (players[i].playerID == 1) p1Died = true;
-				}
+			// Track which main player died
+			if (!players[i].isMinion) {
+				if (players[i].playerID == 0) p0Died = true;
+				if (players[i].playerID == 1) p1Died = true;
 			}
 		}
 
