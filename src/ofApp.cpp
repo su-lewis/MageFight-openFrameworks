@@ -320,7 +320,14 @@ struct ActionHistoryEntry {
 	int toX = -1;
 	int toY = -1;
 	std::vector<glm::vec2> movementPath;
-	int actorIndex = -1;
+	int actorPlayerID = -1; // Use stable playerID instead of transient actorIndex
+
+	// Spell coordinate parameters
+	int casterX = -1;
+	int casterY = -1;
+	int targetX = -1;
+	int targetY = -1;
+	bool hasTracers = false;
 };
 static std::vector<ActionHistoryEntry> g_actionHistory;
 static int s_hoveredHistoryIndex = -1; // App-level tracker for 3D visual rendering
@@ -2656,6 +2663,18 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 	}
 
 	he.menuChoice = interactionMenuChoice;
+
+	// Record spellcasting coordinates for the 3D visual tracer path
+	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+		he.casterX = players[playerIndex].x;
+		he.casterY = players[playerIndex].y;
+	}
+	he.targetX = currentCardOutcome.primaryTarget.x;
+	he.targetY = currentCardOutcome.primaryTarget.y;
+
+	if (he.casterX != -1 && he.targetX != -1 && (he.casterX != he.targetX || he.casterY != he.targetY)) {
+		he.hasTracers = true;
+	}
 
 	// Capture Shoot Arrow sacrifices or Mind Theft stolen targets
 	if (playedCard.type == CARD_SHOOT_ARROW && currentCardOutcome.destroyedCardType != CARD_NONE) {
@@ -5713,12 +5732,12 @@ void ofApp::draw() {
 	// Pre-calculate active action history hover index so 3D pass can draw coordinates/ghosts
 	s_hoveredHistoryIndex = -1;
 	if (currentState == STATE_GAMEPLAY && !g_actionHistory.empty()) {
-		float uiScale = getUIScaleFromHeight(ofGetHeight());
-		float iconSize = 46.0f * uiScale;
-		float spacing = 8.0f * uiScale;
+		float scale = ofGetHeight() / 1080.0f; // Force exact 1080p scale matching drawGame()
+		float iconSize = 46.0f * scale;
+		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 12.0f * uiScale;
+		float startY = 12.0f * scale;
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
 			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
@@ -10473,9 +10492,17 @@ void ofApp::drawGame() {
 				glDepthMask(GL_TRUE);
 				ofPopStyle();
 
-				// 3. Draw semi-transparent model of the actor at the starting tile
-				if (entry.actorIndex >= 0 && entry.actorIndex < (int)players.size()) {
-					const Player & p = players[entry.actorIndex];
+				// 3. Draw semi-transparent model of the actor at the starting tile (resolved via stable ID)
+				int foundIdx = -1;
+				for (int i = 0; i < (int)players.size(); ++i) {
+					if (players[i].playerID == entry.actorPlayerID) {
+						foundIdx = i;
+						break;
+					}
+				}
+
+				if (foundIdx != -1) {
+					const Player & p = players[foundIdx];
 					ofxAssimpModelLoader * currentModel = &playerModel;
 					if (p.inTortoiseForm)
 						currentModel = &tortoiseModel;
@@ -10530,6 +10557,29 @@ void ofApp::drawGame() {
 					ofDisableBlendMode();
 					ofPopStyle();
 				}
+			} else if (entry.hasTracers && entry.casterX != -1 && entry.targetX != -1) {
+				// Outline both cast and target tiles
+				drawTileGlow(entry.casterX, entry.casterY, ofColor(100, 100, 255, 180), 4.0f);
+				drawTileGlow(entry.targetX, entry.targetY, ofColor(255, 100, 100, 180), 4.0f);
+
+				// Draw 3D spell tracer beam
+				ofPushStyle();
+				ofDisableLighting();
+				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				ofEnableDepthTest();
+				glDepthMask(GL_FALSE);
+
+				glm::vec3 startW = gridToWorld(entry.casterX, entry.casterY) + glm::vec3(0, 0.6f, 0);
+				glm::vec3 endW = gridToWorld(entry.targetX, entry.targetY) + glm::vec3(0, 0.6f, 0);
+
+				ofSetColor(255, 215, 0, 220); // Glowing gold beam
+				ofSetLineWidth(4.0f);
+				ofDrawLine(startW, endW);
+
+				glDepthMask(GL_TRUE);
+				ofDisableBlendMode();
+				ofEnableLighting();
+				ofPopStyle();
 			}
 		}
 
@@ -13364,7 +13414,8 @@ void ofApp::drawGame() {
 				drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
 			}
 
-			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
+			// Synchronize 2D hover state perfectly with the pre-calculated 3D pass variable
+			if (s_hoveredHistoryIndex == (int)i) {
 				const auto & entry = g_actionHistory[i];
 
 				// --- TRIGGER DETAILED OVERHEAD HOVER TOOLTIP ---
@@ -13406,62 +13457,99 @@ void ofApp::drawGame() {
 				}
 
 				// --- Companion Details Sidebar ---
-				float infoW = 220.0f * scale;
-				float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 10.0f * scale);
-				float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
-				if (infoX + infoW > ofGetWidth() - 10.0f) {
-					infoX = hoverX - infoW - 10.0f * scale;
-				}
 
-				ofRectangle infoRect(infoX, infoY, infoW, entry.isMovement ? 160 * scale : hoverH);
-				ofSetColor(18, 18, 22, 235);
-				ofDrawRectRounded(infoRect, 12 * scale);
-				ofNoFill();
-				ofSetLineWidth(2 * scale);
-				ofSetColor(120, 120, 140, 200);
-				ofDrawRectRounded(infoRect, 12 * scale);
-				ofFill();
-
-				float curY = infoRect.y + 24 * scale;
-				auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
-					ofSetColor(180, 180, 190);
-					uiFont.drawString(label, infoRect.x + 14 * scale, curY);
-					ofSetColor(valCol);
-					uiFont.drawString(val, infoRect.x + 110 * scale, curY);
-					curY += 26 * scale;
-				};
-
-				ofSetColor(255, 215, 0);
-				uiFont.drawString("Action Details", infoRect.x + 14 * scale, curY);
-				curY += 30 * scale;
+				// Determine dynamically if this card has fields to display
+				bool hasDetails = false;
+				int lineCount = 0;
+				bool isRangedSpell = (entry.card.type == CARD_FIREBALL || entry.card.type == CARD_CHAIN_LIGHTNING || entry.card.type == CARD_MAGIC_BOLT || entry.card.type == CARD_MAGIC_BLAST || entry.card.type == CARD_SHOOT_ARROW || entry.card.type == CARD_ETHEREAL_JOLT);
 
 				if (entry.isMovement) {
-					drawLine("Start Tile:", "(" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ")", ofColor::cyan);
-					drawLine("End Tile:", "(" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")", ofColor::green);
-					drawLine("Tiles Moved:", ofToString(std::max(0, (int)entry.movementPath.size() - 1)), ofColor::gold);
+					hasDetails = true;
+					lineCount = 3;
 				} else {
-					if (entry.rangeRoll > 0) {
-						drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
+					if (entry.rangeRoll > 0 && isRangedSpell) {
+						hasDetails = true;
+						lineCount++;
 					}
 					if (entry.damageRoll > 0) {
-						drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
+						hasDetails = true;
+						lineCount++;
 					}
 					if (entry.utilityRoll > 0) {
-						drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
+						hasDetails = true;
+						lineCount++;
 					}
 					if (!entry.menuChoice.empty()) {
-						drawLine("Choice:", entry.menuChoice, ofColor::gold);
+						hasDetails = true;
+						lineCount++;
 					}
 					if (!entry.destroyedCardNames.empty()) {
-						curY += 6 * scale;
-						ofSetColor(240, 100, 100);
-						uiFont.drawString("Destroyed:", infoRect.x + 14 * scale, curY);
-						curY += 22 * scale;
+						hasDetails = true;
+						lineCount += 1 + (int)entry.destroyedCardNames.size(); // Title line + card items
+					}
+				}
 
-						for (const auto & cName : entry.destroyedCardNames) {
-							ofSetColor(255, 255, 255);
-							uiFont.drawString("- " + cName, infoRect.x + 22 * scale, curY);
+				if (hasDetails) {
+					float infoW = 220.0f * scale;
+					float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 10.0f * scale);
+					float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
+					if (infoX + infoW > ofGetWidth() - 10.0f) {
+						infoX = hoverX - infoW - 10.0f * scale;
+					}
+
+					// Dynamic height scaling: base overhead + per-line padding
+					float dynamicH = (45.0f + lineCount * 26.0f + 16.0f) * scale;
+					ofRectangle infoRect(infoX, infoY, infoW, dynamicH);
+
+					ofSetColor(18, 18, 22, 235);
+					ofDrawRectRounded(infoRect, 12 * scale);
+					ofNoFill();
+					ofSetLineWidth(2 * scale);
+					ofSetColor(120, 120, 140, 200);
+					ofDrawRectRounded(infoRect, 12 * scale);
+					ofFill();
+
+					float curY = infoRect.y + 24 * scale;
+					auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
+						ofSetColor(180, 180, 190);
+						uiFont.drawString(label, infoRect.x + 14 * scale, curY);
+						ofSetColor(valCol);
+						uiFont.drawString(val, infoRect.x + 110 * scale, curY);
+						curY += 26 * scale;
+					};
+
+					ofSetColor(255, 215, 0);
+					uiFont.drawString("Action Details", infoRect.x + 14 * scale, curY);
+					curY += 30 * scale;
+
+					if (entry.isMovement) {
+						drawLine("Start Tile:", "(" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ")", ofColor::cyan);
+						drawLine("End Tile:", "(" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")", ofColor::green);
+						drawLine("Tiles Moved:", ofToString(std::max(0, (int)entry.movementPath.size() - 1)), ofColor::gold);
+					} else {
+						if (entry.rangeRoll > 0 && isRangedSpell) {
+							drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
+						}
+						if (entry.damageRoll > 0) {
+							drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
+						}
+						if (entry.utilityRoll > 0) {
+							drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
+						}
+						if (!entry.menuChoice.empty()) {
+							drawLine("Choice:", entry.menuChoice, ofColor::gold);
+						}
+						if (!entry.destroyedCardNames.empty()) {
+							curY += 6 * scale;
+							ofSetColor(240, 100, 100);
+							uiFont.drawString("Destroyed:", infoRect.x + 14 * scale, curY);
 							curY += 22 * scale;
+
+							for (const auto & cName : entry.destroyedCardNames) {
+								ofSetColor(255, 255, 255);
+								uiFont.drawString("- " + cName, infoRect.x + 22 * scale, curY);
+								curY += 22 * scale;
+							}
 						}
 					}
 				}
@@ -38858,7 +38946,7 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 	ActionHistoryEntry he;
 	he.isMovement = true;
 	he.playerID = p.isMinion ? p.ownerID : p.playerID;
-	he.actorIndex = playerIndex;
+	he.actorPlayerID = p.playerID; // Use stable, unique player ID for minion/player lookup
 	he.fromX = prevX;
 	he.fromY = prevY;
 	he.toX = targetX;
