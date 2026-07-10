@@ -51,6 +51,9 @@ static std::vector<std::string> s_fullMatchLog;
 // --- NEW: OPPONENT DECISION QUEUE ---
 static std::deque<int> g_opponentDecisionQueue;
 
+// --- WIN STREAK TRACKING ---
+static int s_winStreak = 0;
+
 // --- MAGE RANKINGS ---
 static std::pair<std::string, ofColor> getMageRank(int elo) {
 	// The Shame Tiers (When the dice betray you)
@@ -4865,7 +4868,7 @@ void ofApp::updateStateMachine() {
 	// Disconnection / reconnection handling (multiplayer)
 	if (isMultiplayer) {
 		if (!steamManager.hasOpponent()) {
-			// FIX: If the game has already concluded, or we are viewing a desync, don't interrupt!
+			// If the game has already concluded, or we are viewing a desync, don't interrupt
 			if (g_isGameOver || currentState == STATE_DESYNC) return;
 
 			if (g_isSpectator) {
@@ -4876,12 +4879,13 @@ void ofApp::updateStateMachine() {
 				return;
 			}
 
+			// Point of No Return: Checked active match states
 			bool inMatchState = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED || currentState == STATE_WAITING_FOR_RECONNECT);
 			if (inMatchState) {
 				if (!waitingForReconnect) {
 					ofLogNotice("Network") << "Connection lost. Invisible forfeit timer armed.";
 					waitingForReconnect = true;
-					reconnectForfeitStartTime = 0.0f; // Use as an accumulator for the 45s timer
+					reconnectForfeitStartTime = 0.0f; // Reset and begin accumulator
 
 					ChatMessage msg;
 					msg.playerName = "[SERVER]";
@@ -4892,7 +4896,7 @@ void ofApp::updateStateMachine() {
 					lastChatInteractionTime = ofGetElapsedTimef();
 				}
 
-				// Invisible 45-second timer that ONLY runs during the opponent's turn/draft
+				// 45-second timer runs during the opponent's turn/draft
 				int disconnectedOwner = (myLocalPlayerID == 0) ? 1 : 0;
 				bool isOpponentsTurn = false;
 
@@ -4905,18 +4909,14 @@ void ofApp::updateStateMachine() {
 				}
 
 				if (isOpponentsTurn && !g_isGameOver) {
-					reconnectForfeitStartTime += ofGetLastFrameTime(); // Accumulate time
+					reconnectForfeitStartTime += ofGetLastFrameTime(); // Accumulate delta time
 					if (reconnectForfeitStartTime >= 45.0f) {
 						handleOwnerForfeit(disconnectedOwner, "disconnected for 45s during their turn");
 					}
 				}
-
-				// WE NO LONGER RETURN HERE!
-				// This allows the local player to keep playing the game, animations to finish, and simulationTick to run!
 			} else {
+				// Abort Guard: Disconnections in lobby/setup occur before any match states are active
 				ofLogNotice("Network") << "Connection dropped during lobby setup. Awaiting Steam auto-reconnect...";
-				// Do not instantly kill the game; Steam will automatically retry.
-				// The user can press the Cancel button if it takes too long.
 				return;
 			}
 		}
@@ -5010,9 +5010,10 @@ void ofApp::updateStateMachine() {
 			deltaTime = 0.0f;
 		}
 
-		// FIX: Clamp delta time in visual mode to prevent massive "time-warp" catchups
-		// when the main thread blocks waiting for the Python AI ZMQ socket!
-		if (!headless && deltaTime > SIMULATION_TIMESTEP * 1.5f) {
+		// CRITICAL FIX: Unconditionally clamp delta time in both headless and visual modes.
+		// This prevents first-frame loading spikes or Python ZMQ socket wait blocks from
+		// causing massive "time-warp" simulation loops that freeze the game thread.
+		if (deltaTime > SIMULATION_TIMESTEP * 1.5f) {
 			deltaTime = SIMULATION_TIMESTEP * 1.5f;
 		}
 
@@ -5125,21 +5126,45 @@ void ofApp::update() {
 		matchLogSaved = false; // Reset for next match
 	}
 
-	// --- ELO CALCULATION ---
+	// --- ELO CALCULATION (ZERO-SUM REVISED) ---
 	if (g_isGameOver && !eloCalculated && isMultiplayer) {
 		eloCalculated = true;
 
 		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-		// ELO DRAW MATH: If g_winnerID == 2, give 0.5 points to both!
+		// Standard actual score outcomes: Win = 1.0, Draw = 0.5, Loss = 0.0
 		float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
 
-		// Zero-Sum Dynamic K-Factor (Averages both players' certainty to prevent Elo inflation/ghost points)
+		// Module 2: Momentum Engine (Win Streak Tracker)
+		if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
+			s_winStreak++;
+		} else if (g_winnerID != 2) {
+			s_winStreak = 0;
+		}
+
+		// Calculate Momentum K-Factor Multiplier based on win streak
+		float myKMultiplier = 1.0f;
+		if (s_winStreak == 3) {
+			myKMultiplier = 1.25f;
+		} else if (s_winStreak >= 4) {
+			myKMultiplier = 1.50f;
+		}
+
+		// Module 1: Base K-Factors
 		float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
 		float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
+
+		// Apply the win-streak acceleration to the player's personal K-Factor
+		myK *= myKMultiplier;
+
+		// Averaged Match K-Factor (volatility balance)
 		float avgK = (myK + oppK) / 2.0f;
 
-		// True skill calculation
+		// True skill calculation (Zero-Sum)
 		eloChange = (int)round(avgK * (myActual - myExpected));
+
+		// Module 4: Safety Nets (Maximum Swing Cap)
+		int maxSwing = (int)round(avgK);
+		eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
 
 		myElo += eloChange;
 		if (myElo < 300) {
@@ -5152,7 +5177,20 @@ void ofApp::update() {
 		// DISARM THE LEAVERBUSTER TRAP (Match concluded legally)
 		steamManager.disarmLeaverBuster();
 
-		ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected << ", Change: " << eloChange << ", New Rating: " << myElo;
+		ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected
+						   << ", Change: " << eloChange << ", New Rating: " << myElo
+						   << ", Streak: " << s_winStreak << ", Final K_avg: " << avgK;
+
+		// Module 3: Endurance Engine (Separating ELO from XP)
+		int baseXP = 100;
+		int bonusXP = 0;
+		if (globalTurnCounter >= 30) {
+			int extraIntervals = (globalTurnCounter - 30) / 5;
+			bonusXP = (int)(baseXP * (0.25f * extraIntervals));
+			std::string marathonMsg = "Marathon Bonus Active! Turn Count: " + std::to_string(globalTurnCounter)
+				+ ". Bonus XP awarded: +" + std::to_string(bonusXP) + "%";
+			addGameLog(marathonMsg);
+		}
 
 		// --- DISCORD GAME HISTORY WEBHOOK ---
 		if (steamManager.isHost() || !steamManager.hasOpponent()) {
@@ -5162,8 +5200,6 @@ void ofApp::update() {
 			std::string oppName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
 			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : ((g_winnerID == myLocalPlayerID) ? myName : oppName);
 
-			int myPreGameElo = myElo - eloChange;
-			// Strict Zero-Sum: Opponent loses exactly what you gained (or vice versa)
 			int oppEloChange = -eloChange;
 			int newOppElo = std::max(300, opponentElo + oppEloChange);
 
@@ -5173,15 +5209,16 @@ void ofApp::update() {
 			auto rankMe = getMageRank(myElo);
 			auto rankOpp = getMageRank(newOppElo);
 
-			// Using normal \n now because our sanitizer handles it!
 			std::string msg = "⚔️ **DUEL FINISHED** ⚔️\n";
 			msg += "**" + myName + "** (" + rankMe.first + ", " + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
 			msg += "**" + oppName + "** (" + rankOpp.first + ", " + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
 			msg += "🏆 **Winner:** " + winnerName;
+			if (bonusXP > 0) {
+				msg += "\n🏃 **Marathon Endurance Match:** Turn " + std::to_string(globalTurnCounter) + " reached! (+" + std::to_string(bonusXP) + "% XP Bonus)";
+			}
 
 			sendDiscordWebhook(historyWebhook, msg);
 		}
-		// ----------------------------------------------------
 	}
 
 	// Process any visual-only events (animations, waits)
