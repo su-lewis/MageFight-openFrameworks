@@ -6780,6 +6780,14 @@ void ofApp::setupGame() {
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
 
+	// CRITICAL FIX: Explicitly initialize all draft-related state variables to stable defaults
+	// to prevent uninitialized memory garbage values from causing immediate cross-platform desyncs.
+	draftPlayerIndex = -1;
+	draftStage = 0;
+	draftPicksRemaining = 0;
+	currentDraftClassTier = 1;
+	draftGenerationCounter = 0;
+
 	commandQueue.clear();
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear();
@@ -7049,12 +7057,9 @@ void ofApp::setupGame() {
 	globalTurnCounter = 0;
 	turnStartFrame = (int)simulationFrame;
 
-	// Snap the on-screen player visual to the local player's starting square now that
-	// `myLocalPlayerID` has been assigned (hosts/clients may set this before calling).
-	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size())
-		playerVisualPos = gridToWorld(players[myLocalPlayerID].x, players[myLocalPlayerID].y);
-	else
-		playerVisualPos = gridToWorld(players[0].x, players[0].y);
+	// Snap the on-screen active player visual to Player 0's starting square (who always starts the game).
+	// This prevents the opponent's model from snapping to your local tile on the client's screen on startup.
+	playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
 	if (isMultiplayer) {
@@ -12930,11 +12935,18 @@ void ofApp::drawGame() {
 			float leftBound = expectedMinionRight + smallGap;
 			float rightBound = endTurnLeft - smallGap;
 
-			if (rightBound - leftBound > 150.0f * scale) {
-				chatX = leftBound;
-				chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+			// Only apply dynamic gameplay layout shifts once actively inside a match state
+			bool inGameplayArea = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED);
+
+			if (inGameplayArea) {
+				if (rightBound - leftBound > 150.0f * scale) {
+					chatX = leftBound;
+					chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+				} else {
+					chatX = margin;
+				}
 			} else {
-				chatX = margin;
+				chatX = margin; // Stable left alignment for matchmaking/lobby menus
 			}
 
 			// Calculate the absolute left boundary of the card history bar to prevent overlapping
@@ -22198,7 +22210,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			derivedSeed ^= draftGenerationCounter * 1103515245u;
 
 			std::mt19937 draftRng(derivedSeed);
-			deterministic_shuffle(indices, draftRng);
+			robust_deterministic_shuffle(indices, draftRng); // Safe platform-agnostic shuffle
 
 			for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
 				out[i] = indices[i];

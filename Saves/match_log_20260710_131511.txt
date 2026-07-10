@@ -1,0 +1,57 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-10 13:15:11
+End Reason: Victory
+Seed: 1091502437
+Turns: 4
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[13:13:19] --- MATCH STARTED ---
+[13:13:24] Turn 0: Player 2's turn
+[13:13:24] Autosaved turn-start (autosave.json)
+[13:13:25] Player 2 moved to (12,3)
+[13:13:27] Turn 1: Player 1's turn
+[13:13:27] Autosaved turn-start (autosave.json)
+[13:13:30] Player 1 moved to (0,7)
+[13:13:33] Turn 1: Player 2's turn
+[13:13:33] Autosaved turn-start (autosave.json)
+[13:13:35] Player 2 moved to (9,3)
+[13:13:37] Turn 2: Player 1's turn
+[13:13:37] Autosaved turn-start (autosave.json)
+[13:13:39] Player 1 moved to (4,5)
+[13:13:45] Turn 2: Player 2's turn
+[13:13:45] Autosaved turn-start (autosave.json)
+[13:13:48] Player 2 played Ward
+[13:13:51] Player 2 moved to (8,4)
+[13:14:21] Player 2 moved to (8,6)
+[13:14:22] Turn 3: Player 1's turn
+[13:14:22] Autosaved turn-start (autosave.json)
+[13:14:25] Player 1 moved to (4,6)
+[13:14:29] Player 1 moved to (7,6)
+[13:14:32] Player 1 played Punch
+[13:14:33] Player 1 played Shock
+[13:14:35] Player 1 moved to (4,4)
+[13:14:37] Turn 3: Player 2's turn
+[13:14:37] Autosaved turn-start (autosave.json)
+[13:14:52] Player 2 played Summon Kobold King
+[13:14:54] Turn 4: Player 1's turn
+[13:14:54] Autosaved turn-start (autosave.json)
+[13:15:02] Player 1 moved to (4,6)
+[13:15:10] Player 1 played Death
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 5
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 1
+  Total Healing: 0
+=====================
