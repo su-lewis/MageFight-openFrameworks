@@ -61,6 +61,77 @@ static int s_startingXP = 0;
 static int s_xpGained = 0;
 static bool s_hasCachedGameOverVisuals = false;
 
+#include <assimp/scene.h>
+
+// --- WEAPON SOCKET HELPERS ---
+static ofxAssimpModelLoader staffModel;
+
+// Converts Assimp row-major matrix to GLM column-major format
+static glm::mat4 convertAssimpMatrix(const aiMatrix4x4 & from) {
+	glm::mat4 to;
+	to[0][0] = from.a1;
+	to[1][0] = from.a2;
+	to[2][0] = from.a3;
+	to[3][0] = from.a4;
+	to[0][1] = from.b1;
+	to[1][1] = from.b2;
+	to[2][1] = from.b3;
+	to[3][1] = from.b4;
+	to[0][2] = from.c1;
+	to[1][2] = from.c2;
+	to[2][2] = from.c3;
+	to[3][2] = from.c4;
+	to[0][3] = from.d1;
+	to[1][3] = from.d2;
+	to[2][3] = from.d3;
+	to[3][3] = from.d4;
+	return to;
+}
+
+// Recursively accumulates transforms up to the root node
+static glm::mat4 getAssimpNodeWorldMatrix(aiNode * node) {
+	glm::mat4 transform = glm::mat4(1.0f);
+	while (node != nullptr) {
+		transform = convertAssimpMatrix(node->mTransformation) * transform;
+		node = node->mParent;
+	}
+	return transform;
+}
+
+// Recursively searches for a node containing a specific substring
+static aiNode * findNodeByNameSubstring(aiNode * node, const std::string & substring) {
+	if (!node) return nullptr;
+	std::string nodeName = node->mName.C_Str();
+	if (nodeName.find(substring) != std::string::npos) {
+		return node;
+	}
+	for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+		aiNode * found = findNodeByNameSubstring(node->mChildren[i], substring);
+		if (found) return found;
+	}
+	return nullptr;
+}
+
+// Searches for the hand joint using a prioritized cascade of candidate names
+static aiNode * findHandNode(aiNode * root) {
+	if (!root) return nullptr;
+
+	// Exact matches first
+	std::vector<std::string> candidates = {
+		"Armature : mixamorig:LeftHandIndex2",
+		"mixamorig:LeftHandIndex2",
+		"LeftHandIndex2"
+	};
+
+	for (const auto & name : candidates) {
+		aiNode * found = root->FindNode(name.c_str());
+		if (found) return found;
+	}
+
+	// Substring fallback
+	return findNodeByNameSubstring(root, "LeftHandIndex2");
+}
+
 // --- MAGE RANKINGS ---
 static std::pair<std::string, ofColor> getMageRank(int elo) {
 	// The Shame Tiers (When the dice betray you)
@@ -4110,6 +4181,10 @@ void ofApp::setup() {
 
 		// Provide the subfolder paths as well as the old root paths just in case!
 		loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
+		loadModelSafe(staffModel, { "Units/Wizard/Wizard_Staff.fbx", "Wizard_Staff.fbx" });
+		staffModel.setScaleNormalization(false); // Prevent the model loader from resetting weapon dimensions
+		staffModel.setPosition(0, 0, 0); // Clear internal positional offsets
+		staffModel.setScale(1.0f, 1.0f, 1.0f); // Reset default scale
 		loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
 		loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
 		loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
@@ -5036,9 +5111,11 @@ void ofApp::updateStateMachine() {
 void ofApp::update() {
 	// --- SAFE ASYNC LEAVERBUSTER ---
 	static bool leaverBusterChecked = false;
-	// FIX: Do not hammer the Steam API in headless mode!
-	// Headless runs at 10,000+ FPS, which will crash the Steam IPC.
-	if (!leaverBusterChecked && steamManager.isConnected() && !headless) {
+	static float lastEloCheckTime = 0.0f;
+
+	// Rate-limit the ELO query to once every 3 seconds when offline/loading to prevent IPC spam
+	if (!leaverBusterChecked && steamManager.isConnected() && !headless && (ofGetElapsedTimef() - lastEloCheckTime > 3.0f)) {
+		lastEloCheckTime = ofGetElapsedTimef();
 		int currentElo = steamManager.getLocalElo();
 
 		// Wait until Steam cloud stats actually finish downloading!
@@ -6704,12 +6781,18 @@ void ofApp::drawMultiplayerMenu() {
 				ofSetColor(ofColor::gold);
 				uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
 
-				// Safely fetch your local level from Steamworks for your row
-				int accountLevel = 0;
-				if (steamManager.isConnected() && SteamUserStats() && entry.name == steamManager.getLocalPlayerName()) {
+				// Cache the level locally so we don't query Steamworks IPC every frame
+				static int32_t cachedAccountLevel = -1;
+				if (cachedAccountLevel == -1 && steamManager.isConnected() && SteamUserStats()) {
 					int32_t lvl = 1;
-					SteamUserStats()->GetStat("account_level", &lvl);
-					accountLevel = lvl;
+					if (SteamUserStats()->GetStat("account_level", &lvl)) {
+						cachedAccountLevel = lvl;
+					}
+				}
+
+				int accountLevel = 0;
+				if (entry.name == steamManager.getLocalPlayerName() && cachedAccountLevel != -1) {
+					accountLevel = cachedAccountLevel;
 				}
 
 				auto rank = getMageRank(entry.score);
@@ -6921,9 +7004,32 @@ void ofApp::setupGame() {
 	s_pendingRemoteChecksums.clear();
 	s_pendingLocalChecksums.clear();
 
+	// --- CRITICAL REMATCH FIX: PURGE ALL PERSISTENT & STATIC STATE ---
+	g_lastDamagerMap.clear(); // Purge stale kill credits from the previous match
+	s_opponentRiMask = 0; // Reset Renewed Inspiration selection mask
+
+	// Clear all animation queues to prevent visual bleed and stale hand-commits
+	activeDrawCardAnimations.clear();
+	activeDiscardCardAnimations.clear();
+	activeShuffleAnimations.clear();
+	activeTracers.clear();
+	activeMagicBoltAOERings.clear();
+	activeYellowPreviewTiles.clear();
+	activeCombinedPierceTargets.clear();
+
+	// Reset client-side action sequence counters
+	watchdogClientActionCounter = 0;
+	draftClientActionCounter = 0;
+	actionClientActionCounter = 0;
+
+	// Reset network sequence filters on both host and client
+	lastReceivedSeqByPlayer[0] = 0;
+	lastReceivedSeqByPlayer[1] = 0;
+	// -----------------------------------------------------------------
+
 	g_isGameOver = false;
 	g_winnerID = -1;
-	g_drawOfferPlayerID = -1; // <--- ADDED THIS
+	g_drawOfferPlayerID = -1;
 	initialDraftComplete = false;
 	isInGameDraft = false;
 	g_isHostingLobby = false;
@@ -9481,6 +9587,18 @@ void ofApp::drawGame() {
 			wallDarkTexture.unbind();
 		}
 
+		// Run this diagnostic once every 300 frames to prevent console spam
+		if (ofGetFrameNum() % 300 == 0) {
+			ofLogNotice("AttachmentDebug") << "=== SENSOR DIAGNOSTIC ===";
+			ofLogNotice("AttachmentDebug") << "playerModel loaded: " << (playerModel.getAssimpScene() != nullptr ? "YES" : "NO");
+			ofLogNotice("AttachmentDebug") << "staffModel loaded: " << (staffModel.getAssimpScene() != nullptr ? "YES" : "NO");
+
+			if (playerModel.getAssimpScene()) {
+				aiNode * testNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
+				ofLogNotice("AttachmentDebug") << "Bone 'Armature : mixamorig:LeftHandIndex2' found: " << (testNode != nullptr ? "YES" : "NO");
+			}
+		}
+
 		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS ---
 		// Draw after walls so depth buffer contains wall depths and keys are
 		// correctly occluded when behind walls.
@@ -9837,6 +9955,26 @@ void ofApp::drawGame() {
 				}
 				ofPopMatrix();
 
+				// Fixed-Function Ghost path for Weapon attachment
+				if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
+					aiNode * handNode = findHandNode(currentModel->getAssimpScene()->mRootNode);
+					if (handNode) {
+						glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
+
+						// Original working translation
+						glm::mat4 socketOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.4f, 0.0f));
+
+						// Changed 90.0f to -90.0f around X-axis to stand the staff upright in the hand
+						socketOffset = glm::rotate(socketOffset, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+						ofPushMatrix();
+						// Multiplied by currentModel->getModelMatrix() to prevent staff scale collapse
+						ofMultMatrix(modelMat * currentModel->getModelMatrix() * handWorld * socketOffset);
+						staffModel.drawFaces();
+						ofPopMatrix();
+					}
+				}
+
 				ofDisableBlendMode();
 				ofSetColor(255);
 
@@ -9865,9 +10003,38 @@ void ofApp::drawGame() {
 						}
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
+
+					// PBR Shader path for Weapon attachment
+					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
+						aiNode * handNode = findHandNode(currentModel->getAssimpScene()->mRootNode);
+						if (handNode) {
+							glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
+
+							// Original working translation
+							glm::mat4 socketOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.4f, 0.0f));
+
+							// Changed 90.0f to -90.0f around X-axis to stand the staff upright in the hand
+							socketOffset = glm::rotate(socketOffset, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+							// Shaders use absolute uniform values, so keep modelMat here
+							glm::mat4 finalStaffMatrix = modelMat * currentModel->getModelMatrix() * handWorld * socketOffset;
+
+							// Render meshes using PBR uniforms
+							for (unsigned int sm = 0; sm < staffModel.getMeshCount(); ++sm) {
+								glm::mat4 staffMeshMat = staffModel.getMeshHelper(sm).matrix;
+								glm::mat4 animatedStaffMat = finalStaffMatrix * staffMeshMat;
+								pbrShader.setUniformMatrix4f("uModel", animatedStaffMat);
+
+								glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * animatedStaffMat));
+								pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+
+								staffModel.getMeshHelper(sm).cachedMesh.drawFaces();
+							}
+						}
+					}
 				} else {
 					// FIXED FUNCTION PIPELINE PATH
-					ofSetColor(255); // CRITICAL FIX: Draw the model in its true original colors!
+					ofSetColor(255);
 
 					ofPushMatrix();
 					ofMultMatrix(currentModel->getModelMatrix());
@@ -9883,7 +10050,7 @@ void ofApp::drawGame() {
 							currentModel->getMeshHelper(mi).getTextureRef().bind();
 							hasTex = true;
 						} else {
-							glBindTexture(GL_TEXTURE_2D, 0); // Binds the default safe texture
+							glBindTexture(GL_TEXTURE_2D, 0);
 						}
 
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
@@ -9898,35 +10065,56 @@ void ofApp::drawGame() {
 						ofPopMatrix();
 					}
 					ofPopMatrix();
-				}
 
-				// MAGIC WALL EFFECT GLOW
-				if (player.isMagicWallUnit) {
-					float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
-					int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
-					ofEnableBlendMode(OF_BLENDMODE_ADD);
-					ofSetColor(148, 0, 211, alpha);
-					glEnable(GL_POLYGON_OFFSET_FILL);
-					glPolygonOffset(-1.0f, -1.0f);
+					// Fixed-Function path for Weapon attachment
+					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
+						aiNode * handNode = findHandNode(currentModel->getAssimpScene()->mRootNode);
+						if (handNode) {
+							glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
 
-					ofPushMatrix();
-					ofMultMatrix(currentModel->getModelMatrix());
-					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
-						ofPushMatrix();
-						ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
-						glBindTexture(GL_TEXTURE_2D, 0); // Glow shouldn't use texture
-						glDisable(GL_TEXTURE_2D);
-						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
-						glEnable(GL_TEXTURE_2D);
-						ofPopMatrix();
+							// Original working translation
+							glm::mat4 socketOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.4f, 0.0f));
+
+							// Changed 90.0f to -90.0f around X-axis to stand the staff upright in the hand
+							socketOffset = glm::rotate(socketOffset, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+							ofPushMatrix();
+							// FIXED: Removed duplicate modelMat multiplication to prevent microscopic scaling
+							ofMultMatrix(currentModel->getModelMatrix() * handWorld * socketOffset);
+							staffModel.drawFaces();
+							ofPopMatrix();
+						}
 					}
-					ofPopMatrix();
-
-					glDisable(GL_POLYGON_OFFSET_FILL);
-					ofSetColor(unitTint);
-					ofEnableAlphaBlending();
 				}
 			}
+
+			// MAGIC WALL EFFECT GLOW
+			if (player.isMagicWallUnit) {
+				float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
+				int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
+				ofEnableBlendMode(OF_BLENDMODE_ADD);
+				ofSetColor(148, 0, 211, alpha);
+				glEnable(GL_POLYGON_OFFSET_FILL);
+				glPolygonOffset(-1.0f, -1.0f);
+
+				ofPushMatrix();
+				ofMultMatrix(currentModel->getModelMatrix());
+				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+					glBindTexture(GL_TEXTURE_2D, 0); // Glow shouldn't use texture
+					glDisable(GL_TEXTURE_2D);
+					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+					glEnable(GL_TEXTURE_2D);
+					ofPopMatrix();
+				}
+				ofPopMatrix();
+
+				glDisable(GL_POLYGON_OFFSET_FILL);
+				ofSetColor(unitTint);
+				ofEnableAlphaBlending();
+			}
+
 			glDisable(GL_NORMALIZE); // Clean up lag fix
 			glDisable(GL_CULL_FACE);
 			ofPopMatrix();
