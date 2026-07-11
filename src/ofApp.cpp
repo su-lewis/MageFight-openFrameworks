@@ -12949,32 +12949,28 @@ void ofApp::drawGame() {
 		} // Close if (handPlayer)
 	}
 
-	// --- NEW: DRAW DECK/DISCARD HOVER VIEW ---
+	// --- NEW: DRAW DECK/DISCARD HOVER VIEW (SCALED FOR RESOLUTIONS) ---
 	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
 		Player & viewPlayer = players[currentPileViewPlayerIndex];
 		string viewTitle;
+
+		float uiScale = getUIScaleFromHeight(ofGetHeight());
 
 		// 1. Get the correct cards and apply sorting rules
 		if (currentPileView == VIEW_DECK) {
 			viewTitle = "Deck";
 			cardsToShowInView = viewPlayer.deck;
 
-			// CHANGED: Sort by Cost (Low to High)
+			// Sort by Cost (Low to High)
 			std::sort(cardsToShowInView.begin(), cardsToShowInView.end(), [](const Card & a, const Card & b) {
-				// Primary sort: Cost
 				if (a.cost != b.cost) {
 					return a.cost < b.cost;
 				}
-				// Secondary sort: Name (keeps it tidy if costs are equal)
 				return a.name < b.name;
 			});
 		} else { // VIEW_DISCARD
 			viewTitle = "Discard Pile";
-
-			// Copy the discard pile
 			cardsToShowInView = viewPlayer.discardPile;
-
-			// FIX: Reverse the temporary list so the newest card (back of discard) is now at the front for drawing.
 			std::reverse(cardsToShowInView.begin(), cardsToShowInView.end());
 		}
 
@@ -13024,51 +13020,53 @@ void ofApp::drawGame() {
 		}
 
 		if (!cardsToShowInView.empty()) {
-			float panelPadding = 20.0f;
-			float titleHeight = 40.0f;
+			// Scale the padding and title heights to prevent layout breaks on different resolutions
+			float panelPadding = 20.0f * uiScale;
+			float titleHeight = 40.0f * uiScale;
+
+			// Baseline card sizes are pre-scaled
+			float baseCardWidthScaled = kCardPixelWidth * pileCardScale * uiScale;
+			float baseCardHeightScaled = kCardPixelHeight * pileCardScale * uiScale;
 
 			// 2. Dynamically calculate layout to fit cards on screen
 			float viewCardScale = 1.0f;
 			float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
-			float availableWidth = ofGetWidth() * 0.7f; // Use up to 70% of screen width
+			float availableWidth = ofGetWidth() * 0.7f;
 
 			// Iteratively scale down cards until they fit
 			while (viewCardScale > 0.5f) {
-				float cardW = handBaseCardWidth * viewCardScale;
-				float cardH = baseCardHeight * viewCardScale;
-				float padding = 15.0f * viewCardScale;
+				float cardW = baseCardWidthScaled * viewCardScale;
+				float cardH = baseCardHeightScaled * viewCardScale;
+				float padding = (15.0f * uiScale) * viewCardScale;
 				int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
 				int rows = ceil((float)cardsToShowInView.size() / cols);
 				if (rows * (cardH + padding) - padding <= availableHeight) {
-					break; // This scale and layout fits
+					break;
 				}
 				viewCardScale -= 0.1f;
 			}
 
-			float viewCardWidth = handBaseCardWidth * viewCardScale;
-			float viewCardHeight = baseCardHeight * viewCardScale;
-			float padding = 15.0f * viewCardScale;
+			float viewCardWidth = baseCardWidthScaled * viewCardScale;
+			float viewCardHeight = baseCardHeightScaled * viewCardScale;
+			float padding = (15.0f * uiScale) * viewCardScale;
 			int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-			// Don't make more columns than there are cards — shrink panel to fit cards exactly
+
 			gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShowInView.size());
 			if (gridWidthInCards <= 0) gridWidthInCards = 1;
 			int gridHeightInCards = ceil((float)cardsToShowInView.size() / gridWidthInCards);
 			float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 			float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 
-			// 3. Intelligently position the panel
+			// 3. Intelligently position the panel relative to scaled anchors
 			float startX;
 			bool viewingLocal = false;
 			if (currentPileViewPlayerIndex >= 0 && currentPileViewPlayerIndex < (int)players.size()) {
 				viewingLocal = (players[currentPileViewPlayerIndex].playerID == myLocalPlayerID);
 			}
-			// If viewing local player's (bottom/left) piles, show panel to the right
 			if (viewingLocal) {
-				startX = p0_deckRect.getRight() + 30.0f;
-			}
-			// If viewing opponent's (top/right) piles, show panel to the left
-			else {
-				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+				startX = p0_deckRect.getRight() + 30.0f * uiScale;
+			} else {
+				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2 * panelPadding);
 			}
 			float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
 
@@ -13077,10 +13075,15 @@ void ofApp::drawGame() {
 
 			// 5. Draw the panel and its contents
 			ofSetColor(20, 20, 20, 220);
-			ofDrawRectRounded(pileViewRect, 15);
+			ofDrawRectRounded(pileViewRect, 15 * uiScale);
 
 			ofSetColor(ofColor::white);
-			uiFont.drawString(viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", startX + panelPadding, startY - 15);
+
+			ofPushMatrix();
+			ofTranslate(startX + panelPadding, startY - 15 * uiScale);
+			ofScale(uiScale, uiScale);
+			uiFont.drawString(viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", 0, 0);
+			ofPopMatrix();
 
 			for (size_t i = 0; i < cardsToShowInView.size(); ++i) {
 				int row = i / gridWidthInCards;
@@ -13091,11 +13094,9 @@ void ofApp::drawGame() {
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, &players[currentPileViewPlayerIndex]);
 			}
 		} else {
-			// If the pile is empty, ensure the view is hidden
 			isShowingPileView = false;
 		}
 	} else {
-		// If view is not active, reset the rect to prevent accidental mouse interaction
 		pileViewRect.set(0, 0, 0, 0);
 	}
 
@@ -19646,8 +19647,30 @@ void ofApp::continueNewTurn() {
 		return rawTotal + (numDice * luckBonus);
 	};
 
+	// 0. Hasten Status Check (Must be evaluated first so it applies to both players and minions)
+	if (startingPlayer.nextTurnD10AP) {
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 10;
+		{
+			std::vector<int> rawAP;
+			int apRoll = resolveApRollWithLuck(1, 10, rawAP);
+			currentEffectSequence.blackboard[0] = apRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
+		}
+
+		// Clear the Hasten status
+		EffectOp clearD10 = {};
+		clearD10.type = EffectOpType::REMOVE_STATUS;
+		clearD10.data.status.targetIndex = currentPlayerIndex;
+		clearD10.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+		clearD10.data.status.duration = 0;
+		queueEffect(clearD10);
+		if (!isProcessingEffect) beginEffectSequence();
+	}
+
 	// --- 1. Dark Shield special AP roll (REPLACES Normal AP Roll) ---
-	if (startingPlayer.nextTurnBonusDiceFromMinions) {
+	else if (startingPlayer.nextTurnBonusDiceFromMinions) {
 		int minionCount = startingPlayer.storedDarkShieldDice;
 
 		lastAPDiceNum = minionCount;
@@ -19794,25 +19817,14 @@ void ofApp::continueNewTurn() {
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 		}
 	} else {
-		// Players
-		int apDiceSides = 6;
-		if (startingPlayer.nextTurnD10AP) {
-			apDiceSides = 10;
-			EffectOp clearD10 = {};
-			clearD10.type = EffectOpType::REMOVE_STATUS;
-			clearD10.data.status.targetIndex = currentPlayerIndex;
-			clearD10.data.status.statusType = STATUS_NEXT_TURN_D10AP;
-			clearD10.data.status.duration = 0;
-			queueEffect(clearD10);
-			if (!isProcessingEffect) beginEffectSequence();
-		}
+		// Default Player AP Roll (Falls back to standard 1d6 AP)
 		lastAPDiceNum = 1;
-		lastAPDiceSides = apDiceSides;
+		lastAPDiceSides = 6;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveApRollWithLuck(1, apDiceSides, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, apDiceSides, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -37846,8 +37858,11 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	string viewTitle;
 	std::vector<Card> cardsToShow;
 
-	float handBaseCardWidth = kCardPixelWidth;
-	float baseCardHeight = kCardPixelHeight;
+	float uiScale = getUIScaleFromHeight(ofGetHeight());
+
+	// Baseline card sizes are pre-scaled
+	float baseCardWidthScaled = kCardPixelWidth * pileCardScale * uiScale;
+	float baseCardHeightScaled = kCardPixelHeight * pileCardScale * uiScale;
 
 	if (viewMode == VIEW_DECK) {
 		viewTitle = "Deck";
@@ -37864,7 +37879,6 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 	// Prefer human-friendly names. For minions, prefer the same numbering used in the Minion UI
 	if (viewPlayer.isMinion) {
-		// Find the matching MinionUI to reuse its displayNumber (ensures Assistant 1/2 match the side UI)
 		int foundNumber = 0;
 		for (const auto & mui : activeMinionUIs) {
 			if (mui.playerIndex == viewPlayerIndex) {
@@ -37895,7 +37909,6 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		if (foundNumber > 0) {
 			viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
 		} else {
-			// Fallback to existing display-name logic
 			viewTitle = getPlayerDisplayName(viewPlayerIndex) + "'s " + viewTitle;
 		}
 	} else {
@@ -37914,25 +37927,25 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		return;
 	}
 
-	float panelPadding = 20.0f;
-	float titleHeight = 40.0f;
+	float panelPadding = 20.0f * uiScale;
+	float titleHeight = 40.0f * uiScale;
 	float viewCardScale = 1.0f;
 	float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
 	float availableWidth = ofGetWidth() * 0.7f;
 
 	while (viewCardScale > 0.1f) {
-		float cardW = handBaseCardWidth * viewCardScale;
-		float cardH = baseCardHeight * viewCardScale;
-		float padding = 15.0f * viewCardScale;
+		float cardW = baseCardWidthScaled * viewCardScale;
+		float cardH = baseCardHeightScaled * viewCardScale;
+		float padding = (15.0f * uiScale) * viewCardScale;
 		int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
 		int rows = ceil((float)cardsToShow.size() / (float)cols);
 		if (rows * (cardH + padding) - padding <= availableHeight) break;
 		viewCardScale -= 0.05f;
 	}
 
-	float viewCardWidth = handBaseCardWidth * viewCardScale;
-	float viewCardHeight = baseCardHeight * viewCardScale;
-	float padding = 15.0f * viewCardScale;
+	float viewCardWidth = baseCardWidthScaled * viewCardScale;
+	float viewCardHeight = baseCardHeightScaled * viewCardScale;
+	float padding = (15.0f * uiScale) * viewCardScale;
 	int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 	gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
 	if (gridWidthInCards <= 0) gridWidthInCards = 1;
@@ -37946,10 +37959,10 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		for (const auto & mui : activeMinionUIs) {
 			if (mui.playerIndex == viewPlayerIndex) {
 				float rightSpace = ofGetWidth() - mui.deckRect.getRight();
-				if (rightSpace > totalContentWidth + 60.0f) {
-					startX = mui.deckRect.getRight() + 30.0f;
+				if (rightSpace > totalContentWidth + 60.0f * uiScale) {
+					startX = mui.deckRect.getRight() + 30.0f * uiScale;
 				} else {
-					startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+					startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2 * panelPadding);
 				}
 				anchored = true;
 				break;
@@ -37959,18 +37972,24 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	if (!anchored) {
 		bool viewingLocal = (viewPlayer.playerID == myLocalPlayerID);
 		if (viewingLocal)
-			startX = p0_deckRect.getRight() + 30.0f;
+			startX = p0_deckRect.getRight() + 30.0f * uiScale;
 		else
-			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2 * panelPadding);
 	}
 	float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
 
 	pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
 
 	ofSetColor(20, 20, 20, 220);
-	ofDrawRectRounded(pileViewRect, 15);
+	ofDrawRectRounded(pileViewRect, 15 * uiScale);
+
 	ofSetColor(ofColor::white);
-	uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", startX + panelPadding, startY - 15);
+
+	ofPushMatrix();
+	ofTranslate(startX + panelPadding, startY - 15 * uiScale);
+	ofScale(uiScale, uiScale);
+	uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", 0, 0);
+	ofPopMatrix();
 
 	for (size_t i = 0; i < cardsToShow.size(); ++i) {
 		int row = i / gridWidthInCards;

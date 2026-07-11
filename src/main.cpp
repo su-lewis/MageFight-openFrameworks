@@ -32,9 +32,23 @@ int main(int argc, char * argv[]) {
 	soundSettings.numInputChannels = 0;
 	soundSettings.sampleRate = 44100;
 	soundSettings.bufferSize = 256;
-	soundSettings.setApi(ofSoundDevice::Api::PULSE);
-	ofSoundStreamSetup(soundSettings);
 
+	// Centralized cross-platform audio API selection
+#if defined(__linux__)
+	// Native Linux builds use PulseAudio
+	soundSettings.setApi(ofSoundDevice::Api::PULSE);
+#elif defined(_WIN32)
+	// Windows and CrossOver/Wine translation layers on macOS use WASAPI
+	soundSettings.setApi(ofSoundDevice::Api::MS_WASAPI);
+#elif defined(__APPLE__)
+	// Native macOS builds use CoreAudio
+	soundSettings.setApi(ofSoundDevice::Api::OSX_CORE);
+#else
+	// Fallback to openFrameworks default selection
+	soundSettings.setApi(ofSoundDevice::Api::UNSPECIFIED);
+#endif
+
+	ofSoundStreamSetup(soundSettings);
 	// Checksum Harness Logic
 	bool checksumHarness = false;
 	const char * envHarness = getenv("MAGEFIGHT_CHECKSUM_HARNESS");
