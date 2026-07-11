@@ -1068,6 +1068,11 @@ public:
 	// When true, force an unshaded textured draw instead of the PBR shader (debug only)
 	bool debugForceUnshadedDraw = false;
 
+	// Pre-calculated weapon socket offset
+	glm::mat4 staffSocketOffset;
+	// Caches the hand's un-animated position from Blender
+	glm::mat4 handBindPoseWorldMatrix;
+
 private:
 	// -------------------------------------------------------------------------
 	//                              CORE SYSTEMS

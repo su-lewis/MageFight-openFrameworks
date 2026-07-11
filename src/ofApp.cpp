@@ -119,7 +119,7 @@ static aiNode * findNodeByNameSubstring(aiNode * node, const std::string & subst
 static aiNode * findHandNode(aiNode * root) {
 	if (!root) return nullptr;
 
-	// Exact matches first
+	// Exact matches first for LeftHandIndex2
 	std::vector<std::string> candidates = {
 		"Armature : mixamorig:LeftHandIndex2",
 		"mixamorig:LeftHandIndex2",
@@ -4182,12 +4182,48 @@ void ofApp::setup() {
 			model.disableMaterials();
 		};
 
-		// Provide the subfolder paths as well as the old root paths just in case!
 		loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
 		loadModelSafe(staffModel, { "Units/Wizard/Wizard_Staff.fbx", "Wizard_Staff.fbx" });
 		staffModel.setScaleNormalization(false); // Prevent the model loader from resetting weapon dimensions
 		staffModel.setPosition(0, 0, 0); // Clear internal positional offsets
 		staffModel.setScale(1.0f, 1.0f, 1.0f); // Reset default scale
+
+		// Force search candidates back to the LeftHandIndex2 bone
+		// (Ensure your findHandNode candidate vector has "LeftHandIndex2" at the top)
+		if (playerModel.getAssimpScene() != nullptr) {
+			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
+
+			if (cachedPlayerHandNode != nullptr) {
+				// Capture the static, un-animated bind pose world matrix of the hand
+				handBindPoseWorldMatrix = getAssimpNodeWorldMatrix(cachedPlayerHandNode);
+				ofLogNotice("Models") << "Captured default hand bind pose matrix.";
+			}
+		}
+
+		// Caching the hand node pointer to bypass recursive string lookups during drawing
+		if (playerModel.getAssimpScene() != nullptr) {
+			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
+		}
+
+		// --- WEAPON SOCKET CONFIGURATION ---
+
+		// 1. POSITION: Centered on the palm joint (mixamorig:LeftHand).
+		// Applied a minor translation to sit perfectly in the grip.
+		float x_offset = 0.0f;
+		float y_offset = -0.1f; // Minor vertical offset to center the grip
+		float z_offset = 0.05f; // Minor forward/backward offset to sit in the palm
+		glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(x_offset, y_offset, z_offset));
+
+		// 2. ROTATION: Standing upright (Pitch = -90), rolled 90 degrees to face forward
+		float pitch = -90.0f;
+		float yaw = 0.0f;
+		float roll = 90.0f;
+
+		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(pitch), glm::vec3(1.0f, 0.0f, 0.0f));
+		rotation = glm::rotate(rotation, glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+		rotation = glm::rotate(rotation, glm::radians(roll), glm::vec3(0.0f, 0.0f, 1.0f));
+
+		glm::mat4 socketOffset = translation * rotation;
 
 		// Resolve and cache the hand node once immediately after loading the model
 		if (playerModel.getAssimpScene() != nullptr) {
@@ -9973,20 +10009,14 @@ void ofApp::drawGame() {
 				ofPopMatrix();
 
 				// Fixed-Function Ghost path for Weapon attachment
-				if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
-					aiNode * handNode = findHandNode(currentModel->getAssimpScene()->mRootNode);
+				if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
+					aiNode * handNode = cachedPlayerHandNode;
 					if (handNode) {
 						glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
 
-						// Original working translation
-						glm::mat4 socketOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.4f, 0.0f));
-
-						// Changed 90.0f to -90.0f around X-axis to stand the staff upright in the hand
-						socketOffset = glm::rotate(socketOffset, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
 						ofPushMatrix();
 						// Multiplied by currentModel->getModelMatrix() to prevent staff scale collapse
-						ofMultMatrix(modelMat * currentModel->getModelMatrix() * handWorld * socketOffset);
+						ofMultMatrix(modelMat * currentModel->getModelMatrix() * handWorld * staffSocketOffset);
 						staffModel.drawFaces();
 						ofPopMatrix();
 					}
@@ -10020,33 +10050,21 @@ void ofApp::drawGame() {
 						}
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
-
 					// PBR Shader path for Weapon attachment
-					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
-						aiNode * handNode = findHandNode(currentModel->getAssimpScene()->mRootNode);
-						if (handNode) {
-							glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
+					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
+						// Shaders use absolute uniform values, so use the wizard's root world matrix (modelMat * modelMatrix)
+						glm::mat4 finalStaffMatrix = modelMat * currentModel->getModelMatrix();
 
-							// Original working translation
-							glm::mat4 socketOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.4f, 0.0f));
+						// Render meshes using PBR uniforms
+						for (unsigned int sm = 0; sm < staffModel.getMeshCount(); ++sm) {
+							glm::mat4 staffMeshMat = staffModel.getMeshHelper(sm).matrix;
+							glm::mat4 animatedStaffMat = finalStaffMatrix * staffMeshMat;
+							pbrShader.setUniformMatrix4f("uModel", animatedStaffMat);
 
-							// Changed 90.0f to -90.0f around X-axis to stand the staff upright in the hand
-							socketOffset = glm::rotate(socketOffset, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+							glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * animatedStaffMat));
+							pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
 
-							// Shaders use absolute uniform values, so keep modelMat here
-							glm::mat4 finalStaffMatrix = modelMat * currentModel->getModelMatrix() * handWorld * socketOffset;
-
-							// Render meshes using PBR uniforms
-							for (unsigned int sm = 0; sm < staffModel.getMeshCount(); ++sm) {
-								glm::mat4 staffMeshMat = staffModel.getMeshHelper(sm).matrix;
-								glm::mat4 animatedStaffMat = finalStaffMatrix * staffMeshMat;
-								pbrShader.setUniformMatrix4f("uModel", animatedStaffMat);
-
-								glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * animatedStaffMat));
-								pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-
-								staffModel.getMeshHelper(sm).cachedMesh.drawFaces();
-							}
+							staffModel.getMeshHelper(sm).cachedMesh.drawFaces();
 						}
 					}
 				} else {
@@ -10084,24 +10102,13 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 
 					// Fixed-Function path for Weapon attachment
-					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
-						// Use the cached hand node pointer to bypass recursive string lookup
-						aiNode * handNode = cachedPlayerHandNode;
-						if (handNode) {
-							glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
-
-							// Original working translation
-							glm::mat4 socketOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.4f, 0.0f));
-
-							// Changed 90.0f to -90.0f around X-axis to stand the staff upright in the hand
-							socketOffset = glm::rotate(socketOffset, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-							ofPushMatrix();
-							// FIXED: Removed duplicate modelMat multiplication to prevent microscopic scaling
-							ofMultMatrix(currentModel->getModelMatrix() * handWorld * socketOffset);
-							staffModel.drawFaces();
-							ofPopMatrix();
-						}
+					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
+						ofPushMatrix();
+						// Directly render the staff using the wizard's root model matrix
+						// This aligns the staff exactly where it was modeled relative to the wizard's feet
+						ofMultMatrix(currentModel->getModelMatrix());
+						staffModel.drawFaces();
+						ofPopMatrix();
 					}
 				}
 			}
