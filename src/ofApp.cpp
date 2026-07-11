@@ -66,6 +66,9 @@ static bool s_hasCachedGameOverVisuals = false;
 // --- WEAPON SOCKET HELPERS ---
 static ofxAssimpModelLoader staffModel;
 
+// Cache the hand node pointer to eliminate recursive string lookups during drawing
+static aiNode * cachedPlayerHandNode = nullptr;
+
 // Converts Assimp row-major matrix to GLM column-major format
 static glm::mat4 convertAssimpMatrix(const aiMatrix4x4 & from) {
 	glm::mat4 to;
@@ -4185,6 +4188,12 @@ void ofApp::setup() {
 		staffModel.setScaleNormalization(false); // Prevent the model loader from resetting weapon dimensions
 		staffModel.setPosition(0, 0, 0); // Clear internal positional offsets
 		staffModel.setScale(1.0f, 1.0f, 1.0f); // Reset default scale
+
+		// Resolve and cache the hand node once immediately after loading the model
+		if (playerModel.getAssimpScene() != nullptr) {
+			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
+			ofLogNotice("Models") << "Cached player hand node pointer: " << (cachedPlayerHandNode ? "Success" : "Failed");
+		}
 		loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
 		loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
 		loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
@@ -7000,32 +7009,48 @@ void ofApp::recalculateUI(int w, int h) {
 }
 //--------------------------------------------------------------
 void ofApp::setupGame() {
-	// Reset lockstep runtime state for a fresh match.
-	s_pendingRemoteChecksums.clear();
-	s_pendingLocalChecksums.clear();
+	// --- BULLETPROOF REMATCH RESET ---
+	nextSummonOrder = 0; // Reset the summon counter (fixes Global hash mismatch)
+	g_lastDamagerMap.clear(); // Purge damage/kill credits from previous matches
+	s_opponentRiMask = 0; // Clear card selection mask for Renewed Inspiration
 
-	// --- CRITICAL REMATCH FIX: PURGE ALL PERSISTENT & STATIC STATE ---
-	g_lastDamagerMap.clear(); // Purge stale kill credits from the previous match
-	s_opponentRiMask = 0; // Reset Renewed Inspiration selection mask
+	// Reset Amnesia-specific target tracking
+	amnesiaTargetPlayerIndex = -1;
+	numCardsToRemove = 0;
+	amnesiaChooserPlayerID = -1;
+	amnesiaSelectedIndices.clear();
+	amnesiaDeckCopy.clear();
+	amnesiaCardRects.clear();
 
-	// Clear all animation queues to prevent visual bleed and stale hand-commits
+	// Reset miscellaneous interaction state variables
+	blockingBoonPendingCasterIndex = -1;
+	ghostRelocateTargetIndex = -1;
+	g_pendingShellSpikes = 0;
+	ghostRelocateChoices.clear();
+	magicBlastSplashTargetIndices.clear();
+	blockingBoonPendingCoinRawResults.clear();
+	renewedSelectedHandIndices.clear();
+
+	// Purge active visual elements
+	activeYellowPreviewTiles.clear();
+	activeCombinedPierceTargets.clear();
 	activeDrawCardAnimations.clear();
 	activeDiscardCardAnimations.clear();
 	activeShuffleAnimations.clear();
 	activeTracers.clear();
 	activeMagicBoltAOERings.clear();
-	activeYellowPreviewTiles.clear();
-	activeCombinedPierceTargets.clear();
 
-	// Reset client-side action sequence counters
+	// Reset sequence and validation counters
 	watchdogClientActionCounter = 0;
 	draftClientActionCounter = 0;
 	actionClientActionCounter = 0;
-
-	// Reset network sequence filters on both host and client
 	lastReceivedSeqByPlayer[0] = 0;
 	lastReceivedSeqByPlayer[1] = 0;
-	// -----------------------------------------------------------------
+	// ---------------------------------
+
+	// Reset lockstep runtime state for a fresh match.
+	s_pendingRemoteChecksums.clear();
+	s_pendingLocalChecksums.clear();
 
 	g_isGameOver = false;
 	g_winnerID = -1;
@@ -7035,21 +7060,13 @@ void ofApp::setupGame() {
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
 
-	// CRITICAL FIX: Explicitly initialize all draft-related state variables to stable defaults
-	// to prevent uninitialized memory garbage values from causing immediate cross-platform desyncs.
-	draftPlayerIndex = -1;
-	draftStage = 0;
-	draftPicksRemaining = 0;
-	currentDraftClassTier = 1;
-	draftGenerationCounter = 0;
-
 	commandQueue.clear();
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear();
 	provisionalSnapshots.clear();
 	provisionalCommands.clear();
 
-	// FIX: Reset simulation time so replays start from frame 0!
+	// Reset simulation time so replays start from frame 0!
 	simulationFrame = 0;
 	simulationAccumulator = 0.0f;
 
@@ -7070,17 +7087,17 @@ void ofApp::setupGame() {
 	pendingVisualKeyDraftQueue.clear();
 	resetCardState();
 	g_playerDefenses.clear();
+
 	// Clear transient and persistent gameplay state to ensure a true reset
 	players.clear();
 	graveyard.clear();
 	floatingKeyInstances.clear();
 
-	g_pendingShellSpikes = 0;
+	g_pendingShellSpikes = 0; // redundant but safe
 	g_actionHistory.clear();
-	g_playerDefenses.clear();
-	turnTimerEnabled = true; // Ensure turn timer is enabled for every game
+	turnTimerEnabled = true;
 
-	g_opponentDecisionQueue.clear(); // Clear the decision queue!
+	g_opponentDecisionQueue.clear();
 
 	s_fullMatchLog.clear();
 	s_fullMatchLog.push_back("[" + ofGetTimestampString("%H:%M:%S") + "] --- MATCH STARTED ---");
@@ -10068,7 +10085,8 @@ void ofApp::drawGame() {
 
 					// Fixed-Function path for Weapon attachment
 					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && currentModel->getAssimpScene() != nullptr) {
-						aiNode * handNode = findHandNode(currentModel->getAssimpScene()->mRootNode);
+						// Use the cached hand node pointer to bypass recursive string lookup
+						aiNode * handNode = cachedPlayerHandNode;
 						if (handNode) {
 							glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
 
