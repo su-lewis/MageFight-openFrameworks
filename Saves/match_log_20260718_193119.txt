@@ -1,0 +1,42 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-18 19:31:19
+End Reason: Victory
+Seed: 1847544099
+Turns: 2
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[19:29:37] --- MATCH STARTED ---
+[19:30:23] Turn 0: Player 2's turn
+[19:30:23] Autosaved turn-start (autosave.json)
+[19:30:27] Player 2 moved to (12,3)
+[19:30:28] Turn 1: Player 1's turn
+[19:30:28] Autosaved turn-start (autosave.json)
+[19:30:30] Player 1 moved to (0,7)
+[19:30:31] Turn 1: Player 2's turn
+[19:30:31] Autosaved turn-start (autosave.json)
+[19:30:39] Player 2 played Magic Blast
+[19:30:47] Player 2 moved to (1,8)
+[19:30:56] Player 2 played Magic Blast
+[19:31:06] Turn 2: Player 1's turn
+[19:31:06] Autosaved turn-start (autosave.json)
+[19:31:09] Turn 2: Player 2's turn
+[19:31:09] Autosaved turn-start (autosave.json)
+[19:31:15] Player 2 played Magic Blast
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 3
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 5
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

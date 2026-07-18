@@ -5672,10 +5672,10 @@ void ofApp::update() {
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
-	if ((currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) && steamManager.hasOpponent()) {
+	if ((currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) && (steamManager.hasOpponent() || (g_isSpectator && steamManager.isConnected()))) {
 		static bool loggedDetection = false;
 		if (!loggedDetection) {
-			ofLogNotice("Network") << "DEBUG: hasOpponent() is true, currentState=" << currentState;
+			ofLogNotice("Network") << "DEBUG: Connection trigger active, currentState=" << currentState;
 			loggedDetection = true;
 		}
 		// Note: Use steamManager.isHost() directly here since isMultiplayer isn't set yet
@@ -5710,37 +5710,19 @@ void ofApp::update() {
 		// CASE B: I AM THE CLIENT
 		else {
 			if (!isMultiplayer && !hasReceivedHandshake) {
-				// 1. Log status (visual feedback)
 				static bool loggedWait = false;
 				if (!loggedWait) {
 					ofLogNotice("Network") << "Client: Connected. Requesting Host seed...";
 					loggedWait = true;
 				}
 
-				// 2. "KEEP ASKING" LOOP (Robust Fix)
-				// Every 1.0 seconds, send a "REQ_SEED" packet to the Host.
-				// This ensures that if the first packet was dropped, we ask again.
-				// If the lobby advertises a seed, log it but DO NOT auto-initialize from it.
-				// The authoritative seed must come via a PKT_HANDSHAKE from the host
-				// to avoid mismatch races when lobby data is stale or the host regenerated
-				// a seed during reconnects. We will keep requesting the seed until
-				// a handshake packet arrives.
 				if (g_isSpectator) {
-					// We are a spectator. Request snapshot.
-					ofLogNotice("Spectator") << "Joined as Spectator! Requesting snapshot...";
+					// We are a spectator. Set initial state.
+					ofLogNotice("Spectator") << "Joined as Spectator! Initializing spectator state...";
 					myLocalPlayerID = 2; // Spectator ID
 					isMultiplayer = true;
 					hasReceivedHandshake = true;
 					g_isConnectingToLobby = false;
-
-					static float lastReq = 0;
-					if (ofGetElapsedTimef() - lastReq > 2.0f) {
-						lastReq = ofGetElapsedTimef();
-						SnapshotRequestPacket req = {};
-						req.type = PKT_SNAPSHOT_REQUEST;
-						req.playerID = myLocalPlayerID;
-						steamManager.sendPacket(&req, sizeof(req));
-					}
 				} else if (steamManager.isMatchStarted()) {
 					uint32_t seed = steamManager.getLobbySeed();
 					if (seed != 0) {
@@ -5752,8 +5734,20 @@ void ofApp::update() {
 						}
 					}
 				}
+			}
 
-				// REQ_SEED loop removed: We now rely on the reliable XOR Handshake packet
+			// Continuous spectator snapshot request loop while still in the menu:
+			if (g_isSpectator && isMultiplayer && (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU)) {
+				static float lastSpectatorSnapshotReqTime = 0.0f;
+				float nowTime = ofGetElapsedTimef();
+				if (nowTime - lastSpectatorSnapshotReqTime > 2.0f) {
+					lastSpectatorSnapshotReqTime = nowTime;
+					ofLogNotice("Spectator") << "Requesting authoritative game snapshot from host...";
+					SnapshotRequestPacket req = {};
+					req.type = PKT_SNAPSHOT_REQUEST;
+					req.playerID = myLocalPlayerID;
+					steamManager.sendPacket(&req, sizeof(req));
+				}
 			}
 		}
 	} else if (currentState == STATE_MAIN_MENU && !isMultiplayer) {
@@ -7123,6 +7117,7 @@ void ofApp::setupGame() {
 	pendingVisualKeyDraftQueue.clear();
 	resetCardState();
 	g_playerDefenses.clear();
+	draftGenerationCounter = 0; // Ensures fresh draft state and seed parity on consecutive matches
 
 	// Clear transient and persistent gameplay state to ensure a true reset
 	players.clear();
@@ -13025,8 +13020,8 @@ void ofApp::drawGame() {
 			float titleHeight = 40.0f * uiScale;
 
 			// Baseline card sizes are pre-scaled
-			float baseCardWidthScaled = kCardPixelWidth * pileCardScale * uiScale;
-			float baseCardHeightScaled = kCardPixelHeight * pileCardScale * uiScale;
+			float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale; // Starts at draft size scale (1.1x)
+			float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
 
 			// 2. Dynamically calculate layout to fit cards on screen
 			float viewCardScale = 1.0f;
@@ -14522,20 +14517,22 @@ cursor_check_done:;
 		}
 
 		int activeCardForHighlight = -1;
-		if (isCurrentPlayerLocal()) {
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
-				activeCardForHighlight = interactingCardIndex;
-			else if (draggedCardIndex != -1)
-				activeCardForHighlight = draggedCardIndex;
-			else if (selectedCardIndex != -1)
-				activeCardForHighlight = selectedCardIndex;
-			else if (ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex != -1)
-				activeCardForHighlight = pressedCardIndex;
-			else
-				activeCardForHighlight = hoveredCardIndex;
-		} else {
-			if (opponentHoverType == HOVER_HAND_CARD) {
-				activeCardForHighlight = opponentHoverCardIndex;
+		if (currentState != STATE_DRAFTING) { // Force highlight off during drafting phase
+			if (isCurrentPlayerLocal()) {
+				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+					activeCardForHighlight = interactingCardIndex;
+				else if (draggedCardIndex != -1)
+					activeCardForHighlight = draggedCardIndex;
+				else if (selectedCardIndex != -1)
+					activeCardForHighlight = selectedCardIndex;
+				else if (ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex != -1)
+					activeCardForHighlight = pressedCardIndex;
+				else
+					activeCardForHighlight = hoveredCardIndex;
+			} else {
+				if (opponentHoverType == HOVER_HAND_CARD) {
+					activeCardForHighlight = opponentHoverCardIndex;
+				}
 			}
 		}
 
@@ -17992,6 +17989,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();
+				resetCardState(); // Restores cardPlayState to CARD_PLAY_STATE_IDLE
 				return;
 			}
 			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
@@ -21404,9 +21402,10 @@ void ofApp::drawActiveCardInteractionUI() {
 
 				string prompt = isLocalDecider ? ("Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":") : "Waiting for player to choose...";
 				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
+				bool canDiscard = targetPlayer && !targetPlayer->deck.empty(); // Check if deck is populated
 				drawCardChoicePanel(menuRect, "Magic Blast", prompt + "\n" + choicesLeft,
-					btn1, btn2, "Take " + ofToString(dmgAmount) + " Magic Damage", "Remove Top Card",
-					ofColor::indianRed, ofColor::darkSlateBlue, isLocalDecider, isLocalDecider);
+					btn1, btn2, "Take " + ofToString(dmgAmount) + " Magic Damage", canDiscard ? "Remove Top Card" : "No Cards to Remove",
+					ofColor::indianRed, ofColor::darkSlateBlue, isLocalDecider, isLocalDecider && canDiscard);
 
 				if (!isLocalDecider && opponentInteraction.hoveredChoice == 1) drawHoverGlow(btn1);
 				if (!isLocalDecider && opponentInteraction.hoveredChoice == 2) drawHoverGlow(btn2);
@@ -21437,9 +21436,9 @@ void ofApp::drawActiveCardInteractionUI() {
 				uiFont.drawString(title, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
 				const float amnesiaCardAspect = 1.4f;
-				const int cols = 10;
-				const float padX = 8.0f;
-				const float padY = 10.0f;
+				const int cols = 5; // Reduced from 10 to 5 columns to double the card size on screen
+				const float padX = 12.0f;
+				const float padY = 15.0f;
 
 				float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
 				cardW = std::max(12.0f, cardW);
@@ -27671,12 +27670,18 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			break;
 		}
 
-		case CARD_MAGIC_BLAST:
-			if (btn1.inside(mouseX, mouseY))
+		case CARD_MAGIC_BLAST: {
+			int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
+			Player * targetPlayer = getPlayer(actualTargetIdx);
+			bool canDiscard = targetPlayer && !targetPlayer->deck.empty();
+
+			if (btn1.inside(mouseX, mouseY)) {
 				handleCardMenuClick("damage");
-			else if (btn2.inside(mouseX, mouseY))
+			} else if (btn2.inside(mouseX, mouseY) && canDiscard) {
 				handleCardMenuClick("discard");
+			}
 			break;
+		}
 
 		default:
 			break;
@@ -37645,33 +37650,36 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 
-		// Use solid fills rendered BEFORE the card graphic to ensure thick borders
-		if (isSelected) {
-			ofPushStyle();
-			ofFill();
-			// Reverse loop so largest polygons are drawn first behind the smaller ones
-			for (int g = 6; g >= 1; --g) {
-				ofSetColor(255, 255, 0, 90 - (g * 14));
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 2.0f);
+		// Only render selection and hover highlights if the card is visually visible
+		if (scale > 0.08f) {
+			// Use solid fills rendered BEFORE the card graphic to ensure thick borders
+			if (isSelected) {
+				ofPushStyle();
+				ofFill();
+				// Reverse loop so largest polygons are drawn first behind the smaller ones
+				for (int g = 6; g >= 1; --g) {
+					ofSetColor(255, 255, 0, 90 - (g * 14));
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 2.0f);
+				}
+				ofSetColor(ofColor::yellow);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
+				ofPopStyle();
 			}
-			ofSetColor(ofColor::yellow);
-			drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
-			ofPopStyle();
-		}
 
-		bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
-		bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
+			bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
+			bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
 
-		if (isLocallyHovered || isOpponentHovered) {
-			ofPushStyle();
-			ofFill();
-			for (int g = 5; g >= 1; --g) {
-				ofSetColor(255, 255, 255, 60 - (g * 10));
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 1.0f);
+			if (isLocallyHovered || isOpponentHovered) {
+				ofPushStyle();
+				ofFill();
+				for (int g = 5; g >= 1; --g) {
+					ofSetColor(255, 255, 255, 60 - (g * 10));
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 1.0f);
+				}
+				ofSetColor(ofColor::white);
+				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
+				ofPopStyle();
 			}
-			ofSetColor(ofColor::white);
-			drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
-			ofPopStyle();
 		}
 
 		// Skip hidden slots
@@ -37861,8 +37869,8 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
 
 	// Baseline card sizes are pre-scaled
-	float baseCardWidthScaled = kCardPixelWidth * pileCardScale * uiScale;
-	float baseCardHeightScaled = kCardPixelHeight * pileCardScale * uiScale;
+	float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale; // Starts at draft size scale (1.1x)
+	float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
 
 	if (viewMode == VIEW_DECK) {
 		viewTitle = "Deck";
