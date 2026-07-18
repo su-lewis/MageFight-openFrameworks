@@ -14034,6 +14034,7 @@ void ofApp::drawGame() {
 		ofSetColor(0, 0, 0, 230);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
+		float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 		float cx = ofGetWidth() / 2.0f;
 		float cy = ofGetHeight() / 2.0f;
 
@@ -14048,36 +14049,65 @@ void ofApp::drawGame() {
 		ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
 		if (g_isSpectator || myLocalPlayerID == 2) titleColor = ofColor::gold;
 		if (g_winnerID == 2) titleColor = ofColor::white;
-		drawPixelTextCentered(titleFont, text, cx, cy - 200.0f, 2.5f, titleColor);
+		drawPixelTextCentered(titleFont, text, cx, cy - 240.0f * uiScale, 2.5f * uiScale, titleColor);
 
+		if (isMultiplayer && s_gameOverScreenStartTime <= 0.0f) {
+			s_gameOverScreenStartTime = ofGetElapsedTimef();
+		}
+		float progress = isMultiplayer ? ofClamp((ofGetElapsedTimef() - s_gameOverScreenStartTime) / 2.5f, 0.0f, 1.0f) : 1.0f;
+		float easedProgress = progress * (2.0f - progress); // ease-out quad
+
+		// --- UNIFIED GAME OVER PANEL ---
+		float panelW = 760.0f * uiScale;
+		float panelH = isMultiplayer ? (440.0f * uiScale) : (310.0f * uiScale);
+		ofRectangle panel(cx - panelW / 2.0f, cy - 160.0f * uiScale, panelW, panelH);
+
+		ofSetColor(25, 25, 32, 245);
+		ofDrawRectRounded(panel, 16.0f * uiScale);
+		ofNoFill();
+		ofSetColor(80, 80, 100);
+		ofSetLineWidth(3.0f * uiScale);
+		ofDrawRectRounded(panel, 16.0f * uiScale);
+		ofFill();
+
+		float leftColX = panel.x + panelW * 0.25f;
+		float rightColX = panel.x + panelW * 0.75f;
+		float avSize = 96.0f * uiScale;
+		float avY = panel.y + 30.0f * uiScale;
+
+		std::string nameLocal = isMultiplayer ? steamManager.getLocalPlayerName() : player0SteamName;
+		std::string nameOpp = isMultiplayer ? steamManager.getOpponentName() : player1SteamName;
+
+		auto drawPlaceholderAvatar = [&](std::string name, float x, float y, float size) {
+			ofSetColor(50, 50, 60, 255);
+			ofDrawRectRounded(x, y, size, size, 8.0f * uiScale);
+			std::string init = "";
+			if (!name.empty()) init += name[0];
+			size_t sp = name.find(' ');
+			if (sp != std::string::npos && sp + 1 < name.size()) init += name[sp + 1];
+			drawPixelTextCentered(titleFont, init, x + size / 2.0f, y + size / 2.0f, size / 80.0f, ofColor::white);
+		};
+
+		// Avatars & Names
+		ofSetColor(255);
+		if (isMultiplayer && localAvatarReady)
+			localAvatarImage.draw(leftColX - avSize / 2.0f, avY, avSize, avSize);
+		else
+			drawPlaceholderAvatar(nameLocal, leftColX - avSize / 2.0f, avY, avSize);
+
+		ofSetColor(255);
+		if (isMultiplayer && opponentAvatarReady)
+			opponentAvatarImage.draw(rightColX - avSize / 2.0f, avY, avSize, avSize);
+		else
+			drawPlaceholderAvatar(nameOpp, rightColX - avSize / 2.0f, avY, avSize);
+
+		drawPixelTextCentered(uiFont, nameLocal, leftColX, avY + avSize + 20.0f * uiScale, 1.0f * uiScale, ofColor::white);
+		drawPixelTextCentered(uiFont, nameOpp, rightColX, avY + avSize + 20.0f * uiScale, 1.0f * uiScale, ofColor::white);
+
+		drawPixelTextCentered(titleFont, "VS", cx, avY + avSize / 2.0f, 1.5f * uiScale, ofColor::white);
+
+		// Elo
 		if (isMultiplayer) {
-			// Safe guard: initialize start timer if it was missed
-			if (s_gameOverScreenStartTime <= 0.0f) {
-				s_gameOverScreenStartTime = ofGetElapsedTimef();
-			}
-
-			// Calculate progress over a 2.5-second animation window
-			float progress = ofClamp((ofGetElapsedTimef() - s_gameOverScreenStartTime) / 2.5f, 0.0f, 1.0f);
-			float easedProgress = progress * (2.0f - progress); // ease-out quad
-
-			// Draw Avatars & Elo Panel (Expanded height to fit XP and Levels)
-			float panelW = 700;
-			float panelH = 310;
-			ofRectangle panel(cx - panelW / 2, cy - 140, panelW, panelH);
-			ofSetColor(30, 30, 40, 240);
-			ofDrawRectRounded(panel, 15);
-			ofNoFill();
-			ofSetColor(80, 80, 100);
-			ofSetLineWidth(3);
-			ofDrawRectRounded(panel, 15);
-			ofFill();
-
-			// Local Player (Left)
-			ofSetColor(255);
-			if (localAvatarReady) localAvatarImage.draw(panel.x + 50, panel.y + 30, 100, 100);
-			drawPixelTextCentered(uiFont, steamManager.getLocalPlayerName(), panel.x + 100, panel.y + 155, 1.0f, ofColor::white);
-
-			// Animate local Elo counting up/down
 			int localStartElo = myElo - eloChange;
 			int localCurrentElo = (int)ofLerp(localStartElo, myElo, easedProgress);
 			auto myRank = getMageRank(localCurrentElo);
@@ -14087,14 +14117,8 @@ void ofApp::drawGame() {
 				int displayedChange = (int)round(eloChange * easedProgress);
 				eloStr += " [" + sign + std::to_string(displayedChange) + "]";
 			}
-			drawPixelTextCentered(uiFont, eloStr, panel.x + 100, panel.y + 190, 1.0f, myRank.second);
+			drawPixelTextCentered(uiFont, eloStr, leftColX, avY + avSize + 45.0f * uiScale, 0.8f * uiScale, myRank.second);
 
-			// Opponent Player (Right)
-			ofSetColor(255);
-			if (opponentAvatarReady) opponentAvatarImage.draw(panel.x + panelW - 150, panel.y + 30, 100, 100);
-			drawPixelTextCentered(uiFont, steamManager.getOpponentName(), panel.x + panelW - 100, panel.y + 155, 1.0f, ofColor::white);
-
-			// Animate opponent Elo counting down/up
 			int oppEloChange = -eloChange;
 			int oppStartElo = opponentElo;
 			int oppFinalElo = std::max(300, opponentElo + oppEloChange);
@@ -14106,89 +14130,107 @@ void ofApp::drawGame() {
 				int displayedOppChange = (int)round(oppEloChange * easedProgress);
 				oppEloStr += " [" + sign + std::to_string(displayedOppChange) + "]";
 			}
-			drawPixelTextCentered(uiFont, oppEloStr, panel.x + panelW - 100, panel.y + 190, 1.0f, oppRank.second);
-
-			// VS text in middle
-			drawPixelTextCentered(titleFont, "VS", cx, panel.y + 80, 1.5f, ofColor::white);
-
-			// --- XP PROGRESS BAR ANIMATION (Bottom of Panel) ---
-			if (s_hasCachedGameOverVisuals) {
-				float barX = panel.x + 50;
-				float barY = panel.y + 245;
-				float barW = panelW - 100;
-				float barH = 18;
-
-				// Interpolate counting XP
-				long long accumulatedXP = s_startingXP + (long long)round(s_xpGained * easedProgress);
-				int tempLevel = s_startingLevel;
-
-				while (true) {
-					int32_t xpRequired = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
-					if (accumulatedXP >= xpRequired) {
-						accumulatedXP -= xpRequired;
-						tempLevel++;
-					} else {
-						break;
-					}
-				}
-
-				int32_t xpThreshold = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
-				float xpPct = (float)accumulatedXP / (float)xpThreshold;
-
-				// Draw XP Bar Container
-				ofSetColor(20, 20, 25, 255);
-				ofDrawRectRounded(barX, barY, barW, barH, 6);
-
-				// Draw XP Fill
-				ofSetColor(0, 180, 255, 255);
-				ofDrawRectRounded(barX, barY, barW * xpPct, barH, 6);
-
-				// Level Text & XP Progress
-				ofSetColor(255);
-				std::string levelText = "Account Level " + std::to_string(tempLevel);
-				std::string progressText = std::to_string(accumulatedXP) + " / " + std::to_string(xpThreshold) + " XP";
-
-				uiFont.drawString(levelText, barX, barY - 6);
-				ofRectangle pBox = uiFont.getStringBoundingBox(progressText, 0, 0);
-				uiFont.drawString(progressText, barX + barW - pBox.width, barY - 6);
-			}
+			drawPixelTextCentered(uiFont, oppEloStr, rightColX, avY + avSize + 45.0f * uiScale, 0.8f * uiScale, oppRank.second);
 		}
 
-		// --- DRAW STATS ---
-		// Position everything relative to screen center so it works in both modes
-		float statsY = cy + 140;
-		float p0_statsX = cx - 200;
-		float p1_statsX = cx + 200;
+		// Separator
+		float statsY = avY + avSize + (isMultiplayer ? 80.0f * uiScale : 60.0f * uiScale);
+		ofSetColor(80, 80, 100, 120);
+		ofSetLineWidth(2.0f * uiScale);
+		ofDrawLine(panel.x + 40.0f * uiScale, statsY - 15.0f * uiScale, panel.getRight() - 40.0f * uiScale, statsY - 15.0f * uiScale);
 
-		// P0 Stats
-		ofSetColor(180);
-		drawPixelTextCentered(uiFont, "Max Dmg/Turn: " + std::to_string(matchStats[0].maxDamageInOneTurn), p0_statsX, statsY, 0.7f, ofColor::white);
-		drawPixelTextCentered(uiFont, "Minions: " + std::to_string(matchStats[0].minionsSpawned), p0_statsX, statsY + 20, 0.7f, ofColor::white);
-		drawPixelTextCentered(uiFont, "Healed: " + std::to_string(matchStats[0].totalHealing), p0_statsX, statsY + 40, 0.7f, ofColor::white);
+		// Stats Text
+		ofSetColor(200);
+		drawPixelTextCentered(uiFont, "Max Dmg/Turn", cx, statsY, 0.75f * uiScale, ofColor::lightGray);
+		drawPixelTextCentered(uiFont, "Minions Spawned", cx, statsY + 30.0f * uiScale, 0.75f * uiScale, ofColor::lightGray);
+		drawPixelTextCentered(uiFont, "Health Restored", cx, statsY + 60.0f * uiScale, 0.75f * uiScale, ofColor::lightGray);
 
-		// P1 Stats
-		drawPixelTextCentered(uiFont, "Max Dmg/Turn: " + std::to_string(matchStats[1].maxDamageInOneTurn), p1_statsX, statsY, 0.7f, ofColor::white);
-		drawPixelTextCentered(uiFont, "Minions: " + std::to_string(matchStats[1].minionsSpawned), p1_statsX, statsY + 20, 0.7f, ofColor::white);
-		drawPixelTextCentered(uiFont, "Healed: " + std::to_string(matchStats[1].totalHealing), p1_statsX, statsY + 40, 0.7f, ofColor::white);
+		int localStatsIdx = (myLocalPlayerID == 1) ? 1 : 0;
+		int oppStatsIdx = (myLocalPlayerID == 1) ? 0 : 1;
 
-		// Return to Menu & Save Replay Buttons
-		float uiScaleBtn = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-		gameOverReturnBtn.set(cx - 160 * uiScaleBtn, cy + 220 * uiScaleBtn, 150 * uiScaleBtn, 60 * uiScaleBtn);
+		drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].maxDamageInOneTurn), leftColX, statsY, 0.8f * uiScale, ofColor::white);
+		drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].minionsSpawned), leftColX, statsY + 30.0f * uiScale, 0.8f * uiScale, ofColor::white);
+		drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].totalHealing), leftColX, statsY + 60.0f * uiScale, 0.8f * uiScale, ofColor::white);
+
+		drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].maxDamageInOneTurn), rightColX, statsY, 0.8f * uiScale, ofColor::white);
+		drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].minionsSpawned), rightColX, statsY + 30.0f * uiScale, 0.8f * uiScale, ofColor::white);
+		drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].totalHealing), rightColX, statsY + 60.0f * uiScale, 0.8f * uiScale, ofColor::white);
+
+		// XP Bar (Multiplayer Only)
+		if (isMultiplayer && s_hasCachedGameOverVisuals) {
+			float barX = panel.x + 40.0f * uiScale;
+			float barY = panel.getBottom() - 40.0f * uiScale;
+			float barW = panelW - 80.0f * uiScale;
+			float barH = 18.0f * uiScale;
+
+			long long accumulatedXP = s_startingXP + (long long)round(s_xpGained * easedProgress);
+			int tempLevel = s_startingLevel;
+			while (true) {
+				int32_t xpRequired = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
+				if (accumulatedXP >= xpRequired) {
+					accumulatedXP -= xpRequired;
+					tempLevel++;
+				} else {
+					break;
+				}
+			}
+
+			int32_t xpThreshold = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
+			float xpPct = (float)accumulatedXP / (float)xpThreshold;
+
+			ofSetColor(20, 20, 25, 255);
+			ofDrawRectRounded(barX, barY, barW, barH, 6.0f * uiScale);
+			ofSetColor(0, 180, 255, 255);
+			ofDrawRectRounded(barX, barY, barW * xpPct, barH, 6.0f * uiScale);
+
+			ofSetColor(255);
+			std::string levelText = "Account Level " + std::to_string(tempLevel);
+			std::string progressText = std::to_string(accumulatedXP) + " / " + std::to_string(xpThreshold) + " XP";
+
+			drawPixelTextBaseline(uiFont, levelText, barX, barY - 6.0f * uiScale, 0.8f * uiScale, ofColor::white);
+			ofRectangle pBox = uiFont.getStringBoundingBox(progressText, 0, 0);
+			drawPixelTextBaseline(uiFont, progressText, barX + barW - (pBox.width * 0.8f * uiScale), barY - 6.0f * uiScale, 0.8f * uiScale, ofColor::white);
+		}
+
+		// --- BUTTONS ---
+		float btnW = 240.0f * uiScale;
+		float btnH = 64.0f * uiScale;
+		float btnY = panel.getBottom() + 30.0f * uiScale;
+
+		gameOverReturnBtn.set(cx - btnW - 15.0f * uiScale, btnY, btnW, btnH);
+		gameOverReplayBtn.set(cx + 15.0f * uiScale, btnY, btnW, btnH);
+
+		// Menu Button
 		if (gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "go_menu";
-		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
-		ofDrawRectRounded(gameOverReturnBtn, 10);
-		drawPixelTextCentered(uiFont, "Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f, ofColor::white);
+		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
+		ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(2.0f * uiScale);
+		ofSetColor(100, 100, 120);
+		ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScale);
+		ofFill();
+		drawPixelTextCentered(uiFont, "Quit to Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
 
-		gameOverReplayBtn.set(cx + 10 * uiScaleBtn, cy + 220 * uiScaleBtn, 150 * uiScaleBtn, 60 * uiScaleBtn);
+		// Replay Button
 		if (gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) && !replaySavedThisMatch) g_hoveredButtonId = "go_replay";
 		if (replaySavedThisMatch) {
-			ofSetColor(ofColor::darkGreen);
-			ofDrawRectRounded(gameOverReplayBtn, 10);
-			drawPixelTextCentered(uiFont, "Saved!", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f, ofColor::white);
+			ofSetColor(ofColor(40, 90, 40));
+			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
+			ofNoFill();
+			ofSetLineWidth(2.0f * uiScale);
+			ofSetColor(80, 150, 80);
+			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
+			ofFill();
+			drawPixelTextCentered(uiFont, "Replay Saved!", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScale, ofColor(150, 255, 150));
 		} else {
-			ofSetColor(gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor::lightGray : ofColor::slateGray);
-			ofDrawRectRounded(gameOverReplayBtn, 10);
-			drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f, ofColor::white);
+			ofSetColor(gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
+			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
+			ofNoFill();
+			ofSetLineWidth(2.0f * uiScale);
+			ofSetColor(100, 100, 120);
+			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
+			ofFill();
+			drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
 		}
 
 		ofPopStyle(); // CRITICAL FIX: Prevent memory leak by popping the style pushed at the top of g_isGameOver!
