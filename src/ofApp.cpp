@@ -13019,38 +13019,31 @@ void ofApp::drawGame() {
 			float panelPadding = 20.0f * uiScale;
 			float titleHeight = 40.0f * uiScale;
 
-			// Baseline card sizes are pre-scaled
-			float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale; // Starts at draft size scale (1.1x)
+			// Baseline card sizes are pre-scaled at max resolution
+			float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale;
 			float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
 
-			// 2. Dynamically calculate layout to fit cards on screen
-			float viewCardScale = 1.0f;
-			float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
-			float availableWidth = ofGetWidth() * 0.7f;
+			// Set maximum panel height limits
+			float maxPanelHeight = ofGetHeight() * 0.75f;
+			float contentHeightLimit = maxPanelHeight - titleHeight - (2.0f * panelPadding);
 
-			// Iteratively scale down cards until they fit
-			while (viewCardScale > 0.5f) {
-				float cardW = baseCardWidthScaled * viewCardScale;
-				float cardH = baseCardHeightScaled * viewCardScale;
-				float padding = (15.0f * uiScale) * viewCardScale;
-				int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
-				int rows = ceil((float)cardsToShowInView.size() / cols);
-				if (rows * (cardH + padding) - padding <= availableHeight) {
-					break;
-				}
-				viewCardScale -= 0.1f;
-			}
+			float viewCardScale = 0.90f; // Scale factor for details preview
+			float availableWidth = ofGetWidth() * 0.70f;
 
 			float viewCardWidth = baseCardWidthScaled * viewCardScale;
 			float viewCardHeight = baseCardHeightScaled * viewCardScale;
 			float padding = (15.0f * uiScale) * viewCardScale;
-			int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 
+			int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 			gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShowInView.size());
 			if (gridWidthInCards <= 0) gridWidthInCards = 1;
+
 			int gridHeightInCards = ceil((float)cardsToShowInView.size() / gridWidthInCards);
 			float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 			float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+
+			float visibleContentHeight = std::min(totalContentHeight, contentHeightLimit);
+			float panelHeight = visibleContentHeight + titleHeight + (2.0f * panelPadding);
 
 			// 3. Intelligently position the panel relative to scaled anchors
 			float startX;
@@ -13061,12 +13054,11 @@ void ofApp::drawGame() {
 			if (viewingLocal) {
 				startX = p0_deckRect.getRight() + 30.0f * uiScale;
 			} else {
-				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2 * panelPadding);
+				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2.0f * panelPadding);
 			}
-			float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
+			float startY = (ofGetHeight() - panelHeight) / 2.0f;
 
-			// 4. Update the main pileViewRect for hit-testing in mouseMoved
-			pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
+			pileViewRect.set(startX, startY, totalContentWidth + (2.0f * panelPadding), panelHeight);
 
 			// 5. Draw the panel and its contents
 			ofSetColor(20, 20, 20, 220);
@@ -13075,18 +13067,51 @@ void ofApp::drawGame() {
 			ofSetColor(ofColor::white);
 
 			ofPushMatrix();
-			ofTranslate(startX + panelPadding, startY - 15 * uiScale);
+			ofTranslate(startX + panelPadding, startY + panelPadding + titleHeight * 0.5f);
 			ofScale(uiScale, uiScale);
 			uiFont.drawString(viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", 0, 0);
 			ofPopMatrix();
+
+			// Calculate and clamp scroll boundaries
+			float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
+			pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
+
+			// Clip the viewport bounds
+			ofPushStyle();
+			glEnable(GL_SCISSOR_TEST);
+			int scX = (int)(startX + panelPadding);
+			int scW = (int)totalContentWidth;
+			// Corrected: Include titleHeight to prevent clipping the bottom of the card row
+			int scY = (int)(ofGetHeight() - (startY + panelPadding + titleHeight + visibleContentHeight));
+			int scH = (int)visibleContentHeight;
+			glScissor(scX, scY, scW, scH);
+
+			float cardStartY = startY + panelPadding + titleHeight;
 
 			for (size_t i = 0; i < cardsToShowInView.size(); ++i) {
 				int row = i / gridWidthInCards;
 				int col = i % gridWidthInCards;
 				float drawX = startX + panelPadding + col * (viewCardWidth + padding);
-				float drawY = startY + row * (viewCardHeight + padding);
-				const Card & card = cardsToShowInView[i];
-				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, &players[currentPileViewPlayerIndex]);
+				float drawY = cardStartY + row * (viewCardHeight + padding) - pileViewScrollOffset;
+
+				// Cull offscreen card instances inside viewport
+				if (drawY + viewCardHeight >= cardStartY && drawY <= cardStartY + visibleContentHeight) {
+					const Card & card = cardsToShowInView[i];
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, &players[currentPileViewPlayerIndex]);
+				}
+			}
+
+			glDisable(GL_SCISSOR_TEST);
+			ofPopStyle();
+
+			// Draw scrollbar
+			if (maxScroll > 0.0f) {
+				float scrollBarHeight = visibleContentHeight * (visibleContentHeight / totalContentHeight);
+				scrollBarHeight = std::max(28.0f * uiScale, scrollBarHeight);
+				float scrollBarY = cardStartY + (pileViewScrollOffset / maxScroll) * (visibleContentHeight - scrollBarHeight);
+				ofSetColor(80, 80, 80, 220);
+				float scrollBarX = startX + totalContentWidth + panelPadding + 4.0f;
+				ofDrawRectRounded(scrollBarX, scrollBarY, 6, scrollBarHeight, 3);
 			}
 		} else {
 			isShowingPileView = false;
@@ -14272,6 +14297,46 @@ void ofApp::mouseMoved(int x, int y) {
 
 		int foundHandHover = -1;
 		int numCards = (int)p.hand.size();
+
+		// Forcefully block card hovers when menus are open so Accept/Choice buttons get priority
+		bool isMenuOpen = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || opponentInteraction.open);
+		if (!isMenuOpen) {
+			// A. PRIORITY CHECK: Always check the currently popped-up/top card FIRST
+			int topCardIndex = (draggedCardIndex != -1) ? draggedCardIndex : hoveredCardIndex;
+			if (topCardIndex >= 0 && topCardIndex < numCards) {
+				Card & topCard = p.hand[topCardIndex];
+				float w = handBaseCardWidth * std::max(0.9f, topCard.currentScale);
+				float h = baseCardHeight * std::max(0.9f, topCard.currentScale);
+				ofRectangle hitRect(topCard.currentPos.x - w * 0.5f, topCard.currentPos.y - h * 0.5f, w, h);
+
+				hitRect.height = std::max(hitRect.height, (float)ofGetHeight() - hitRect.y);
+
+				if (hitRect.inside((float)x, (float)y)) {
+					foundHandHover = topCardIndex;
+				}
+			}
+
+			// B. If we didn't hit the top card, check the rest of the hand normally
+			if (foundHandHover == -1) {
+				float bestDist = 999999.0f;
+				for (int i = numCards - 1; i >= 0; i--) {
+					if (i == topCardIndex) continue;
+
+					Card & card = p.hand[i];
+					float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
+					float h = baseCardHeight * std::max(0.9f, card.currentScale);
+					ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
+
+					if (hitRect.inside((float)x, (float)y)) {
+						float distX = std::abs(card.currentPos.x - x);
+						if (distX < bestDist) {
+							bestDist = distX;
+							foundHandHover = i;
+						}
+					}
+				}
+			}
+		}
 
 		// A. PRIORITY CHECK: Always check the currently popped-up/top card FIRST
 		int topCardIndex = (draggedCardIndex != -1) ? draggedCardIndex : hoveredCardIndex;
@@ -15475,25 +15540,30 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Detect which hand card was clicked (for drag initiation)
 	pressedCardIndex = -1;
 	if (button == OF_MOUSE_BUTTON_LEFT && currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
-		if (endTurnLocked) {
-			ofLogNotice("Input") << "Action blocked: Turn timer expired (endTurnLocked).";
-			return;
-		}
+		// Block clicks on hand cards if any interactive menu overlay is active
+		bool isMenuOpen = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || opponentInteraction.open);
 
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-			return;
-		}
+		// Wrap rather than return so that underlying click event handlers for menus are still processed
+		if (!isMenuOpen) {
+			if (endTurnLocked) {
+				ofLogNotice("Input") << "Action blocked: Turn timer expired (endTurnLocked).";
+				return;
+			}
 
-		Player & currentPlayer = players[currentPlayerIndex];
-		int numCards = static_cast<int>(currentPlayer.hand.size());
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+				// Handled by card state machine input handler further down
+			} else {
+				Player & currentPlayer = players[currentPlayerIndex];
+				int numCards = static_cast<int>(currentPlayer.hand.size());
 
-		if (numCards > 0) {
-			// We already rigorously calculate the perfect Z-ordered hoveredCardIndex in mouseMoved!
-			// Just grab whatever card is currently hovered.
-			pressedCardIndex = hoveredCardIndex;
+				if (numCards > 0) {
+					// Grab current hovered hand card index safely
+					pressedCardIndex = hoveredCardIndex;
 
-			if (pressedCardIndex != -1) {
-				ofLogNotice("CardDrag") << "Card pressed: index=" << pressedCardIndex << " name=" << currentPlayer.hand[pressedCardIndex].name;
+					if (pressedCardIndex != -1) {
+						ofLogNotice("CardDrag") << "Card pressed: index=" << pressedCardIndex << " name=" << currentPlayer.hand[pressedCardIndex].name;
+					}
+				}
 			}
 		}
 	}
@@ -16045,8 +16115,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
-		if (draftAcceptLocked) {
-			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent.";
+		// Strictly ignore click events if the accept command was already sent or cards are currently vanishing
+		if (draftAcceptLocked || draftAcceptApplied || draftAcceptUI.state == DRAFT_ANIM_VANISHING) {
+			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent or cards are currently vanishing.";
 			return;
 		}
 
@@ -16080,9 +16151,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			else if (draftStage == 1)
 				classTierText = "Class 2";
 		}
-
-		// startY already provided by getDraftCardMetrics
-		// ------------------------------
 
 		// Determine logic for this draft phase
 		int requiredPicks = 1;
@@ -16355,6 +16423,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 2. CHECK CARD CLICKING SECOND
 		if (isLocalDraftingPlayer(draftPlayerIndex)) {
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
+				// Guard: Strictly ignore click collision calculations if the targeted option slot is hidden or vanishing
+				if (i < draftOptionUI.size() && (draftOptionUI[i].hidden || draftOptionUI[i].state == DRAFT_ANIM_VANISHING)) {
+					continue;
+				}
+
 				float cx = startX + static_cast<float>(i) * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
 
@@ -18233,6 +18306,45 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		return;
 	}
 
+	// Handle pile view hover panel scrolling (Intercepts zoom even on temporary hover)
+	if (isHoveringPile || isShowingPileView) {
+		float uiScale = getUIScaleFromHeight(ofGetHeight());
+		float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
+		float viewCardScale = 0.90f;
+		float viewCardHeight = baseCardHeightScaled * viewCardScale;
+		float padding = (15.0f * uiScale) * viewCardScale;
+
+		// Scroll precisely by 1 card row step per wheel notch
+		float rowStep = viewCardHeight + padding;
+		pileViewScrollOffset -= scrollY * rowStep;
+		return;
+	}
+
+	// Handle Amnesia card menu scrolling
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA && !amnesiaDeckCopy.empty()) {
+		float panelWidth = ofGetWidth() * 0.85f;
+		float panelHeight = ofGetHeight() * 0.85f;
+		float panelX = (ofGetWidth() - panelWidth) / 2.0f;
+		float panelY = (ofGetHeight() - panelHeight) / 2.0f;
+		ofRectangle amnesiaRect(panelX, panelY, panelWidth, panelHeight);
+
+		if (amnesiaRect.inside(x, y)) {
+			// Extract amnesia card dimensions
+			const float amnesiaCardAspect = 1.4f;
+			const int cols = 5;
+			const float padX = 12.0f;
+			const float padY = 15.0f;
+			float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
+			cardW = std::max(12.0f, cardW);
+			float cardH = cardW * amnesiaCardAspect;
+			float rowStep = cardH + padY;
+
+			// Scroll precisely by 1 card row step per wheel notch
+			amnesiaScrollOffset -= scrollY * rowStep;
+			return;
+		}
+	}
+
 	// Settings -> Controls scrolling by mouse wheel when the mouse is over the controls list
 	if (currentState == STATE_SETTINGS && currentSettingsTab == SETTINGS_TAB_CONTROLS) {
 		float centerX = ofGetWidth() / 2.0f;
@@ -18243,7 +18355,6 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		float itemH = 36.0f;
 		float itemW = 760.0f;
 		float startX = centerX - itemW / 2.0f;
-		// number of controls (kept in sync with drawSettingsMenu ordering)
 		int controlsCount = 19;
 		float contentBottom = ofGetHeight() * 0.8f - 20.0f;
 		float contentHeight = std::max(0.0f, contentBottom - listY);
@@ -18258,17 +18369,8 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		}
 	}
 
-	// Allow zooming during draft
-	if (currentState == STATE_DRAFTING) {
-		cameraTargetZoom -= scrollY * 4.0f;
-		cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 100.0f);
-		return;
-	}
-	if (currentState != STATE_GAMEPLAY) return;
-
 	// Handle encyclopedia scrolling
 	if (isCardEncyclopediaOpen && encyclopediaRect.inside(x, y)) {
-		// Scroll for lower rows while keeping Accept area clear.
 		const float encyScrollAspect = 1.4f;
 		const int cols = 10;
 		const float padX = 8.0f;
@@ -18296,14 +18398,13 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		float totalContentHeight = totalRows * rowStep;
 		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 
-		encyclopediaScrollOffset -= scrollY * 40.0f;
+		// Scroll precisely by 1 card row step per wheel notch
+		encyclopediaScrollOffset -= scrollY * rowStep;
 		encyclopediaScrollOffset = ofClamp(encyclopediaScrollOffset, 0.0f, maxScroll);
 		return;
 	}
 
 	cameraTargetZoom -= scrollY * 4.0f;
-	// Restrict how far the player can zoom out normally, but allow more
-	// zoom-out when in top-down mode so the player can see more of the board.
 	if (isTopDownView) {
 		cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 100.0f);
 	} else {
@@ -21436,41 +21537,79 @@ void ofApp::drawActiveCardInteractionUI() {
 				uiFont.drawString(title, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
 				const float amnesiaCardAspect = 1.4f;
-				const int cols = 5; // Reduced from 10 to 5 columns to double the card size on screen
+				const int cols = 5;
 				const float padX = 12.0f;
 				const float padY = 15.0f;
 
+				// Constrain card metrics inside scroll region
 				float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
 				cardW = std::max(12.0f, cardW);
 				float cardH = cardW * amnesiaCardAspect;
+				float rowStep = cardH + padY;
+
 				float startX = panelX + padX;
-				float startY = panelY + 60;
+				float startY = panelY + 60; // Top bounding margin
+				float bottomMargin = 70; // Bottom margin for accept button
+				float visibleContentHeight = panelHeight - 60 - bottomMargin;
+
+				int totalRows = ((int)amnesiaDeckCopy.size() + cols - 1) / cols;
+				float totalContentHeight = totalRows * rowStep;
+
+				// Apply scroll boundaries
+				float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
+				amnesiaScrollOffset = std::clamp(amnesiaScrollOffset, 0.0f, maxScroll);
+
+				// Clip rendering inside bounds
+				ofPushStyle();
+				glEnable(GL_SCISSOR_TEST);
+				int scX = (int)(panelX + padX);
+				int scW = (int)(panelWidth - 2 * padX);
+				int scY = (int)(ofGetHeight() - (startY + visibleContentHeight));
+				int scH = (int)visibleContentHeight;
+				glScissor(scX, scY, scW, scH);
 
 				amnesiaCardRects.clear();
 				for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
-					int r = i / cols;
-					int c = i % cols;
+					int r = (int)i / cols;
+					int c = (int)i % cols;
 					float drawX = startX + c * (cardW + padX);
-					float drawY = startY + r * (cardH + padY);
+					float drawY = startY + r * rowStep - amnesiaScrollOffset;
+
 					ofRectangle cRect(drawX, drawY, cardW, cardH);
 					amnesiaCardRects.push_back(cRect);
 
-					ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
-					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, amnesiaDeckCopy[i], drawX, drawY, cardW, cardH, nullptr);
-
-					if (std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), (int)i) != amnesiaSelectedIndices.end()) {
-						ofNoFill();
-						ofSetLineWidth(4.0f);
-						ofSetColor(255, 255, 0, 255 * g_menuAlphaMult);
-						ofDrawRectangle(cRect);
-						ofFill();
-					} else if (isLocalDecider && cRect.inside(ofGetMouseX(), ofGetMouseY())) {
-						ofNoFill();
-						ofSetLineWidth(3.0f);
+					// Cull out of bounds cards
+					if (drawY + cardH >= startY && drawY <= startY + visibleContentHeight) {
 						ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
-						ofDrawRectangle(cRect);
-						ofFill();
+						drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, amnesiaDeckCopy[i], drawX, drawY, cardW, cardH, nullptr);
+
+						if (std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), (int)i) != amnesiaSelectedIndices.end()) {
+							ofNoFill();
+							ofSetLineWidth(4.0f);
+							ofSetColor(255, 255, 0, 255 * g_menuAlphaMult);
+							ofDrawRectangle(cRect);
+							ofFill();
+						} else if (isLocalDecider && cRect.inside(ofGetMouseX(), ofGetMouseY())) {
+							ofNoFill();
+							ofSetLineWidth(3.0f);
+							ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
+							ofDrawRectangle(cRect);
+							ofFill();
+						}
 					}
+				}
+
+				glDisable(GL_SCISSOR_TEST);
+				ofPopStyle();
+
+				// Render scrollbar
+				if (maxScroll > 0.0f) {
+					float scrollBarHeight = visibleContentHeight * (visibleContentHeight / totalContentHeight);
+					scrollBarHeight = std::max(28.0f, scrollBarHeight);
+					float scrollBarY = startY + (amnesiaScrollOffset / maxScroll) * (visibleContentHeight - scrollBarHeight);
+					ofSetColor(80, 80, 80, 220);
+					float scrollBarX = panelX + panelWidth - 14.0f;
+					ofDrawRectRounded(scrollBarX, scrollBarY, 6, scrollBarHeight, 3);
 				}
 
 				if (isLocalDecider) {
@@ -37869,7 +38008,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
 
 	// Baseline card sizes are pre-scaled
-	float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale; // Starts at draft size scale (1.1x)
+	float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale;
 	float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
 
 	if (viewMode == VIEW_DECK) {
@@ -37937,29 +38076,24 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 	float panelPadding = 20.0f * uiScale;
 	float titleHeight = 40.0f * uiScale;
-	float viewCardScale = 1.0f;
-	float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
-	float availableWidth = ofGetWidth() * 0.7f;
-
-	while (viewCardScale > 0.1f) {
-		float cardW = baseCardWidthScaled * viewCardScale;
-		float cardH = baseCardHeightScaled * viewCardScale;
-		float padding = (15.0f * uiScale) * viewCardScale;
-		int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
-		int rows = ceil((float)cardsToShow.size() / (float)cols);
-		if (rows * (cardH + padding) - padding <= availableHeight) break;
-		viewCardScale -= 0.05f;
-	}
+	float viewCardScale = 0.90f;
+	float availableWidth = ofGetWidth() * 0.70f;
 
 	float viewCardWidth = baseCardWidthScaled * viewCardScale;
 	float viewCardHeight = baseCardHeightScaled * viewCardScale;
 	float padding = (15.0f * uiScale) * viewCardScale;
+
 	int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 	gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
 	if (gridWidthInCards <= 0) gridWidthInCards = 1;
 	int gridHeightInCards = ceil((float)cardsToShow.size() / gridWidthInCards);
 	float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 	float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+
+	float maxPanelHeight = ofGetHeight() * 0.75f;
+	float contentHeightLimit = maxPanelHeight - titleHeight - (2.0f * panelPadding);
+	float visibleContentHeight = std::min(totalContentHeight, contentHeightLimit);
+	float panelHeight = visibleContentHeight + titleHeight + (2.0f * panelPadding);
 
 	float startX;
 	bool anchored = false;
@@ -37970,7 +38104,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 				if (rightSpace > totalContentWidth + 60.0f * uiScale) {
 					startX = mui.deckRect.getRight() + 30.0f * uiScale;
 				} else {
-					startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2 * panelPadding);
+					startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2.0f * panelPadding);
 				}
 				anchored = true;
 				break;
@@ -37982,11 +38116,11 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		if (viewingLocal)
 			startX = p0_deckRect.getRight() + 30.0f * uiScale;
 		else
-			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2 * panelPadding);
+			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2.0f * panelPadding);
 	}
-	float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
+	float startY = (ofGetHeight() - panelHeight) / 2.0f;
 
-	pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
+	pileViewRect.set(startX, startY, totalContentWidth + (2.0f * panelPadding), panelHeight);
 
 	ofSetColor(20, 20, 20, 220);
 	ofDrawRectRounded(pileViewRect, 15 * uiScale);
@@ -37994,22 +38128,48 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	ofSetColor(ofColor::white);
 
 	ofPushMatrix();
-	ofTranslate(startX + panelPadding, startY - 15 * uiScale);
+	ofTranslate(startX + panelPadding, startY + panelPadding + titleHeight * 0.5f);
 	ofScale(uiScale, uiScale);
 	uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", 0, 0);
 	ofPopMatrix();
+
+	float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
+	pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
+
+	ofPushStyle();
+	glEnable(GL_SCISSOR_TEST);
+	int scX = (int)(startX + panelPadding);
+	int scW = (int)totalContentWidth;
+	int scY = (int)(ofGetHeight() - (startY + panelPadding + visibleContentHeight));
+	int scH = (int)visibleContentHeight;
+	glScissor(scX, scY, scW, scH);
+
+	float cardStartY = startY + panelPadding + titleHeight;
 
 	for (size_t i = 0; i < cardsToShow.size(); ++i) {
 		int row = i / gridWidthInCards;
 		int col = i % gridWidthInCards;
 		float drawX = startX + panelPadding + col * (viewCardWidth + padding);
-		float drawY = startY + row * (viewCardHeight + padding);
-		const Card & card = cardsToShow[i];
+		float drawY = cardStartY + row * (viewCardHeight + padding) - pileViewScrollOffset;
 
-		Player * pPtr = nullptr;
-		if (viewPlayerIndex >= 0 && viewPlayerIndex < (int)players.size()) pPtr = &players[viewPlayerIndex];
+		if (drawY + viewCardHeight >= cardStartY && drawY <= cardStartY + visibleContentHeight) {
+			const Card & card = cardsToShow[i];
+			Player * pPtr = nullptr;
+			if (viewPlayerIndex >= 0 && viewPlayerIndex < (int)players.size()) pPtr = &players[viewPlayerIndex];
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, pPtr);
+		}
+	}
 
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, pPtr);
+	glDisable(GL_SCISSOR_TEST);
+	ofPopStyle();
+
+	if (maxScroll > 0.0f) {
+		float scrollBarHeight = visibleContentHeight * (visibleContentHeight / totalContentHeight);
+		scrollBarHeight = std::max(28.0f * uiScale, scrollBarHeight);
+		float scrollBarY = cardStartY + (pileViewScrollOffset / maxScroll) * (visibleContentHeight - scrollBarHeight);
+		ofSetColor(80, 80, 80, 220);
+		float scrollBarX = startX + totalContentWidth + panelPadding + 4.0f;
+		ofDrawRectRounded(scrollBarX, scrollBarY, 6, scrollBarHeight, 3);
 	}
 }
 

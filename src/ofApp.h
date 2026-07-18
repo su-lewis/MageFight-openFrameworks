@@ -2594,6 +2594,8 @@ private:
 	std::vector<Card> filteredCards; // Cards matching current input
 	int encyclopediaScrollOffset = 0;
 	int settingsControlsScrollOffset = 0;
+	float pileViewScrollOffset = 0.0f; // Track scroll offset for deck/discard hover panels
+	float amnesiaScrollOffset = 0.0f; // Track scroll offset for Amnesia inspection panels
 	ofRectangle cardSpawnerInputRect;
 	ofRectangle cardSpawnerPlusButton;
 	ofRectangle cardSpawnerMinusButton;
