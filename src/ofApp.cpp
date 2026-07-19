@@ -38770,6 +38770,11 @@ void ofApp::processNetworkPackets() {
 				if (mappedIdx >= 0 && mappedIdx != getLocalPlayerIndex()) {
 					if (msp->menuType == 0) {
 						resetCardInteraction(); // FIX: Sync closure exactly!
+
+						// CRITICAL FIX: If the opponent cancelled their menu, unfreeze our state machine!
+						if (cardPlayState == CARD_PLAY_STATE_MENU || cardPlayState == CARD_PLAY_STATE_TARGETING) {
+							resetCardState();
+						}
 					} else {
 						// Map MenuType back to standard CardType
 						CardType cType = CARD_NONE;
