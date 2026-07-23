@@ -45,6 +45,9 @@
 static std::map<int, long long> s_pendingRemoteChecksums;
 static std::map<int, long long> s_pendingLocalChecksums;
 
+// --- DEATH DELAY TRACKING ---
+static std::map<int, int> s_playerDeathDelayMap;
+
 // --- NEW: FULL MATCH LOG TRACKING ---
 static std::vector<std::string> s_fullMatchLog;
 
@@ -3560,15 +3563,12 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 }
 
 Player * ofApp::spawnMinionDeterministically(int summonKind, int x, int y, int ownerPlayerID, int maxHP, int ap, int summonerPlayerID) {
-	if (isMultiplayer) {
-		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "SPAWN_MINION: kind=" + std::to_string(summonKind) + " owner=" + std::to_string(ownerPlayerID) + " at (" + std::to_string(x) + "," + std::to_string(y) + ") maxHP=" + std::to_string(maxHP));
-	}
 	Player created = initMinionFromKind(summonKind, ownerPlayerID, maxHP, ap, summonerPlayerID);
-	// Assign a unique playerID: choose max existing + 1
-	int maxID = -1;
-	for (const auto & p : players)
-		if (p.playerID > maxID) maxID = p.playerID;
-	created.playerID = maxID + 1;
+
+	// FIX: Use nextSummonOrder so minion IDs monotonically increment (100, 101, 102...)
+	// This prevents ID recycling while staying 100% snapshot/reconnect safe!
+	created.summonOrder = ++nextSummonOrder;
+	created.playerID = 100 + created.summonOrder;
 	created.ownerID = ownerPlayerID;
 	created.x = x;
 	created.y = y;
@@ -8093,6 +8093,7 @@ void ofApp::setupGame() {
 	// Reset lockstep runtime state for a fresh match.
 	s_pendingRemoteChecksums.clear();
 	s_pendingLocalChecksums.clear();
+	s_playerDeathDelayMap.clear();
 
 	g_isGameOver = false;
 	g_winnerID = -1;
@@ -17025,12 +17026,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			Player testUnit = initMinionFromKind(10, ownerID, 5, 0, ownerID);
-			testUnit.playerID = 300 + (int)players.size();
+			testUnit.summonOrder = ++nextSummonOrder;
+			testUnit.playerID = 100 + testUnit.summonOrder;
 			testUnit.x = gx;
 			testUnit.y = gy;
 			testUnit.visualPos = gridToWorld(gx, gy);
 			testUnit.summonedOnTurnCycle = globalTurnCounter;
-			testUnit.summonOrder = ++nextSummonOrder;
 			if (testUnit.health <= 0) {
 				testUnit.health = std::max(1, testUnit.maxHealth);
 			}
@@ -22099,6 +22100,7 @@ void ofApp::processCommandQueue() {
 }
 
 void ofApp::simulationTick() {
+	if (g_isGameOver) return; // FIX: Freeze simulation logic completely when match ends
 	inSimulationTick = true;
 
 	// If watching a replay, inject the recorded commands at the exact frame they happened!
@@ -22192,10 +22194,7 @@ void ofApp::simulationTick() {
 	}
 
 	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
-	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
-	// ONLY check if there are no pending spells processing so array indices don't shift!
 	if (!isProcessingEffect && !isEarthquakeActive) {
-		static std::map<int, int> s_playerDeathDelayMap; // Maps playerID -> remaining delay ticks (deterministic)
 		std::vector<int> removeIndices;
 		bool p0Died = false;
 		bool p1Died = false;
@@ -26431,9 +26430,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int summonerID = op.data.spawnUnit.summonerPlayerID;
 				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
 				if (spawned) {
-					// FIX: If variant > 100, it's a forced Faerie Resurrection ID!
+					// If variant > 100, restore the explicit resurrected ID and prevent nextSummonOrder counter drift
 					if (op.data.spawnUnit.variant > 100) {
 						spawned->playerID = op.data.spawnUnit.variant;
+						spawned->summonOrder = op.data.spawnUnit.variant - 100;
+						if (nextSummonOrder > 0) {
+							nextSummonOrder--; // Roll back counter since an existing ID was re-used
+						}
 					}
 
 					// TRACK STATS: Minions Spawned
@@ -33262,6 +33265,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	provisionalCommands.clear();
 	provisionalSnapshots.clear();
 	queuedCommandKeys.clear();
+	executedCommandKeys.clear(); // FIX: Allow reconnected players to accept all future command IDs!
 
 	// Clear all transient dice visuals when applying a full snapshot
 	// Only remove any lingering AP visuals — keep unrelated dice (e.g., summoned HP)
