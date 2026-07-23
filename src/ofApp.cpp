@@ -9539,10 +9539,8 @@ void ofApp::updateGameLogic() {
 							if (!alreadySelected) candidates.push_back(poolIdx);
 						}
 						if (candidates.empty()) break;
-						std::vector<int> rawRoll;
-						int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
-						int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
-						selectedDraftIndices.push_back(candidates[pickIdx]);
+						// FIX: Pick first available candidate deterministically without consuming gameplay RNG!
+						selectedDraftIndices.push_back(candidates[0]);
 					}
 
 					if ((int)selectedDraftIndices.size() > 0) {
@@ -9605,12 +9603,9 @@ void ofApp::updateGameLogic() {
 							}
 							if (candidates.empty()) break;
 
-							std::vector<int> rawRoll;
-							int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
-							int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
-							selectedDraftIndices.push_back(candidates[pickIdx]);
+							// FIX: Pick first available candidate deterministically without consuming gameplay RNG!
+							selectedDraftIndices.push_back(candidates[0]);
 						}
-
 						if ((int)selectedDraftIndices.size() > 0) {
 							draftAcceptLocked = true;
 
@@ -39304,7 +39299,6 @@ long long ofApp::calculateChecksum() {
 	mix_global((uint64_t)currentPlayerIndex);
 	mix_global((uint64_t)currentAP);
 	mix_global((uint64_t)gameplayRngAdvanceCount);
-	mix_global((uint64_t)currentMapSeed);
 	mix_global((uint64_t)nextSummonOrder);
 
 	// --- 2. GAME & DRAFT STATE ---
