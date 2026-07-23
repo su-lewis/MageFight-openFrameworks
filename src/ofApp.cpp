@@ -22239,10 +22239,12 @@ void ofApp::simulationTick() {
 			// Handle Dramatic Death Delay (1.2 seconds of suspense)
 			int pID = players[i].playerID;
 			if (s_playerDeathDelayMap.find(pID) == s_playerDeathDelayMap.end()) {
-				// Attempt Faerie resurrection immediately before initiating delay
+				// Attempt Faerie resurrection immediately before initiating delay.
+				// FIX: Faeries CANNOT resurrect units that died from Exhaustion (no cards left),
+				// preventing an infinite resurrection loop!
 				Player & dying = players[i];
 				bool resurrected = false;
-				if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+				if (!noCards && !dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
 					// Check orthogonally-adjacent tiles for an alive Faerie.
 					for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
 						for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
