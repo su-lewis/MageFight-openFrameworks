@@ -1,6 +1,9 @@
 #include "ofApp.h"
 #include "ofAppNoWindow.h" // Required for Headless Mode
 #include "ofMain.h"
+
+#define GLFW_INCLUDE_NONE
+#include "GLFW/glfw3.h"
 #include <cstdlib>
 
 int main(int argc, char * argv[]) {
@@ -17,13 +20,34 @@ int main(int argc, char * argv[]) {
 		return 0;
 	}
 
-	// 3. Normal Mode Setup (Audio and Windows)
+	// 3. Query Primary Monitor Native Resolution and Max Refresh Rate (Hz)
+	glfwInit();
+	GLFWmonitor * primaryMonitor = glfwGetPrimaryMonitor();
+	int screenWidth = 1920;
+	int screenHeight = 1080;
+	int monitorHz = 60; // Default fallback
+
+	if (primaryMonitor) {
+		const GLFWvidmode * mode = glfwGetVideoMode(primaryMonitor);
+		if (mode) {
+			screenWidth = mode->width;
+			screenHeight = mode->height;
+			monitorHz = mode->refreshRate;
+		}
+	}
+
+	// 4. Borderless Fullscreen Window Setup
 	ofGLFWWindowSettings settings;
 	settings.setGLVersion(3, 3);
+	settings.decorated = false; // Strips window borders / title bar for true borderless mode
 	settings.windowMode = OF_WINDOW;
-	settings.setSize(1280, 720);
+	settings.setPosition(glm::vec2(0, 0));
+	settings.setSize(screenWidth, screenHeight);
 	settings.title = "Mage Fight";
 	auto window = ofCreateWindow(settings);
+
+	// Cap max FPS strictly to the user's monitor refresh rate (Hz)
+	ofSetFrameRate(monitorHz);
 
 	// Sound Setup
 	ofSoundStreamSettings soundSettings;
