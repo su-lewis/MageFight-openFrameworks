@@ -9475,8 +9475,8 @@ void ofApp::updateGameLogic() {
 	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isMagicHandRelocActive || isOpponentDraftActive)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
 
-		// ONLY the Host or Singleplayer evaluates the timeout to prevent duplicate/racing commands
-		if ((!isMultiplayer || isHost()) && elapsedDecisionFrames >= opponentDecisionDurationFrames) {
+		// FIX: Pure lockstep timeout — BOTH peers execute the identical decision natively on frame N!
+		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
@@ -9577,8 +9577,8 @@ void ofApp::updateGameLogic() {
 		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
 			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 
-			// ONLY Host or Singleplayer evaluates the timeout to prevent duplicate/racing commands
-			if ((!isMultiplayer || isHost()) && elapsedFrames >= turnDurationFrames) {
+			// FIX: Pure lockstep timeout — BOTH peers execute the timeout transition natively on frame N!
+			if (elapsedFrames >= turnDurationFrames) {
 
 				if (timerState == STATE_GAMEPLAY) {
 					registerAfkTimeoutForCurrentOwner();
@@ -26221,6 +26221,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	case EffectOpType::ADD_CARD_TO_DECK: {
 		{
 			int tidx = op.data.addCard.targetIndex;
+			// FIX: Fallback to active player if targetIndex was unmapped (-1) so shuffle never skips!
+			if (tidx < 0 || tidx >= (int)players.size()) {
+				tidx = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : 0;
+			}
 			int ctype = op.data.addCard.cardType;
 			if (tidx >= 0 && tidx < (int)players.size()) {
 				Player & target = players[tidx];
@@ -33484,7 +33488,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 
 //--------------------------------------------------------------
 void ofApp::sendSnapshotToClient(bool useTurnStartBackup) {
-	if (!isMultiplayer || !isHost()) return;
+	if (!isMultiplayer) return;
 
 	// In a strict deterministic model, we send the exact current state.
 	std::string data = buildSnapshotString();
@@ -38641,11 +38645,9 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_SNAPSHOT_REQUEST) {
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
-				if (isHost()) {
-					// Just send the current state; no rewinding!
-					sendSnapshotToClient(false);
-					ofLogNotice("Network") << "Host: Sent authoritative snapshot to client.";
-				}
+				// FIX: Allow remaining peer to respond with current snapshot on reconnect
+				sendSnapshotToClient(false);
+				ofLogNotice("Network") << "Sent current snapshot to reconnected peer " << rp->playerID;
 				continue;
 			}
 
