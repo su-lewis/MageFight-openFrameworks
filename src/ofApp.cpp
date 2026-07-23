@@ -5442,10 +5442,22 @@ void ofApp::update() {
 		}
 	}
 
-	// --- INACTIVITY BATTERY-SAVER (Singleplayer only) ---
-	// If the window is not focused or minimized, keep deterministic game logic running,
-	// but pause heavy visuals and mute audio to reduce battery usage.
-	if (!isMultiplayer) {
+	// --- INACTIVITY BATTERY-SAVER ---
+	// If in multiplayer, force battery saver OFF and restore framerate immediately
+	if (isMultiplayer) {
+		if (gameSuspendedDueToInactivity) {
+			gameSuspendedDueToInactivity = false;
+			if (settingsFramerateSliderValue >= 0.999f) {
+				ofSetVerticalSync(false);
+				ofSetFrameRate(0);
+			} else {
+				int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
+				ofSetVerticalSync(false);
+				ofSetFrameRate(std::min(targetFPS, 300));
+			}
+			ofLogNotice("Power") << "Multiplayer active: Battery saver disarmed.";
+		}
+	} else {
 		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 		bool windowActive = true;
 		int iconified = GLFW_FALSE;
@@ -5455,9 +5467,6 @@ void ofApp::update() {
 			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
 		}
 
-		// FIX: Never suspend if we are in the main menu and connected to Steam (Hosting a lobby)
-		// Suspending while the Steam Overlay is open causes it to freeze/crash!
-		// However, if the game is completely minimized (iconified), we DO want to suspend it.
 		if (currentState == STATE_MAIN_MENU && steamManager.isConnected() && iconified == GLFW_FALSE) {
 			windowActive = true;
 		}
@@ -5466,41 +5475,33 @@ void ofApp::update() {
 		if (!windowActive) {
 			if (!gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = true;
-				// Throttle render cadence while inactive (logic still advances).
 				ofSetVerticalSync(false);
 				ofSetFrameRate(15);
-				// Save master volume and mute audio (per-player where supported)
 				savedMasterVolume = settingsMasterVolume;
-				// Save and mute main menu music
 				if (mainMenuMusic.isLoaded()) {
 					savedMainMenuWasPlaying = mainMenuMusic.isPlaying();
 					savedMainMenuVolume = mainMenuMusic.getVolume();
-					// Save current playback position (ms)
 					savedMainMenuPositionMS = mainMenuMusic.getPositionMS();
-					// Audio continues playing while minimized!
 				}
 				if (g_gameMusic.isLoaded()) {
 					savedGameMusicVolume = g_gameMusic.getVolume();
 				}
-				// Save and mute footstep sounds (if any)
 				savedFootstepVolumes.clear();
 				for (size_t i = 0; i < footstepSounds.size(); ++i) {
 					savedFootstepVolumes.push_back(footstepSounds[i].getVolume());
 				}
-				ofLogNotice("Power") << "Singleplayer inactive: visuals paused, FPS throttled. Logic and Audio continues.";
+				ofLogNotice("Power") << "Singleplayer inactive: visuals paused, FPS throttled to 15.";
 			}
 		} else {
 			if (gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = false;
-				// Restore configured runtime frame cap.
 				if (settingsFramerateSliderValue >= 0.999f) {
 					ofSetVerticalSync(false);
 					ofSetFrameRate(0);
 				} else {
 					int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-					targetFPS = std::min(targetFPS, 300);
 					ofSetVerticalSync(false);
-					ofSetFrameRate(targetFPS);
+					ofSetFrameRate(std::min(targetFPS, 300));
 				}
 				ofLogNotice("Power") << "Singleplayer active: visuals resumed.";
 			}
@@ -15475,8 +15476,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			draggingAudioMaster = true;
 			float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
 			settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-			g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			updateAudioVolumes();
 			saveSettings();
 			return;
 		}
@@ -15484,16 +15484,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			draggingAudioMenu = true;
 			float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
 			settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-			g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-			saveSettings();
-			return;
-		}
-		if (settingsAudioVolumeSlider.inside(x, y)) {
-			draggingAudioMenu = true;
-			float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
-			settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+			updateAudioVolumes();
 			saveSettings();
 			return;
 		}
@@ -15501,6 +15492,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			draggingAudioSfx = true;
 			float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
 			settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
+			updateAudioVolumes();
 			saveSettings();
 			return;
 		}
@@ -17705,21 +17697,20 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (draggingAudioMaster) {
 				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
 				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				changed = true;
 			}
 			if (draggingAudioMenu) {
 				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
 				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				changed = true;
 			}
 			if (draggingAudioSfx) {
 				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
 				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
 				changed = true;
+			}
+			if (changed) {
+				updateAudioVolumes();
 			}
 		}
 		// Video tab: framerate slider
@@ -22378,6 +22369,11 @@ void ofApp::simulationTick() {
 		} else if (p1Died) {
 			g_isGameOver = true;
 			g_winnerID = 0;
+		}
+
+		if (g_isGameOver) {
+			s_pendingLocalChecksums.clear();
+			s_pendingRemoteChecksums.clear();
 		}
 
 		// CRITICAL FIX: Do not erase units and shift array indices if an effect sequence (like Resurrection) just started!
@@ -27140,7 +27136,6 @@ void ofApp::processVisualEvents() {
 			if (!ev.tilePreviewAdds.empty()) {
 				for (const auto & t : ev.tilePreviewAdds) {
 					if (t.x >= 0 && t.x < BOARD_WIDTH && t.y >= 0 && t.y < BOARD_HEIGHT) {
-						// avoid duplicates
 						bool found = false;
 						for (const auto & a : activeYellowPreviewTiles) {
 							if (a.x == t.x && a.y == t.y) {
@@ -27157,15 +27152,17 @@ void ofApp::processVisualEvents() {
 			ev.startTime = now;
 		}
 
-		if (ev.duration > 0.0f) {
+		// FIX: Floating text manages its own lifetime in activeFloatingTexts.
+		// Complete custom text events immediately so they don't block the visual queue for 3 seconds!
+		if (!ev.text.empty() && !ev.clearTilePreviewsOnComplete) {
+			ev.completed = true;
+		} else if (ev.duration > 0.0f) {
 			if (now - ev.startTime >= ev.duration) {
-				// On completion optionally clear previews
 				if (ev.clearTilePreviewsOnComplete) activeYellowPreviewTiles.clear();
 				ev.completed = true;
 			}
 		} else {
-			// default short lifetime when no duration specified
-			if (now - ev.startTime >= 1.2f) {
+			if (now - ev.startTime >= 0.2f) {
 				if (ev.clearTilePreviewsOnComplete) activeYellowPreviewTiles.clear();
 				ev.completed = true;
 			}
@@ -36255,6 +36252,11 @@ void ofApp::cleanupGame() {
 	s_hasCachedGameOverVisuals = false;
 	s_gameOverScreenStartTime = 0.0f;
 
+	// Stop any lingering card drag sounds when match ends or resets
+	if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
+		draggingHandLoop.stop();
+	}
+
 	players.clear();
 	activeDiceRolls.clear();
 	activeCardDisplays.clear();
@@ -36501,6 +36503,23 @@ void ofApp::saveSettings() {
 	}
 }
 
+void ofApp::updateAudioVolumes() {
+	float master = std::clamp(settingsMasterVolume, 0.0f, 1.0f);
+	float music = std::clamp(settingsMenuVolume, 0.0f, 1.0f);
+
+	// 1. Set OpenFrameworks Global Master Output Volume
+	ofSoundSetVolume(master);
+
+	// 2. Update active background music streams immediately
+	float finalMusicVol = master * music;
+	if (mainMenuMusic.isLoaded()) {
+		mainMenuMusic.setVolume(finalMusicVol);
+	}
+	if (g_gameMusic.isLoaded()) {
+		g_gameMusic.setVolume(finalMusicVol);
+	}
+}
+
 void ofApp::loadSettings() {
 	std::string path = "Config/settings.json";
 	if (!ofFile(path).exists()) {
@@ -36535,12 +36554,7 @@ void ofApp::loadSettings() {
 		}
 
 		// Apply audio immediately
-		if (mainMenuMusic.isLoaded()) {
-			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-		}
-		if (g_gameMusic.isLoaded()) {
-			g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-		}
+		updateAudioVolumes();
 
 		// Apply v-sync/framerate
 		if (settingsUseVSync)
@@ -39012,6 +39026,14 @@ void ofApp::processNetworkPackets() {
 		writeLockstepTrace(steamManager.isHost(), turnNumber, "CHECKSUM_CHECK Evaluated. Local: " + std::to_string(localSum) + " Remote: " + std::to_string(remoteSum));
 
 		if (localSum != remoteSum) {
+			// FIX: Ignore checksum mismatches if the game has already concluded!
+			if (g_isGameOver) {
+				ofLogNotice("Net") << "Checksum mismatch ignored because match is already over. Local: " << localSum << " Remote: " << remoteSum;
+				s_pendingLocalChecksums.clear();
+				s_pendingRemoteChecksums.clear();
+				continue;
+			}
+
 			ofLogError("Net") << "DESYNC DETECTED! Local: " << localSum << " vs Remote: " << remoteSum << ". Halting game.";
 			writeLockstepTrace(steamManager.isHost(), turnNumber, "*** DESYNC DETECTED! Local: " + std::to_string(localSum) + " vs Remote: " + std::to_string(remoteSum) + " ***");
 

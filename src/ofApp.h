@@ -1116,6 +1116,7 @@ private:
 	void drawMainMenu();
 	void drawSettingsMenu();
 	void drawPauseMenu();
+	void updateAudioVolumes();
 	void applySettings();
 	void recalculateUI(int w, int h);
 	void updateDebugRects();
@@ -2457,7 +2458,6 @@ private:
 	void handleCardTargetClick(int gridX, int gridY);
 	void handleCardMenuClick(const std::string & buttonId);
 	void drawActiveCardInteractionUI();
-
 	// Cancel any active targeting modes/menus and reset related state
 	void cancelAllTargeting();
 	void cancelMagicHand();
