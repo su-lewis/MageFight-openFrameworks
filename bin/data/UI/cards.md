@@ -491,7 +491,7 @@
 - **Picture:** 
 - **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent, you gain +1 **Luck** and can reroll AP once if at 0. 
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
-- **AP:** Heads: 1 Tails: 0
+- **AP:** 1 : 0
 - **HP:** 1
 ---
 

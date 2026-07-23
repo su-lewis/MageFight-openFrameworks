@@ -927,6 +927,7 @@ public:
 		// Instruction text to show while targeting
 		std::string instruction;
 	};
+
 	// --- AUDIO SLIDER DRAG STATE ---
 	bool draggingAudioMaster = false;
 	bool draggingAudioMenu = false;
@@ -1043,6 +1044,8 @@ public:
 	uint32_t incomingSnapshotId = 0;
 	uint32_t incomingSnapshotExpectedSize = 0;
 	uint32_t incomingSnapshotReceivedSize = 0;
+
+	bool hasAssistantRerollAvailable(int playerIndex, int atX, int atY);
 
 	// Backup snapshot for desync recovery
 
@@ -2359,11 +2362,16 @@ private:
 	} opponentInteraction;
 
 	// --- Ghost Relocate Interaction State ---
-	// Populated when a ghost form breaks inside a wall and the player may choose
-	// a nearby empty tile to teleport to instantly (no AP cost).
 	std::vector<glm::ivec2> ghostRelocateChoices;
 	std::vector<ofRectangle> ghostRelocateButtons;
 	int ghostRelocateTargetIndex = -1;
+
+	// --- Magic Hand Relocate State ---
+	const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
+	const int MENU_MAGIC_HAND_RELOCATE = 11;
+
+	int magicHandRelocateTargetIndex = -1;
+	std::vector<glm::ivec2> magicHandRelocateChoices;
 
 	// --- Amnesia State ---
 

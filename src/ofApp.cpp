@@ -60,6 +60,11 @@ static int s_startingLevel = 1;
 static int s_startingXP = 0;
 static int s_xpGained = 0;
 static bool s_hasCachedGameOverVisuals = false;
+static const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
+static const int MENU_MAGIC_HAND_RELOCATE = 11;
+
+static int magicHandRelocateTargetIndex = -1;
+static std::vector<glm::ivec2> magicHandRelocateChoices;
 
 #include <assimp/scene.h>
 
@@ -6537,6 +6542,8 @@ void ofApp::draw() {
 					msg = "Tortoise Shell Spike: Choose target";
 				else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)
 					msg = "Materialized in Wall: Choose an empty tile to teleport to";
+				else if (interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE)
+					msg = "Pushed by Giant Magic Hand: Choose an empty tile to move to";
 
 				drawInstructionText(msg);
 			}
@@ -9461,9 +9468,10 @@ void ofApp::updateGameLogic() {
 	// Evaluating timers inside simulationTick guarantees perfect sync without needing packets or grace frames.
 	bool isMagicBlastActive = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) || (opponentInteraction.open && opponentInteraction.type == 4);
 	bool isGhostRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == 5);
+	bool isMagicHandRelocActive = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == MENU_MAGIC_HAND_RELOCATE);
 	bool isOpponentDraftActive = (currentState == STATE_DRAFTING && isInGameDraft);
 
-	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isOpponentDraftActive)) {
+	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isMagicHandRelocActive || isOpponentDraftActive)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
 
 		// ONLY the Host or Singleplayer evaluates the timeout to prevent duplicate/racing commands
@@ -9497,6 +9505,20 @@ void ofApp::updateGameLogic() {
 					cmd.params[3] = -1;
 					cmd.params[4] = ghostRelocateChoices[choiceIdx].x;
 					cmd.params[5] = ghostRelocateChoices[choiceIdx].y;
+					issuedChoice = true;
+				}
+			} else if (isMagicHandRelocActive) {
+				int maxChoices = (int)magicHandRelocateChoices.size();
+				if (maxChoices > 0) {
+					std::vector<int> raw;
+					int roll = resolveDiceRollDetailed(1, maxChoices, raw);
+					int choiceIdx = std::clamp(roll - 1, 0, maxChoices - 1);
+					cmd.params[0] = MENU_MAGIC_HAND_RELOCATE;
+					cmd.params[1] = opponentDecisionPlayerIndex;
+					cmd.params[2] = choiceIdx;
+					cmd.params[3] = -1;
+					cmd.params[4] = magicHandRelocateChoices[choiceIdx].x;
+					cmd.params[5] = magicHandRelocateChoices[choiceIdx].y;
 					issuedChoice = true;
 				}
 			} else if (isOpponentDraftActive) {
@@ -12223,6 +12245,10 @@ void ofApp::drawGame() {
 						startPos = gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY);
 					} else if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfPlacementSourceX >= 0) {
 						startPos = gridToWorld(wolfPlacementSourceX, wolfPlacementSourceY);
+					}
+				} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
+					if (magicHandRelocateTargetIndex >= 0 && magicHandRelocateTargetIndex < (int)players.size()) {
+						startPos = gridToWorld(players[magicHandRelocateTargetIndex].x, players[magicHandRelocateTargetIndex].y);
 					}
 				}
 
@@ -17510,6 +17536,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 								}
 
 								int effectiveAPForEscape = remainingAP;
+
+								// Factor in Assistant reroll if an unused Assistant is adjacent to the destination wall tile
+								if (hasAssistantRerollAvailable(controlledPlayerIndex, gridX, gridY)) {
+									effectiveAPForEscape += 2; // Reroll guarantees at least +2 AP
+								}
+
 								for (const auto & c : players[controlledPlayerIndex].hand) {
 									int cCost = getEffectiveCardCostForPlayer(players[controlledPlayerIndex], c);
 									if (cCost <= effectiveAPForEscape) {
@@ -18058,6 +18090,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			}
 			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
 				ofLogNotice("Input") << "Right-click ignored for mandatory ghost relocate targeting.";
+				return;
+			}
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
+				ofLogNotice("Input") << "Right-click ignored for mandatory magic hand relocate targeting.";
 				return;
 			}
 			// If we are in an in-game key draft, ignore right-click cancels
@@ -20072,13 +20108,15 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 
 		// If this menu is a modal that targets another player (e.g., Magic Blast choices),
 		// pause the current player's turn timer and start a decision timer for the target.
-		if (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+		if (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE || interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
 			// magicBlastTargetPlayerIndex is set by the resolver when applicable
 			int optPlayer = -1;
 			if (interactingCardType == CARD_MAGIC_BLAST)
 				optPlayer = magicBlastTargetPlayerIndex;
 			else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)
 				optPlayer = ghostRelocateTargetIndex;
+			else if (interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE)
+				optPlayer = magicHandRelocateTargetIndex;
 			if (optPlayer >= 0 && optPlayer < (int)players.size() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 				int deciderOwner = players[optPlayer].isMinion ? players[optPlayer].ownerID : players[optPlayer].playerID;
@@ -20472,7 +20510,34 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.commandType = CMD_MENU_CHOICE;
 			cmd.params[0] = MENU_GHOST_RELOCATE;
 			cmd.params[1] = ghostRelocateTargetIndex;
-			cmd.params[2] = 0; // Not used
+			cmd.params[2] = 0;
+			cmd.params[3] = -1;
+			cmd.params[4] = gridX;
+			cmd.params[5] = gridY;
+			sendInputCommand(cmd, true);
+		}
+		return;
+	}
+
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
+		bool isValid = false;
+		for (const auto & choice : magicHandRelocateChoices) {
+			if (choice.x == gridX && choice.y == gridY) {
+				isValid = true;
+				break;
+			}
+		}
+		if (isValid) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = MENU_MAGIC_HAND_RELOCATE;
+			cmd.params[1] = magicHandRelocateTargetIndex;
+			cmd.params[2] = 0;
 			cmd.params[3] = -1;
 			cmd.params[4] = gridX;
 			cmd.params[5] = gridY;
@@ -22807,10 +22872,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			int tgt = targetIndex;
 			if (tgt < 0 || tgt >= (int)players.size()) break;
 
-			// Read destination directly from packet parameters
 			glm::ivec2 dest(cmd.params[4], cmd.params[5]);
-
-			// FIX: Prevent out of bounds crash if packet data is malformed or invalid
 			if (dest.x < 0 || dest.x >= BOARD_WIDTH || dest.y < 0 || dest.y >= BOARD_HEIGHT) {
 				ofLogWarning("Lockstep") << "GHOST_RELOCATE out of bounds: " << dest.x << "," << dest.y;
 				break;
@@ -22824,14 +22886,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toY = dest.y;
 			queueEffect(mv);
 
-			// Visual / cleanup
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
 			resetCardInteraction();
 			ghostRelocateChoices.clear();
 			ghostRelocateTargetIndex = -1;
 			opponentInteraction.open = false;
 
-			// End turn immediately after escaping the wall!
 			if (isHost() && currentPlayerIndex == tgt) {
 				InputCommandPacket endCmd = {};
 				endCmd.type = PKT_INPUT_COMMAND;
@@ -22841,6 +22901,36 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				endCmd.commandType = CMD_END_TURN;
 				sendInputCommand(endCmd, true);
 			}
+
+			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
+				markMeaningfulActionOnCurrentTurn();
+			}
+			break;
+		}
+
+		if (menuType == MENU_MAGIC_HAND_RELOCATE) {
+			int tgt = targetIndex;
+			if (tgt < 0 || tgt >= (int)players.size()) break;
+
+			glm::ivec2 dest(cmd.params[4], cmd.params[5]);
+			if (dest.x < 0 || dest.x >= BOARD_WIDTH || dest.y < 0 || dest.y >= BOARD_HEIGHT) {
+				ofLogWarning("Lockstep") << "MAGIC_HAND_RELOCATE out of bounds: " << dest.x << "," << dest.y;
+				break;
+			}
+
+			beginEffectSequence();
+			EffectOp mv = {};
+			mv.type = EffectOpType::MOVE_UNIT;
+			mv.data.moveUnit.unitIndex = tgt;
+			mv.data.moveUnit.toX = dest.x;
+			mv.data.moveUnit.toY = dest.y;
+			queueEffect(mv);
+
+			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
+			resetCardInteraction();
+			magicHandRelocateChoices.clear();
+			magicHandRelocateTargetIndex = -1;
+			opponentInteraction.open = false;
 
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
@@ -24123,57 +24213,60 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			queueEffect(mvCaster);
 		}
 
-		{ // Scope block for victim variable to avoid crossing into next case label
+		{ // Scope block for victim variable
 			// Handle Pushed Unit
 			if (magicHandPushedUnitIndex >= 0 && magicHandPushedUnitIndex < (int)players.size()) {
 				int dmg = currentEffectSequence.blackboard[0];
 
-				// Use central damage applicator so target-based modifiers stay consistent.
-				glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
-				glm::ivec2 side1 = wallNewPos;
-				glm::ivec2 side2 = wallNewPos;
-				if (magicHandPushDir.x != 0) {
-					side1 = wallNewPos + glm::ivec2(0, 1);
-					side2 = wallNewPos + glm::ivec2(0, -1);
+				// Apply Push Damage immediately before displacement choice
+				int applied = applyDamageWithMitigations(players[magicHandPushedUnitIndex], dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
+				if (applied > 0) {
+					queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "-" + ofToString(applied) + " Phys", ofColor::red);
 				} else {
-					side1 = wallNewPos + glm::ivec2(1, 0);
-					side2 = wallNewPos + glm::ivec2(-1, 0);
+					queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "Absorbed", ofColor::gray);
 				}
 
-				auto isValid = [&](glm::ivec2 p) {
-					if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
-					if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
-					return true;
-				};
-				glm::ivec2 finalDest = { -1, -1 };
-
-				if (isValid(pushDest1))
-					finalDest = pushDest1;
-				else if (isValid(side1))
-					finalDest = side1;
-				else if (isValid(side2))
-					finalDest = side2;
-
-				if (finalDest.x != -1) {
-					// Move victim via MOVE_UNIT (processed immediately so subsequent death checks see new pos)
-					EffectOp mv = {};
-					mv.type = EffectOpType::MOVE_UNIT;
-					mv.data.moveUnit.unitIndex = magicHandPushedUnitIndex;
-					mv.data.moveUnit.toX = finalDest.x;
-					mv.data.moveUnit.toY = finalDest.y;
-					processEffectOp(mv);
-
-					// Re-fetch safely from the array to prevent dangling pointers!
-					int applied = applyDamageWithMitigations(players[magicHandPushedUnitIndex], dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
-					if (applied > 0) {
-						queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "-" + ofToString(applied) + " Phys", ofColor::red);
+				// If unit survived damage, gather valid escape tiles for them to choose
+				if (players[magicHandPushedUnitIndex].health > 0) {
+					glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
+					glm::ivec2 side1 = wallNewPos;
+					glm::ivec2 side2 = wallNewPos;
+					if (magicHandPushDir.x != 0) {
+						side1 = wallNewPos + glm::ivec2(0, 1);
+						side2 = wallNewPos + glm::ivec2(0, -1);
 					} else {
-						queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Absorbed", ofColor::gray);
+						side1 = wallNewPos + glm::ivec2(1, 0);
+						side2 = wallNewPos + glm::ivec2(-1, 0);
 					}
-				} else {
-					// FIXED: Replaced undefined 'victim->x, victim->y' with array lookup
-					queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "CRUSHED!", ofColor::darkRed);
-					{
+
+					auto isValid = [&](glm::ivec2 p) {
+						if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
+						if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
+						return true;
+					};
+
+					magicHandRelocateChoices.clear();
+					if (isValid(pushDest1)) magicHandRelocateChoices.push_back(pushDest1);
+					if (isValid(side1)) magicHandRelocateChoices.push_back(side1);
+					if (isValid(side2)) magicHandRelocateChoices.push_back(side2);
+
+					if (!magicHandRelocateChoices.empty()) {
+						magicHandRelocateTargetIndex = magicHandPushedUnitIndex;
+						bool isLocal = (!isMultiplayer) || (players[magicHandPushedUnitIndex].playerID == myLocalPlayerID) || (players[magicHandPushedUnitIndex].isMinion && players[magicHandPushedUnitIndex].ownerID == myLocalPlayerID);
+
+						// Update interaction state (triggers mini-timer automatically)
+						updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
+
+						if (isLocal) {
+							calculateTargetHighlights(-1);
+						} else {
+							opponentInteraction.open = true;
+							opponentInteraction.type = MENU_MAGIC_HAND_RELOCATE;
+							opponentInteraction.targetIndex = magicHandPushedUnitIndex;
+						}
+					} else {
+						// No valid escape tiles = CRUSHED!
+						queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "CRUSHED!", ofColor::darkRed);
 						EffectOp kill = {};
 						kill.type = EffectOpType::MODIFY_STAT;
 						kill.data.modifyStat.targetIndex = magicHandPushedUnitIndex;
@@ -30653,6 +30746,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 		return;
 	}
+
+	// --- MAGIC HAND RELOCATE TARGETING HIGHLIGHTING ---
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
+		for (const auto & choice : magicHandRelocateChoices) {
+			if (choice.x >= 0 && choice.x < BOARD_WIDTH && choice.y >= 0 && choice.y < BOARD_HEIGHT) {
+				board[choice.x][choice.y].isTargetable = true;
+				board[choice.x][choice.y].isTargetPreview = true;
+			}
+		}
+		return;
+	}
 	// --- BLOCKING BOON TAILS TARGETING HIGHLIGHTING ---
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON && blockingBoonPendingCasterIndex >= 0) {
 		Player & caster = players[blockingBoonPendingCasterIndex];
@@ -33767,7 +33871,21 @@ bool ofApp::wouldAffectOtherUnit(const Card & card, int casterIdx, int tx, int t
 	TargetInfo info = computeTargetInfo(card, casterIdx, tx, ty);
 	return info.isTargetable && info.reason == VALID;
 }
+bool ofApp::hasAssistantRerollAvailable(int playerIndex, int atX, int atY) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return false;
+	const Player & curr = players[playerIndex];
+	int ownerID = curr.isMinion ? curr.ownerID : curr.playerID;
 
+	for (const auto & p : players) {
+		if (p.isAssistant && p.health > 0 && p.directSummonerID == ownerID && !p.assistantRerollUsedThisTurn) {
+			int dist = std::abs(p.x - atX) + std::abs(p.y - atY);
+			if (dist <= 1) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
 //--------------------------------------------------------------
 void ofApp::calculateHighlights() {
 	for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -33810,11 +33928,15 @@ void ofApp::calculateHighlights() {
 				bool canEnter = false;
 
 				if (p.inGhostForm) {
-					// Ghost can enter walls or units IF they have >= 1 AP remaining
+					// Ghost can enter walls or units IF they have >= 1 AP remaining,
+					// or if an Assistant is adjacent to grant at least +2 AP from a reroll.
 					if (!isWall && !isOccupied) {
 						canEnter = true;
 					} else {
-						if ((currentAP - nextCost) >= 1) {
+						int remainingAP = currentAP - nextCost;
+						bool assistantAvailable = hasAssistantRerollAvailable(currentPlayerIndex, nx, ny);
+						int virtualAP = remainingAP + (assistantAvailable ? 2 : 0);
+						if (virtualAP >= 1) {
 							canEnter = true;
 						}
 					}
