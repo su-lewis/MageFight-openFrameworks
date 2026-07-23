@@ -22257,13 +22257,8 @@ void ofApp::simulationTick() {
 										int roll = raw + luckBonus;
 										if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 
-										// Show dice visual for the faerie roll
-										int hp = (dying.maxHealth * roll) / 4;
-										if (hp < 1) hp = 1;
-
-										int pct = roll * 25;
-										std::string calcStr = "Rolled " + ofToString(roll) + " X " + ofToString(pct) + "% = " + ofToString(hp) + " HP";
-										queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
+										// Calculate HP based on 25% * roll (0.5 rounds down to 0)
+										int hp = (int)floor((double)dying.maxHealth * (double)roll * 0.25 + 0.49);
 
 										// Visual Dice Roll for the Faerie Resurrection
 										queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
@@ -22271,43 +22266,53 @@ void ofApp::simulationTick() {
 										// Visual Tracer showing magical link
 										queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
 
-										// Restore HP and clear status effects immediately in-place
-										dying.health = hp;
-										dying.onFire = false;
-										dying.isPoisoned = false;
-										dying.isParalyzed = false;
-										dying.sleepTurnsRemaining = 0;
-										dying.replicateQueued = false;
-										dying.nextAttackAddPoison = false;
-										dying.nextTurnD10AP = false;
-										dying.nextTurnExtraDraw = false;
-										dying.nextTurnBonusDiceFromMinions = false;
-										dying.strengthenElementsTurnsRemaining = 0;
-										dying.inTortoiseForm = false;
-										dying.inGhostForm = false;
+										if (hp > 0) {
+											int pct = roll * 25;
+											std::string calcStr = "Rolled " + ofToString(roll) + " (" + ofToString(pct) + "%) = " + ofToString(hp) + " HP";
+											queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
 
-										// Clear defensive statistics
-										dying.ward = 0;
-										dying.block = 0;
-										dying.fortification = 0;
-										dying.barrier = 0;
-										dying.holyBlock = 0;
-										dying.nextTurnAPBonus = 0;
-										dying.shocksPlayedThisTurn = 0;
-										dying.flurryOfFistsStacks = 0;
+											// Restore HP and clear status effects immediately in-place
+											dying.health = hp;
+											dying.onFire = false;
+											dying.isPoisoned = false;
+											dying.isParalyzed = false;
+											dying.sleepTurnsRemaining = 0;
+											dying.replicateQueued = false;
+											dying.nextAttackAddPoison = false;
+											dying.nextTurnD10AP = false;
+											dying.nextTurnExtraDraw = false;
+											dying.nextTurnBonusDiceFromMinions = false;
+											dying.strengthenElementsTurnsRemaining = 0;
+											dying.inTortoiseForm = false;
+											dying.inGhostForm = false;
 
-										dying.tortoiseDamageTaken = 0;
-										dying.storedDarkShieldDice = 0;
-										dying.ghostDamageTaken = 0;
-										dying.cardsPlayedThisTurn.clear();
-										dying.playedCardsPile.clear();
-										dying.summonedOnTurnCycle = globalTurnCounter;
+											// Clear defensive statistics
+											dying.ward = 0;
+											dying.block = 0;
+											dying.fortification = 0;
+											dying.barrier = 0;
+											dying.holyBlock = 0;
+											dying.nextTurnAPBonus = 0;
+											dying.shocksPlayedThisTurn = 0;
+											dying.flurryOfFistsStacks = 0;
 
-										// (Deck recycling/shuffling block removed to preserve current deck state)
+											dying.tortoiseDamageTaken = 0;
+											dying.storedDarkShieldDice = 0;
+											dying.ghostDamageTaken = 0;
+											dying.cardsPlayedThisTurn.clear();
+											dying.playedCardsPile.clear();
+											dying.summonedOnTurnCycle = globalTurnCounter;
 
-										resurrected = true;
-										queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie in-place for " << hp << " HP.";
+											resurrected = true;
+											queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie in-place for " << hp << " HP.";
+										} else {
+											int pct = roll * 25;
+											std::string calcStr = "Rolled " + ofToString(roll) + " (" + ofToString(pct) + "%) = 0 HP";
+											queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::gray);
+											queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Resurrection Failed!", ofColor::red);
+											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrection failed (calculated 0 HP).";
+										}
 									}
 								}
 							}
