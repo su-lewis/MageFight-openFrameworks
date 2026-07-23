@@ -440,6 +440,76 @@ static ofRectangle g_pauseMenuDrawNoButton;
 // Window Mode State: 0=Windowed, 1=Fullscreen, 2=Borderless
 static int g_windowModeState = 1;
 
+// --- FULLSCREEN FILTER VARIABLES ---
+static ofFbo g_uiPostFbo;
+
+static bool g_renderText = true;
+static bool g_renderGeometryMask = true;
+static bool g_isSecondPass = false;
+static bool g_isFboPass = false;
+static bool g_suppressText = false;
+
+static ofFbo g_textFbo;
+
+// Intercept OF blend mode functions to enforce Eraser mode during Pass 2
+#define ofEnableAlphaBlending()                           \
+	do {                                                  \
+		if (g_isSecondPass) {                             \
+			glEnable(GL_BLEND);                           \
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
+		} else {                                          \
+			(ofEnableAlphaBlending)();                    \
+		}                                                 \
+	} while (0)
+
+#define ofEnableBlendMode(mode)                               \
+	do {                                                      \
+		if (g_isSecondPass && (mode) == OF_BLENDMODE_ALPHA) { \
+			glEnable(GL_BLEND);                               \
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);     \
+		} else {                                              \
+			(ofEnableBlendMode)(mode);                        \
+		}                                                     \
+	} while (0)
+
+#define ofDisableBlendMode()                              \
+	do {                                                  \
+		if (g_isSecondPass) {                             \
+			glEnable(GL_BLEND);                           \
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
+		} else {                                          \
+			(ofDisableBlendMode)();                       \
+		}                                                 \
+	} while (0)
+
+#define ofPopStyle()                                      \
+	do {                                                  \
+		(ofPopStyle)();                                   \
+		if (g_isSecondPass) {                             \
+			glEnable(GL_BLEND);                           \
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
+		}                                                 \
+	} while (0)
+
+#define TEXT_PASS_BEGIN()                                  \
+	if (g_isSecondPass) {                                  \
+		glEnable(GL_BLEND);                                \
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); \
+	}
+
+#define TEXT_PASS_END()                               \
+	if (g_isSecondPass) {                             \
+		glEnable(GL_BLEND);                           \
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
+	}
+
+static void SafeDrawText(const ofTrueTypeFont & font, const std::string & text, float x, float y) {
+	if (!g_renderText || g_suppressText || text.empty()) return;
+	TEXT_PASS_BEGIN()
+	font.drawString(text, x, y);
+	TEXT_PASS_END()
+}
+
 // Tracks the playerID of whoever most recently damaged a unit (for Kill Credits)
 
 // FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
@@ -452,7 +522,6 @@ struct DefenseRecord {
 };
 static std::map<int, std::vector<DefenseRecord>> g_playerDefenses;
 
-static bool g_pendingShellSpike = false;
 static int g_pendingShellSpikes = 0;
 static bool g_activePlayerDiedThisTurn = false;
 
@@ -533,7 +602,10 @@ static float g_templateWidth = 1056.0f;
 static float g_templateHeight = 1448.0f;
 
 static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
-	if (text.empty()) return;
+	if (!g_renderText || g_suppressText || text.empty()) return;
+
+	TEXT_PASS_BEGIN()
+
 	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
 	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 	float fitW = std::max(1.0f, rect.width - 2.0f);
@@ -630,57 +702,77 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 			cursorX += t.w;
 		}
 	}
-}
 
+	TEXT_PASS_END()
+}
 // Forward declaration of the safe subsection renderer
 static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, float dstY, float dstW, float dstH, float srcX, float srcY, float srcW, float srcH);
+
+// Forward declarations for text drawing used by drawCardFaceDynamic
 static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
+
+static ofImage g_cardTextSpriteSheet; // Stores the crisp text overlay!
 
 static float g_uniformAPCostScale = 1.0f;
 static ofRectangle g_costRect(32, 32, 128, 128);
 
 static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner) {
 	ofPushStyle();
-	ofSetColor(255, 255, 255, 255); // Reset color to prevent tinted cards in UI
+	ofSetColor(255, 255, 255, 255);
 
 	float safeW = std::max(1.0f, w);
 	float safeH = std::max(1.0f, h);
 
-	drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
-		card.textureRect.x, card.textureRect.y,
-		card.textureRect.width, card.textureRect.height);
-
-	ofPushMatrix();
-	ofTranslate(drawX, drawY);
-	ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
-
-	int effCost = card.cost;
-	if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
-
-	// Draw native AP Cost (white normally, green if discounted by Flurry/Sprint)
-	ofColor costColor = ofColor::white;
-	if (effCost == 0 && card.type != CARD_BLOCKING_BOON && card.type != CARD_SPRINT && card.type != CARD_CONSTITUTION_BOON) {
-		costColor = ofColor::green;
+	// PASS 1: Base Card Art
+	if (g_renderGeometryMask) {
+		drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
+			card.textureRect.x, card.textureRect.y,
+			card.textureRect.width, card.textureRect.height);
 	}
-	drawCenteredTextScaledOutlined(titleFont, ofToString(effCost), g_costRect, g_uniformAPCostScale, costColor, ofColor::black, 2);
 
-	if (card.type == CARD_MASTER_FIST) {
-		int dmg = 0;
-		if (owner) {
-			auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
-			for (const auto & c : owner->discardPile) {
-				if (isHandRelated(c.type)) dmg += 2;
-			}
-			if (owner->flurryOfFistsStacks > 0) {
-				dmg *= (1 + owner->flurryOfFistsStacks);
-			}
+	// PASS 2: Crisp Text Overlay
+	if (g_renderText) {
+		TEXT_PASS_BEGIN()
+		// Draw the transparent text sprite sheet perfectly aligned over the card
+		if (g_cardTextSpriteSheet.isAllocated()) {
+			drawCardSpriteSubsectionSafe(g_cardTextSpriteSheet, drawX, drawY, safeW, safeH,
+				card.textureRect.x, card.textureRect.y,
+				card.textureRect.width, card.textureRect.height);
 		}
-		std::string effectText = "Deal **" + ofToString(dmg) + "** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.";
+		TEXT_PASS_END()
 
-		drawRichEffectText(font, effectText, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+		ofPushMatrix();
+		ofTranslate(drawX, drawY);
+		ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
+
+		int effCost = card.cost;
+		if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
+
+		ofColor costColor = ofColor::white;
+		if (effCost == 0 && card.type != CARD_BLOCKING_BOON && card.type != CARD_SPRINT && card.type != CARD_CONSTITUTION_BOON) {
+			costColor = ofColor::green;
+		}
+		drawCenteredTextScaledOutlined(titleFont, ofToString(effCost), g_costRect, g_uniformAPCostScale, costColor, ofColor::black, 2);
+
+		if (card.type == CARD_MASTER_FIST) {
+			int dmg = 0;
+			if (owner) {
+				auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+				for (const auto & c : owner->discardPile) {
+					if (isHandRelated(c.type)) dmg += 2;
+				}
+				if (owner->flurryOfFistsStacks > 0) {
+					dmg *= (1 + owner->flurryOfFistsStacks);
+				}
+			}
+			std::string effectText = "Deal **" + ofToString(dmg) + "** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.";
+
+			drawRichEffectText(font, effectText, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+		}
+
+		ofPopMatrix();
 	}
 
-	ofPopMatrix();
 	ofPopStyle();
 }
 
@@ -1246,15 +1338,11 @@ static float quantizePixelTextScale(float scale) {
 	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
 	return std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 }
-static void drawPixelTextBaseline(const ofTrueTypeFont & font,
-	const std::string & text,
-	float baselineX,
-	float baselineY,
-	float scale,
-	const ofColor & fillColor,
-	int outlinePx = 0,
-	const ofColor & outlineColor = ofColor::black) {
-	if (text.empty()) return;
+
+static void drawPixelTextBaseline(const ofTrueTypeFont & font, const std::string & text, float baselineX, float baselineY, float scale, const ofColor & fillColor, int outlinePx = 0, const ofColor & outlineColor = ofColor::black) {
+	if (!g_renderText || text.empty()) return;
+	TEXT_PASS_BEGIN()
+
 	float s = quantizePixelTextScale(scale);
 	float bx = std::round(baselineX);
 	float by = std::round(baselineY);
@@ -1272,6 +1360,8 @@ static void drawPixelTextBaseline(const ofTrueTypeFont & font,
 	ofSetColor(fillColor);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
+
+	TEXT_PASS_END()
 }
 
 static void drawPixelTextCentered(const ofTrueTypeFont & font,
@@ -1352,7 +1442,10 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const ofColor & fillColor,
 	const ofColor & outlineColor,
 	int outlinePx) {
-	if (text.empty()) return;
+
+	if (!g_renderText || g_suppressText || text.empty()) return;
+
+	TEXT_PASS_BEGIN()
 
 	// Pixel-font stability: quantize scale to half-steps (0.5x).
 	// Prevents random thick/thin letters without shrinking text too much.
@@ -1386,10 +1479,11 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	ofScale(drawScale, drawScale);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
-}
 
+	TEXT_PASS_END()
+}
 // Simplified arc text drawing with fixed scale and basic fan curve
-[[maybe_unused]] static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
+static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const std::string & text,
 	const ofRectangle & rect,
 	float scale,
@@ -1400,7 +1494,10 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const ofColor & fillColor,
 	const ofColor & outlineColor,
 	int outlinePx) {
-	if (text.empty()) return;
+
+	if (!g_renderText || g_suppressText || text.empty()) return;
+
+	TEXT_PASS_BEGIN()
 
 	const float localEndDrop = endDropPx;
 
@@ -1423,7 +1520,11 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		advances.push_back(adv);
 		totalWidthUnscaled += adv;
 	}
-	if (totalWidthUnscaled <= 0.0f) return;
+
+	if (totalWidthUnscaled <= 0.0f) {
+		if (!g_renderGeometryMask) glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		return;
+	}
 
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
 	float totalWidth = totalWidthUnscaled * scale;
@@ -1474,8 +1575,9 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 		cursorX += glyphWidth;
 	}
-}
 
+	TEXT_PASS_END()
+}
 // Text-drawing helpers consolidated into rendering utilities.
 
 static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
@@ -1601,7 +1703,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const std::vector<Card> & allCards,
 	const ofTrueTypeFont & titleFont,
 	const ofTrueTypeFont & effectFont,
-	ofImage & outSpriteSheet) {
+	ofImage & outSpriteSheet,
+	ofImage & outTextSheet) {
 	if (allCards.empty()) return false;
 
 	std::unordered_map<std::string, CardTemplateRecord> records;
@@ -2187,6 +2290,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 
 	ofFbo fbo;
+	ofFbo fboText; // <-- NEW
 	ofFboSettings fboSettings;
 	fboSettings.width = sheetW;
 	fboSettings.height = sheetH;
@@ -2195,15 +2299,17 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	fboSettings.useStencil = false;
 	fboSettings.textureTarget = GL_TEXTURE_2D;
 	fbo.allocate(fboSettings);
+	fboText.allocate(fboSettings);
 
-	fbo.begin();
+	fboText.begin();
 	ofClear(0, 0, 0, 0);
+	fboText.end();
+
 	ofSetColor(255);
 
 	for (const auto & card : allCards) {
 		float x = card.textureRect.x;
 		float y = card.textureRect.y;
-		ofSetColor(255, 255, 255, 255);
 
 		CardTemplateRecord rec;
 		auto it = records.find(normalizeCardKey(card.name));
@@ -2213,25 +2319,20 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		int markdownClass = classTierFromLabel(rec.classLabel);
 		if (markdownClass >= 1 && markdownClass <= 3) effectiveClass = markdownClass;
 
-		// Draw optional card art from cards.md `Picture` value.
-		// If Picture is empty, fall back to heading index from markdown (e.g. 4 -> 4.png).
-		// Area provided by user:
-		// TL(80,96), TR(976,96), BL(80,800), BR(976,800)
-		// => rect(x=80, y=96, w=896, h=704)
 		std::string pictureToken = trimCopy(rec.picture);
-		if (pictureToken.empty() && rec.index > 0) {
-			pictureToken = ofToString(rec.index);
-		}
+		if (pictureToken.empty() && rec.index > 0) pictureToken = ofToString(rec.index);
 
 		const ofImage * art = nullptr;
-		if (!pictureToken.empty()) {
-			art = loadCardArtIfNeeded(pictureToken);
-		}
+		if (!pictureToken.empty()) art = loadCardArtIfNeeded(pictureToken);
+		if (!art || !art->isAllocated()) art = loadCardArtIfNeeded("0");
 
-		// Fallback to 0.png if specific art is missing or no token exists
-		if (!art || !art->isAllocated()) {
-			art = loadCardArtIfNeeded("0");
-		}
+		// ==========================================
+		// PASS 1: DRAW BASE ART & OVERLAYS TO fbo
+		// ==========================================
+		fbo.begin();
+		ofPushMatrix();
+		ofTranslate(x, y);
+		ofSetColor(255, 255, 255, 255);
 
 		if (art && art->isAllocated()) {
 			float srcW = (float)art->getWidth();
@@ -2241,35 +2342,21 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				float dstH = layout.pictureRect.height;
 				float dstAspect = dstW / std::max(1.0f, dstH);
 				float srcAspect = srcW / std::max(1.0f, srcH);
-
-				// Cover + center crop.
 				float cropW = srcW;
 				float cropH = srcH;
 				if (srcAspect > dstAspect) {
-					cropW = srcH * dstAspect; // trim sides
+					cropW = srcH * dstAspect;
 				} else if (srcAspect < dstAspect) {
-					cropH = srcW / dstAspect; // trim top/bottom
+					cropH = srcW / dstAspect;
 				}
 				float cropX = (srcW - cropW) * 0.5f;
 				float cropY = (srcH - cropH) * 0.5f;
 
-				ofSetColor(255, 255, 255, 255);
 				art->getTexture().drawSubsection(
-					x + layout.pictureRect.x,
-					y + layout.pictureRect.y,
-					dstW,
-					dstH,
-					cropX,
-					cropY,
-					cropW,
-					cropH);
+					layout.pictureRect.x, layout.pictureRect.y,
+					dstW, dstH, cropX, cropY, cropW, cropH);
 
-				// Soft black vignette around the picture edges.
-				float rx = x + layout.pictureRect.x;
-				float ry = y + layout.pictureRect.y;
-				float rw = dstW;
-				float rh = dstH;
-				float maxInset = std::max(12.0f, std::min(rw, rh) * 0.10f);
+				float maxInset = std::max(12.0f, std::min(dstW, dstH) * 0.10f);
 				const int bands = 28;
 				for (int i = 0; i < bands; ++i) {
 					float t0 = (float)i / (float)bands;
@@ -2282,39 +2369,27 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 					unsigned char alpha = (unsigned char)std::clamp((int)std::round(54.0f * a), 0, 255);
 
 					ofSetColor(0, 0, 0, alpha);
-					// top
-					if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, rw - 2.0f * in0, thickness);
-					// bottom
-					if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + rh - in1, rw - 2.0f * in0, thickness);
-					// left
-					if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, thickness, rh - 2.0f * in0);
-					// right
-					if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + rw - in1, ry + in0, thickness, rh - 2.0f * in0);
+					if ((dstW - 2.0f * in0) > 0.0f) ofDrawRectangle(layout.pictureRect.x + in0, layout.pictureRect.y + in0, dstW - 2.0f * in0, thickness);
+					if ((dstW - 2.0f * in0) > 0.0f) ofDrawRectangle(layout.pictureRect.x + in0, layout.pictureRect.y + dstH - in1, dstW - 2.0f * in0, thickness);
+					if ((dstH - 2.0f * in0) > 0.0f) ofDrawRectangle(layout.pictureRect.x + in0, layout.pictureRect.y + in0, thickness, dstH - 2.0f * in0);
+					if ((dstH - 2.0f * in0) > 0.0f) ofDrawRectangle(layout.pictureRect.x + dstW - in1, layout.pictureRect.y + in0, thickness, dstH - 2.0f * in0);
 				}
 			}
 		}
 
-		// Template is drawn ABOVE art so frame/elements stay on top.
 		ofSetColor(255, 255, 255, 255);
 		auto classTplIt = classTemplateImages.find(effectiveClass);
 		if (classTplIt != classTemplateImages.end()) {
-			classTplIt->second.draw(x, y, cardW, cardH);
+			classTplIt->second.draw(0, 0, cardW, cardH);
 		} else {
-			templateImage.draw(x, y, cardW, cardH);
+			templateImage.draw(0, 0, cardW, cardH);
 		}
 
 		if (rec.name.empty()) rec.name = card.name;
 		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
-		// Intentionally do NOT auto-fill extra fields like damage type/targeting/class.
-		// Only explicitly requested fields are rendered from cards.md + configured rects.
 
-		ofPushMatrix();
-		ofTranslate(x, y);
 		ofPushStyle();
-		// Draw optional overlays: damage banner, damage symbol, targeting area, class badge
-		auto isFullCardOverlay = [&](const ofImage & img) {
-			return img.getWidth() >= cardW * 0.9f && img.getHeight() >= cardH * 0.9f;
-		};
+		auto isFullCardOverlay = [&](const ofImage & img) { return img.getWidth() >= cardW * 0.9f && img.getHeight() >= cardH * 0.9f; };
 		auto makeKey = [&](const std::string & s) {
 			std::string k;
 			for (char c : s)
@@ -2330,18 +2405,15 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 					dmgKeys.push_back(tokenKey);
 				}
 			}
-			// draw generic damage banner if provided
 			auto itBanner = overlayCache.find(std::string("damagetypebanner"));
 			if (itBanner != overlayCache.end()) {
 				ofSetColor(255, 255, 255, 255);
-				if (isFullCardOverlay(itBanner->second)) {
+				if (isFullCardOverlay(itBanner->second))
 					itBanner->second.draw(0, 0, cardW, cardH);
-				} else {
+				else
 					itBanner->second.draw(layout.damageTypeRect.x, layout.damageTypeRect.y, layout.damageTypeRect.width, layout.damageTypeRect.height);
-				}
 			}
 
-			// draw specific damage symbol(s) centered inside damageTypeRect
 			std::vector<const ofImage *> damageImages;
 			for (const auto & dmgKey : dmgKeys) {
 				auto itSym = overlayCache.find(dmgKey);
@@ -2405,11 +2477,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			auto itTarget = overlayCache.find(std::string("targetingtypearea"));
 			if (itTarget != overlayCache.end()) {
 				ofSetColor(255, 255, 255, 255);
-				if (isFullCardOverlay(itTarget->second)) {
+				if (isFullCardOverlay(itTarget->second))
 					itTarget->second.draw(0, 0, cardW, cardH);
-				} else {
+				else
 					itTarget->second.draw(layout.targetingRect.x, layout.targetingRect.y, layout.targetingRect.width, layout.targetingRect.height);
-				}
 			}
 		}
 
@@ -2417,9 +2488,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			auto itAPHP = overlayCache.find(std::string("aphp"));
 			if (itAPHP != overlayCache.end()) {
 				ofSetColor(255, 255, 255, 255);
-				if (isFullCardOverlay(itAPHP->second)) {
+				if (isFullCardOverlay(itAPHP->second))
 					itAPHP->second.draw(0, 0, cardW, cardH);
-				} else {
+				else {
 					float x0 = std::min(layout.summonAPRect.x, layout.summonHPRect.x);
 					float y0 = std::min(layout.summonAPRect.y, layout.summonHPRect.y);
 					float x1 = std::max(layout.summonAPRect.x + layout.summonAPRect.width, layout.summonHPRect.x + layout.summonHPRect.width);
@@ -2429,58 +2500,56 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 
-		// class badge
-		{
-			std::string badgeKey = std::string("badge_class") + ofToString(card.cardClass);
-			for (auto & c : badgeKey)
-				c = (char)std::tolower((unsigned char)c);
-			auto itBadge = overlayCache.find(badgeKey);
-			if (itBadge != overlayCache.end()) {
-				ofSetColor(255, 255, 255, 255);
-				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
-			}
+		std::string badgeKey = std::string("badge_class") + ofToString(card.cardClass);
+		auto itBadge = overlayCache.find(badgeKey);
+		if (itBadge != overlayCache.end()) {
+			ofSetColor(255, 255, 255, 255);
+			itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 		}
+
+		ofPopStyle();
+		ofPopMatrix();
+		fbo.end();
+
+		fboText.begin(); // Switch to Text FBO!
+		ofPushMatrix(); // <--- FIX: Save matrix state
+		ofTranslate(x, y); // <--- FIX: Move to this specific card's slot
+		ofPushStyle();
+		ofSetColor(255);
+
 		g_uniformAPCostScale = bestCenteredTextScaleForSingle(renderTitleFont, trimCopy(rec.apCost), layout.costRect, 0.75f, costTargetChipMaxScale, 2);
 		g_costRect = layout.costRect;
 
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
 		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
 		auto summonHPLayout = chooseSummonChipTextAndScale(rec.summonHP, layout.summonHPRect);
-		drawArcCenteredTextScaledOutlined(renderTitleFont,
-			rec.name,
-			layout.nameRect,
-			uniformNameScale,
-			layout.nameCurveDropPx,
-			layout.nameMiddleClampXMin,
-			layout.nameMiddleClampXMax,
-			layout.nameMiddleBottomMaxY,
-			ofColor::white,
-			ofColor::black,
-			4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
-		if (!summonAPLayout.first.empty()) {
-			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
-		}
-		if (!summonHPLayout.first.empty()) {
-			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
-		}
 
-		// --- CALL THE NEW RENDERER HERE ---
+		drawArcCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, uniformNameScale, layout.nameCurveDropPx, layout.nameMiddleClampXMin, layout.nameMiddleClampXMax, layout.nameMiddleBottomMaxY, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
+
+		if (!summonAPLayout.first.empty()) drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
+		if (!summonHPLayout.first.empty()) drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
+
 		if (normalizeCardKey(rec.name) != "master fist") {
 			drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
 		}
 
-		ofPopStyle();
-		ofPopMatrix();
-	}
+		ofPopStyle(); // <--- FIX: Pop Text FBO style
+		ofPopMatrix(); // <--- FIX: Pop Text FBO matrix
+		fboText.end(); // Close text fbo
 
-	fbo.end();
+		ofPopStyle(); // Pop Base FBO style
+		ofPopMatrix(); // Pop Base FBO matrix
+	}
 
 	ofPixels pixels;
 	fbo.readToPixels(pixels);
 	if (pixels.size() == 0) return false;
-
 	outSpriteSheet.setFromPixels(pixels);
+
+	ofPixels textPixels;
+	fboText.readToPixels(textPixels);
+	outTextSheet.setFromPixels(textPixels);
 	// Save a generated sprite sheet for inspection so artists can verify overlays
 	try {
 		std::string outPath = "UI/card_sprite_generated.png";
@@ -3821,19 +3890,19 @@ GLFWcursor * createGLFWCursorFromPNG(const std::string & path, int xHot, int yHo
 
 // ----------------------------------
 void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, float w, float h, ofColor color, float textScale = 0.6f) {
-	if (text == "0") return;
+	if (!g_renderText || text == "0") return;
+	if (!g_renderGeometryMask) glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+	TEXT_PASS_BEGIN()
+
 	float scale = textScale;
 	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
 	ofPushMatrix();
-	// Center the text in the rect
-	// Compute baseline Y so bounding-box center aligns with rect center
 	float baselineY = y + (h / 2.0f) - ((bounds.y + bounds.height * 0.5f) * scale);
 	ofTranslate(x + (w - bounds.width * scale) / 2, baselineY);
 	ofScale(scale, scale);
 
-	// Draw Outline
 	int outlinePx = 2;
-	// If the text is dark (like the black text on Holy Block), give it a subtle white glow outline. Otherwise, thick black outline.
 	ofColor outlineColor = (color.getBrightness() < 50) ? ofColor(255, 255, 255, 200) : ofColor(0, 0, 0, 255);
 
 	ofSetColor(outlineColor);
@@ -3845,10 +3914,13 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 		}
 	}
 
-	// Draw the text
 	ofSetColor(color);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
+
+	TEXT_PASS_END()
+
+	if (!g_renderGeometryMask) glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 }
 
 //--------------------------------------------------------------
@@ -3981,6 +4053,12 @@ void ofApp::setup() {
 		nullSettings.numOutputChannels = 0;
 		nullSettings.numInputChannels = 0;
 		ofSoundStreamSetup(nullSettings);
+	} else {
+		// CRITICAL FIX: Force application audio to MONO to prevent stereo panning artifacts!
+		ofSoundStreamSettings soundSettings;
+		soundSettings.numOutputChannels = 1;
+		soundSettings.numInputChannels = 0;
+		ofSoundStreamSetup(soundSettings);
 	}
 	// Ensure saves directory exists
 	try {
@@ -4852,102 +4930,6 @@ std::string ofApp::getPlayerDisplayName(int index) {
 
 	return prefix + " " + ofToString(ord);
 }
-//--------------------------------------------------------------
-// Decoupled update helpers (initial extraction)
-void ofApp::updateNetwork() {
-	// Steam/network polling and packet processing
-	steamManager.update();
-
-	// Cache Steam avatars for turn indicator (THROTTLED to prevent massive FPS drops!)
-	if (isMultiplayer && steamManager.isConnected()) {
-		static float lastAvatarFetchTimeNetwork = 0.0f;
-		if (!localAvatarReady || (!opponentAvatarReady && steamManager.getOpponentSteamID().IsValid())) {
-			if (ofGetElapsedTimef() - lastAvatarFetchTimeNetwork > 2.0f) {
-				lastAvatarFetchTimeNetwork = ofGetElapsedTimef();
-
-				if (!localAvatarReady) {
-					localAvatarReady = steamManager.getAvatarImage(steamManager.getLocalSteamID(), localAvatarImage, 64);
-				}
-				if (!opponentAvatarReady && steamManager.getOpponentSteamID().IsValid()) {
-					opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
-				}
-			}
-		}
-	}
-
-	processNetworkPackets();
-}
-
-void ofApp::updateVisuals() {
-	// Process visual-only events and simple per-frame visual timers
-	processVisualEvents();
-
-	// Advance floating key animation (per-frame timer)
-	if (!keyAnimSequence.empty() && (!floatingKeyInstances.empty() || !pendingVisualKeyDraftQueue.empty())) {
-		keyAnimTimer += ofGetLastFrameTime() * keyAnimSpeedPresets[keyAnimSpeedIndex];
-		if (keyAnimTimer >= keyAnimInterval) {
-			int steps = (int)(keyAnimTimer / keyAnimInterval);
-			keyAnimTimer -= steps * keyAnimInterval;
-			keyAnimSeqPos = (keyAnimSeqPos + steps) % (int)keyAnimSequence.size();
-		}
-	}
-
-	// Update active tracers: expire and clear highlights when done
-	{
-		float now = ofGetElapsedTimef();
-		for (auto it = activeTracers.begin(); it != activeTracers.end();) {
-			float elapsed = now - it->startTime;
-			if (elapsed >= it->duration) {
-				int tx = it->impactTile.x;
-				int ty = it->impactTile.y;
-				if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-					board[tx][ty].isHighlighted = false;
-				}
-				it = activeTracers.erase(it);
-			} else {
-				++it;
-			}
-		}
-	}
-
-	// Update active dice visuals (visual-only; does not affect authoritative state)
-	for (auto & d : activeDiceRolls) {
-		d.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-		// FIX: Removed the redundant isFinishedVisual setter here that caused text to occasionally skip!
-	}
-}
-
-void ofApp::updateAudio() {
-	if (headless) return; // CRITICAL FIX: Kill battery saver and audio in headless mode
-
-	// Dragging hand loop fade handling
-	if (draggingHandLoop.isLoaded()) {
-		bool currentlyDragging = (draggedCardIndex != -1);
-		if (draggingWasActive && !currentlyDragging) {
-			draggingHandTargetVolume = 0.0f;
-			draggingHandFadeSpeed = 48.0f;
-		}
-		draggingWasActive = currentlyDragging;
-
-		float dt = ofGetLastFrameTime();
-		float curVol = draggingHandLoop.getVolume();
-		float target = draggingHandTargetVolume;
-		if (fabs(curVol - target) > 0.0005f) {
-			float step = draggingHandFadeSpeed * dt;
-			float nextVol = curVol;
-			if (curVol < target)
-				nextVol = std::min(curVol + step, target);
-			else
-				nextVol = std::max(curVol - step, target);
-			draggingHandLoop.setVolume(nextVol);
-		} else {
-			if (target <= 0.0005f && draggingHandLoop.isPlaying()) {
-				draggingHandLoop.stop();
-			}
-		}
-	}
-}
-
 void ofApp::updateStateMachine() {
 
 	// Draft scheduled generation / end handling (Now using deterministic frame timing!)
@@ -5964,21 +5946,12 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 }
 //--------------------------------------------------------------
 void ofApp::draw() {
-	// Battery saver: when inactive in singleplayer, skip heavy rendering.
-	// Logic still runs in `update()`.
-	if (!isMultiplayer && gameSuspendedDueToInactivity) {
-		// FIX: Do NOT return here! Returning skips glClear and breaks the Steam Overlay,
-		// causing it to crash or freeze the game when inviting friends!
-		// The FPS throttle in update() is enough to save battery.
-	}
-
-	// Headless smoke-test mode: skip all rendering to avoid GL/texture calls
+	if (!isMultiplayer && gameSuspendedDueToInactivity) { }
 	if (headless) return;
 
-	// Pre-calculate active action history hover index so 3D pass can draw coordinates/ghosts
 	s_hoveredHistoryIndex = -1;
 	if (currentState == STATE_GAMEPLAY && !g_actionHistory.empty()) {
-		float scale = ofGetHeight() / 1080.0f; // Force exact 1080p scale matching drawGame()
+		float scale = ofGetHeight() / 1080.0f;
 		float iconSize = 46.0f * scale;
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
@@ -5993,44 +5966,114 @@ void ofApp::draw() {
 		}
 	}
 
-	// --- LOADING SCREEN ---
 	if (isLoadingGame) {
 		ofBackground(0);
 		ofSetColor(255);
-		// Minimal loading indicator
-		uiFont.drawString("Loading...", ofGetWidth() / 2 - 60, ofGetHeight() / 2);
+		SafeDrawText(uiFont, "Loading...", ofGetWidth() / 2 - 60, ofGetHeight() / 2);
 		return;
 	}
 
-	ofBackground(22);
+	const bool usePixelPass = (enablePixelArt && pixelArtShaderLoaded);
+	const bool useC64Pass = (enableC64Shader && c64ShaderLoaded);
+	const bool useBlurPass = (enableWorldPostProcess && worldPostShaderLoaded);
 
-	// REMOVED: The dark overlay block for STATE_INITIATIVE_ROLL / DRAFTING
+	const bool applyPostToUI = (usePixelPass || useC64Pass || useBlurPass);
 
-	switch (currentState) {
-	case STATE_MAIN_MENU:
-		drawMainMenu();
-		break;
-	case STATE_MULTIPLAYER_MENU:
-		drawMultiplayerMenu();
-		break;
-	case STATE_SETTINGS:
-		// Draw the underlying state behind the settings overlay so the menu feels
-		// like a top-layer dialog instead of a full navigation break.
-		switch (stateBeforeSettings) {
+	if (applyPostToUI) {
+		if (!g_uiPostFbo.isAllocated() || g_uiPostFbo.getWidth() != ofGetWidth() || g_uiPostFbo.getHeight() != ofGetHeight()) {
+			ofFbo::Settings s;
+			s.width = ofGetWidth();
+			s.height = ofGetHeight();
+			s.internalformat = GL_RGBA8;
+			s.textureTarget = GL_TEXTURE_2D;
+			s.useDepth = true;
+			s.useStencil = false;
+			s.depthStencilAsTexture = false;
+			g_uiPostFbo.allocate(s);
+
+			g_textFbo.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA8);
+
+			if (enablePixelArt) {
+				g_uiPostFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				g_textFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			}
+		}
+		g_uiPostFbo.begin();
+		ofClear(22, 22, 22, 255);
+
+		g_isFboPass = true;
+		g_renderText = !usePixelPass; // Skip text in Pass 1 if using Pixel filter
+	} else {
+		ofBackground(22);
+		g_isFboPass = false;
+		g_renderText = true;
+	}
+	g_isSecondPass = false;
+
+	// =========================================================================
+	// RENDER PIPELINE LAMBDA
+	// =========================================================================
+	auto drawEverything = [&]() {
+		bool drawPause = false;
+		bool drawSettings = false;
+
+		switch (currentState) {
 		case STATE_MAIN_MENU:
-		case STATE_SINGLEPLAYER_MENU:
-		case STATE_SAVE_BROWSER:
+			drawMainMenu();
+			break;
 		case STATE_MULTIPLAYER_MENU:
-			// Do not draw underlying menus; let it be the solid grey background.
+			drawMultiplayerMenu();
+			break;
+		case STATE_SETTINGS:
+			switch (stateBeforeSettings) {
+			case STATE_PAUSED:
+				drawGame();
+				if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
+				if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
+				drawPause = true;
+				break;
+			case STATE_GAMEPLAY:
+				drawGame();
+				break;
+			case STATE_INITIATIVE_ROLL:
+				drawGame();
+				drawInitiativeRoll();
+				break;
+			case STATE_DRAFTING:
+				drawGame();
+				drawDraftScreen();
+				break;
+			case STATE_DESYNC:
+				drawGame();
+				break;
+			default:
+				break;
+			}
+			if (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_PAUSED || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_DESYNC) {
+				ofPushStyle();
+				ofSetColor(0, 0, 0, 170);
+				ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+				ofPopStyle();
+			}
+			drawSettings = true;
+			break;
+		case STATE_GAMEPLAY:
+			drawGame();
+			break;
+		case STATE_DESYNC:
+			drawGame();
+			break;
+		case STATE_SAVE_BROWSER:
+			drawSaveBrowser();
+			break;
+		case STATE_SINGLEPLAYER_MENU:
+			drawSingleplayerMenu();
 			break;
 		case STATE_PAUSED:
 			drawGame();
 			if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
 			if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
-			drawPauseMenu();
-			break;
-		case STATE_GAMEPLAY:
-			drawGame();
+			drawPause = true;
 			break;
 		case STATE_INITIATIVE_ROLL:
 			drawGame();
@@ -6040,80 +6083,1052 @@ void ofApp::draw() {
 			drawGame();
 			drawDraftScreen();
 			break;
-		case STATE_DESYNC:
-			drawGame();
-			break;
 		default:
+			drawMainMenu();
 			break;
 		}
 
-		// Only draw the dark overlay if we are drawing over the game or pause menu
-		if (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_PAUSED || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_DESYNC) {
+		if (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0) {
+			this->drawActiveDraftPickedMoves();
+		}
+
+		if (drawPause) {
+			g_suppressText = drawSettings;
+			drawPauseMenu();
+			g_suppressText = false;
+		}
+
+		if (drawSettings) drawSettingsMenu();
+
+		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_DESYNC || (currentState == STATE_PAUSED && (pausedFromState == STATE_GAMEPLAY || pausedFromState == STATE_DRAFTING || pausedFromState == STATE_INITIATIVE_ROLL)) || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DESYNC || stateBeforeSettings == STATE_PAUSED))) {
+
 			ofPushStyle();
-			ofSetColor(0, 0, 0, 170);
-			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+			ofDisableDepthTest();
+			ofDisableLighting();
+			ofEnableAlphaBlending();
+
+			float scale = ofGetHeight() / 1080.0f;
+			float uiScale = getUIScaleFromHeight(ofGetHeight());
+
+			drawActiveCardInteractionUI();
+
+			// --- Chat System ---
+			{
+				float currentTime = ofGetElapsedTimef();
+				bool hasLingering = false;
+
+				float chatMaxWidth = 300 * scale;
+				float chatBoxHeight = 360 * scale;
+				float tabHeight = 25 * scale;
+				float messageHeight = 18 * scale;
+				float contentPadding = 8.0f * scale;
+
+				auto wrapText = [&](const std::string & text, float maxWidth) {
+					std::vector<std::string> lines;
+					std::stringstream ss(text);
+					std::string paragraph;
+
+					while (std::getline(ss, paragraph, '\n')) {
+						std::stringstream wordStream(paragraph);
+						std::string word;
+						std::string currentLine;
+
+						while (wordStream >> word) {
+							std::string testLine = currentLine.empty() ? word : (currentLine + " " + word);
+							if (uiFont.stringWidth(testLine) <= maxWidth) {
+								currentLine = testLine;
+							} else {
+								if (!currentLine.empty()) {
+									lines.push_back(currentLine);
+								}
+								if (uiFont.stringWidth(word) > maxWidth) {
+									std::string subWord;
+									for (char c : word) {
+										std::string testChar = subWord + c;
+										if (uiFont.stringWidth(testChar) <= maxWidth) {
+											subWord = testChar;
+										} else {
+											lines.push_back(subWord);
+											subWord = std::string(1, c);
+										}
+									}
+									currentLine = subWord;
+								} else {
+									currentLine = word;
+								}
+							}
+						}
+						if (!currentLine.empty() || lines.empty()) {
+							lines.push_back(currentLine);
+						}
+					}
+					if (lines.empty()) lines.push_back("");
+					return lines;
+				};
+
+				std::vector<std::vector<std::string>> visibleWrappedBlocks;
+				std::vector<float> visibleAlphas;
+				if (!isChatOpen) {
+					for (int i = (int)chatHistory.size() - 1; i >= 0; --i) {
+						const ChatMessage & msg = chatHistory[i];
+						string fullMsg = msg.playerName + ": " + msg.message;
+						auto lines = wrapText(fullMsg, chatMaxWidth - 20);
+
+						if (currentTime - msg.timestamp < 10.0f) {
+							visibleWrappedBlocks.push_back(lines);
+							float age = currentTime - msg.timestamp;
+							float alpha = 1.0f;
+							if (age > 8.0f) alpha = 1.0f - ((age - 8.0f) / 2.0f);
+							visibleAlphas.push_back(alpha);
+							hasLingering = true;
+						}
+					}
+					if (hasLingering) {
+						std::reverse(visibleWrappedBlocks.begin(), visibleWrappedBlocks.end());
+						std::reverse(visibleAlphas.begin(), visibleAlphas.end());
+					}
+				}
+
+				bool shouldShowChat = isChatOpen || hasLingering;
+
+				if (shouldShowChat) {
+					chatScrollOffset = 0;
+					const UILayoutSpacing uiLayout = buildUILayoutSpacing(scale, turnTimerEnabled);
+					float margin = uiLayout.chatInset + uiLayout.timerBarHeight;
+					float chatY = margin + tabHeight + chatBoxHeight;
+					float chatX = margin;
+
+					float smallGap = 12.0f * scale;
+					float expectedMinionRight = p0_minionLeft + minionPanelW;
+					if (expectedMinionRight <= 0.0f) expectedMinionRight = effectiveBottomGap(uiLayout) + (510.0f * scale);
+					float endTurnLeft = endTurnButtonRect.x > 0 ? endTurnButtonRect.x : (ofGetWidth() / 2.0f);
+					float leftBound = expectedMinionRight + smallGap;
+					float rightBound = endTurnLeft - smallGap;
+
+					bool inGameplayArea = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED);
+					if (inGameplayArea) {
+						if (rightBound - leftBound > 150.0f * scale) {
+							chatX = leftBound;
+							chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+						} else {
+							chatX = margin;
+						}
+					} else {
+						chatX = margin;
+					}
+
+					float historyIconSize = 46.0f * scale;
+					float historySpacing = 8.0f * scale;
+					float maxHistoryW = 8.0f * historyIconSize + 7.0f * historySpacing;
+					float historyLeft = (ofGetWidth() / 2.0f) - (maxHistoryW / 2.0f);
+					float safetyBuffer = 10.0f * scale;
+					chatMaxWidth = std::min(chatMaxWidth, historyLeft - chatX - safetyBuffer);
+
+					if (isChatOpen) {
+						chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
+
+						ofPushStyle();
+						ofSetColor(0, 0, 0, 160);
+						ofDrawRectangle(chatWindowRect);
+						ofSetColor(0, 0, 0, 255);
+						ofNoFill();
+						ofSetLineWidth(2);
+						ofDrawRectangle(chatWindowRect);
+						ofFill();
+
+						float tabWidth = 80 * scale;
+						ofRectangle chatTabRect(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+						ofRectangle logTabRect(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+						ofRectangle debugTabRect(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+
+						auto drawTab = [&](ofRectangle r, string label, bool active) {
+							ofSetColor(active ? ofColor(60, 60, 60, 220) : ofColor(20, 20, 20, 150));
+							ofDrawRectangle(r);
+							ofSetColor(255);
+							ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
+							SafeDrawText(uiFont, label, r.x + (r.width - tb.width) / 2, r.y + (r.height + tb.height) / 2 - 2);
+						};
+
+						drawTab(chatTabRect, "CHAT", currentChatTab == ChatTab::CHAT);
+						drawTab(logTabRect, "LOG", currentChatTab == ChatTab::LOG);
+						drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
+						ofPopStyle();
+
+						ofPushStyle();
+						if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
+						float sfY = (float)ofGetViewportHeight() / (float)ofGetHeight();
+						float sfX = (float)ofGetViewportWidth() / (float)ofGetWidth();
+						int scX = (int)(chatX * sfX);
+						int scY = (int)((ofGetHeight() - chatY) * sfY);
+						int scW = (int)(chatMaxWidth * sfX);
+						int scH = (int)(chatBoxHeight * sfY);
+						glScissor(scX, scY, scW, scH);
+
+						float contentTop = chatY - chatBoxHeight + contentPadding;
+						float contentBottom = chatY - contentPadding;
+
+						if (currentChatTab == ChatTab::CHAT) {
+							string charCount = ofToString(chatInput.length()) + " / " + ofToString(maxChatInputLength);
+							ofRectangle countBox = uiFont.getStringBoundingBox(charCount, 0, 0);
+
+							int len = chatInput.length();
+							ofColor badgeBg(35, 35, 45, 200);
+							ofColor textCol(180, 180, 195);
+							if (len >= maxChatInputLength) {
+								badgeBg = ofColor(120, 25, 25, 220);
+								textCol = ofColor(255, 120, 120);
+							} else if (len >= maxChatInputLength * 0.8) {
+								badgeBg = ofColor(110, 85, 20, 210);
+								textCol = ofColor(255, 225, 120);
+							}
+
+							float badgeW = countBox.width + 16.0f * scale;
+							float badgeH = countBox.height + 10.0f * scale;
+							float badgeX = chatX + chatMaxWidth - badgeW - 8.0f * scale;
+							float badgeY = chatY - contentPadding - badgeH;
+
+							string displayText = "> " + chatInput;
+							if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) displayText += "_";
+
+							float maxInputW = chatMaxWidth - badgeW - 24.0f * scale;
+							auto wrappedInput = wrapText(displayText, maxInputW);
+							int inputLines = wrappedInput.size();
+							contentBottom -= (inputLines * messageHeight + 2.0f * scale);
+
+							float messageY = contentTop + messageHeight;
+							std::vector<ChatMessage> messagesToDraw;
+							int maxVis = (int)(chatBoxHeight / messageHeight) - inputLines - 1;
+							for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
+								messagesToDraw.push_back(chatHistory[i]);
+							}
+							std::reverse(messagesToDraw.begin(), messagesToDraw.end());
+
+							for (const auto & msg : messagesToDraw) {
+								string fullMsg = msg.playerName + ": " + msg.message;
+								auto wLines = wrapText(fullMsg, chatMaxWidth - 20);
+								for (const auto & line : wLines) {
+									if (messageY > contentBottom) break;
+									ofSetColor(255);
+									SafeDrawText(uiFont, line, chatX + 10, messageY);
+									messageY += messageHeight;
+								}
+							}
+
+							float inputY = chatY - contentPadding - (inputLines - 1) * messageHeight;
+							for (const auto & line : wrappedInput) {
+								ofSetColor(255);
+								SafeDrawText(uiFont, line, chatX + 10, inputY);
+								inputY += messageHeight;
+							}
+
+							ofSetColor(badgeBg);
+							ofDrawRectRounded(badgeX, badgeY, badgeW, badgeH, 6 * scale);
+
+							ofSetColor(textCol);
+							SafeDrawText(uiFont, charCount, badgeX + 8.0f * scale, badgeY + countBox.height + 4.0f * scale);
+
+						} else if (currentChatTab == ChatTab::LOG) {
+							float logY = contentTop + messageHeight;
+							int maxVis = (int)(chatBoxHeight / messageHeight);
+							int drawn = 0;
+							for (int i = 0; i < (int)gameLog.size() && drawn < maxVis; i++) {
+								auto wLines = wrapText(gameLog[i].text, chatMaxWidth - 20);
+								for (const auto & line : wLines) {
+									if (logY > contentBottom || drawn >= maxVis) break;
+									ofSetColor(200);
+									SafeDrawText(uiFont, line, chatX + 10, logY);
+									logY += messageHeight;
+									drawn++;
+								}
+							}
+						} else if (currentChatTab == ChatTab::DEBUG) {
+							float availableW = chatMaxWidth - 2 * contentPadding;
+							float curY = contentTop + contentPadding;
+
+							auto drawChatDebugButton = [&](const ofRectangle & rect, const std::string & label, bool isToggle = false, bool state = false, ofColor overrideColor = ofColor()) {
+								ofColor btnColor = ofColor();
+								if (overrideColor != ofColor())
+									btnColor = overrideColor;
+								else if (isToggle)
+									btnColor = (state ? ofColor::green : ofColor::darkRed);
+								else
+									btnColor = ofColor::slateGray;
+
+								ofSetColor(btnColor);
+								ofDrawRectRounded(rect, 5.0f * scale);
+								ofSetColor(ofColor::white);
+								ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
+								SafeDrawText(uiFont, label, rect.getCenter().x - tb.width / 2, rect.getCenter().y + tb.height / 2 - 2);
+							};
+
+							const std::vector<std::string> rowLabels = { "HP", "MaxHP", "Deck", "Discard", "Block", "Ward", "Fortify", "Barrier", "HolyBlk" };
+
+							float panelGap = 10.0f * scale;
+							float panelW = (availableW - panelGap) * 0.5f;
+							float leftX = chatX + contentPadding;
+							float rightX = leftX + panelW + panelGap;
+							float rowH = 18.0f * scale;
+							float rowGap = 2.0f * scale;
+							float btnGap = 2.0f * scale;
+							float btnW = (panelW - btnGap) * 0.5f;
+
+							ofSetColor(ofColor::lightSteelBlue);
+							SafeDrawText(uiFont, "Player 1", leftX, curY + 12 * scale);
+							SafeDrawText(uiFont, "Player 2", rightX, curY + 12 * scale);
+							curY += 16.0f * scale;
+
+							debugP1PlusButtons.assign(rowLabels.size(), ofRectangle());
+							debugP1MinusButtons.assign(rowLabels.size(), ofRectangle());
+							debugP2PlusButtons.assign(rowLabels.size(), ofRectangle());
+							debugP2MinusButtons.assign(rowLabels.size(), ofRectangle());
+
+							for (size_t i = 0; i < rowLabels.size(); ++i) {
+								float y = curY + i * (rowH + rowGap);
+								debugP1PlusButtons[i].set(leftX, y, btnW, rowH);
+								debugP1MinusButtons[i].set(leftX + btnW + btnGap, y, btnW, rowH);
+								debugP2PlusButtons[i].set(rightX, y, btnW, rowH);
+								debugP2MinusButtons[i].set(rightX + btnW + btnGap, y, btnW, rowH);
+
+								drawChatDebugButton(debugP1PlusButtons[i], "+" + rowLabels[i], false, false, ofColor(50, 150, 50));
+								drawChatDebugButton(debugP1MinusButtons[i], "-" + rowLabels[i], false, false, ofColor(150, 50, 50));
+								drawChatDebugButton(debugP2PlusButtons[i], "+" + rowLabels[i], false, false, ofColor(50, 150, 50));
+								drawChatDebugButton(debugP2MinusButtons[i], "-" + rowLabels[i], false, false, ofColor(150, 50, 50));
+							}
+
+							curY += rowLabels.size() * (rowH + rowGap) + (6.0f * scale);
+
+							ofSetColor(ofColor::yellow);
+							SafeDrawText(uiFont, "General", leftX, curY + 12 * scale);
+							curY += 16.0f * scale;
+
+							float gGap = 4.0f * scale;
+							float gH = 20.0f * scale;
+							int gCols = 3;
+							float gW = (availableW - (gCols - 1) * gGap) / gCols;
+							auto setGridRect = [&](ofRectangle & r, int idx) {
+								int col = idx % gCols;
+								int row = idx / gCols;
+								r.set(leftX + col * (gW + gGap), curY + row * (gH + gGap), gW, gH);
+							};
+
+							int gi = 0;
+							setGridRect(debugSpawnCardButton, gi++);
+							setGridRect(debugAddAllCardsButton, gi++);
+							setGridRect(debugSkipDraftButton, gi++);
+							setGridRect(debugDrawCardButton, gi++);
+							setGridRect(debugFlipCoinButton, gi++);
+							setGridRect(debugRollD4Button, gi++);
+							setGridRect(debugRollD6Button, gi++);
+							setGridRect(debugRollD10Button, gi++);
+							setGridRect(debugRollD20Button, gi++);
+							setGridRect(debugUnlimitedAPButton, gi++);
+							setGridRect(debugUnlimitedTimeButton, gi++);
+							setGridRect(debugForceEndTurnButton, gi++);
+							setGridRect(debugSpawnPlayer1Button, gi++);
+							setGridRect(debugSpawnPlayer2Button, gi++);
+							setGridRect(debugSpawnUnitButton, gi++);
+
+							drawChatDebugButton(debugSpawnCardButton, "CardSpawner");
+							drawChatDebugButton(debugAddAllCardsButton, "AddAll70");
+							drawChatDebugButton(debugSkipDraftButton, "SkipDraft");
+							drawChatDebugButton(debugDrawCardButton, "DrawCard");
+							drawChatDebugButton(debugFlipCoinButton, "Coin");
+							drawChatDebugButton(debugRollD4Button, "D4");
+							drawChatDebugButton(debugRollD6Button, "D6");
+							drawChatDebugButton(debugRollD10Button, "D10");
+							drawChatDebugButton(debugRollD20Button, "D20");
+							drawChatDebugButton(debugUnlimitedAPButton, hasUnlimitedAP ? "Unlim AP: ON" : "Unlim AP: OFF", true, hasUnlimitedAP);
+							drawChatDebugButton(debugUnlimitedTimeButton, !turnTimerEnabled ? "Unlim Time: ON" : "Unlim Time: OFF", true, !turnTimerEnabled);
+							drawChatDebugButton(debugForceEndTurnButton, "ForceEndTurn");
+							drawChatDebugButton(debugSpawnPlayer1Button, "SpawnPlayer1", true, debugSpawnMode == DEBUG_SPAWN_PLAYER1);
+							drawChatDebugButton(debugSpawnPlayer2Button, "SpawnPlayer2", true, debugSpawnMode == DEBUG_SPAWN_PLAYER2);
+							drawChatDebugButton(debugSpawnUnitButton, "SpawnPlayer", true, debugSpawnMode == DEBUG_SPAWN_FULL_DECK);
+						}
+
+						if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+						ofPopStyle();
+
+					} else {
+						chatWindowRect.set(0, 0, 0, 0);
+						float closedContentTop = margin + contentPadding;
+						float closedContentBottom = ofGetHeight();
+						float messageY = closedContentTop + messageHeight * 0.8f;
+
+						int blockIdx = 0;
+						for (const auto & blk : visibleWrappedBlocks) {
+							float alpha = visibleAlphas[blockIdx++];
+							int alpha255 = (int)(alpha * 255);
+							int shadow200 = (int)(alpha * 200);
+
+							for (const auto & line : blk) {
+								if (messageY > closedContentBottom) break;
+								drawPixelTextBaseline(uiFont, line, chatX + 11, messageY + 1, 1.0f, ofColor(0, 0, 0, shadow200));
+								drawPixelTextBaseline(uiFont, line, chatX + 10, messageY, 1.0f, ofColor(255, 255, 255, alpha255));
+								messageY += messageHeight;
+							}
+						}
+					}
+				}
+			}
+
+			// --- Debug Card Spawner UI (KRunner-style) ---
+			if (isCardSpawnerOpen) {
+				g_suppressText = isCardEncyclopediaOpen;
+				drawCardSpawnerUI();
+				g_suppressText = false;
+			}
+			if (isCardEncyclopediaOpen) {
+				drawCardEncyclopediaUI();
+			}
+
+			// --- TOP INSTRUCTION TEXT (Minion Placement) ---
+			if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+				string msg = "";
+				if (interactingCardType == CARD_CALL_FOR_WOLVES) {
+					if (wolfSummonStage == 2)
+						msg = "Wolf: Choose 2nd adjacent empty tile (Heads!)";
+					else
+						msg = "Wolf: Choose an adjacent empty tile";
+				} else if (interactingCardType == CARD_CALL_FOR_KOBOLDS) {
+					msg = "Kobold: Choose adjacent empty tile (" + ofToString(koboldsRemainingToPlace) + " left)";
+				}
+				if (!msg.empty()) {
+					ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+					float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+					float ty = ofGetHeight() * 0.12f;
+					ofSetColor(0, 0, 0, 255);
+					SafeDrawText(titleFont, msg, tx + 2, ty + 2);
+					SafeDrawText(titleFont, msg, tx - 2, ty - 2);
+					SafeDrawText(titleFont, msg, tx + 2, ty - 2);
+					SafeDrawText(titleFont, msg, tx - 2, ty + 2);
+					ofSetColor(ofColor::white);
+					SafeDrawText(titleFont, msg, tx, ty);
+				}
+			}
+
+			// --- CENTRALIZED TARGETING INSTRUCTION TEXT ---
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+				Card & interactionCard = players[currentPlayerIndex].hand[interactingCardIndex];
+				string msg = interactionCard.name + ": Choose target";
+
+				if (interactingCardType == CARD_TELEPORT)
+					msg = "Teleport: Choose destination (Range: " + ofToString(interactionDiceRoll) + " ft)";
+				else if (interactingCardType == CARD_DOUBLE_HANDED)
+					msg = "Double Handed: Choose self or adjacent unit";
+				else if (interactingCardType == CARD_BURST_OF_LIGHT)
+					msg = "Burst of Light: Choose a target unit";
+				else if (interactingCardType == CARD_AMNESIA)
+					msg = "Amnesia: Choose self or adjacent unit";
+				else if (interactingCardType == CARD_BLOCKING_BOON)
+					msg = "Blocking Boon (Tails): Choose an adjacent unit to lose 1 Max HP";
+				else if (interactingCardType == CARD_DEATH)
+					msg = "Death: Choose target";
+				else if (interactingCardType == CARD_CHAIN_LIGHTNING)
+					msg = "Chain Lightning: Choose first target";
+				else if (interactingCardType == CARD_SUMMON_HELLHOUND)
+					msg = "Summon Hellhound: Choose spawn tile";
+				else if (interactingCardType == CARD_MAGIC_BOLT)
+					msg = "Magic Bolt: Choose target";
+				else if (interactingCardType == CARD_PUNCH)
+					msg = "Punch: Choose target";
+				else if (interactingCardType == CARD_FORM_OF_TORTOISE)
+					msg = "Tortoise Shell Spike: Choose target";
+				else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)
+					msg = "Materialized in Wall: Choose an empty tile to teleport to";
+
+				drawInstructionText(msg);
+			}
+
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DEATH) drawInstructionText("Death: Choose target");
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_CHAIN_LIGHTNING) drawInstructionText("Chain Lightning: Choose first target");
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_SUMMON_HELLHOUND) drawInstructionText("Summon Hellhound: Choose spawn tile");
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT) drawInstructionText("Magic Bolt: Choose target");
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_PUNCH) drawInstructionText("Punch: Choose target");
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) drawInstructionText("Tortoise Shell Spike: Choose target");
+
+			// --- DICE ROLL RESULT TEXT ---
+			if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < 5.0f) {
+				ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
+				float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+				float ty = ofGetHeight() * 0.25f;
+				ofSetColor(0, 0, 0, 255);
+				SafeDrawText(titleFont, diceRollResultText, tx + 2, ty + 2);
+				ofSetColor(ofColor::gold);
+				SafeDrawText(titleFont, diceRollResultText, tx, ty);
+			}
+
+			if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)) {
+				Player & currentPlayer = players[currentPlayerIndex];
+				if (selectedCardIndex < (int)currentPlayer.hand.size()) {
+					Card & selectedCard = currentPlayer.hand[selectedCardIndex];
+					string msg = selectedCard.name + ": Choose target";
+					drawInstructionText(msg);
+				}
+			}
+
+			// --- BONUS TURNS COUNTER ---
+			if (currentPlayerIndex != -1 && !players.empty()) {
+				Player & currentPlayer = players[currentPlayerIndex];
+				if (currentPlayer.bonusTurns > 0) {
+					string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
+					ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+					float tx = endTurnButtonRect.getRight() + 20 * scale;
+					float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
+					ofSetColor(0, 0, 0, 255);
+					SafeDrawText(titleFont, msg, tx + 2, ty + 2);
+					SafeDrawText(titleFont, msg, tx - 2, ty - 2);
+					SafeDrawText(titleFont, msg, tx + 2, ty - 2);
+					SafeDrawText(titleFont, msg, tx - 2, ty + 2);
+					ofSetColor(ofColor::white);
+					SafeDrawText(titleFont, msg, tx, ty);
+				}
+			}
+
+			// --- DRAW DICE LABEL ---
+			if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
+				ofPushMatrix();
+				float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
+				drawDiceLabel(currentDiceLabel, ofColor(255, 215, 0), fixedY);
+				ofPopMatrix();
+			}
+
+			// --- RENEWED INSPIRATION UI (Text & Buttons) ---
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+				drawInstructionText("Select cards to discard (Draw 2 each)");
+				float uiScaleLocal = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
+				ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
+				float btnW = std::clamp(220.0f * uiScaleLocal, 140.0f, 320.0f);
+				float btnH = std::clamp(60.0f * uiScaleLocal, 40.0f, 96.0f);
+				float btnX = (ofGetWidth() - btnW) / 2.0f;
+				float btnY = handAreaRect.y - btnH - std::clamp(20.0f * uiScaleLocal, 12.0f, 48.0f);
+				float minTopMargin = 20.0f * uiScaleLocal;
+				if (btnY < minTopMargin) btnY = minTopMargin;
+
+				riConfirmBtn.set(btnX, btnY, btnW, btnH);
+				if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_ri_accept";
+				riCancelBtn.set(0, 0, 0, 0);
+
+				int validSelectedCount = 0;
+				bool canAccept = true;
+				if (currentPlayerIndex >= 0 && !players.empty()) {
+					for (int sel : renewedSelectedHandIndices) {
+						if (sel < 0 || sel >= (int)players[currentPlayerIndex].hand.size()) continue;
+						const Card & selectedCard = players[currentPlayerIndex].hand[sel];
+						if (sel != interactingCardIndex && !selectedCard.playedThisTurn) {
+							validSelectedCount++;
+						}
+					}
+				}
+
+				ofPushMatrix();
+				ofTranslate(btnX + btnW / 2.0f, btnY + btnH / 2.0f);
+				ofTranslate(-(btnX + btnW / 2.0f), -(btnY + btnH / 2.0f));
+				ofSetColor(canAccept ? ofColor(70, 160, 255, 255 * g_menuAlphaMult) : ofColor(100, 100, 100, 255 * g_menuAlphaMult));
+				ofDrawRectRounded(riConfirmBtn, 12);
+				ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
+				ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+				SafeDrawText(uiFont, "Accept", btnX + (btnW - acceptTextBox.width) / 2.0f, btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f);
+
+				std::string selectedCountText = ofToString(validSelectedCount) + " selected (Draw " + ofToString(validSelectedCount * 2) + ")";
+				float selectedCountX = btnX + btnW + std::max(12.0f, 16.0f * uiScaleLocal);
+				float selectedCountY = btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f;
+				ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
+				SafeDrawText(uiFont, selectedCountText, selectedCountX, selectedCountY);
+				ofPopMatrix();
+			}
+
+			// --- DRAW ACTION HISTORY ---
+			if (!g_actionHistory.empty()) {
+				float iconSize = 46.0f * scale;
+				float spacing = 8.0f * scale;
+				float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
+				float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
+				float startY = 12.0f * scale;
+
+				for (size_t i = 0; i < g_actionHistory.size(); ++i) {
+					ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
+
+					ofColor borderColor = ofColor::white;
+					if (g_actionHistory[i].playerID == 0)
+						borderColor = ofColor(255, 120, 120);
+					else if (g_actionHistory[i].playerID == 1)
+						borderColor = ofColor(120, 255, 120);
+					ofSetColor(borderColor);
+					ofDrawRectRounded(iconRect.x - 3, iconRect.y - 3, iconSize + 6, iconSize + 6, 6);
+
+					ofSetColor(255);
+					float sx = g_actionHistory[i].card.textureRect.x + g_actionHistory[i].card.textureRect.width * 0.15f;
+					float sy = g_actionHistory[i].card.textureRect.y + g_actionHistory[i].card.textureRect.height * 0.15f;
+					float sw = g_actionHistory[i].card.textureRect.width * 0.7f;
+					float sh = g_actionHistory[i].card.textureRect.width * 0.7f;
+
+					if (g_actionHistory[i].isMovement) {
+						ofSetColor(24, 28, 38);
+						ofDrawRectRounded(iconRect, 6);
+						ofNoFill();
+						ofSetColor(0, 255, 120);
+						ofSetLineWidth(3 * scale);
+						ofDrawLine(iconRect.x + 10 * scale, iconRect.getBottom() - 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale);
+						ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 18 * scale, iconRect.y + 10 * scale);
+						ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 18 * scale);
+						ofFill();
+					} else {
+						if (g_renderGeometryMask) drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
+					}
+
+					if (s_hoveredHistoryIndex == (int)i) {
+						const auto & entry = g_actionHistory[i];
+						isShowingTooltip = true;
+						tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+
+						if (entry.isMovement) {
+							tooltipText = "Unit Move: (" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ") -> (" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")";
+						} else {
+							tooltipText = entry.cardName;
+							if (entry.rangeRoll > 0) tooltipText += " [Range Roll: " + ofToString(entry.rangeRoll) + " ft]";
+							if (entry.damageRoll > 0) tooltipText += " [Dmg Roll: " + ofToString(entry.damageRoll) + "]";
+							if (!entry.destroyedCardNames.empty()) {
+								tooltipText += " (Destroyed: ";
+								for (size_t c = 0; c < entry.destroyedCardNames.size(); c++) {
+									if (c > 0) tooltipText += ", ";
+									tooltipText += entry.destroyedCardNames[c];
+								}
+								tooltipText += ")";
+							}
+						}
+
+						float hoverW = kCardPixelWidth * kHandCardVisualScale * scale * kHandHoverScale;
+						float hoverH = kCardPixelHeight * kHandCardVisualScale * scale * kHandHoverScale;
+						float hoverX = iconRect.getCenter().x - hoverW / 2.0f;
+						float hoverY = iconRect.getBottom() + 10.0f * scale;
+
+						if (hoverY + hoverH > ofGetHeight() - 10.0f) hoverY = ofGetHeight() - hoverH - 10.0f;
+						if (hoverX < 10.0f) hoverX = 10.0f;
+						if (hoverX + hoverW > ofGetWidth() - 10.0f) hoverX = ofGetWidth() - hoverW - 10.0f;
+
+						if (!entry.isMovement) {
+							ofSetColor(255);
+							drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, hoverX, hoverY, hoverW, hoverH, nullptr);
+						}
+
+						bool hasDetails = false;
+						int lineCount = 0;
+						bool isRangedSpell = (entry.card.type == CARD_FIREBALL || entry.card.type == CARD_CHAIN_LIGHTNING || entry.card.type == CARD_MAGIC_BOLT || entry.card.type == CARD_MAGIC_BLAST || entry.card.type == CARD_SHOOT_ARROW || entry.card.type == CARD_ETHEREAL_JOLT);
+
+						if (entry.isMovement) {
+							hasDetails = true;
+							lineCount = 3;
+						} else {
+							if (entry.rangeRoll > 0 && isRangedSpell) {
+								hasDetails = true;
+								lineCount++;
+							}
+							if (entry.damageRoll > 0) {
+								hasDetails = true;
+								lineCount++;
+							}
+							if (entry.utilityRoll > 0) {
+								hasDetails = true;
+								lineCount++;
+							}
+							if (!entry.menuChoice.empty()) {
+								hasDetails = true;
+								lineCount++;
+							}
+							if (!entry.destroyedCardNames.empty()) {
+								hasDetails = true;
+								lineCount += 1 + (int)entry.destroyedCardNames.size();
+							}
+						}
+
+						if (hasDetails) {
+							float infoW = 220.0f * scale;
+							float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 10.0f * scale);
+							float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
+							if (infoX + infoW > ofGetWidth() - 10.0f) infoX = hoverX - infoW - 10.0f * scale;
+
+							float dynamicH = (45.0f + lineCount * 26.0f + 16.0f) * scale;
+							ofRectangle infoRect(infoX, infoY, infoW, dynamicH);
+
+							ofSetColor(18, 18, 22, 235);
+							ofDrawRectRounded(infoRect, 12 * scale);
+							ofNoFill();
+							ofSetLineWidth(2 * scale);
+							ofSetColor(120, 120, 140, 200);
+							ofDrawRectRounded(infoRect, 12 * scale);
+							ofFill();
+
+							float curY = infoRect.y + 24 * scale;
+							auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
+								ofSetColor(180, 180, 190);
+								SafeDrawText(uiFont, label, infoRect.x + 14 * scale, curY);
+								ofSetColor(valCol);
+								SafeDrawText(uiFont, val, infoRect.x + 110 * scale, curY);
+								curY += 26 * scale;
+							};
+
+							ofSetColor(255, 215, 0);
+							SafeDrawText(uiFont, "Action Details", infoRect.x + 14 * scale, curY);
+							curY += 30 * scale;
+
+							if (entry.isMovement) {
+								drawLine("Start Tile:", "(" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ")", ofColor::cyan);
+								drawLine("End Tile:", "(" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")", ofColor::green);
+								drawLine("Tiles Moved:", ofToString(std::max(0, (int)entry.movementPath.size() - 1)), ofColor::gold);
+							} else {
+								if (entry.rangeRoll > 0 && isRangedSpell) drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
+								if (entry.damageRoll > 0) drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
+								if (entry.utilityRoll > 0) drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
+								if (!entry.menuChoice.empty()) drawLine("Choice:", entry.menuChoice, ofColor::gold);
+								if (!entry.destroyedCardNames.empty()) {
+									curY += 6 * scale;
+									ofSetColor(240, 100, 100);
+									SafeDrawText(uiFont, "Destroyed:", infoRect.x + 14 * scale, curY);
+									curY += 22 * scale;
+									for (const auto & cName : entry.destroyedCardNames) {
+										ofSetColor(255, 255, 255);
+										SafeDrawText(uiFont, "- " + cName, infoRect.x + 22 * scale, curY);
+										curY += 22 * scale;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// --- Draw Tooltip (drawn last to be on top of everything) ---
+			if (isShowingTooltip && !tooltipText.empty()) {
+				ofPushStyle();
+				ofSetColor(0, 0, 0, 200);
+				ofRectangle bbox = uiFont.getStringBoundingBox(tooltipText, 0, 0);
+				float pad = 10.0f;
+				float tX = std::min(tooltipPos.x + 15, ofGetWidth() - bbox.width - pad * 2);
+				float tY = std::max(10.0f, tooltipPos.y - bbox.height - pad * 2);
+				ofDrawRectRounded(tX, tY, bbox.width + pad * 2, bbox.height + pad * 2, 8);
+				ofSetColor(255);
+				SafeDrawText(uiFont, tooltipText, tX + pad, tY + bbox.height + pad - 2);
+				ofPopStyle();
+			}
+
+			// --- ELO & GAME OVER SCREEN ---
+			if (g_isGameOver) {
+				ofPushStyle();
+				ofSetColor(0, 0, 0, 230);
+				ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+				float uiScaleL = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+				float cx = ofGetWidth() / 2.0f;
+				float cy = ofGetHeight() / 2.0f;
+
+				std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY" : "DEFEAT";
+				if (g_isSpectator || myLocalPlayerID == 2) {
+					text = (g_winnerID == 0) ? (player0SteamName + " WINS") : (player1SteamName + " WINS");
+				}
+				if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
+				if (g_winnerID == 2) text = "MATCH DRAWN";
+
+				ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
+				if (g_isSpectator || myLocalPlayerID == 2) titleColor = ofColor::gold;
+				if (g_winnerID == 2) titleColor = ofColor::white;
+				drawPixelTextCentered(titleFont, text, cx, cy - 240.0f * uiScaleL, 2.5f * uiScaleL, titleColor);
+
+				if (isMultiplayer && s_gameOverScreenStartTime <= 0.0f) {
+					s_gameOverScreenStartTime = ofGetElapsedTimef();
+				}
+				float progress = isMultiplayer ? ofClamp((ofGetElapsedTimef() - s_gameOverScreenStartTime) / 2.5f, 0.0f, 1.0f) : 1.0f;
+				float easedProgress = progress * (2.0f - progress);
+
+				float panelW = 760.0f * uiScaleL;
+				float panelH = isMultiplayer ? (440.0f * uiScaleL) : (310.0f * uiScaleL);
+				ofRectangle panel(cx - panelW / 2.0f, cy - 160.0f * uiScaleL, panelW, panelH);
+
+				ofSetColor(25, 25, 32, 245);
+				ofDrawRectRounded(panel, 16.0f * uiScaleL);
+				ofNoFill();
+				ofSetColor(80, 80, 100);
+				ofSetLineWidth(3.0f * uiScaleL);
+				ofDrawRectRounded(panel, 16.0f * uiScaleL);
+				ofFill();
+
+				float leftColX = panel.x + panelW * 0.25f;
+				float rightColX = panel.x + panelW * 0.75f;
+				float avSize = 96.0f * uiScaleL;
+				float avY = panel.y + 30.0f * uiScaleL;
+
+				std::string nameLocal = isMultiplayer ? steamManager.getLocalPlayerName() : player0SteamName;
+				std::string nameOpp = isMultiplayer ? steamManager.getOpponentName() : player1SteamName;
+
+				auto drawPlaceholderAvatar = [&](std::string name, float ax, float ay, float size) {
+					ofSetColor(50, 50, 60, 255);
+					ofDrawRectRounded(ax, ay, size, size, 8.0f * uiScaleL);
+					std::string init = "";
+					if (!name.empty()) init += name[0];
+					size_t sp = name.find(' ');
+					if (sp != std::string::npos && sp + 1 < name.size()) init += name[sp + 1];
+					drawPixelTextCentered(titleFont, init, ax + size / 2.0f, ay + size / 2.0f, size / 80.0f, ofColor::white);
+				};
+
+				ofSetColor(255);
+				if (g_renderGeometryMask) { // Only draw images in geometry pass
+					if (isMultiplayer && localAvatarReady)
+						localAvatarImage.draw(leftColX - avSize / 2.0f, avY, avSize, avSize);
+					else
+						drawPlaceholderAvatar(nameLocal, leftColX - avSize / 2.0f, avY, avSize);
+
+					ofSetColor(255);
+					if (isMultiplayer && opponentAvatarReady)
+						opponentAvatarImage.draw(rightColX - avSize / 2.0f, avY, avSize, avSize);
+					else
+						drawPlaceholderAvatar(nameOpp, rightColX - avSize / 2.0f, avY, avSize);
+				}
+
+				drawPixelTextCentered(uiFont, nameLocal, leftColX, avY + avSize + 20.0f * uiScaleL, 1.0f * uiScaleL, ofColor::white);
+				drawPixelTextCentered(uiFont, nameOpp, rightColX, avY + avSize + 20.0f * uiScaleL, 1.0f * uiScaleL, ofColor::white);
+
+				drawPixelTextCentered(titleFont, "VS", cx, avY + avSize / 2.0f, 1.5f * uiScaleL, ofColor::white);
+
+				if (isMultiplayer) {
+					int localStartElo = myElo - eloChange;
+					int localCurrentElo = (int)ofLerp(localStartElo, myElo, easedProgress);
+					auto myRank = getMageRank(localCurrentElo);
+					std::string eloStr = myRank.first + " (" + std::to_string(localCurrentElo) + ")";
+					if (eloCalculated) {
+						std::string sign = (eloChange >= 0) ? "+" : "";
+						int displayedChange = (int)round(eloChange * easedProgress);
+						eloStr += " [" + sign + std::to_string(displayedChange) + "]";
+					}
+					drawPixelTextCentered(uiFont, eloStr, leftColX, avY + avSize + 45.0f * uiScaleL, 0.8f * uiScaleL, myRank.second);
+
+					int oppEloChange = -eloChange;
+					int oppFinalElo = std::max(300, opponentElo + oppEloChange);
+					int oppCurrentElo = (int)ofLerp(opponentElo, oppFinalElo, easedProgress);
+					auto oppRank = getMageRank(oppCurrentElo);
+					std::string oppEloStr = oppRank.first + " (" + std::to_string(oppCurrentElo) + ")";
+					if (eloCalculated) {
+						std::string sign = (oppEloChange >= 0) ? "+" : "";
+						int displayedOppChange = (int)round(oppEloChange * easedProgress);
+						oppEloStr += " [" + sign + std::to_string(displayedOppChange) + "]";
+					}
+					drawPixelTextCentered(uiFont, oppEloStr, rightColX, avY + avSize + 45.0f * uiScaleL, 0.8f * uiScaleL, oppRank.second);
+				}
+
+				float statsY = avY + avSize + (isMultiplayer ? 80.0f * uiScaleL : 60.0f * uiScaleL);
+				ofSetColor(80, 80, 100, 120);
+				ofSetLineWidth(2.0f * uiScaleL);
+				ofDrawLine(panel.x + 40.0f * uiScaleL, statsY - 15.0f * uiScaleL, panel.getRight() - 40.0f * uiScaleL, statsY - 15.0f * uiScaleL);
+
+				ofSetColor(200);
+				drawPixelTextCentered(uiFont, "Max Dmg/Turn", cx, statsY, 0.75f * uiScaleL, ofColor::lightGray);
+				drawPixelTextCentered(uiFont, "Minions Spawned", cx, statsY + 30.0f * uiScaleL, 0.75f * uiScaleL, ofColor::lightGray);
+				drawPixelTextCentered(uiFont, "Health Restored", cx, statsY + 60.0f * uiScaleL, 0.75f * uiScaleL, ofColor::lightGray);
+
+				int localStatsIdx = (myLocalPlayerID == 1) ? 1 : 0;
+				int oppStatsIdx = (myLocalPlayerID == 1) ? 0 : 1;
+
+				drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].maxDamageInOneTurn), leftColX, statsY, 0.8f * uiScaleL, ofColor::white);
+				drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].minionsSpawned), leftColX, statsY + 30.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
+				drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].totalHealing), leftColX, statsY + 60.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
+
+				drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].maxDamageInOneTurn), rightColX, statsY, 0.8f * uiScaleL, ofColor::white);
+				drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].minionsSpawned), rightColX, statsY + 30.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
+				drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].totalHealing), rightColX, statsY + 60.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
+
+				if (isMultiplayer && s_hasCachedGameOverVisuals) {
+					float barX = panel.x + 40.0f * uiScaleL;
+					float barY = panel.getBottom() - 40.0f * uiScaleL;
+					float barW = panelW - 80.0f * uiScaleL;
+					float barH = 18.0f * uiScaleL;
+
+					long long accumulatedXP = s_startingXP + (long long)round(s_xpGained * easedProgress);
+					int tempLevel = s_startingLevel;
+					while (true) {
+						int32_t xpRequired = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
+						if (accumulatedXP >= xpRequired) {
+							accumulatedXP -= xpRequired;
+							tempLevel++;
+						} else {
+							break;
+						}
+					}
+
+					int32_t xpThreshold = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
+					float xpPct = (float)accumulatedXP / (float)xpThreshold;
+
+					ofSetColor(20, 20, 25, 255);
+					ofDrawRectRounded(barX, barY, barW, barH, 6.0f * uiScaleL);
+					ofSetColor(0, 180, 255, 255);
+					ofDrawRectRounded(barX, barY, barW * xpPct, barH, 6.0f * uiScaleL);
+
+					ofSetColor(255);
+					std::string levelText = "Account Level " + std::to_string(tempLevel);
+					std::string progressText = std::to_string(accumulatedXP) + " / " + std::to_string(xpThreshold) + " XP";
+
+					drawPixelTextBaseline(uiFont, levelText, barX, barY - 6.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
+					ofRectangle pBox = uiFont.getStringBoundingBox(progressText, 0, 0);
+					drawPixelTextBaseline(uiFont, progressText, barX + barW - (pBox.width * 0.8f * uiScaleL), barY - 6.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
+				}
+
+				float btnW = 240.0f * uiScaleL;
+				float btnH = 64.0f * uiScaleL;
+				float btnY = panel.getBottom() + 30.0f * uiScaleL;
+
+				gameOverReturnBtn.set(cx - btnW - 15.0f * uiScaleL, btnY, btnW, btnH);
+				gameOverReplayBtn.set(cx + 15.0f * uiScaleL, btnY, btnW, btnH);
+
+				if (gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "go_menu";
+				ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
+				ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScaleL);
+				ofNoFill();
+				ofSetLineWidth(2.0f * uiScaleL);
+				ofSetColor(100, 100, 120);
+				ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScaleL);
+				ofFill();
+				drawPixelTextCentered(uiFont, "Quit to Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
+
+				if (gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) && !replaySavedThisMatch) g_hoveredButtonId = "go_replay";
+				if (replaySavedThisMatch) {
+					ofSetColor(ofColor(40, 90, 40));
+					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
+					ofNoFill();
+					ofSetLineWidth(2.0f * uiScaleL);
+					ofSetColor(80, 150, 80);
+					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
+					ofFill();
+					drawPixelTextCentered(uiFont, "Replay Saved!", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor(150, 255, 150));
+				} else {
+					ofSetColor(gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
+					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
+					ofNoFill();
+					ofSetLineWidth(2.0f * uiScaleL);
+					ofSetColor(100, 100, 120);
+					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
+					ofFill();
+					drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
+				}
+				ofPopStyle();
+			}
+
+			if (isReplayMode) {
+				float barW = ofGetWidth() * 0.8f;
+				float barH = 20 * scale;
+				float barX = (ofGetWidth() - barW) / 2.0f;
+				float barY = ofGetHeight() - barH - 20 * scale;
+
+				ofPushStyle();
+				ofSetColor(0, 0, 0, 180);
+				ofDrawRectRounded(barX, barY, barW, barH, 5);
+
+				replayMaxFrame = replayPlaybackQueue.empty() ? 100 : replayPlaybackQueue.back().frame + 120;
+				replayMaxFrame = std::max(replayMaxFrame, simulationFrame);
+
+				float pct = (float)simulationFrame / (float)replayMaxFrame;
+				ofSetColor(255, 200, 0, 200);
+				ofDrawRectRounded(barX, barY, barW * pct, barH, 5);
+
+				ofSetColor(255);
+				ofDrawRectangle(barX + barW * pct - 2, barY - 2, 4, barH + 4);
+
+				int curSecs = simulationFrame / 60;
+				int maxSecs = replayMaxFrame / 60;
+				std::string timeStr = "Replay: " + std::to_string(curSecs) + "s / " + std::to_string(maxSecs) + "s";
+				drawPixelTextCentered(uiFont, timeStr, ofGetWidth() / 2, barY - 15 * scale, 1.0f, ofColor::white);
+				ofPopStyle();
+
+				replayProgressBarRect.set(barX, barY, barW, barH);
+			}
+
 			ofPopStyle();
 		}
+	};
 
-		drawSettingsMenu();
-		break;
-	case STATE_GAMEPLAY:
-		drawGame();
-		break;
-	case STATE_DESYNC:
-		drawGame();
-		break;
-	case STATE_SAVE_BROWSER:
-		drawSaveBrowser();
-		break;
-	case STATE_SINGLEPLAYER_MENU:
-		drawSingleplayerMenu();
-		break;
-	case STATE_PAUSED:
-		drawGame(); // Draw game underneath
-		// If we paused during draft or initiative, draw those underneath the pause menu too
-		if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
-		if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
-		drawPauseMenu();
-		break;
-	case STATE_INITIATIVE_ROLL:
-		drawGame(); // Draw 3D world + dice
-		drawInitiativeRoll(); // Draw labels on top
-		break;
-	case STATE_DRAFTING:
-		drawGame(); // Draw 3D world background
-		drawDraftScreen(); // Draw cards and text on top
-		break;
-	default:
-		drawMainMenu();
-		break;
-	}
+	// --- PASS 1: RENDER FULL GAME ---
+	drawEverything();
 
-	// Draw picked-card animations once at the top level so they stay visible
-	// on top of the draft screen and the normal HUD.
-	if (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0) {
-		this->drawActiveDraftPickedMoves();
-	}
+	// --- RENDER FULLSCREEN SHADERS ---
+	if (applyPostToUI) {
+		g_uiPostFbo.end();
 
-	// --- HOVER BUTTON SOUND RESOLUTION ---
-	static std::string s_lastHoveredBtn = "";
-	static float s_lastHoverSoundTime = 0.0f;
+		// PASS 2: Crisp Text Re-Render with Geometric Eraser
+		// By drawing EVERYTHING again, the menus/cards will erase the text beneath them
+		// into the transparent text FBO, achieving flawless pixel-perfect occlusion.
+		if (usePixelPass) {
+			g_textFbo.begin();
+			ofClear(0, 0, 0, 0); // Clear to fully transparent
 
-	if (g_hoveredButtonId != s_lastHoveredBtn) {
-		if (!g_hoveredButtonId.empty() && s_sfxHoverButton.isLoaded()) {
+			g_isFboPass = true;
+			g_isSecondPass = true;
+			g_renderText = true;
 
-			// 1.0 second cooldown delay to prevent audio spam when sweeping the mouse!
-			// (If it feels too long, you can change the 1.0f down to 0.15f)
-			if (ofGetElapsedTimef() - s_lastHoverSoundTime >= 1.0f) {
-				float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
-				s_sfxHoverButton.setVolume(vol);
-				s_sfxHoverButton.play();
-				s_lastHoverSoundTime = ofGetElapsedTimef();
-			}
+			// Initialize the Eraser mode for all non-text drawing
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+
+			drawEverything();
+
+			// Restore normal OpenGL state
+			g_isSecondPass = false;
+			ofEnableAlphaBlending();
+			g_textFbo.end();
 		}
-		s_lastHoveredBtn = g_hoveredButtonId;
+
+		ofDisableDepthTest();
+		ofSetColor(255, 255, 255, 255);
+
+		if (usePixelPass) {
+			pixelArtShader.begin();
+			pixelArtShader.setUniformTexture("tex0", g_uiPostFbo.getTexture(), 0);
+			pixelArtShader.setUniform1i("levels", 28);
+			pixelArtShader.setUniform1i("useDither", 0);
+			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+			float uiDownscale = 2.0f; // Scale down for retro look
+			pixelArtShader.setUniform2f("uLowRes", ofGetWidth() / uiDownscale, ofGetHeight() / uiDownscale);
+			pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
+			pixelArtShader.setUniform1f("edgeStrength", 0.0f);
+			g_uiPostFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			pixelArtShader.end();
+
+			// Composite the crisp Text FBO on top of the pixelated screen
+			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			g_textFbo.draw(0, 0, ofGetWidth(), ofGetHeight());
+		} else if (useC64Pass) {
+			c64Shader.begin();
+			c64Shader.setUniformTexture("tex0", g_uiPostFbo.getTexture(), 0);
+			c64Shader.setUniform1f("uTime", ofGetElapsedTimef());
+			c64Shader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+			c64Shader.setUniform1f("uScanlineIntensity", c64ScanlineIntensity * 0.12f);
+			c64Shader.setUniform1f("uPixelSize", 1.25f);
+			g_uiPostFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			c64Shader.end();
+		} else if (useBlurPass) {
+			worldPostShader.begin();
+			worldPostShader.setUniformTexture("tex0", g_uiPostFbo.getTexture(), 0);
+			worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+			worldPostShader.setUniform1f("uFocusY", 0.5f);
+			worldPostShader.setUniform1f("uFocusRadius", 0.35f);
+			worldPostShader.setUniform1f("uMaxBlur", 2.0f);
+			g_uiPostFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			worldPostShader.end();
+		}
 	}
-	g_hoveredButtonId = ""; // Reset for the next frame
+
+	// Hover sound resolution safely at the end
+	if (!g_isSecondPass) {
+		static std::string s_lastHoveredBtn = "";
+		static float s_lastHoverSoundTime = 0.0f;
+		if (g_hoveredButtonId != s_lastHoveredBtn) {
+			if (!g_hoveredButtonId.empty() && s_sfxHoverButton.isLoaded()) {
+				if (ofGetElapsedTimef() - s_lastHoverSoundTime >= 1.0f) {
+					float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+					s_sfxHoverButton.setVolume(vol);
+					s_sfxHoverButton.play();
+					s_lastHoverSoundTime = ofGetElapsedTimef();
+				}
+			}
+			s_lastHoveredBtn = g_hoveredButtonId;
+		}
+		g_hoveredButtonId = "";
+	}
 }
 
 //--------------------------------------------------------------
@@ -6126,7 +7141,7 @@ void ofApp::drawMainMenu() {
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
 	float titleX = round(ofGetWidth() / 2.0f - titleBox.getWidth() / 2.0f);
 	float titleY = round(ofGetHeight() * 0.25f);
-	titleFont.drawString(title, titleX, titleY);
+	SafeDrawText(titleFont, title, titleX, titleY);
 
 	// --- DRAW BUTTONS ---
 	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
@@ -6146,7 +7161,7 @@ void ofApp::drawMainMenu() {
 		ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
 		float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
 		float ty = std::round(rect.getCenter().y - (tb.y + tb.height * 0.5f));
-		uiFont.drawString(text, tx, ty);
+		SafeDrawText(uiFont, text, tx, ty);
 	};
 
 	drawButton(mainMenuLocalPvPButton, "Local PvP", mainMenuHoveredIndex == 0);
@@ -6157,7 +7172,7 @@ void ofApp::drawMainMenu() {
 		ofDrawRectRounded(mainMenuOnlineButton, 15);
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox("Steam Offline", 0, 0);
-		uiFont.drawString("Steam Offline", mainMenuOnlineButton.getCenter().x - tb.width / 2, mainMenuOnlineButton.getCenter().y + tb.height / 2);
+		SafeDrawText(uiFont, "Steam Offline", mainMenuOnlineButton.getCenter().x - tb.width / 2, mainMenuOnlineButton.getCenter().y + tb.height / 2);
 	} else {
 		drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 2);
 	}
@@ -6194,7 +7209,7 @@ void ofApp::drawSettingsMenu() {
 	ofSetColor(ofColor::white);
 	string title = "Settings";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.15f);
+	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.15f);
 
 	// --- Settings UI Positions & Tabs ---
 	float tabsY = ofGetHeight() * 0.22f;
@@ -6221,7 +7236,7 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectRounded(r, 8);
 		ofSetColor(ofColor::white);
 		ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
-		uiFont.drawString(label, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
+		SafeDrawText(uiFont, label, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
 
 	drawTab(settingsTabVideoRect, "Video", currentSettingsTab == SETTINGS_TAB_VIDEO);
@@ -6248,7 +7263,7 @@ void ofApp::drawSettingsMenu() {
 			// Draw Label (centered)
 			ofSetColor(ofColor::white);
 			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
-			uiFont.drawString(label, centerX - lb.getWidth() / 2, yPos + 25);
+			SafeDrawText(uiFont, label, centerX - lb.getWidth() / 2, yPos + 25);
 
 			// Draw Left/Right buttons (dark bg)
 			leftBtn.set(centerX - (controlWidth / 2) - 45.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
@@ -6271,11 +7286,11 @@ void ofApp::drawSettingsMenu() {
 			// Draw TEXT AFTER the background and set its color to WHITE and centered
 			ofSetColor(ofColor::white);
 			ofRectangle vb = uiFont.getStringBoundingBox(value, 0, 0);
-			uiFont.drawString(value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
+			SafeDrawText(uiFont, value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
 			ofRectangle lt = uiFont.getStringBoundingBox("<", 0, 0);
 			ofRectangle rt = uiFont.getStringBoundingBox(">", 0, 0);
-			uiFont.drawString("<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
-			uiFont.drawString(">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
+			SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
+			SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
 		};
 
 		// --- Draw Resolution ---
@@ -6307,15 +7322,15 @@ void ofApp::drawSettingsMenu() {
 			frameText = ofToString(fps) + " FPS";
 		}
 		ofRectangle ftb = uiFont.getStringBoundingBox(frameText, 0, 0);
-		uiFont.drawString(frameText, centerX - ftb.width / 2, settingsFramerateSlider.y - 10);
+		SafeDrawText(uiFont, frameText, centerX - ftb.width / 2, settingsFramerateSlider.y - 10);
 		// Draw label left/right (place below slider to avoid overlap with handle)
 		string minLabel = "15";
 		string maxLabel = "Unlimited";
 		ofRectangle minb = uiFont.getStringBoundingBox(minLabel, 0, 0);
 		ofRectangle maxb = uiFont.getStringBoundingBox(maxLabel, 0, 0);
 		float labelY = settingsFramerateSlider.y + settingsFramerateSlider.height + 20.0f * uiScale;
-		uiFont.drawString(minLabel, settingsFramerateSlider.x - minb.width - 8.0f * uiScale, labelY + minb.height / 2.0f);
-		uiFont.drawString(maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8.0f * uiScale, labelY + maxb.height / 2.0f);
+		SafeDrawText(uiFont, minLabel, settingsFramerateSlider.x - minb.width - 8.0f * uiScale, labelY + minb.height / 2.0f);
+		SafeDrawText(uiFont, maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8.0f * uiScale, labelY + maxb.height / 2.0f);
 
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
@@ -6331,7 +7346,7 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectangle(settingsFullscreenButton);
 		ofSetColor(ofColor::white);
 		ofRectangle fb = uiFont.getStringBoundingBox(fsText, 0, 0);
-		uiFont.drawString(fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
+		SafeDrawText(uiFont, fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
 	}
 
 	// AUDIO tab: simple slider + mute/loop toggles
@@ -6351,7 +7366,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
 		ofRectangle mlb = uiFont.getStringBoundingBox(masterLabel, 0, 0);
-		uiFont.drawString(masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10.0f * uiScale);
+		SafeDrawText(uiFont, masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10.0f * uiScale);
 
 		// Music slider (Controls both Menu and Game Music)
 		sliderY += 60;
@@ -6364,7 +7379,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		string menuLabel = "Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
 		ofRectangle ml2 = uiFont.getStringBoundingBox(menuLabel, 0, 0);
-		uiFont.drawString(menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10.0f * uiScale);
+		SafeDrawText(uiFont, menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10.0f * uiScale);
 
 		// SFX slider
 		sliderY += 60.0f * uiScale;
@@ -6377,7 +7392,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
 		ofRectangle slb = uiFont.getStringBoundingBox(sfxLabel, 0, 0);
-		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10.0f * uiScale);
+		SafeDrawText(uiFont, sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10.0f * uiScale);
 	}
 
 	// CONTROLS tab: show all current game controls (read-only) with scrolling
@@ -6404,7 +7419,6 @@ void ofApp::drawSettingsMenu() {
 			{ "P", "Cycle Pixel / C64 / Off" },
 			{ "L", "Toggle World Post-Process" },
 			{ "Y", "Toggle FBO Preview" },
-			// M key removed: C64 is toggled via P now
 			{ "` (tilde)", "Toggle Debug Mode" },
 			{ "C", "Debug: Open Card Spawner" },
 			{ "U", "Debug: Toggle Unlimited AP" },
@@ -6422,7 +7436,7 @@ void ofApp::drawSettingsMenu() {
 
 		// Clip rendering to content area so text never appears under the Back button
 		ofPushStyle();
-		glEnable(GL_SCISSOR_TEST);
+		if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 		int scX = (int)startX;
 		int scW = (int)itemW;
 		int scY = (int)(ofGetHeight() - (listY + contentHeight));
@@ -6438,11 +7452,11 @@ void ofApp::drawSettingsMenu() {
 			ofSetColor(ofColor::white);
 			std::string keyLabel = controls[i].first;
 			std::string desc = controls[i].second;
-			uiFont.drawString(keyLabel, itemRect.x + 12, itemRect.y + 24);
-			uiFont.drawString(desc, itemRect.x + itemRect.width * 0.35f, itemRect.y + 24);
+			SafeDrawText(uiFont, keyLabel, itemRect.x + 12, itemRect.y + 24);
+			SafeDrawText(uiFont, desc, itemRect.x + itemRect.width * 0.35f, itemRect.y + 24);
 		}
 
-		glDisable(GL_SCISSOR_TEST);
+		if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 		ofPopStyle();
 
 		// Draw scrollbar if needed (right side of list)
@@ -6472,7 +7486,7 @@ void ofApp::drawSettingsMenu() {
 	ofDrawRectRounded(settingsBackButton, 15);
 	ofFill();
 	ofRectangle backBox = uiFont.getStringBoundingBox("Back", 0, 0);
-	uiFont.drawString("Back", settingsBackButton.getCenter().x - backBox.getWidth() / 2, settingsBackButton.getCenter().y + backBox.getHeight() / 2);
+	SafeDrawText(uiFont, "Back", settingsBackButton.getCenter().x - backBox.getWidth() / 2, settingsBackButton.getCenter().y + backBox.getHeight() / 2);
 }
 
 void ofApp::drawSingleplayerMenu() {
@@ -6488,7 +7502,7 @@ void ofApp::drawSingleplayerMenu() {
 
 	// Position title above the first button
 	float titleY = singleplayerNewGameButton.y - 40.0f * uiScale;
-	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, titleY);
+	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, titleY);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
 		if (r.inside(ofGetMouseX(), ofGetMouseY())) {
@@ -6508,7 +7522,7 @@ void ofApp::drawSingleplayerMenu() {
 
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
-		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
+		SafeDrawText(uiFont, txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
 
 	std::string contText = "Continue";
@@ -6536,14 +7550,14 @@ void ofApp::drawSingleplayerMenu() {
 	string hint = "Customisation coming soon";
 	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
 	ofSetColor(200);
-	uiFont.drawString(hint, centerX - hb.getWidth() / 2.0f, singleplayerBackButton.getBottom() + 36);
+	SafeDrawText(uiFont, hint, centerX - hb.getWidth() / 2.0f, singleplayerBackButton.getBottom() + 36);
 }
 
 void ofApp::drawSaveBrowser() {
 	ofSetColor(ofColor::white);
 	string title = "Load Saved Game";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.12);
+	SafeDrawText(titleFont, title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.12);
 
 	// Gather save files from the saves folder (game root relative Saves/ directory)
 	saveFilePaths.clear();
@@ -6638,7 +7652,7 @@ void ofApp::drawSaveBrowser() {
 
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox(display, 0, 0);
-		uiFont.drawString(display, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
+		SafeDrawText(uiFont, display, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	}
 
 	// Back button
@@ -6649,7 +7663,7 @@ void ofApp::drawSaveBrowser() {
 	ofDrawRectRounded(saveBrowserBackButton, 12);
 	ofSetColor(ofColor::black);
 	ofRectangle bb = uiFont.getStringBoundingBox("Back", 0, 0);
-	uiFont.drawString("Back", saveBrowserBackButton.getCenter().x - bb.getWidth() / 2, saveBrowserBackButton.getCenter().y + bb.getHeight() / 2);
+	SafeDrawText(uiFont, "Back", saveBrowserBackButton.getCenter().x - bb.getWidth() / 2, saveBrowserBackButton.getCenter().y + bb.getHeight() / 2);
 
 	// Confirmation overlay
 	if (networkPending.saveBrowserConfirmVisible && networkPending.saveBrowserPendingIndex >= 0 && networkPending.saveBrowserPendingIndex < (int)saveFilePaths.size()) {
@@ -6677,7 +7691,7 @@ void ofApp::drawSaveBrowser() {
 		ofSetColor(ofColor::white);
 		ofDrawRectRounded(confirmBox, 10);
 		ofSetColor(ofColor::black);
-		uiFont.drawString(msg, confirmBox.getCenter().x - mBox.getWidth() / 2, confirmBox.getCenter().y - 8);
+		SafeDrawText(uiFont, msg, confirmBox.getCenter().x - mBox.getWidth() / 2, confirmBox.getCenter().y - 8);
 
 		// Confirm / Cancel buttons
 		saveBrowserConfirmLoadButton.set(confirmBox.getCenter().x - 160 - 12, confirmBox.getCenter().y + 18, 160, 44);
@@ -6689,13 +7703,13 @@ void ofApp::drawSaveBrowser() {
 		ofDrawRectRounded(saveBrowserConfirmLoadButton, 8);
 		ofSetColor(ofColor::black);
 		ofRectangle lb = uiFont.getStringBoundingBox("Load", 0, 0);
-		uiFont.drawString("Load", saveBrowserConfirmLoadButton.getCenter().x - lb.getWidth() / 2, saveBrowserConfirmLoadButton.getCenter().y + lb.getHeight() / 2);
+		SafeDrawText(uiFont, "Load", saveBrowserConfirmLoadButton.getCenter().x - lb.getWidth() / 2, saveBrowserConfirmLoadButton.getCenter().y + lb.getHeight() / 2);
 
 		ofSetColor(ofColor::white);
 		ofDrawRectRounded(saveBrowserConfirmCancelButton, 8);
 		ofSetColor(ofColor::black);
 		ofRectangle cb = uiFont.getStringBoundingBox("Cancel", 0, 0);
-		uiFont.drawString("Cancel", saveBrowserConfirmCancelButton.getCenter().x - cb.getWidth() / 2, saveBrowserConfirmCancelButton.getCenter().y + cb.getHeight() / 2);
+		SafeDrawText(uiFont, "Cancel", saveBrowserConfirmCancelButton.getCenter().x - cb.getWidth() / 2, saveBrowserConfirmCancelButton.getCenter().y + cb.getHeight() / 2);
 	}
 }
 
@@ -6710,7 +7724,7 @@ void ofApp::drawMultiplayerMenu() {
 	ofSetColor(ofColor::white);
 	string title = "Online Versus";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.1f);
+	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.1f);
 
 	// Layout Dimensions (Full screen split in two)
 	float colW = ofGetWidth() * 0.4f;
@@ -6722,7 +7736,7 @@ void ofApp::drawMultiplayerMenu() {
 
 	// --- LEFT COLUMN: LOBBY LIST ---
 	ofSetColor(ofColor::gold);
-	uiFont.drawString("Available Matches", leftColX, listY - 20.0f * uiScale);
+	SafeDrawText(uiFont, "Available Matches", leftColX, listY - 20.0f * uiScale);
 
 	auto lobbies = steamManager.getLobbyList();
 	mpLobbyButtons.clear();
@@ -6734,12 +7748,12 @@ void ofApp::drawMultiplayerMenu() {
 	g_mpLobbyScroll = std::clamp(g_mpLobbyScroll, 0.0f, maxLobbyScroll);
 
 	// Setup Scissor to clip scrolling lobbies
-	glEnable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	glScissor((int)leftColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (lobbies.empty()) {
 		ofSetColor(150);
-		uiFont.drawString("No open matches found.", leftColX + 10, listY + 30);
+		SafeDrawText(uiFont, "No open matches found.", leftColX + 10, listY + 30);
 	} else {
 		float currentY = listY - g_mpLobbyScroll;
 		for (size_t i = 0; i < lobbies.size(); ++i) {
@@ -6761,7 +7775,7 @@ void ofApp::drawMultiplayerMenu() {
 					lobbyText += " [SPECTATE]";
 				else
 					lobbyText += " [JOIN]";
-				uiFont.drawString(lobbyText, lRect.x + 15, lRect.y + 40 * uiScale);
+				SafeDrawText(uiFont, lobbyText, lRect.x + 15, lRect.y + 40 * uiScale);
 			} else {
 				// Push empty rect so the loop index matches the lobby click selection array!
 				mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
@@ -6770,7 +7784,7 @@ void ofApp::drawMultiplayerMenu() {
 			currentY += btnH + 10.0f * uiScale;
 		}
 	}
-	glDisable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 
 	// Action Buttons under Lobbies
 	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
@@ -6786,7 +7800,7 @@ void ofApp::drawMultiplayerMenu() {
 		ofDrawRectRounded(r, 12);
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
-		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2 - 2);
+		SafeDrawText(uiFont, txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2 - 2);
 	};
 
 	drawBtn(mpRefreshButton, "Refresh List");
@@ -6794,7 +7808,7 @@ void ofApp::drawMultiplayerMenu() {
 
 	// --- RIGHT COLUMN: LEADERBOARD ---
 	ofSetColor(ofColor::cyan);
-	uiFont.drawString("Global Rankings (Rating)", rightColX, listY - 20.0f * uiScale);
+	SafeDrawText(uiFont, "Global Rankings (Rating)", rightColX, listY - 20.0f * uiScale);
 
 	auto leaderboard = steamManager.getLeaderboardEntries();
 
@@ -6803,12 +7817,12 @@ void ofApp::drawMultiplayerMenu() {
 	float maxLbScroll = std::max(0.0f, totalLbHeight - listHeight);
 	g_mpLeaderboardScroll = std::clamp(g_mpLeaderboardScroll, 0.0f, maxLbScroll);
 
-	glEnable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	glScissor((int)rightColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (leaderboard.empty()) {
 		ofSetColor(150);
-		uiFont.drawString("Loading rankings...", rightColX + 10, listY + 30);
+		SafeDrawText(uiFont, "Loading rankings...", rightColX + 10, listY + 30);
 	} else {
 		float lbY = listY - g_mpLeaderboardScroll;
 		for (const auto & entry : leaderboard) {
@@ -6819,7 +7833,7 @@ void ofApp::drawMultiplayerMenu() {
 
 				// Rank Number
 				ofSetColor(ofColor::gold);
-				uiFont.drawString("#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
+				SafeDrawText(uiFont, "#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
 
 				// Cache the level locally so we don't query Steamworks IPC every frame
 				static int32_t cachedAccountLevel = -1;
@@ -6837,14 +7851,14 @@ void ofApp::drawMultiplayerMenu() {
 
 				auto rank = getMageRank(entry.score);
 				ofSetColor(ofColor::white);
-				uiFont.drawString(entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
+				SafeDrawText(uiFont, entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
 
 				// Render Level Badge if available
 				if (accountLevel > 0) {
 					std::string lvlStr = "Lvl " + std::to_string(accountLevel);
 					ofRectangle nameBox = uiFont.getStringBoundingBox(entry.name, 0, 0);
 					ofSetColor(0, 180, 255);
-					uiFont.drawString(lvlStr, rightColX + 105 * uiScale + nameBox.width, lbY + 40 * uiScale);
+					SafeDrawText(uiFont, lvlStr, rightColX + 105 * uiScale + nameBox.width, lbY + 40 * uiScale);
 				}
 
 				// Score Display
@@ -6852,18 +7866,18 @@ void ofApp::drawMultiplayerMenu() {
 				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
 				float scoreX = rightColX + colW - sb.width - 20;
 				ofSetColor(ofColor::white);
-				uiFont.drawString(scoreStr, scoreX, lbY + 40 * uiScale);
+				SafeDrawText(uiFont, scoreStr, scoreX, lbY + 40 * uiScale);
 
 				// Rank Badge
 				std::string rankStr = "[" + rank.first + "]";
 				ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
 				ofSetColor(rank.second);
-				uiFont.drawString(rankStr, scoreX - rb.width - 15 * uiScale, lbY + 40 * uiScale);
+				SafeDrawText(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbY + 40 * uiScale);
 			}
 			lbY += btnH + 5.0f * uiScale;
 		}
 	}
-	glDisable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 
 	// Back Button
 	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
@@ -6949,14 +7963,6 @@ void ofApp::applySettings() {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
 		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
 		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_TRUE);
-	}
-
-	// --- 11. POST PROCESSING (Optional, used for 3D world only) ---
-	{
-		// Decoupled update helpers
-		updateNetwork();
-		updateVisuals();
-		updateAudio();
 	}
 }
 //--------------------------------------------------------------
@@ -9430,6 +10436,8 @@ void ofApp::drawGame() {
 
 	// --- RENDER WORLD 3D ---
 	auto renderWorld3D = [&](bool drawCoins) {
+		if (g_isSecondPass) return; // Skip heavy 3D geometry in text-only pass
+
 		ofEnableDepthTest();
 
 		// CRITICAL FIX: Ensure no leftover materials from UI FBOs corrupt the main world
@@ -10403,7 +11411,7 @@ void ofApp::drawGame() {
 					ofRotateYDeg(angle);
 					ofScale(0.02f, 0.02f, 0.02f);
 					ofSetColor(0, 255, 255, alpha * 255);
-					uiFont.drawString("z", 0, 0);
+					SafeDrawText(uiFont, "z", 0, 0);
 					ofPopMatrix();
 				}
 				ofPopMatrix();
@@ -10447,7 +11455,7 @@ void ofApp::drawGame() {
 				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
 				ofScale(0.015f * pulse, 0.015f * pulse, 0.015f * pulse);
 				ofSetColor(0, 200, 0); // Green for poison
-				uiFont.drawString("[X]", -20, 0); // Simple skull representation
+				SafeDrawText(uiFont, "[X]", -20, 0); // Simple skull representation
 				ofPopMatrix();
 			}
 
@@ -10463,7 +11471,7 @@ void ofApp::drawGame() {
 				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
 				ofScale(0.015f * pulse, 0.015f * pulse, 0.015f * pulse);
 				ofSetColor(100, 255, 100);
-				uiFont.drawString("Poison Coated", -55, 0);
+				SafeDrawText(uiFont, "Poison Coated", -55, 0);
 				ofPopMatrix();
 			}
 
@@ -10479,7 +11487,7 @@ void ofApp::drawGame() {
 				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
 				ofScale(0.015f * pulse, 0.015f * pulse, 0.015f * pulse);
 				ofSetColor(0, 255, 255);
-				uiFont.drawString("Replicating", -45, 0);
+				SafeDrawText(uiFont, "Replicating", -45, 0);
 				ofPopMatrix();
 			}
 
@@ -11460,15 +12468,13 @@ void ofApp::drawGame() {
 	// --- POST PROCESSING & 2D UI DRAWING ---
 	const bool usePost = ((enableWorldPostProcess && worldPostShaderLoaded) || (enableC64Shader && c64ShaderLoaded) || (enablePixelArt && pixelArtShaderLoaded));
 
-	if (enablePixelArt && !pixelArtShaderLoaded && !pixelArtWarned) {
-		ofLogWarning("PixelArt") << "Pixel-art was requested but shader did not load; falling back to normal render.";
-		pixelArtWarned = true;
-	}
-
-	if (usePost) {
+	if (g_isSecondPass) {
+		// Do absolutely nothing for the 3D backgrounds in Pass 2
+	} else if (usePost && !g_isFboPass) {
+		// (The existing code for rendering worldFbo and applying normal shaders...)
 		if (enablePixelArt && pixelArtShaderLoaded) {
-			int pw = std::max(2, ofGetWidth() / pixelArtDownscale);
-			int ph = std::max(2, ofGetHeight() / pixelArtDownscale);
+			int pw = std::max(2, (int)(ofGetWidth() / 2.0f)); // Forced 2.0x downscale
+			int ph = std::max(2, (int)(ofGetHeight() / 2.0f));
 			if (!pixelLowFbo.isAllocated() || pixelLowFbo.getWidth() != pw || pixelLowFbo.getHeight() != ph) {
 				ofFbo::Settings psettings;
 				psettings.width = pw;
@@ -11503,11 +12509,12 @@ void ofApp::drawGame() {
 			cam2.setAspectRatio(oldAspectCam2);
 
 			ofDisableDepthTest();
+			ofSetColor(255, 255, 255, 255); // CRITICAL: Reset color so FBO doesn't draw invisible!
 
 			pixelArtShader.begin();
 			pixelArtShader.setUniformTexture("tex0", pixelLowFbo.getTexture(), 0);
-			pixelArtShader.setUniform1i("levels", pixelArtLevels);
-			pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
+			pixelArtShader.setUniform1i("levels", 28); // Fixed at 28
+			pixelArtShader.setUniform1i("useDither", 0);
 			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
 			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
 			pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
@@ -11528,14 +12535,15 @@ void ofApp::drawGame() {
 				worldFbo.end();
 
 				ofDisableDepthTest();
+				ofSetColor(255, 255, 255, 255); // CRITICAL: Reset color so FBO doesn't draw invisible!
 
 				if (enableC64Shader && c64ShaderLoaded) {
 					c64Shader.begin();
 					c64Shader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
 					c64Shader.setUniform1f("uTime", ofGetElapsedTimef());
 					c64Shader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-					c64Shader.setUniform1f("uScanlineIntensity", c64ScanlineIntensity);
-					c64Shader.setUniform1f("uPixelSize", 2.0f);
+					c64Shader.setUniform1f("uScanlineIntensity", c64ScanlineIntensity * 0.12f);
+					c64Shader.setUniform1f("uPixelSize", 1.25f);
 					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 					c64Shader.end();
 				} else {
@@ -11549,7 +12557,7 @@ void ofApp::drawGame() {
 					}
 					worldPostShader.setUniform1f("uFocusY", focusY);
 					worldPostShader.setUniform1f("uFocusRadius", 0.12f);
-					worldPostShader.setUniform1f("uMaxBlur", 6.0f);
+					worldPostShader.setUniform1f("uMaxBlur", 2.0f);
 					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 					worldPostShader.end();
 				}
@@ -11937,11 +12945,11 @@ void ofApp::drawGame() {
 
 		// Shadow (with vertical centering fix)
 		ofSetColor(0, 0, 0, alpha);
-		titleFont.drawString(ft.text, -bounds.width / 2 + 2, bounds.height / 2 + 2);
+		SafeDrawText(titleFont, ft.text, -bounds.width / 2 + 2, bounds.height / 2 + 2);
 
 		// Main Text (with vertical centering fix)
 		ofSetColor(ft.color, alpha);
-		titleFont.drawString(ft.text, -bounds.width / 2, bounds.height / 2);
+		SafeDrawText(titleFont, ft.text, -bounds.width / 2, bounds.height / 2);
 
 		ofPopMatrix();
 	}
@@ -12563,7 +13571,7 @@ void ofApp::drawGame() {
 			ofTranslate(avatarX + avatarSize / 2 - (initialsBox.width * initialsScale / 2),
 				avatarY + avatarSize / 2 + (initialsBox.height * initialsScale / 2));
 			ofScale(initialsScale, initialsScale);
-			uiFont.drawString(initials, 0, 0);
+			SafeDrawText(uiFont, initials, 0, 0);
 			ofPopMatrix();
 		}
 		ofPopStyle();
@@ -12695,6 +13703,7 @@ void ofApp::drawGame() {
 
 			if (canReroll) {
 				float uiScale = getUIScaleFromHeight(ofGetHeight());
+				(void)uiScale;
 				float btnW = 130 * uiScale; // shorter button
 				float btnH = 44 * uiScale;
 				// Position reroll button anchored to AP box side for the active owner
@@ -12951,6 +13960,7 @@ void ofApp::drawGame() {
 		string viewTitle;
 
 		float uiScale = getUIScaleFromHeight(ofGetHeight());
+		(void)uiScale;
 
 		// 1. Get the correct cards and apply sorting rules
 		if (currentPileView == VIEW_DECK) {
@@ -13070,7 +14080,7 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 			ofTranslate(startX + panelPadding, startY + panelPadding + titleHeight * 0.5f);
 			ofScale(uiScale, uiScale);
-			uiFont.drawString(viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", 0, 0);
+			SafeDrawText(uiFont, viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", 0, 0);
 			ofPopMatrix();
 
 			// Calculate and clamp scroll boundaries
@@ -13079,7 +14089,7 @@ void ofApp::drawGame() {
 
 			// Clip the viewport bounds
 			ofPushStyle();
-			glEnable(GL_SCISSOR_TEST);
+			if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 			int scX = (int)(startX + panelPadding);
 			int scW = (int)totalContentWidth;
 			// Corrected: Include titleHeight to prevent clipping the bottom of the card row
@@ -13102,7 +14112,7 @@ void ofApp::drawGame() {
 				}
 			}
 
-			glDisable(GL_SCISSOR_TEST);
+			if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 			ofPopStyle();
 
 			// Draw scrollbar
@@ -13207,1066 +14217,7 @@ void ofApp::drawGame() {
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
 
-	// (elideStringToWidth removed — unused helper)
-	// === PHASE 2-3: NEW UNIFIED CARD INTERACTION UI ===
-	drawActiveCardInteractionUI();
-
-	// --- Chat System ---
-	{
-		float currentTime = ofGetElapsedTimef();
-		bool hasLingering = false;
-
-		float chatMaxWidth = 300 * scale; // Shrunk from 450 to 300 for a compact, non-overlapping footprint
-		float chatBoxHeight = 360 * scale; // FIXED SIZE
-		float tabHeight = 25 * scale;
-		float messageHeight = 18 * scale;
-		float contentPadding = 8.0f * scale;
-
-		auto wrapText = [&](const std::string & text, float maxWidth) {
-			std::vector<std::string> lines;
-			std::stringstream ss(text);
-			std::string paragraph;
-
-			// Process paragraph chunks separated by manual newlines
-			while (std::getline(ss, paragraph, '\n')) {
-				std::stringstream wordStream(paragraph);
-				std::string word;
-				std::string currentLine;
-
-				while (wordStream >> word) {
-					std::string testLine = currentLine.empty() ? word : (currentLine + " " + word);
-					if (uiFont.stringWidth(testLine) <= maxWidth) {
-						currentLine = testLine;
-					} else {
-						if (!currentLine.empty()) {
-							lines.push_back(currentLine);
-						}
-
-						// If a single word itself is wider than the maximum width limit (e.g. a long URL),
-						// fallback to character-by-character wrapping for that word to prevent overflow.
-						if (uiFont.stringWidth(word) > maxWidth) {
-							std::string subWord;
-							for (char c : word) {
-								std::string testChar = subWord + c;
-								if (uiFont.stringWidth(testChar) <= maxWidth) {
-									subWord = testChar;
-								} else {
-									lines.push_back(subWord);
-									subWord = std::string(1, c);
-								}
-							}
-							currentLine = subWord;
-						} else {
-							currentLine = word;
-						}
-					}
-				}
-				if (!currentLine.empty() || lines.empty()) {
-					lines.push_back(currentLine);
-				}
-			}
-			if (lines.empty()) lines.push_back("");
-			return lines;
-		};
-
-		std::vector<std::vector<std::string>> visibleWrappedBlocks;
-		std::vector<float> visibleAlphas;
-		if (!isChatOpen) {
-			for (int i = (int)chatHistory.size() - 1; i >= 0; --i) {
-				const ChatMessage & msg = chatHistory[i];
-				string fullMsg = msg.playerName + ": " + msg.message;
-				auto lines = wrapText(fullMsg, chatMaxWidth - 20);
-
-				// FIX: Increased linger time to 10 seconds so players can read longer messages
-				if (currentTime - msg.timestamp < 10.0f) {
-					visibleWrappedBlocks.push_back(lines);
-
-					// Fade out smoothly in the last 2 seconds
-					float age = currentTime - msg.timestamp;
-					float alpha = 1.0f;
-					if (age > 8.0f) {
-						alpha = 1.0f - ((age - 8.0f) / 2.0f);
-					}
-					visibleAlphas.push_back(alpha);
-
-					hasLingering = true;
-				}
-			}
-			if (hasLingering) {
-				std::reverse(visibleWrappedBlocks.begin(), visibleWrappedBlocks.end());
-				std::reverse(visibleAlphas.begin(), visibleAlphas.end());
-			}
-		}
-
-		bool shouldShowChat = isChatOpen || hasLingering;
-
-		if (shouldShowChat) {
-			chatScrollOffset = 0;
-			const UILayoutSpacing uiLayout = buildUILayoutSpacing(scale, turnTimerEnabled);
-			float margin = uiLayout.chatInset + uiLayout.timerBarHeight;
-
-			float chatY = margin + tabHeight + chatBoxHeight;
-			float chatX = margin;
-
-			// FIX: Always place chat to the right of the minion UI area, even if empty
-			float smallGap = 12.0f * scale;
-			float expectedMinionRight = p0_minionLeft + minionPanelW;
-			if (expectedMinionRight <= 0.0f) {
-				expectedMinionRight = effectiveBottomGap(uiLayout) + (510.0f * scale);
-			}
-
-			float endTurnLeft = endTurnButtonRect.x > 0 ? endTurnButtonRect.x : (ofGetWidth() / 2.0f);
-			float leftBound = expectedMinionRight + smallGap;
-			float rightBound = endTurnLeft - smallGap;
-
-			// Only apply dynamic gameplay layout shifts once actively inside a match state
-			bool inGameplayArea = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED);
-
-			if (inGameplayArea) {
-				if (rightBound - leftBound > 150.0f * scale) {
-					chatX = leftBound;
-					chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
-				} else {
-					chatX = margin;
-				}
-			} else {
-				chatX = margin; // Stable left alignment for matchmaking/lobby menus
-			}
-
-			// Calculate the absolute left boundary of the card history bar to prevent overlapping
-			float historyIconSize = 46.0f * scale;
-			float historySpacing = 8.0f * scale;
-			float maxHistoryW = 8.0f * historyIconSize + 7.0f * historySpacing;
-			float historyLeft = (ofGetWidth() / 2.0f) - (maxHistoryW / 2.0f);
-
-			// Limit the chat box width so it terminates nicely before the card history starts
-			float safetyBuffer = 10.0f * scale;
-			chatMaxWidth = std::min(chatMaxWidth, historyLeft - chatX - safetyBuffer);
-
-			if (isChatOpen) {
-				chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
-
-				// Draw main chat box background
-				ofPushStyle();
-				ofSetColor(0, 0, 0, 160);
-				ofDrawRectangle(chatWindowRect);
-				ofSetColor(0, 0, 0, 255);
-				ofNoFill();
-				ofSetLineWidth(2);
-				ofDrawRectangle(chatWindowRect);
-				ofFill();
-
-				// Draw Tabs
-				float tabWidth = 80 * scale;
-				ofRectangle chatTabRect(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
-				ofRectangle logTabRect(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
-				ofRectangle debugTabRect(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
-
-				auto drawTab = [&](ofRectangle r, string label, bool active) {
-					ofSetColor(active ? ofColor(60, 60, 60, 220) : ofColor(20, 20, 20, 150));
-					ofDrawRectangle(r);
-					ofSetColor(255);
-					ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
-					uiFont.drawString(label, r.x + (r.width - tb.width) / 2, r.y + (r.height + tb.height) / 2 - 2);
-				};
-
-				drawTab(chatTabRect, "CHAT", currentChatTab == ChatTab::CHAT);
-				drawTab(logTabRect, "LOG", currentChatTab == ChatTab::LOG);
-				drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
-				ofPopStyle();
-
-				// SCISSOR CONTENT
-				ofPushStyle();
-				glEnable(GL_SCISSOR_TEST);
-
-				// Calculate scissor coordinates (origin bottom-left in GL)
-				float sfY = (float)ofGetViewportHeight() / (float)ofGetHeight();
-				float sfX = (float)ofGetViewportWidth() / (float)ofGetWidth();
-				int scX = (int)(chatX * sfX);
-				int scY = (int)((ofGetHeight() - chatY) * sfY);
-				int scW = (int)(chatMaxWidth * sfX);
-				int scH = (int)(chatBoxHeight * sfY);
-				glScissor(scX, scY, scW, scH);
-
-				float contentTop = chatY - chatBoxHeight + contentPadding;
-				float contentBottom = chatY - contentPadding;
-
-				if (currentChatTab == ChatTab::CHAT) {
-					string charCount = ofToString(chatInput.length()) + " / " + ofToString(maxChatInputLength);
-					ofRectangle countBox = uiFont.getStringBoundingBox(charCount, 0, 0);
-
-					// Dynamic Badge Color mapping based on limit usage
-					int len = chatInput.length();
-					ofColor badgeBg(35, 35, 45, 200);
-					ofColor textCol(180, 180, 195);
-					if (len >= maxChatInputLength) {
-						badgeBg = ofColor(120, 25, 25, 220); // Crimson red alert at limit
-						textCol = ofColor(255, 120, 120);
-					} else if (len >= maxChatInputLength * 0.8) {
-						badgeBg = ofColor(110, 85, 20, 210); // Gold warning at 80%
-						textCol = ofColor(255, 225, 120);
-					}
-
-					float badgeW = countBox.width + 16.0f * scale;
-					float badgeH = countBox.height + 10.0f * scale;
-					float badgeX = chatX + chatMaxWidth - badgeW - 8.0f * scale;
-					float badgeY = chatY - contentPadding - badgeH;
-
-					string displayText = "> " + chatInput;
-					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) displayText += "_";
-
-					// Restrict input text layout width to never cross the badge boundaries
-					float maxInputW = chatMaxWidth - badgeW - 24.0f * scale;
-					auto wrappedInput = wrapText(displayText, maxInputW);
-					int inputLines = wrappedInput.size();
-					contentBottom -= (inputLines * messageHeight + 2.0f * scale);
-
-					// Draw History
-					float messageY = contentTop + messageHeight;
-					std::vector<ChatMessage> messagesToDraw;
-					int maxVis = (int)(chatBoxHeight / messageHeight) - inputLines - 1;
-					for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
-						messagesToDraw.push_back(chatHistory[i]);
-					}
-					std::reverse(messagesToDraw.begin(), messagesToDraw.end());
-
-					for (const auto & msg : messagesToDraw) {
-						string fullMsg = msg.playerName + ": " + msg.message;
-						auto wLines = wrapText(fullMsg, chatMaxWidth - 20);
-						for (const auto & line : wLines) {
-							if (messageY > contentBottom) break;
-							ofSetColor(255);
-							uiFont.drawString(line, chatX + 10, messageY);
-							messageY += messageHeight;
-						}
-					}
-
-					// Draw Input
-					float inputY = chatY - contentPadding - (inputLines - 1) * messageHeight;
-					for (const auto & line : wrappedInput) {
-						ofSetColor(255);
-						uiFont.drawString(line, chatX + 10, inputY);
-						inputY += messageHeight;
-					}
-
-					// Draw Improved length pill-badge
-					ofSetColor(badgeBg);
-					ofDrawRectRounded(badgeX, badgeY, badgeW, badgeH, 6 * scale);
-
-					ofSetColor(textCol);
-					uiFont.drawString(charCount, badgeX + 8.0f * scale, badgeY + countBox.height + 4.0f * scale);
-
-				} else if (currentChatTab == ChatTab::LOG) {
-					float logY = contentTop + messageHeight;
-					int maxVis = (int)(chatBoxHeight / messageHeight);
-					int drawn = 0;
-					for (int i = 0; i < (int)gameLog.size() && drawn < maxVis; i++) {
-						auto wLines = wrapText(gameLog[i].text, chatMaxWidth - 20);
-						for (const auto & line : wLines) {
-							if (logY > contentBottom || drawn >= maxVis) break;
-							ofSetColor(200);
-							uiFont.drawString(line, chatX + 10, logY);
-							logY += messageHeight;
-							drawn++;
-						}
-					}
-				} else if (currentChatTab == ChatTab::DEBUG) {
-					float availableW = chatMaxWidth - 2 * contentPadding;
-					float curY = contentTop + contentPadding;
-
-					auto drawChatDebugButton = [&](const ofRectangle & rect, const std::string & label, bool isToggle = false, bool state = false, ofColor overrideColor = ofColor()) {
-						ofColor btnColor = ofColor();
-						if (overrideColor != ofColor())
-							btnColor = overrideColor;
-						else if (isToggle)
-							btnColor = (state ? ofColor::green : ofColor::darkRed);
-						else
-							btnColor = ofColor::slateGray;
-
-						ofSetColor(btnColor);
-						ofDrawRectRounded(rect, 5.0f * scale);
-						ofSetColor(ofColor::white);
-						ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
-						uiFont.drawString(label, rect.getCenter().x - tb.width / 2, rect.getCenter().y + tb.height / 2 - 2);
-					};
-
-					const std::vector<std::string> rowLabels = {
-						"HP", "MaxHP", "Deck", "Discard", "Block", "Ward", "Fortify", "Barrier", "HolyBlk"
-					};
-
-					float panelGap = 10.0f * scale;
-					float panelW = (availableW - panelGap) * 0.5f;
-					float leftX = chatX + contentPadding;
-					float rightX = leftX + panelW + panelGap;
-					float rowH = 18.0f * scale; // Compacted for fixed height
-					float rowGap = 2.0f * scale;
-					float btnGap = 2.0f * scale;
-					float btnW = (panelW - btnGap) * 0.5f;
-
-					ofSetColor(ofColor::lightSteelBlue);
-					uiFont.drawString("Player 1", leftX, curY + 12 * scale);
-					uiFont.drawString("Player 2", rightX, curY + 12 * scale);
-					curY += 16.0f * scale;
-
-					debugP1PlusButtons.assign(rowLabels.size(), ofRectangle());
-					debugP1MinusButtons.assign(rowLabels.size(), ofRectangle());
-					debugP2PlusButtons.assign(rowLabels.size(), ofRectangle());
-					debugP2MinusButtons.assign(rowLabels.size(), ofRectangle());
-
-					for (size_t i = 0; i < rowLabels.size(); ++i) {
-						float y = curY + i * (rowH + rowGap);
-						debugP1PlusButtons[i].set(leftX, y, btnW, rowH);
-						debugP1MinusButtons[i].set(leftX + btnW + btnGap, y, btnW, rowH);
-						debugP2PlusButtons[i].set(rightX, y, btnW, rowH);
-						debugP2MinusButtons[i].set(rightX + btnW + btnGap, y, btnW, rowH);
-
-						drawChatDebugButton(debugP1PlusButtons[i], "+" + rowLabels[i], false, false, ofColor(50, 150, 50));
-						drawChatDebugButton(debugP1MinusButtons[i], "-" + rowLabels[i], false, false, ofColor(150, 50, 50));
-						drawChatDebugButton(debugP2PlusButtons[i], "+" + rowLabels[i], false, false, ofColor(50, 150, 50));
-						drawChatDebugButton(debugP2MinusButtons[i], "-" + rowLabels[i], false, false, ofColor(150, 50, 50));
-					}
-
-					curY += rowLabels.size() * (rowH + rowGap) + (6.0f * scale);
-
-					ofSetColor(ofColor::yellow);
-					uiFont.drawString("General", leftX, curY + 12 * scale);
-					curY += 16.0f * scale;
-
-					float gGap = 4.0f * scale;
-					float gH = 20.0f * scale;
-					int gCols = 3;
-					float gW = (availableW - (gCols - 1) * gGap) / gCols;
-					auto setGridRect = [&](ofRectangle & r, int idx) {
-						int col = idx % gCols;
-						int row = idx / gCols;
-						r.set(leftX + col * (gW + gGap), curY + row * (gH + gGap), gW, gH);
-					};
-
-					int gi = 0;
-					setGridRect(debugSpawnCardButton, gi++);
-					setGridRect(debugAddAllCardsButton, gi++);
-					setGridRect(debugSkipDraftButton, gi++);
-					setGridRect(debugDrawCardButton, gi++);
-					setGridRect(debugFlipCoinButton, gi++);
-					setGridRect(debugRollD4Button, gi++);
-					setGridRect(debugRollD6Button, gi++);
-					setGridRect(debugRollD10Button, gi++);
-					setGridRect(debugRollD20Button, gi++);
-					setGridRect(debugUnlimitedAPButton, gi++);
-					setGridRect(debugUnlimitedTimeButton, gi++);
-					setGridRect(debugForceEndTurnButton, gi++);
-					setGridRect(debugSpawnPlayer1Button, gi++);
-					setGridRect(debugSpawnPlayer2Button, gi++);
-					setGridRect(debugSpawnUnitButton, gi++);
-
-					drawChatDebugButton(debugSpawnCardButton, "CardSpawner");
-					drawChatDebugButton(debugAddAllCardsButton, "AddAll70");
-					drawChatDebugButton(debugSkipDraftButton, "SkipDraft");
-					drawChatDebugButton(debugDrawCardButton, "DrawCard");
-					drawChatDebugButton(debugFlipCoinButton, "Coin");
-					drawChatDebugButton(debugRollD4Button, "D4");
-					drawChatDebugButton(debugRollD6Button, "D6");
-					drawChatDebugButton(debugRollD10Button, "D10");
-					drawChatDebugButton(debugRollD20Button, "D20");
-					drawChatDebugButton(debugUnlimitedAPButton, hasUnlimitedAP ? "Unlim AP: ON" : "Unlim AP: OFF", true, hasUnlimitedAP);
-					drawChatDebugButton(debugUnlimitedTimeButton, !turnTimerEnabled ? "Unlim Time: ON" : "Unlim Time: OFF", true, !turnTimerEnabled);
-					drawChatDebugButton(debugForceEndTurnButton, "ForceEndTurn");
-					drawChatDebugButton(debugSpawnPlayer1Button, "SpawnPlayer1", true, debugSpawnMode == DEBUG_SPAWN_PLAYER1);
-					drawChatDebugButton(debugSpawnPlayer2Button, "SpawnPlayer2", true, debugSpawnMode == DEBUG_SPAWN_PLAYER2);
-					drawChatDebugButton(debugSpawnUnitButton, "SpawnPlayer", true, debugSpawnMode == DEBUG_SPAWN_FULL_DECK);
-				}
-
-				glDisable(GL_SCISSOR_TEST);
-				ofPopStyle();
-
-			} else {
-				// CLOSED: Draw lingering text ONLY (no background)
-				chatWindowRect.set(0, 0, 0, 0); // No click hitbox
-
-				// Anchor to the top of the screen/margin!
-				float closedContentTop = margin + contentPadding;
-				float closedContentBottom = ofGetHeight(); // No strict bottom limit for lingering text
-
-				// Reduce spacing so it starts nicely at the top
-				float messageY = closedContentTop + messageHeight * 0.8f;
-
-				int blockIdx = 0;
-				for (const auto & blk : visibleWrappedBlocks) {
-					float alpha = visibleAlphas[blockIdx++];
-					int alpha255 = (int)(alpha * 255);
-					int shadow200 = (int)(alpha * 200);
-
-					for (const auto & line : blk) {
-						if (messageY > closedContentBottom) break; // Don't bleed out the bottom
-
-						// Text shadow
-						drawPixelTextBaseline(uiFont, line, chatX + 11, messageY + 1, 1.0f, ofColor(0, 0, 0, shadow200));
-						// Text front
-						drawPixelTextBaseline(uiFont, line, chatX + 10, messageY, 1.0f, ofColor(255, 255, 255, alpha255));
-						messageY += messageHeight;
-					}
-				}
-			}
-		}
-	}
-
-	// --- Debug Card Spawner UI (KRunner-style) ---
-	if (isCardSpawnerOpen) {
-		drawCardSpawnerUI();
-	}
-	if (isCardEncyclopediaOpen) {
-		drawCardEncyclopediaUI();
-	}
-
-	// --- TOP INSTRUCTION TEXT (Minion Placement) ---
-	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-		string msg = "";
-
-		if (interactingCardType == CARD_CALL_FOR_WOLVES) {
-			if (wolfSummonStage == 2)
-				msg = "Wolf: Choose 2nd adjacent empty tile (Heads!)";
-			else
-				msg = "Wolf: Choose an adjacent empty tile";
-		} else if (interactingCardType == CARD_CALL_FOR_KOBOLDS) {
-			msg = "Kobold: Choose adjacent empty tile (" + ofToString(koboldsRemainingToPlace) + " left)";
-		}
-
-		if (!msg.empty()) {
-			// Calculate center position
-			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-			float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-			float ty = ofGetHeight() * 0.12f;
-
-			// Draw Text Shadow/Outline for visibility
-			ofSetColor(0, 0, 0, 255);
-			titleFont.drawString(msg, tx + 2, ty + 2);
-			titleFont.drawString(msg, tx - 2, ty - 2);
-			titleFont.drawString(msg, tx + 2, ty - 2);
-			titleFont.drawString(msg, tx - 2, ty + 2);
-
-			// Draw Main Text
-			ofSetColor(ofColor::white);
-			titleFont.drawString(msg, tx, ty);
-		}
-	}
-
-	// --- CENTRALIZED TARGETING INSTRUCTION TEXT ---
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
-		Card & interactionCard = players[currentPlayerIndex].hand[interactingCardIndex];
-		string msg = interactionCard.name + ": Choose target";
-
-		if (interactingCardType == CARD_TELEPORT) {
-			msg = "Teleport: Choose destination (Range: " + ofToString(interactionDiceRoll) + " ft)";
-		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
-			msg = "Double Handed: Choose self or adjacent unit";
-		} else if (interactingCardType == CARD_BURST_OF_LIGHT) {
-			msg = "Burst of Light: Choose a target unit";
-		} else if (interactingCardType == CARD_AMNESIA) {
-			msg = "Amnesia: Choose self or adjacent unit";
-		} else if (interactingCardType == CARD_BLOCKING_BOON) {
-			msg = "Blocking Boon (Tails): Choose an adjacent unit to lose 1 Max HP";
-		} else if (interactingCardType == CARD_DEATH) {
-			msg = "Death: Choose target";
-		} else if (interactingCardType == CARD_CHAIN_LIGHTNING) {
-			msg = "Chain Lightning: Choose first target";
-		} else if (interactingCardType == CARD_SUMMON_HELLHOUND) {
-			msg = "Summon Hellhound: Choose spawn tile";
-		} else if (interactingCardType == CARD_MAGIC_BOLT) {
-			msg = "Magic Bolt: Choose target";
-		} else if (interactingCardType == CARD_PUNCH) {
-			msg = "Punch: Choose target";
-		} else if (interactingCardType == CARD_FORM_OF_TORTOISE) {
-			msg = "Tortoise Shell Spike: Choose target";
-		} else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
-			msg = "Materialized in Wall: Choose an empty tile to teleport to";
-		}
-
-		drawInstructionText(msg);
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DEATH) {
-		drawInstructionText("Death: Choose target");
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_CHAIN_LIGHTNING) {
-		drawInstructionText("Chain Lightning: Choose first target");
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_SUMMON_HELLHOUND) {
-		drawInstructionText("Summon Hellhound: Choose spawn tile");
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
-		drawInstructionText("Magic Bolt: Choose target");
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_PUNCH) {
-		drawInstructionText("Punch: Choose target");
-	}
-
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-		drawInstructionText("Tortoise Shell Spike: Choose target");
-	}
-
-	// --- DICE ROLL RESULT TEXT ---
-	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < 5.0f) {
-		ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f; // baseline Y for dice result text
-
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(diceRollResultText, tx + 2, ty + 2);
-		// Text (yellow/gold for dice results)
-		ofSetColor(ofColor::gold);
-		titleFont.drawString(diceRollResultText, tx, ty);
-	}
-
-	// Legacy per-card targeting instruction blocks removed. Centralized
-	// `cardInteractionState` + `interactingCardType` handles targeting UI.
-
-	// --- GENERIC CARD TARGETING INSTRUCTION ---
-	// For all other cards using the generic targeting system (selectedCardIndex)
-	// Only exclude cards that need custom formatting (Teleport shows range, Amnesia has menu)
-	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)) {
-		Player & currentPlayer = players[currentPlayerIndex];
-		if (selectedCardIndex < (int)currentPlayer.hand.size()) {
-			Card & selectedCard = currentPlayer.hand[selectedCardIndex];
-			string msg = selectedCard.name + ": Choose target";
-			drawInstructionText(msg);
-		}
-	}
-
-	// --- BONUS TURNS COUNTER ---
-	if (currentPlayerIndex != -1) {
-		Player & currentPlayer = players[currentPlayerIndex];
-		if (currentPlayer.bonusTurns > 0) {
-			string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
-
-			// Calculate position to the right of the End Turn button
-			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-			float tx = endTurnButtonRect.getRight() + 20 * scale;
-			float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
-
-			// Draw shadow/outline for visibility
-			ofSetColor(0, 0, 0, 255);
-			titleFont.drawString(msg, tx + 2, ty + 2);
-			titleFont.drawString(msg, tx - 2, ty - 2);
-			titleFont.drawString(msg, tx + 2, ty - 2);
-			titleFont.drawString(msg, tx - 2, ty + 2);
-
-			// Draw main text
-			ofSetColor(ofColor::white);
-			titleFont.drawString(msg, tx, ty);
-		}
-	}
-
-	// --- DRAW DICE LABEL ---
-	// Only draw the generic bottom label if NOT in initiative roll (since that has custom text)
-	if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
-		ofPushMatrix();
-
-		// FIXED POSITION CALCULATION:
-		// We calculate position based on the screen top, not the button.
-		// Button sits at 20*scale. Height is 60. Padding 50.
-		float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
-
-		drawDiceLabel(currentDiceLabel, ofColor(255, 215, 0), fixedY);
-
-		ofPopMatrix();
-	}
-
-	// --- RENEWED INSPIRATION UI (Text & Buttons) ---
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-		// 1. Draw Top Instruction Text
-		drawInstructionText("Select cards to discard (Draw 2 each)");
-
-		// 2. Render a single drafting-style Accept button above the hand area.
-		float uiScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
-		ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
-		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
-		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
-		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		float btnY = handAreaRect.y - btnH - std::clamp(20.0f * uiScale, 12.0f, 48.0f);
-		float minTopMargin = 20.0f * uiScale;
-		if (btnY < minTopMargin) btnY = minTopMargin;
-
-		riConfirmBtn.set(btnX, btnY, btnW, btnH);
-		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_ri_accept";
-		riCancelBtn.set(0, 0, 0, 0);
-
-		int validSelectedCount = 0;
-		bool canAccept = true; // FIX: Always allow accepting, even if they choose to discard 0 cards!
-		for (int sel : renewedSelectedHandIndices) {
-			if (sel < 0 || sel >= (int)players[currentPlayerIndex].hand.size()) continue;
-			const Card & selectedCard = players[currentPlayerIndex].hand[sel];
-			if (sel != interactingCardIndex && !selectedCard.playedThisTurn) {
-				validSelectedCount++;
-			}
-		}
-
-		ofPushMatrix();
-		ofTranslate(btnX + btnW / 2.0f, btnY + btnH / 2.0f);
-		ofScale(1.0f, 1.0f);
-		ofTranslate(-(btnX + btnW / 2.0f), -(btnY + btnH / 2.0f));
-		ofSetColor(canAccept ? ofColor(70, 160, 255, 255 * g_menuAlphaMult) : ofColor(100, 100, 100, 255 * g_menuAlphaMult));
-		ofDrawRectRounded(riConfirmBtn, 12);
-		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
-		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2.0f, btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f);
-
-		// Indicator: show selection count to the right of the accept button.
-		std::string selectedCountText = ofToString(validSelectedCount) + " selected (Draw " + ofToString(validSelectedCount * 2) + ")";
-		ofRectangle selectedCountBox = uiFont.getStringBoundingBox(selectedCountText, 0, 0);
-		float selectedCountX = btnX + btnW + std::max(12.0f, 16.0f * uiScale);
-		float selectedCountY = btnY + (btnH + selectedCountBox.height) / 2.0f - 6.0f;
-		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
-		uiFont.drawString(selectedCountText, selectedCountX, selectedCountY);
-		ofPopMatrix();
-	}
-
-	// --- DRAW ACTION HISTORY ---
-	if (!g_actionHistory.empty()) {
-		float iconSize = 46.0f * scale;
-		float spacing = 8.0f * scale;
-		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
-		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 12.0f * scale; // CHANGED: Tucked right under the timer bar with a 4px gap!
-
-		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
-			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
-
-			// Color border based on the player's team color (Player 1 = Red, Player 2 = Green)
-			ofColor borderColor = ofColor::white;
-			if (g_actionHistory[i].playerID == 0)
-				borderColor = ofColor(255, 120, 120);
-			else if (g_actionHistory[i].playerID == 1)
-				borderColor = ofColor(120, 255, 120);
-			ofSetColor(borderColor);
-			ofDrawRectRounded(iconRect.x - 3, iconRect.y - 3, iconSize + 6, iconSize + 6, 6);
-
-			ofSetColor(255);
-			// Crop card art (center top)
-			float sx = g_actionHistory[i].card.textureRect.x + g_actionHistory[i].card.textureRect.width * 0.15f;
-			float sy = g_actionHistory[i].card.textureRect.y + g_actionHistory[i].card.textureRect.height * 0.15f;
-			float sw = g_actionHistory[i].card.textureRect.width * 0.7f;
-			float sh = g_actionHistory[i].card.textureRect.width * 0.7f;
-
-			// Draw either card artwork or boots icon depending on entry type
-			if (g_actionHistory[i].isMovement) {
-				ofSetColor(24, 28, 38);
-				ofDrawRectRounded(iconRect, 6);
-
-				// Draw boot/movement arrow vector icon programmatically
-				ofNoFill();
-				ofSetColor(0, 255, 120);
-				ofSetLineWidth(3 * scale);
-				ofDrawLine(iconRect.x + 10 * scale, iconRect.getBottom() - 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale);
-				ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 18 * scale, iconRect.y + 10 * scale);
-				ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 18 * scale);
-				ofFill();
-			} else {
-				drawCardSpriteSubsectionSafe(cardSpriteSheet, iconRect.x, iconRect.y, iconSize, iconSize, sx, sy, sw, sh);
-			}
-
-			// Synchronize 2D hover state perfectly with the pre-calculated 3D pass variable
-			if (s_hoveredHistoryIndex == (int)i) {
-				const auto & entry = g_actionHistory[i];
-
-				// --- TRIGGER DETAILED OVERHEAD HOVER TOOLTIP ---
-				isShowingTooltip = true;
-				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-
-				if (entry.isMovement) {
-					tooltipText = "Unit Move: (" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ") -> (" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")";
-				} else {
-					tooltipText = entry.cardName;
-					if (entry.rangeRoll > 0) tooltipText += " [Range Roll: " + ofToString(entry.rangeRoll) + " ft]";
-					if (entry.damageRoll > 0) tooltipText += " [Dmg Roll: " + ofToString(entry.damageRoll) + "]";
-					if (!entry.destroyedCardNames.empty()) {
-						tooltipText += " (Destroyed: ";
-						for (size_t c = 0; c < entry.destroyedCardNames.size(); c++) {
-							if (c > 0) tooltipText += ", ";
-							tooltipText += entry.destroyedCardNames[c];
-						}
-						tooltipText += ")";
-					}
-				}
-
-				// Lift variables to parent scope so they are visible for both card faces and details sidebar calculations
-				float hoverW = kCardPixelWidth * kHandCardVisualScale * scale * kHandHoverScale;
-				float hoverH = kCardPixelHeight * kHandCardVisualScale * scale * kHandHoverScale;
-				float hoverX = iconRect.getCenter().x - hoverW / 2.0f;
-				float hoverY = iconRect.getBottom() + 10.0f * scale;
-
-				if (hoverY + hoverH > ofGetHeight() - 10.0f) {
-					hoverY = ofGetHeight() - hoverH - 10.0f;
-				}
-				if (hoverX < 10.0f) hoverX = 10.0f;
-				if (hoverX + hoverW > ofGetWidth() - 10.0f) hoverX = ofGetWidth() - hoverW - 10.0f;
-
-				// Only draw floating card face for standard card plays
-				if (!entry.isMovement) {
-					ofSetColor(255);
-					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, hoverX, hoverY, hoverW, hoverH, nullptr);
-				}
-
-				// --- Companion Details Sidebar ---
-
-				// Determine dynamically if this card has fields to display
-				bool hasDetails = false;
-				int lineCount = 0;
-				bool isRangedSpell = (entry.card.type == CARD_FIREBALL || entry.card.type == CARD_CHAIN_LIGHTNING || entry.card.type == CARD_MAGIC_BOLT || entry.card.type == CARD_MAGIC_BLAST || entry.card.type == CARD_SHOOT_ARROW || entry.card.type == CARD_ETHEREAL_JOLT);
-
-				if (entry.isMovement) {
-					hasDetails = true;
-					lineCount = 3;
-				} else {
-					if (entry.rangeRoll > 0 && isRangedSpell) {
-						hasDetails = true;
-						lineCount++;
-					}
-					if (entry.damageRoll > 0) {
-						hasDetails = true;
-						lineCount++;
-					}
-					if (entry.utilityRoll > 0) {
-						hasDetails = true;
-						lineCount++;
-					}
-					if (!entry.menuChoice.empty()) {
-						hasDetails = true;
-						lineCount++;
-					}
-					if (!entry.destroyedCardNames.empty()) {
-						hasDetails = true;
-						lineCount += 1 + (int)entry.destroyedCardNames.size(); // Title line + card items
-					}
-				}
-
-				if (hasDetails) {
-					float infoW = 220.0f * scale;
-					float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 10.0f * scale);
-					float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
-					if (infoX + infoW > ofGetWidth() - 10.0f) {
-						infoX = hoverX - infoW - 10.0f * scale;
-					}
-
-					// Dynamic height scaling: base overhead + per-line padding
-					float dynamicH = (45.0f + lineCount * 26.0f + 16.0f) * scale;
-					ofRectangle infoRect(infoX, infoY, infoW, dynamicH);
-
-					ofSetColor(18, 18, 22, 235);
-					ofDrawRectRounded(infoRect, 12 * scale);
-					ofNoFill();
-					ofSetLineWidth(2 * scale);
-					ofSetColor(120, 120, 140, 200);
-					ofDrawRectRounded(infoRect, 12 * scale);
-					ofFill();
-
-					float curY = infoRect.y + 24 * scale;
-					auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
-						ofSetColor(180, 180, 190);
-						uiFont.drawString(label, infoRect.x + 14 * scale, curY);
-						ofSetColor(valCol);
-						uiFont.drawString(val, infoRect.x + 110 * scale, curY);
-						curY += 26 * scale;
-					};
-
-					ofSetColor(255, 215, 0);
-					uiFont.drawString("Action Details", infoRect.x + 14 * scale, curY);
-					curY += 30 * scale;
-
-					if (entry.isMovement) {
-						drawLine("Start Tile:", "(" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ")", ofColor::cyan);
-						drawLine("End Tile:", "(" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")", ofColor::green);
-						drawLine("Tiles Moved:", ofToString(std::max(0, (int)entry.movementPath.size() - 1)), ofColor::gold);
-					} else {
-						if (entry.rangeRoll > 0 && isRangedSpell) {
-							drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
-						}
-						if (entry.damageRoll > 0) {
-							drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
-						}
-						if (entry.utilityRoll > 0) {
-							drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
-						}
-						if (!entry.menuChoice.empty()) {
-							drawLine("Choice:", entry.menuChoice, ofColor::gold);
-						}
-						if (!entry.destroyedCardNames.empty()) {
-							curY += 6 * scale;
-							ofSetColor(240, 100, 100);
-							uiFont.drawString("Destroyed:", infoRect.x + 14 * scale, curY);
-							curY += 22 * scale;
-
-							for (const auto & cName : entry.destroyedCardNames) {
-								ofSetColor(255, 255, 255);
-								uiFont.drawString("- " + cName, infoRect.x + 22 * scale, curY);
-								curY += 22 * scale;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// --- Draw Tooltip (drawn last to be on top of everything) ---
-	if (isShowingTooltip && !tooltipText.empty()) {
-		ofPushStyle();
-		ofSetColor(0, 0, 0, 200);
-		ofRectangle bbox = uiFont.getStringBoundingBox(tooltipText, 0, 0);
-		float pad = 10.0f;
-
-		// Keep tooltip on screen bounds
-		float tX = std::min(tooltipPos.x + 15, ofGetWidth() - bbox.width - pad * 2);
-		float tY = std::max(10.0f, tooltipPos.y - bbox.height - pad * 2);
-
-		ofDrawRectRounded(tX, tY, bbox.width + pad * 2, bbox.height + pad * 2, 8);
-		ofSetColor(255);
-		uiFont.drawString(tooltipText, tX + pad, tY + bbox.height + pad - 2);
-		ofPopStyle();
-	}
-
-	// --- ELO & GAME OVER SCREEN ---
-	if (g_isGameOver) {
-		ofPushStyle();
-		ofSetColor(0, 0, 0, 230);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-		float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-		float cx = ofGetWidth() / 2.0f;
-		float cy = ofGetHeight() / 2.0f;
-
-		// Winner Text
-		std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY" : "DEFEAT";
-		if (g_isSpectator || myLocalPlayerID == 2) {
-			text = (g_winnerID == 0) ? (player0SteamName + " WINS") : (player1SteamName + " WINS");
-		}
-		if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
-		if (g_winnerID == 2) text = "MATCH DRAWN";
-
-		ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
-		if (g_isSpectator || myLocalPlayerID == 2) titleColor = ofColor::gold;
-		if (g_winnerID == 2) titleColor = ofColor::white;
-		drawPixelTextCentered(titleFont, text, cx, cy - 240.0f * uiScale, 2.5f * uiScale, titleColor);
-
-		if (isMultiplayer && s_gameOverScreenStartTime <= 0.0f) {
-			s_gameOverScreenStartTime = ofGetElapsedTimef();
-		}
-		float progress = isMultiplayer ? ofClamp((ofGetElapsedTimef() - s_gameOverScreenStartTime) / 2.5f, 0.0f, 1.0f) : 1.0f;
-		float easedProgress = progress * (2.0f - progress); // ease-out quad
-
-		// --- UNIFIED GAME OVER PANEL ---
-		float panelW = 760.0f * uiScale;
-		float panelH = isMultiplayer ? (440.0f * uiScale) : (310.0f * uiScale);
-		ofRectangle panel(cx - panelW / 2.0f, cy - 160.0f * uiScale, panelW, panelH);
-
-		ofSetColor(25, 25, 32, 245);
-		ofDrawRectRounded(panel, 16.0f * uiScale);
-		ofNoFill();
-		ofSetColor(80, 80, 100);
-		ofSetLineWidth(3.0f * uiScale);
-		ofDrawRectRounded(panel, 16.0f * uiScale);
-		ofFill();
-
-		float leftColX = panel.x + panelW * 0.25f;
-		float rightColX = panel.x + panelW * 0.75f;
-		float avSize = 96.0f * uiScale;
-		float avY = panel.y + 30.0f * uiScale;
-
-		std::string nameLocal = isMultiplayer ? steamManager.getLocalPlayerName() : player0SteamName;
-		std::string nameOpp = isMultiplayer ? steamManager.getOpponentName() : player1SteamName;
-
-		auto drawPlaceholderAvatar = [&](std::string name, float x, float y, float size) {
-			ofSetColor(50, 50, 60, 255);
-			ofDrawRectRounded(x, y, size, size, 8.0f * uiScale);
-			std::string init = "";
-			if (!name.empty()) init += name[0];
-			size_t sp = name.find(' ');
-			if (sp != std::string::npos && sp + 1 < name.size()) init += name[sp + 1];
-			drawPixelTextCentered(titleFont, init, x + size / 2.0f, y + size / 2.0f, size / 80.0f, ofColor::white);
-		};
-
-		// Avatars & Names
-		ofSetColor(255);
-		if (isMultiplayer && localAvatarReady)
-			localAvatarImage.draw(leftColX - avSize / 2.0f, avY, avSize, avSize);
-		else
-			drawPlaceholderAvatar(nameLocal, leftColX - avSize / 2.0f, avY, avSize);
-
-		ofSetColor(255);
-		if (isMultiplayer && opponentAvatarReady)
-			opponentAvatarImage.draw(rightColX - avSize / 2.0f, avY, avSize, avSize);
-		else
-			drawPlaceholderAvatar(nameOpp, rightColX - avSize / 2.0f, avY, avSize);
-
-		drawPixelTextCentered(uiFont, nameLocal, leftColX, avY + avSize + 20.0f * uiScale, 1.0f * uiScale, ofColor::white);
-		drawPixelTextCentered(uiFont, nameOpp, rightColX, avY + avSize + 20.0f * uiScale, 1.0f * uiScale, ofColor::white);
-
-		drawPixelTextCentered(titleFont, "VS", cx, avY + avSize / 2.0f, 1.5f * uiScale, ofColor::white);
-
-		// Elo
-		if (isMultiplayer) {
-			int localStartElo = myElo - eloChange;
-			int localCurrentElo = (int)ofLerp(localStartElo, myElo, easedProgress);
-			auto myRank = getMageRank(localCurrentElo);
-			std::string eloStr = myRank.first + " (" + std::to_string(localCurrentElo) + ")";
-			if (eloCalculated) {
-				std::string sign = (eloChange >= 0) ? "+" : "";
-				int displayedChange = (int)round(eloChange * easedProgress);
-				eloStr += " [" + sign + std::to_string(displayedChange) + "]";
-			}
-			drawPixelTextCentered(uiFont, eloStr, leftColX, avY + avSize + 45.0f * uiScale, 0.8f * uiScale, myRank.second);
-
-			int oppEloChange = -eloChange;
-			int oppStartElo = opponentElo;
-			int oppFinalElo = std::max(300, opponentElo + oppEloChange);
-			int oppCurrentElo = (int)ofLerp(oppStartElo, oppFinalElo, easedProgress);
-			auto oppRank = getMageRank(oppCurrentElo);
-			std::string oppEloStr = oppRank.first + " (" + std::to_string(oppCurrentElo) + ")";
-			if (eloCalculated) {
-				std::string sign = (oppEloChange >= 0) ? "+" : "";
-				int displayedOppChange = (int)round(oppEloChange * easedProgress);
-				oppEloStr += " [" + sign + std::to_string(displayedOppChange) + "]";
-			}
-			drawPixelTextCentered(uiFont, oppEloStr, rightColX, avY + avSize + 45.0f * uiScale, 0.8f * uiScale, oppRank.second);
-		}
-
-		// Separator
-		float statsY = avY + avSize + (isMultiplayer ? 80.0f * uiScale : 60.0f * uiScale);
-		ofSetColor(80, 80, 100, 120);
-		ofSetLineWidth(2.0f * uiScale);
-		ofDrawLine(panel.x + 40.0f * uiScale, statsY - 15.0f * uiScale, panel.getRight() - 40.0f * uiScale, statsY - 15.0f * uiScale);
-
-		// Stats Text
-		ofSetColor(200);
-		drawPixelTextCentered(uiFont, "Max Dmg/Turn", cx, statsY, 0.75f * uiScale, ofColor::lightGray);
-		drawPixelTextCentered(uiFont, "Minions Spawned", cx, statsY + 30.0f * uiScale, 0.75f * uiScale, ofColor::lightGray);
-		drawPixelTextCentered(uiFont, "Health Restored", cx, statsY + 60.0f * uiScale, 0.75f * uiScale, ofColor::lightGray);
-
-		int localStatsIdx = (myLocalPlayerID == 1) ? 1 : 0;
-		int oppStatsIdx = (myLocalPlayerID == 1) ? 0 : 1;
-
-		drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].maxDamageInOneTurn), leftColX, statsY, 0.8f * uiScale, ofColor::white);
-		drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].minionsSpawned), leftColX, statsY + 30.0f * uiScale, 0.8f * uiScale, ofColor::white);
-		drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].totalHealing), leftColX, statsY + 60.0f * uiScale, 0.8f * uiScale, ofColor::white);
-
-		drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].maxDamageInOneTurn), rightColX, statsY, 0.8f * uiScale, ofColor::white);
-		drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].minionsSpawned), rightColX, statsY + 30.0f * uiScale, 0.8f * uiScale, ofColor::white);
-		drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].totalHealing), rightColX, statsY + 60.0f * uiScale, 0.8f * uiScale, ofColor::white);
-
-		// XP Bar (Multiplayer Only)
-		if (isMultiplayer && s_hasCachedGameOverVisuals) {
-			float barX = panel.x + 40.0f * uiScale;
-			float barY = panel.getBottom() - 40.0f * uiScale;
-			float barW = panelW - 80.0f * uiScale;
-			float barH = 18.0f * uiScale;
-
-			long long accumulatedXP = s_startingXP + (long long)round(s_xpGained * easedProgress);
-			int tempLevel = s_startingLevel;
-			while (true) {
-				int32_t xpRequired = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
-				if (accumulatedXP >= xpRequired) {
-					accumulatedXP -= xpRequired;
-					tempLevel++;
-				} else {
-					break;
-				}
-			}
-
-			int32_t xpThreshold = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
-			float xpPct = (float)accumulatedXP / (float)xpThreshold;
-
-			ofSetColor(20, 20, 25, 255);
-			ofDrawRectRounded(barX, barY, barW, barH, 6.0f * uiScale);
-			ofSetColor(0, 180, 255, 255);
-			ofDrawRectRounded(barX, barY, barW * xpPct, barH, 6.0f * uiScale);
-
-			ofSetColor(255);
-			std::string levelText = "Account Level " + std::to_string(tempLevel);
-			std::string progressText = std::to_string(accumulatedXP) + " / " + std::to_string(xpThreshold) + " XP";
-
-			drawPixelTextBaseline(uiFont, levelText, barX, barY - 6.0f * uiScale, 0.8f * uiScale, ofColor::white);
-			ofRectangle pBox = uiFont.getStringBoundingBox(progressText, 0, 0);
-			drawPixelTextBaseline(uiFont, progressText, barX + barW - (pBox.width * 0.8f * uiScale), barY - 6.0f * uiScale, 0.8f * uiScale, ofColor::white);
-		}
-
-		// --- BUTTONS ---
-		float btnW = 240.0f * uiScale;
-		float btnH = 64.0f * uiScale;
-		float btnY = panel.getBottom() + 30.0f * uiScale;
-
-		gameOverReturnBtn.set(cx - btnW - 15.0f * uiScale, btnY, btnW, btnH);
-		gameOverReplayBtn.set(cx + 15.0f * uiScale, btnY, btnW, btnH);
-
-		// Menu Button
-		if (gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "go_menu";
-		ofSetColor(gameOverReturnBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
-		ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScale);
-		ofNoFill();
-		ofSetLineWidth(2.0f * uiScale);
-		ofSetColor(100, 100, 120);
-		ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScale);
-		ofFill();
-		drawPixelTextCentered(uiFont, "Quit to Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
-
-		// Replay Button
-		if (gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) && !replaySavedThisMatch) g_hoveredButtonId = "go_replay";
-		if (replaySavedThisMatch) {
-			ofSetColor(ofColor(40, 90, 40));
-			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
-			ofNoFill();
-			ofSetLineWidth(2.0f * uiScale);
-			ofSetColor(80, 150, 80);
-			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
-			ofFill();
-			drawPixelTextCentered(uiFont, "Replay Saved!", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScale, ofColor(150, 255, 150));
-		} else {
-			ofSetColor(gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
-			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
-			ofNoFill();
-			ofSetLineWidth(2.0f * uiScale);
-			ofSetColor(100, 100, 120);
-			ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScale);
-			ofFill();
-			drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
-		}
-
-		ofPopStyle(); // CRITICAL FIX: Prevent memory leak by popping the style pushed at the top of g_isGameOver!
-	}
-
-	if (isReplayMode) {
-		float scale = getUIScaleFromHeight(ofGetHeight());
-		float barW = ofGetWidth() * 0.8f;
-		float barH = 20 * scale;
-		float barX = (ofGetWidth() - barW) / 2.0f;
-		float barY = ofGetHeight() - barH - 20 * scale;
-
-		ofPushStyle();
-		ofSetColor(0, 0, 0, 180);
-		ofDrawRectRounded(barX, barY, barW, barH, 5);
-
-		replayMaxFrame = replayPlaybackQueue.empty() ? 100 : replayPlaybackQueue.back().frame + 120;
-		replayMaxFrame = std::max(replayMaxFrame, simulationFrame); // Avoid div by zero
-
-		float pct = (float)simulationFrame / (float)replayMaxFrame;
-		ofSetColor(255, 200, 0, 200);
-		ofDrawRectRounded(barX, barY, barW * pct, barH, 5);
-
-		ofSetColor(255);
-		ofDrawRectangle(barX + barW * pct - 2, barY - 2, 4, barH + 4); // Playhead
-
-		int curSecs = simulationFrame / 60; // Approximate
-		int maxSecs = replayMaxFrame / 60;
-		std::string timeStr = "Replay: " + std::to_string(curSecs) + "s / " + std::to_string(maxSecs) + "s";
-		drawPixelTextCentered(uiFont, timeStr, ofGetWidth() / 2, barY - 15 * scale, 1.0f, ofColor::white);
-		ofPopStyle();
-
-		replayProgressBarRect.set(barX, barY, barW, barH);
-	}
-
+	// THE REST OF THE UI (Chat, Menus, Tooltips, Text) HAS BEEN MOVED TO THE CRISP OVERLAY PASS IN ofApp::draw()
 } // End of drawGame()
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
@@ -18946,8 +18897,6 @@ void ofApp::keyReleased(int key) {
 		}
 	}
 
-	// 'M' key removed; C64 toggles via 'P' cycle now.
-
 	// 2c. Debug Hotkeys
 	if (currentState == STATE_GAMEPLAY) {
 		// 'u' keybind removed to avoid accidental toggles; use the
@@ -21577,7 +21526,7 @@ void ofApp::drawActiveCardInteractionUI() {
 
 				string title = isLocalDecider ? ("Amnesia - Select " + ofToString(numCardsToRemove) + " card(s) to remove") : "Amnesia - Waiting for opponent...";
 				ofRectangle titleBox2 = uiFont.getStringBoundingBox(title, 0, 0);
-				uiFont.drawString(title, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
+				SafeDrawText(uiFont, title, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
 				const float amnesiaCardAspect = 1.4f;
 				const int cols = 5;
@@ -21604,7 +21553,7 @@ void ofApp::drawActiveCardInteractionUI() {
 
 				// Clip rendering inside bounds
 				ofPushStyle();
-				glEnable(GL_SCISSOR_TEST);
+				if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 				int scX = (int)(panelX + padX);
 				int scW = (int)(panelWidth - 2 * padX);
 				int scY = (int)(ofGetHeight() - (startY + visibleContentHeight));
@@ -21642,7 +21591,7 @@ void ofApp::drawActiveCardInteractionUI() {
 					}
 				}
 
-				glDisable(GL_SCISSOR_TEST);
+				if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 				ofPopStyle();
 
 				// Render scrollbar
@@ -21663,7 +21612,7 @@ void ofApp::drawActiveCardInteractionUI() {
 					ofDrawRectRounded(draftAcceptButtonRect, 10);
 					ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 					ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-					uiFont.drawString("Accept", draftAcceptButtonRect.getCenter().x - aBox.width / 2, draftAcceptButtonRect.getCenter().y + aBox.height / 2 - 4);
+					SafeDrawText(uiFont, "Accept", draftAcceptButtonRect.getCenter().x - aBox.width / 2, draftAcceptButtonRect.getCenter().y + aBox.height / 2 - 4);
 				}
 			}
 			break;
@@ -23357,7 +23306,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
-		int beforeSize = (int)p.deck.size();
 		std::vector<std::string> addedNames;
 		for (int poolIdx : picks) {
 			if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
@@ -25411,7 +25359,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		}
 
 		if (!toErase.empty()) {
-			sort(toErase.begin(), toErase.end(), std::greater<int>());
+			std::sort(toErase.begin(), toErase.end(), std::greater<int>());
 			for (int idx : toErase) {
 				if (idx >= 0 && idx < (int)activeDiceRolls.size()) activeDiceRolls.erase(activeDiceRolls.begin() + idx);
 			}
@@ -32077,6 +32025,7 @@ void ofApp::applyPixelArtSettings() {
 	setFilterIfAllocatedTex(golemTexElectric, minFilter, magFilter);
 	setFilterIfAllocatedTex(tortoiseTexture, minFilter, magFilter);
 	setFilterIfAllocatedTex(ghostBaseTex, minFilter, magFilter);
+	if (g_cardTextSpriteSheet.isAllocated()) g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 	setFilterIfAllocatedTex(koboldKingTexture, minFilter, magFilter);
 	// wallTexture and wallUnitTexture are pixel art assets - always keep GL_NEAREST
 	// (same for keyTextures - handled below)
@@ -32091,6 +32040,9 @@ void ofApp::applyPixelArtSettings() {
 		worldFbo.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 	if (pixelLowFbo.isAllocated())
 		pixelLowFbo.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+
+	if (g_uiPostFbo.isAllocated()) g_uiPostFbo.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+	if (g_textFbo.isAllocated()) g_textFbo.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 
 	for (auto & ft : floorTextures)
 		setFilterIfAllocatedTex(ft, minFilter, magFilter);
@@ -32120,6 +32072,7 @@ void ofApp::applyPixelArtSettings() {
 		for (auto & kt : keyTexturesBronze)
 			if (kt.isAllocated()) kt.generateMipmap();
 		if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().generateMipmap();
+		if (g_cardTextSpriteSheet.isAllocated()) g_cardTextSpriteSheet.getTexture().generateMipmap();
 		if (cardBackImage.isAllocated()) cardBackImage.getTexture().generateMipmap();
 	}
 }
@@ -34299,7 +34252,7 @@ void ofApp::drawDispelUI() {
 	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	string title = "Select Status to Remove";
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
+	SafeDrawText(uiFont, title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
 
 	// Render status options as drafting-style cards and populate hit-rects
 	std::vector<std::string> labels;
@@ -34371,7 +34324,7 @@ void ofApp::drawMenuBackground(const ofRectangle & menuRect, float cornerRadius)
 void ofApp::drawMenuTitle(const string & title, const ofRectangle & menuRect, float yOffset) {
 	ofSetColor(ofColor::white);
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, menuRect.getCenter().x - titleBox.width / 2, menuRect.y + yOffset);
+	SafeDrawText(uiFont, title, menuRect.getCenter().x - titleBox.width / 2, menuRect.y + yOffset);
 }
 //--------------------------------------------------------------
 void ofApp::drawCardSpawnerUI() {
@@ -34412,7 +34365,7 @@ void ofApp::drawCardSpawnerUI() {
 			displayText += "|";
 		}
 	}
-	uiFont.drawString(displayText, barX + 15, barY + barHeight / 2 + 6);
+	SafeDrawText(uiFont, displayText, barX + 15, barY + barHeight / 2 + 6);
 
 	// Quantity display and +/- buttons
 	float btnSize = 30.0f;
@@ -34425,7 +34378,7 @@ void ofApp::drawCardSpawnerUI() {
 	ofSetColor(60, 60, 60);
 	ofDrawRectRounded(cardSpawnerMinusButton, 5);
 	ofSetColor(ofColor::white);
-	uiFont.drawString("-", quantityX + 10, btnY + btnSize / 2 + 6);
+	SafeDrawText(uiFont, "-", quantityX + 10, btnY + btnSize / 2 + 6);
 
 	// Quantity number
 	ofSetColor(ofColor::white);
@@ -34435,7 +34388,7 @@ void ofApp::drawCardSpawnerUI() {
 	float plusCenterX = plusX + btnSize * 0.5f;
 	float qtyCenterX = (minusCenterX + plusCenterX) * 0.5f;
 	ofRectangle qtyBox = uiFont.getStringBoundingBox(qtyStr, 0, 0);
-	uiFont.drawString(qtyStr, qtyCenterX - qtyBox.width * 0.5f, btnY + btnSize / 2 + qtyBox.height * 0.5f);
+	SafeDrawText(uiFont, qtyStr, qtyCenterX - qtyBox.width * 0.5f, btnY + btnSize / 2 + qtyBox.height * 0.5f);
 
 	// Plus button
 	cardSpawnerPlusButton.set(plusX, btnY, btnSize, btnSize);
@@ -34443,7 +34396,7 @@ void ofApp::drawCardSpawnerUI() {
 	ofSetColor(60, 60, 60);
 	ofDrawRectRounded(cardSpawnerPlusButton, 5);
 	ofSetColor(ofColor::white);
-	uiFont.drawString("+", plusX + 9, btnY + btnSize / 2 + 6);
+	SafeDrawText(uiFont, "+", plusX + 9, btnY + btnSize / 2 + 6);
 
 	// Encyclopedia button
 	float encBtnWidth = 40.0f;
@@ -34470,7 +34423,7 @@ void ofApp::drawCardSpawnerUI() {
 	ofSetColor(100, 40, 40);
 	ofDrawRectRounded(cardSpawnerCloseButton, 5);
 	ofSetColor(ofColor::white);
-	uiFont.drawString("X", cardSpawnerCloseButton.x + 9, btnY + btnSize / 2 + 6);
+	SafeDrawText(uiFont, "X", cardSpawnerCloseButton.x + 9, btnY + btnSize / 2 + 6);
 
 	// Draw filtered card suggestions below the bar
 	if (!cardSpawnerInput.empty() && !filteredCards.empty()) {
@@ -34494,7 +34447,7 @@ void ofApp::drawCardSpawnerUI() {
 
 			ofSetColor(ofColor::white);
 			string cardInfo = filteredCards[i].name + " (Cost: " + ofToString(filteredCards[i].cost) + ")";
-			uiFont.drawString(cardInfo, barX + 15, itemY + suggestionHeight / 2 + 5);
+			SafeDrawText(uiFont, cardInfo, barX + 15, itemY + suggestionHeight / 2 + 5);
 		}
 	}
 
@@ -34502,7 +34455,7 @@ void ofApp::drawCardSpawnerUI() {
 	ofSetColor(180, 180, 180);
 	string helpText = "Press ENTER to add card | ESC to close";
 	ofRectangle helpBox = uiFont.getStringBoundingBox(helpText, 0, 0);
-	uiFont.drawString(helpText, (ofGetWidth() - helpBox.width) / 2, barY + barHeight + (filteredCards.empty() ? 30 : 35 * std::min((int)filteredCards.size(), 8) + 45));
+	SafeDrawText(uiFont, helpText, (ofGetWidth() - helpBox.width) / 2, barY + barHeight + (filteredCards.empty() ? 30 : 35 * std::min((int)filteredCards.size(), 8) + 45));
 }
 
 //--------------------------------------------------------------
@@ -34534,7 +34487,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	ofSetColor(100, 40, 40);
 	ofDrawRectRounded(encyclopediaCloseButton, 5);
 	ofSetColor(ofColor::white);
-	uiFont.drawString("X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
+	SafeDrawText(uiFont, "X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
 
 	// Card grid - 10 cards per row, fills width; vertical scrolling for extra rows
 	const float encyCardAspect = 1.4f;
@@ -34579,7 +34532,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	string titleFull = "Card Encyclopedia - " + titleSuffix + " - " + titleMode;
 	ofSetColor(ofColor::white);
 	ofRectangle titleBox2 = uiFont.getStringBoundingBox(titleFull, 0, 0);
-	uiFont.drawString(titleFull, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
+	SafeDrawText(uiFont, titleFull, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
 	// Fixed horizontal layout (10 columns)
 	int totalCards = displayList.size();
@@ -34638,7 +34591,7 @@ void ofApp::drawCardEncyclopediaUI() {
 
 	// Clip card rendering to content area so cards never obscure Accept button
 	ofPushStyle();
-	glEnable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	int scX = (int)panelX;
 	int scW = (int)panelWidth;
 	int scY = (int)(ofGetHeight() - (contentY + contentHeight));
@@ -34738,7 +34691,7 @@ void ofApp::drawCardEncyclopediaUI() {
 				ofRectangle nameBounds = uiFont.getStringBoundingBox(shortName, 0, 0);
 				float nameX = drawX + (thisCardW - nameBounds.width) * 0.5f;
 				float nameY = drawY + thisCardH + std::max(14.0f, nameBounds.height + 2.0f);
-				uiFont.drawString(shortName, nameX, nameY);
+				SafeDrawText(uiFont, shortName, nameX, nameY);
 			}
 
 			col++;
@@ -34749,7 +34702,7 @@ void ofApp::drawCardEncyclopediaUI() {
 		}
 	}
 
-	glDisable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 	ofPopStyle();
 
 	// Scroll indicator
@@ -34773,7 +34726,7 @@ void ofApp::drawCardEncyclopediaUI() {
 
 	ofSetColor(255);
 	ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-	uiFont.drawString("Accept", encyclopediaAcceptButton.getCenter().x - aBox.width / 2, encyclopediaAcceptButton.getCenter().y + aBox.height / 2 - 2);
+	SafeDrawText(uiFont, "Accept", encyclopediaAcceptButton.getCenter().x - aBox.width / 2, encyclopediaAcceptButton.getCenter().y + aBox.height / 2 - 2);
 }
 
 // resolveDoubleHanded inlined at call sites. Legacy helper removed.
@@ -35079,9 +35032,9 @@ void ofApp::drawOpponentMenu() {
 		ofDrawRectRounded(mRect, 12);
 		ofSetColor(ofColor::white);
 		ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
-		uiFont.drawString(title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
+		SafeDrawText(uiFont, title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
 		ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
-		uiFont.drawString(desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
+		SafeDrawText(uiFont, desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
 	} else if (opponentInteraction.type == 6) { // <--- ADD THIS BLOCK
 		string title = "Renewed Inspiration";
 		string desc = "Waiting for player to select cards...";
@@ -35092,9 +35045,9 @@ void ofApp::drawOpponentMenu() {
 		ofDrawRectRounded(mRect, 12);
 		ofSetColor(ofColor::white);
 		ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
-		uiFont.drawString(title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
+		SafeDrawText(uiFont, title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
 		ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
-		uiFont.drawString(desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
+		SafeDrawText(uiFont, desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
 	}
 }
 // Helper: member equivalent of the local applyDamage lambda used in playCard
@@ -35203,9 +35156,9 @@ void ofApp::drawGhostRelocateUI() {
 
 	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, panel.getCenter().x - tbox.getWidth() / 2.0f, panel.y + 48);
+	SafeDrawText(uiFont, title, panel.getCenter().x - tbox.getWidth() / 2.0f, panel.y + 48);
 	ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
-	uiFont.drawString(desc, panel.getCenter().x - dbox.getWidth() / 2.0f, panel.y + 88);
+	SafeDrawText(uiFont, desc, panel.getCenter().x - dbox.getWidth() / 2.0f, panel.y + 88);
 
 	// Build label, accent and enabled arrays and render as drafting-style cards
 	int maxChoices = std::min((int)ghostRelocateChoices.size(), 4);
@@ -35270,19 +35223,19 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 		std::string secsText = "Decision " + ofToString(secs) + "s";
 		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
-		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
+		SafeDrawText(uiFont, secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
 	}
 
 	// Title
 	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
+	SafeDrawText(uiFont, title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
 
 	// Description
 	if (!desc.empty()) {
 		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
-		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
+		SafeDrawText(uiFont, desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
 	}
 
 	// Compute card widths for one-or-two option layout (draft-like)
@@ -35309,7 +35262,7 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 	// Label
 	ofSetColor((primaryEnabled && primaryAccent.getBrightness() > 200) ? ofColor(0, 0, 0, 255 * g_menuAlphaMult) : ofColor(255, 255, 255, 255 * g_menuAlphaMult));
 	ofRectangle pBox = uiFont.getStringBoundingBox(primaryLabel, 0, 0);
-	uiFont.drawString(primaryLabel, primaryRect.getCenter().x - pBox.getWidth() / 2, primaryRect.getCenter().y + pBox.getHeight() / 2);
+	SafeDrawText(uiFont, primaryLabel, primaryRect.getCenter().x - pBox.getWidth() / 2, primaryRect.getCenter().y + pBox.getHeight() / 2);
 
 	// Draw secondary card panel if present
 	if (!secondaryLabel.empty()) {
@@ -35323,7 +35276,7 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 		ofDrawRectRounded(secondaryRect.x + 8, secondaryRect.y + 8, secondaryRect.width - 16, secondaryRect.height - 16, 8);
 		ofSetColor((secondaryEnabled && secondaryAccent.getBrightness() > 200) ? ofColor(0, 0, 0, 255 * g_menuAlphaMult) : ofColor(255, 255, 255, 255 * g_menuAlphaMult));
 		ofRectangle sBox = uiFont.getStringBoundingBox(secondaryLabel, 0, 0);
-		uiFont.drawString(secondaryLabel, secondaryRect.getCenter().x - sBox.getWidth() / 2, secondaryRect.getCenter().y + sBox.getHeight() / 2);
+		SafeDrawText(uiFont, secondaryLabel, secondaryRect.getCenter().x - sBox.getWidth() / 2, secondaryRect.getCenter().y + sBox.getHeight() / 2);
 	}
 }
 
@@ -35340,7 +35293,7 @@ void ofApp::drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccep
 	ofRectangle tb = uiFont.getStringBoundingBox("Accept", 0, 0);
 	float tx = std::round(buttonRect.getCenter().x - (tb.x + tb.width * 0.5f));
 	float ty = std::round(buttonRect.getCenter().y - (tb.y + tb.height * 0.5f));
-	uiFont.drawString("Accept", tx, ty);
+	SafeDrawText(uiFont, "Accept", tx, ty);
 	ofPopMatrix();
 }
 
@@ -35386,19 +35339,19 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		std::string secsText = "Decision " + ofToString(secs) + "s";
 		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
-		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
+		SafeDrawText(uiFont, secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
 	}
 
 	// Title
 	ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
+	SafeDrawText(uiFont, title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
 
 	// Description
 	if (!desc.empty()) {
 		ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
-		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
+		SafeDrawText(uiFont, desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
 	}
 
 	int n = (int)labels.size();
@@ -35437,7 +35390,7 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		ofRectangle tb = uiFont.getStringBoundingBox(labels[i], 0, 0);
 		float tx = std::round(br.getCenter().x - (tb.x + tb.width * 0.5f));
 		float ty = std::round(br.getCenter().y - (tb.y + tb.height * 0.5f));
-		uiFont.drawString(labels[i], tx, ty);
+		SafeDrawText(uiFont, labels[i], tx, ty);
 	}
 }
 //--------------------------------------------------------------
@@ -36410,9 +36363,13 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// FIX: Skip generating this 10,500x10,500 image atlas in headless mode to save 440MB of RAM per instance!
 	if (!headless) {
 		const std::string cardTemplatePath = findCardTemplatePath();
-		if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet)) {
+		if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet, g_cardTextSpriteSheet)) {
 			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			if (g_cardTextSpriteSheet.isAllocated()) {
+				g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			}
 			ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
 		} else {
 			ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
@@ -36763,7 +36720,7 @@ void ofApp::drawMinionManagerUI() {
 		if (ui.bounds.getBottom() < topY || ui.bounds.y > topY + viewH) continue;
 
 		// Setup Scissor clipping to hide overflowing elements
-		glEnable(GL_SCISSOR_TEST);
+		if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 		int scX = (int)((isLeft ? p0_minionLeft - 40 : p1_minionLeft - 40) * sfX);
 		int scW = (int)((minionPanelW + 80) * sfX);
 
@@ -36872,7 +36829,7 @@ void ofApp::drawMinionManagerUI() {
 			ofTranslate(contentRightX - nameBounds.width * fontScale, textBlockY + nameBounds.height * fontScale);
 		ofScale(fontScale, fontScale);
 		ofSetColor(ofColor::white);
-		uiFont.drawString(name, 0, 0);
+		SafeDrawText(uiFont, name, 0, 0);
 		ofPopMatrix();
 
 		// --- Compute Model Positioning ---
@@ -37099,7 +37056,7 @@ void ofApp::drawMinionManagerUI() {
 			ofDrawRectRounded(ui.discardRect, 3);
 		}
 
-		glDisable(GL_SCISSOR_TEST);
+		if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 	} // End of loop
 
 	// Draw list scrollbars when minion content exceeds visible height.
@@ -37557,9 +37514,9 @@ void ofApp::drawInitiativeRoll() {
 			float ty = ofGetHeight() * 0.35f;
 
 			ofSetColor(0, 0, 0, 255);
-			titleFont.drawString(msg, tx + 2, ty + 2);
+			SafeDrawText(titleFont, msg, tx + 2, ty + 2);
 			ofSetColor(ofColor::gold);
-			titleFont.drawString(msg, tx, ty);
+			SafeDrawText(titleFont, msg, tx, ty);
 		}
 	}
 }
@@ -37590,7 +37547,7 @@ void ofApp::drawDraftScreen() {
 		ofRectangle msgBox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = std::round(ofGetWidth() * 0.5f - msgBox.width * 0.5f);
 		float ty = std::round(ofGetHeight() * 0.5f);
-		titleFont.drawString(msg, tx, ty);
+		SafeDrawText(titleFont, msg, tx, ty);
 
 		// Immediate diagnostic dump to help trace empty-draft root cause
 		ofLogNotice("DraftDebug") << "drawDraftScreen: EMPTY overlay - state=" << currentState
@@ -37712,7 +37669,7 @@ void ofApp::drawDraftScreen() {
 			std::string secsText = "Decision " + ofToString(secs) + "s";
 			ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 			ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
-			uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, currentY - 6.0f);
+			SafeDrawText(uiFont, secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, currentY - 6.0f);
 
 			currentY -= (barH + textSpacing + 12.0f * uiScale); // shift text up
 		}
@@ -37737,9 +37694,9 @@ void ofApp::drawDraftScreen() {
 		ofScale(scale, scale);
 		ofSetColor(0, 0, 0, shadowA);
 		// Shadow offset must be scaled back to pixel units
-		titleFont.drawString(header, 2.0f / scale, 2.0f / scale);
+		SafeDrawText(titleFont, header, 2.0f / scale, 2.0f / scale);
 		ofSetColor(ofColor(255, 255, 255, fgA));
-		titleFont.drawString(header, 0, 0);
+		SafeDrawText(titleFont, header, 0, 0);
 		ofPopMatrix();
 
 		// Instruction line below header: place just above the cards with a small gap
@@ -37749,9 +37706,9 @@ void ofApp::drawDraftScreen() {
 		ofTranslate(instrTx, instrTy);
 		ofScale(scale, scale);
 		ofSetColor(0, 0, 0, shadowA);
-		titleFont.drawString(instr, 2.0f / scale, 2.0f / scale);
+		SafeDrawText(titleFont, instr, 2.0f / scale, 2.0f / scale);
 		ofSetColor(ofColor(255, 255, 255, fgA));
-		titleFont.drawString(instr, 0, 0);
+		SafeDrawText(titleFont, instr, 0, 0);
 		ofPopMatrix();
 
 		if (!classTierText.empty()) {
@@ -37761,9 +37718,9 @@ void ofApp::drawDraftScreen() {
 			ofPushMatrix();
 			ofTranslate(classTx, classTy);
 			ofScale(scale, scale);
-			titleFont.drawString(classTierText, 2.0f / scale, 2.0f / scale);
+			SafeDrawText(titleFont, classTierText, 2.0f / scale, 2.0f / scale);
 			ofSetColor(ofColor(classTierColor.r, classTierColor.g, classTierColor.b, fgA));
-			titleFont.drawString(classTierText, 0, 0);
+			SafeDrawText(titleFont, classTierText, 0, 0);
 			ofPopMatrix();
 		}
 	}
@@ -38011,8 +37968,10 @@ void ofApp::drawActiveDraftPickedMoves() {
 	}
 
 	// Remove finished moves
-	for (size_t i = activeDraftPickedMoves.size(); i-- > 0;) {
-		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
+	if (!g_isSecondPass) {
+		for (size_t i = activeDraftPickedMoves.size(); i-- > 0;) {
+			if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
+		}
 	}
 
 	// Deck flash visual (Moved here so it resolves correctly outside of drafting state)
@@ -38173,14 +38132,14 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	ofPushMatrix();
 	ofTranslate(startX + panelPadding, startY + panelPadding + titleHeight * 0.5f);
 	ofScale(uiScale, uiScale);
-	uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", 0, 0);
+	SafeDrawText(uiFont, viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", 0, 0);
 	ofPopMatrix();
 
 	float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
 	pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
 
 	ofPushStyle();
-	glEnable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	int scX = (int)(startX + panelPadding);
 	int scW = (int)totalContentWidth;
 	int scY = (int)(ofGetHeight() - (startY + panelPadding + visibleContentHeight));
@@ -38203,7 +38162,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		}
 	}
 
-	glDisable(GL_SCISSOR_TEST);
+	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 	ofPopStyle();
 
 	if (maxScroll > 0.0f) {
@@ -38271,7 +38230,7 @@ void ofApp::drawPauseMenu() {
 	ofSetColor(ofColor::white);
 	std::string title = "PAUSED";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	titleFont.drawString(title, centerX - titleBox.getWidth() / 2.0f, panelY + 60.0f * uiScale);
+	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, panelY + 60.0f * uiScale);
 
 	auto drawBtn = [&](const ofRectangle & r, const std::string & txt, int index) {
 		if (r.width <= 0 || r.height <= 0) return;
@@ -38291,7 +38250,7 @@ void ofApp::drawPauseMenu() {
 
 		ofSetColor(ofColor::black);
 		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
-		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2.0f, r.getCenter().y + tb.getHeight() / 2.0f);
+		SafeDrawText(uiFont, txt, r.getCenter().x - tb.getWidth() / 2.0f, r.getCenter().y + tb.getHeight() / 2.0f);
 	};
 
 	if (!isMultiplayer) {
@@ -38315,7 +38274,7 @@ void ofApp::drawPauseMenu() {
 			ofFill();
 			ofSetColor(150, 150, 150, 255);
 			ofRectangle tb = uiFont.getStringBoundingBox("Request Draw", 0, 0);
-			uiFont.drawString("Request Draw", g_pauseMenuDrawButton.getCenter().x - tb.getWidth() / 2.0f, g_pauseMenuDrawButton.getCenter().y + tb.getHeight() / 2.0f);
+			SafeDrawText(uiFont, "Request Draw", g_pauseMenuDrawButton.getCenter().x - tb.getWidth() / 2.0f, g_pauseMenuDrawButton.getCenter().y + tb.getHeight() / 2.0f);
 		} else if (g_drawOfferPlayerID == -1) {
 			drawBtn(g_pauseMenuDrawButton, "Request Draw", 5);
 		} else if (g_drawOfferPlayerID == myLocalPlayerID) {
