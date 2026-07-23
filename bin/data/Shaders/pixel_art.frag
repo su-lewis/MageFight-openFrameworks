@@ -37,11 +37,10 @@ void main() {
     
     vec3 base = texture(tex0, lowCoord).rgb;
 
-    // --- FIX: BRIGHTEN THE IMAGE ---
-    // Boost saturation slightly, and add a flat 20% brightness boost so it isn't so dark
+    // --- Milder Color Modifications ---
     float luma = lum(base);
-    base = mix(vec3(luma), base, 1.30); // Saturation boost
-    base *= 1.20; // 20% Brightness boost
+    base = mix(vec3(luma), base, 1.15); // Slight Saturation boost
+    base *= 1.05; // Slight Brightness boost
     base = clamp(base, 0.0, 1.0);
 
     // Color Banding / Posterization
@@ -50,14 +49,15 @@ void main() {
     
     if (L > 1.0) {
         if (useDither == 1) {
-            float d = (bayer4(gl_FragCoord.xy) - 0.5) * 0.1;
+            // Reduced dither to prevent "static" look
+            float d = (bayer4(gl_FragCoord.xy) - 0.5) * 0.045; 
             q = floor((q + d) * L) / L;
         } else {
             q = floor(q * L) / L;
         }
     }
 
-    // Crisp Edge Detection (Sobel)
+    // --- Softened Edge Detection ---
     float c = lum(base);
     float l = lum(texture(tex0, lowCoord + vec2(-texel.x, 0)).rgb);
     float r = lum(texture(tex0, lowCoord + vec2(texel.x, 0)).rgb);
@@ -68,11 +68,11 @@ void main() {
     float gy = (d - u);
     float edge = sqrt(gx * gx + gy * gy);
 
-    // Hard threshold for a crisp 1-pixel dark outline
-    float edgeFactor = step(0.15, edge) * max(edgeStrength, 0.5);
+    // Raised threshold (0.16) so it ONLY catches sharp geometry/shadow edges, ignoring texture noise
+    float edgeFactor = step(0.16, edge) * max(edgeStrength, 0.4);
 
-    // Apply outline (darken the edge)
-    vec3 finalCol = mix(q, edgeColor, edgeFactor * 0.85);
+    // Apply outline at a softer 50% opacity so it blends naturally
+    vec3 finalCol = mix(q, edgeColor, edgeFactor * 0.50);
 
     fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
 }
