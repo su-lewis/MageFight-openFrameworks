@@ -6251,7 +6251,9 @@ void ofApp::draw() {
 
 						drawTab(chatTabRect, "CHAT", currentChatTab == ChatTab::CHAT);
 						drawTab(logTabRect, "LOG", currentChatTab == ChatTab::LOG);
-						drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
+						if (!isMultiplayer) {
+							drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
+						}
 						ofPopStyle();
 
 						ofPushStyle();
@@ -7417,12 +7419,7 @@ void ofApp::drawSettingsMenu() {
 			{ "Tab", "Switch Chat Tab" },
 			{ "T", "Toggle Top-down View" },
 			{ "P", "Cycle Pixel / C64 / Off" },
-			{ "L", "Toggle World Post-Process" },
-			{ "Y", "Toggle FBO Preview" },
-			{ "` (tilde)", "Toggle Debug Mode" },
-			{ "C", "Debug: Open Card Spawner" },
-			{ "U", "Debug: Toggle Unlimited AP" },
-			{ "S", "Debug Multiplayer: Skip Checksum Validation" },
+			{ "C", "Open Card Spawner (Singleplayer)" }
 		};
 
 		// Calculate content bounds so Back button doesn't overlap
@@ -18349,7 +18346,7 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		float itemH = 36.0f;
 		float itemW = 760.0f;
 		float startX = centerX - itemW / 2.0f;
-		int controlsCount = 19;
+		int controlsCount = 13;
 		float contentBottom = ofGetHeight() * 0.8f - 20.0f;
 		float contentHeight = std::max(0.0f, contentBottom - listY);
 		float totalContentHeight = controlsCount * (itemH + 8.0f);
@@ -18489,11 +18486,15 @@ void ofApp::keyPressed(int key) {
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_TAB) {
-			// Cycle through tabs: CHAT -> LOG -> DEBUG -> CHAT
+			// Cycle through tabs: CHAT -> LOG -> DEBUG (singleplayer only) -> CHAT
 			if (currentChatTab == ChatTab::CHAT) {
 				currentChatTab = ChatTab::LOG;
 			} else if (currentChatTab == ChatTab::LOG) {
-				currentChatTab = ChatTab::DEBUG;
+				if (isMultiplayer) {
+					currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in multiplayer
+				} else {
+					currentChatTab = ChatTab::DEBUG;
+				}
 			} else {
 				currentChatTab = ChatTab::CHAT;
 			}
@@ -18698,21 +18699,6 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
-	// Hotkeys for save/load game state (R = restore autosave)
-	if ((key == 'r' || key == 'R') && currentState == STATE_GAMEPLAY) {
-		// Only allow restoring from autosave for host or singleplayer
-		if (isMultiplayer && !isHost()) {
-			ofLogWarning("Save") << "Only host can restore saved game state in multiplayer.";
-			return;
-		}
-		bool ok = loadGameStateFromFile("autosave.json");
-		if (ok)
-			ofLogNotice("Save") << "Loaded autosave.json";
-		else
-			ofLogWarning("Save") << "Failed to load autosave.json";
-		return;
-	}
-
 	// Quick End Turn hotkey: 'E' -> act like clicking End Turn
 	if ((key == 'e' || key == 'E') && currentState == STATE_GAMEPLAY) {
 		if (isChatOpen || isCardSpawnerOpen) return;
@@ -18829,8 +18815,8 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 'c' - Open Card Spawner (debug tool; independent of menu visibility)
-	if ((key == 'c' || key == 'C') && currentState == STATE_GAMEPLAY) {
+	// 'c' - Open Card Spawner (Singleplayer only)
+	if ((key == 'c' || key == 'C') && currentState == STATE_GAMEPLAY && !isMultiplayer) {
 		isCardSpawnerOpen = !isCardSpawnerOpen;
 		if (isCardSpawnerOpen) {
 			cardSpawnerInput = "";
@@ -18884,31 +18870,6 @@ void ofApp::keyReleased(int key) {
 			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel/C64: OFF", ofColor::white);
 		}
 		return;
-	}
-
-	// 2b. Post-processing toggles (debug)
-	if (key == 'y' || key == 'Y') {
-		if (!isDebugMode) return;
-		showWorldFboPreview = !showWorldFboPreview;
-		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
-
-		if (currentState == STATE_GAMEPLAY) {
-			queueFloatingTextVisual(gridToWorld(6, 4), std::string("FBO Preview: ") + (showWorldFboPreview ? "ON" : "OFF"), ofColor::white);
-		}
-	}
-
-	// 2c. Debug Hotkeys
-	if (currentState == STATE_GAMEPLAY) {
-		// 'u' keybind removed to avoid accidental toggles; use the
-		// Debug panel's "Unlimited AP" button to toggle instead.
-
-		// 's' - Skip Checksum Validation (for testing without unlimited AP)
-		if (key == 's' || key == 'S') {
-			skipChecksumValidation = !skipChecksumValidation;
-			ofLogNotice("Debug") << "Skip Checksum: " << (skipChecksumValidation ? "ON" : "OFF");
-			addGameLog("Checksum Validation: " + std::string(skipChecksumValidation ? "DISABLED" : "ENABLED"));
-			return;
-		}
 	}
 
 	// 3. Escape Key Logic
