@@ -4047,10 +4047,10 @@ void ofApp::setup() {
 	// --- SET APP ICON ---
 	ofPixels iconPixels;
 	if (ofLoadImage(iconPixels, "UI/icon.png")) {
-		// FIX: Force RGBA formatting, as Linux X11/Wayland strictly rejects RGB icons
+		// FORCE RGBA formatting, as Linux X11/Wayland strictly rejects RGB icons
 		iconPixels.setImageType(OF_IMAGE_COLOR_ALPHA);
 
-		// FIX: Resize if massively oversized (Linux safely handles up to 256x256 max)
+		// Resize if massively oversized (Linux safely handles up to 256x256 max)
 		if (iconPixels.getWidth() > 256 || iconPixels.getHeight() > 256) {
 			iconPixels.resize(256, 256);
 		}
@@ -4223,7 +4223,8 @@ void ofApp::setup() {
 		rotation = glm::rotate(rotation, glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
 		rotation = glm::rotate(rotation, glm::radians(roll), glm::vec3(0.0f, 0.0f, 1.0f));
 
-		glm::mat4 socketOffset = translation * rotation;
+		// Assigned directly to the member variable to clear the unused variable warning
+		staffSocketOffset = translation * rotation;
 
 		// Resolve and cache the hand node once immediately after loading the model
 		if (playerModel.getAssimpScene() != nullptr) {

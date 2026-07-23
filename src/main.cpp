@@ -12,7 +12,6 @@ int main(int argc, char * argv[]) {
 		ofAppNoWindow window;
 		ofSetupOpenGL(&window, 1024, 768, OF_WINDOW);
 
-		// 🟢 FIX: Use a raw pointer for headless app, not shared_ptr
 		ofApp * app = new ofApp();
 		ofRunApp(app);
 		return 0;
@@ -33,7 +32,7 @@ int main(int argc, char * argv[]) {
 	soundSettings.sampleRate = 44100;
 	soundSettings.bufferSize = 256;
 
-	// Centralized cross-platform audio API selection
+	// Centralized cross-platform audio API selection using ofSoundDevice::Api
 #if defined(__linux__)
 	// Native Linux builds use PulseAudio
 	soundSettings.setApi(ofSoundDevice::Api::PULSE);
@@ -49,6 +48,7 @@ int main(int argc, char * argv[]) {
 #endif
 
 	ofSoundStreamSetup(soundSettings);
+
 	// Checksum Harness Logic
 	bool checksumHarness = false;
 	const char * envHarness = getenv("MAGEFIGHT_CHECKSUM_HARNESS");
@@ -75,7 +75,7 @@ int main(int argc, char * argv[]) {
 		return 0;
 	}
 
-	// 🟢 Run Normal App
+	// Run Normal App
 	auto app = std::make_shared<ofApp>();
 	ofRunApp(window, app);
 	return ofRunMainLoop();
