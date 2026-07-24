@@ -2292,8 +2292,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		storeIfLoaded(t + ".PNG");
 		storeIfLoaded(t + ".png");
 		if (toLowerCopy(t) == "poison") {
-			storeIfLoaded("Poision.PNG");
-			storeIfLoaded("Poision.png");
 		}
 	}
 

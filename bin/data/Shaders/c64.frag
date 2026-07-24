@@ -34,23 +34,22 @@ void main() {
         color = texture(tex0, pxUv).rgb;
     }
 
-    // Just a slight saturation boost to make colors pop. NO artificial brightness boost.
-    float luma = dot(color, vec3(0.299, 0.587, 0.114));
-    color = mix(vec3(luma), color, 1.15); 
+    // Keep natural lighting colors - NO artificial saturation boost to prevent hue shifts
     color = clamp(color, 0.0, 1.0);
 
-    // Softer dither
-    float dither = (bayer4(gl_FragCoord.xy) - 0.5) * 0.05;
+    // Softened dither texture
+    float dither = (bayer4(gl_FragCoord.xy) - 0.5) * 0.025;
     
-    // Uniform quantization (prevents dark grays from shifting yellow/brown)
-    // 7.0 gives 8 values per channel (512 colors total)
+    // 16 levels per channel (12-bit palette / 4,096 colors)
+    // Preserves exact color hues: green-yellow walls and blue-purple floors stay accurate!
     vec3 mapped = clamp(color + dither, 0.0, 1.0);
-    float levels = 7.0; 
+    float levels = 15.0; 
     mapped = floor(mapped * levels + 0.5) / levels;
 
-    // Normal scanlines (less aggressive since the base image is no longer artificially brightened)
-    float scan = sin(gl_FragCoord.y * 2.5) * 0.5 + 0.5;
-    float scanlineDarkness = clamp(uScanlineIntensity * 1.5, 0.05, 0.35); 
+    // --- PROMINENT CRT SCANLINES ---
+    float scan = sin(gl_FragCoord.y * 1.25) * 0.5 + 0.5;
+    scan = pow(scan, 1.4);
+    float scanlineDarkness = clamp(uScanlineIntensity * 3.5, 0.15, 0.55); 
     mapped *= mix(1.0, 1.0 - scanlineDarkness, scan);
 
     // Subtle CRT Vignette (Darker corners)

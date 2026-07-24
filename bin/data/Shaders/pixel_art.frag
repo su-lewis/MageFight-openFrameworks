@@ -49,7 +49,6 @@ void main() {
     
     if (L > 1.0) {
         if (useDither == 1) {
-            // Reduced dither to prevent "static" look
             float d = (bayer4(gl_FragCoord.xy) - 0.5) * 0.045; 
             q = floor((q + d) * L) / L;
         } else {
@@ -57,21 +56,25 @@ void main() {
         }
     }
 
-    // --- Softened Edge Detection ---
+    // --- Center-Relative Edge Detection (Laplacian Gradient) ---
+    // Compares center pixel against 4-way neighbors so thin vertical AND horizontal lines are BOTH captured!
     float c = lum(base);
     float l = lum(texture(tex0, lowCoord + vec2(-texel.x, 0)).rgb);
     float r = lum(texture(tex0, lowCoord + vec2(texel.x, 0)).rgb);
     float u = lum(texture(tex0, lowCoord + vec2(0, -texel.y)).rgb);
     float d = lum(texture(tex0, lowCoord + vec2(0, texel.y)).rgb);
     
-    float gx = (r - l);
-    float gy = (d - u);
-    float edge = sqrt(gx * gx + gy * gy);
+    float diffL = abs(c - l);
+    float diffR = abs(c - r);
+    float diffU = abs(c - u);
+    float diffD = abs(c - d);
 
-    // Raised threshold (0.16) so it ONLY catches sharp geometry/shadow edges, ignoring texture noise
-    float edgeFactor = step(0.16, edge) * max(edgeStrength, 0.4);
+    float edge = max(max(diffL, diffR), max(diffU, diffD));
 
-    // Apply outline at a softer 50% opacity so it blends naturally
+    // Threshold to detect crisp outlines on cards and UI borders
+    float edgeFactor = step(0.12, edge) * max(edgeStrength, 0.4);
+
+    // Apply outline (50% opacity for a clean, non-harsh blend)
     vec3 finalCol = mix(q, edgeColor, edgeFactor * 0.50);
 
     fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
