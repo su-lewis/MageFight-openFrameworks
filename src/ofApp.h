@@ -1786,6 +1786,21 @@ private:
 	// closest face midpoint and ends at the center of the hit grid fraction.
 	void computeTracerEndpoints(glm::vec2 casterTile, glm::vec2 hitGridFrac, glm::vec3 & outStart, glm::vec3 & outEnd);
 
+	// Individual player H2H stats (wins/losses/draws) against each opponent by SteamID
+	struct H2HRecord {
+		std::string opponentName;
+		int wins = 0;
+		int losses = 0;
+		int draws = 0;
+	};
+
+	std::map<std::string, H2HRecord> h2hStatsMap;
+	std::vector<std::pair<int, ofRectangle>> assistantRerollButtons; // <AssistantPlayerIndex, ButtonRect>
+
+	void loadH2HStats();
+	void saveH2HStats();
+	void recordH2HOutcome(const std::string & opponentSteamID, const std::string & opponentName, int outcome);
+
 	// --- KEY ANIMATION (Floating Key on Floor) ---
 	std::vector<ofTexture> keyTextures; // loaded from Board/keys_1_*.png
 	std::vector<ofTexture> keyTexturesSilver; // loaded from Board/keys_2_*.png

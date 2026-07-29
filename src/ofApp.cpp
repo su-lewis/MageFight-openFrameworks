@@ -4100,7 +4100,7 @@ void ofApp::setup() {
 	ofSetCircleResolution(64);
 
 	// --- 1. UI & CONFIG ---
-
+	loadH2HStats();
 	// Bumped to 24px so it is thicker and highly readable in menus!
 	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 24);
 	uiSettings.antialiased = false;
@@ -5283,36 +5283,41 @@ void ofApp::update() {
 			float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
 			float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
 
-			// Module 2: Momentum Engine (Win Streak Tracker)
+			// Record Head-to-Head outcome in JSON
+			uint64_t oppSteamID = steamManager.getOpponentSteamID().ConvertToUint64();
+			if (oppSteamID > 0) {
+				int h2hOutcome = (g_winnerID == 2) ? 2 : ((g_winnerID == myLocalPlayerID) ? 1 : 0);
+				recordH2HOutcome(std::to_string(oppSteamID), player1SteamName, h2hOutcome);
+			}
+
+			// Win Streak Tracker
 			if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
 				s_winStreak++;
 			} else if (g_winnerID != 2) {
 				s_winStreak = 0;
 			}
 
-			// Calculate Momentum K-Factor Multiplier based on win streak
 			float myKMultiplier = 1.0f;
-			if (s_winStreak == 3) {
+			if (s_winStreak == 3)
 				myKMultiplier = 1.25f;
-			} else if (s_winStreak >= 4) {
+			else if (s_winStreak >= 4)
 				myKMultiplier = 1.50f;
-			}
 
-			// Module 1: Base K-Factors
 			float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
 			float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
-
-			// Apply the win-streak acceleration to the player's personal K-Factor
 			myK *= myKMultiplier;
-
-			// Averaged Match K-Factor (volatility balance)
 			float avgK = (myK + oppK) / 2.0f;
 
-			// True skill calculation (Zero-Sum)
 			eloChange = (int)round(avgK * (myActual - myExpected));
 
-			// Module 4: Safety Nets (Maximum Swing Cap)
-			int maxSwing = (int)round(avgK);
+			// --- LOW ELO INFLATION BOOST (+30% on Wins under 1200 ELO) ---
+			if (myActual == 1.0f && myElo < 1200 && eloChange > 0) {
+				int boostedChange = (int)round(eloChange * 1.30f);
+				ofLogNotice("Elo") << "Low ELO Inflation Boost (+30%) applied: " << eloChange << " -> " << boostedChange;
+				eloChange = boostedChange;
+			}
+
+			int maxSwing = (int)round(avgK * 1.30f);
 			eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
 
 			myElo += eloChange;
@@ -12963,6 +12968,17 @@ void ofApp::drawGame() {
 
 		if (elo >= 0) {
 			auto rank = getMageRank(elo);
+			std::string rankStr = rank.first + " (" + std::to_string(elo) + ")";
+
+			// Append H2H Record if viewing the opponent
+			if (!isLocal && isMultiplayer) {
+				std::string oppIDStr = std::to_string(steamManager.getOpponentSteamID().ConvertToUint64());
+				if (h2hStatsMap.find(oppIDStr) != h2hStatsMap.end()) {
+					const auto & h2h = h2hStatsMap[oppIDStr];
+					rankStr += " | H2H: " + std::to_string(h2h.wins) + "W-" + std::to_string(h2h.losses) + "L-" + std::to_string(h2h.draws) + "D";
+				}
+			}
+
 			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
 			float fontS = 1.0f;
 			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
@@ -12972,7 +12988,6 @@ void ofApp::drawGame() {
 			float nx = textX + (nameBox.x + nameBox.width * 0.5f) * qFontS;
 			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
 
-			std::string rankStr = rank.first + " (" + std::to_string(elo) + ")";
 			ofRectangle rankBox = uiFont.getStringBoundingBox(rankStr, 0, 0);
 			float rFontS = 0.75f;
 			if (rankBox.width * rFontS > textW) rFontS = textW / rankBox.width;
@@ -13899,93 +13914,92 @@ void ofApp::drawGame() {
 	saveGameButtonRect.set(-1000, -1000, 0, 0);
 	loadGameButtonRect.set(-1000, -1000, 0, 0);
 
-	// --- ASSISTANT AP REROLL BUTTON ---
+	// --- ASSISTANT AP REROLL BUTTONS ---
+	assistantRerollButtons.clear();
 	if (players.size() > 0 && currentPlayerIndex != -1) {
 		Player & curr = players[currentPlayerIndex];
 
-		// Only show if 0 displayed AP, no active AP roll animation, and currentAP is 0
 		if (displayedAPForCurrent == 0 && currentAP == 0 && !apRollActive) {
-			bool canReroll = false;
-
-			// Check for adjacent unused assistants owned by this unit
-			for (const auto & p : players) {
-				if (p.isAssistant && p.health > 0) {
-					if (p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
-						int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
-						if (dist <= 1) {
-							canReroll = true;
-							break;
-						}
+			std::vector<int> availableAssistants;
+			for (size_t i = 0; i < players.size(); i++) {
+				const Player & p = players[i];
+				if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+					if (dist <= 1) {
+						availableAssistants.push_back((int)i);
 					}
 				}
 			}
 
-			if (canReroll) {
-				float uiScale = getUIScaleFromHeight(ofGetHeight());
-				(void)uiScale;
-				float btnW = 130 * uiScale; // shorter button
-				float btnH = 44 * uiScale;
-				// Position reroll button anchored to AP box side for the active owner
+			if (!availableAssistants.empty()) {
+				float uiScaleLocal = getUIScaleFromHeight(ofGetHeight());
+				float btnW = 140 * uiScaleLocal;
+				float btnH = 40 * uiScaleLocal;
+				float gap = 6 * uiScaleLocal;
 				float margin = 10 * scale;
-				float btnX = 0.0f;
-				float btnY = 0.0f;
+
 				int activeOwnerID = curr.isMinion ? curr.ownerID : curr.playerID;
-				// FIX: If active owner is the Local Player, place reroll button to the RIGHT of AP (Bottom).
 				int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
+
+				float baseBtnX = 0.0f;
+				float baseBtnY = 0.0f;
+
 				if ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == viewID)) {
 					float p0_apCenterX = p0_discardRect.getCenter().x;
 					float p0_apCenterY = p0_discardRect.y - (10.0f * scale);
-					string p0_apText = "0 AP";
-					if (currentPlayerIndex >= 0 && !players.empty()) {
-						p0_apText = ofToString(displayedAPForCurrent) + " AP";
-					}
+					string p0_apText = ofToString(displayedAPForCurrent) + " AP";
 					ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 					float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 					float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 					p0_apCenterY -= (p0_apRectHeight / 2.0f);
-					btnX = p0_apCenterX + p0_apRectWidth / 2 + margin;
-					btnY = p0_apCenterY - (btnH / 2);
+					baseBtnX = p0_apCenterX + p0_apRectWidth / 2 + margin;
+					baseBtnY = p0_apCenterY - (btnH / 2);
 				} else {
-					// Opponent side is mirrored: place reroll button to the LEFT of AP.
 					float p1_apCenterX = p1_discardRect.getCenter().x;
 					float p1_apCenterY = p1_discardRect.y - (10.0f * scale);
-					string p1_apText = "0 AP";
-					if (currentPlayerIndex >= 0 && !players.empty()) {
-						p1_apText = ofToString(displayedAPForCurrent) + " AP";
-					}
+					string p1_apText = ofToString(displayedAPForCurrent) + " AP";
 					ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
 					float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 					float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
 					p1_apCenterY -= (p1_apRectHeight / 2.0f);
-					btnX = p1_apCenterX - p1_apRectWidth / 2 - margin - btnW;
-					btnY = p1_apCenterY - (btnH / 2);
+					baseBtnX = p1_apCenterX - p1_apRectWidth / 2 - margin - btnW;
+					baseBtnY = p1_apCenterY - (btnH / 2);
 				}
 
-				rerollButtonRect.set(btnX, btnY, btnW, btnH);
-
-				// Determine Alpha based on whose side it's anchored to
 				float currentAlpha = ((!isMultiplayer && activeOwnerID == 0) || (isMultiplayer && activeOwnerID == viewID)) ? g_p0_apBoxAlpha : g_p1_apBoxAlpha;
 
 				if (currentAlpha > 0.01f) {
-					if (rerollButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_reroll";
-					ofSetColor(47, 79, 79, 255 * currentAlpha); // Dark Slate Gray scaled
-					ofDrawRectRounded(rerollButtonRect, 8);
+					for (size_t k = 0; k < availableAssistants.size(); k++) {
+						int astIdx = availableAssistants[k];
+						int num = 1;
+						for (const auto & mui : activeMinionUIs) {
+							if (mui.playerIndex == astIdx) {
+								num = mui.displayNumber;
+								break;
+							}
+						}
 
-					ofPath p;
-					p.rectRounded(rerollButtonRect, 8);
-					p.setFilled(false);
-					p.setStrokeWidth(3 * scale);
-					p.setStrokeColor(ofColor(0, 255, 0, 255 * currentAlpha));
-					p.draw();
+						float bY = baseBtnY - (k * (btnH + gap));
+						ofRectangle bRect(baseBtnX, bY, btnW, btnH);
+						assistantRerollButtons.push_back({ astIdx, bRect });
 
-					string txt = "Reroll AP";
-					drawStatText(uiFont, txt, btnX, btnY, btnW, btnH, ofColor(0, 255, 255, 255 * currentAlpha), 1.0f);
+						if (bRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_reroll_" + ofToString(astIdx);
+
+						ofSetColor(47, 79, 79, 255 * currentAlpha);
+						ofDrawRectRounded(bRect, 8);
+
+						ofPath p;
+						p.rectRounded(bRect, 8);
+						p.setFilled(false);
+						p.setStrokeWidth(3 * scale);
+						p.setStrokeColor(ofColor(0, 255, 0, 255 * currentAlpha));
+						p.draw();
+
+						std::string txt = (availableAssistants.size() > 1) ? ("Reroll (#" + ofToString(num) + ")") : "Reroll AP";
+						drawStatText(uiFont, txt, baseBtnX, bY, btnW, btnH, ofColor(0, 255, 255, 255 * currentAlpha), 1.0f);
+					}
 				}
-			} else {
-				rerollButtonRect.set(-1000, -1000, 0, 0);
 			}
-		} else {
-			rerollButtonRect.set(-1000, -1000, 0, 0);
 		}
 	}
 
@@ -15044,6 +15058,11 @@ cursor_check_done:;
 
 					// Minion/Unit AP roll hints
 					if (up->isAssistant) {
+						if (!up->assistantRerollUsedThisTurn) {
+							unitStatusLines.push_back("Reroll: Available");
+						} else {
+							unitStatusLines.push_back("Reroll: Used");
+						}
 						unitStatusLines.push_back("AP: Coinflip");
 					} else if (up->isWolf) {
 						unitStatusLines.push_back("AP: 1d10");
@@ -17395,40 +17414,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
-		// 3g-ALT. Reroll Button
-		if (rerollButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			Player & curr = players[currentPlayerIndex];
+		// 3g-ALT. Assistant Reroll Buttons
+		for (const auto & btn : assistantRerollButtons) {
+			if (btn.second.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+				int assistantIndex = btn.first;
+				if (assistantIndex >= 0 && assistantIndex < (int)players.size()) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = assistantIndex;
+					cmd.params[1] = 0;
+					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-			// Find the assistant to consume
-			int assistantIndex = -1;
-			for (int i = 0; i < (int)players.size(); i++) {
-				Player & p = players[i];
-				if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
-					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
-					if (dist <= 1) {
-						assistantIndex = i;
-						break;
-					}
+					sendInputCommand(cmd, true);
 				}
+				return;
 			}
-
-			if (assistantIndex != -1) {
-				// Route through lockstep command queue to keep both peers in sync
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_PSEUDO_ACTION;
-				cmd.params[0] = assistantIndex; // pass the assistant we are using
-				cmd.params[1] = 0;
-				strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
-				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-				// Send to network so both peers execute the RNG together
-				sendInputCommand(cmd, true);
-			}
-			return;
 		}
 		// 3g. End Turn Button (only active during gameplay)
 		if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
@@ -40747,4 +40752,60 @@ void ofApp::loadReplay(const std::string & filename) {
 	replayPlaybackIndex = 0;
 	setupGame(); // Start the game with the forced seed
 	addGameLog("Replay loaded! Watching...");
+}
+void ofApp::loadH2HStats() {
+	h2hStatsMap.clear();
+	std::string path = getSavesDirPath().string() + "/h2h_stats.json";
+	if (!ofFile(path).exists()) return;
+
+	try {
+		ofJson j = ofLoadJson(path);
+		for (auto & [idKey, val] : j.items()) {
+			H2HRecord rec;
+			rec.opponentName = val.value("name", "Opponent");
+			rec.wins = val.value("wins", 0);
+			rec.losses = val.value("losses", 0);
+			rec.draws = val.value("draws", 0);
+			h2hStatsMap[idKey] = rec;
+		}
+		ofLogNotice("H2H") << "Loaded H2H stats for " << h2hStatsMap.size() << " opponents.";
+	} catch (...) {
+		ofLogError("H2H") << "Failed to load H2H stats.";
+	}
+}
+
+void ofApp::saveH2HStats() {
+	ofJson j;
+	for (const auto & [idKey, rec] : h2hStatsMap) {
+		ofJson val;
+		val["name"] = rec.opponentName;
+		val["wins"] = rec.wins;
+		val["losses"] = rec.losses;
+		val["draws"] = rec.draws;
+		j[idKey] = val;
+	}
+	std::string path = getSavesDirPath().string() + "/h2h_stats.json";
+	try {
+		ofSaveJson(path, j);
+		ofLogNotice("H2H") << "Saved H2H stats to " << path;
+	} catch (...) {
+		ofLogError("H2H") << "Failed to save H2H stats.";
+	}
+}
+
+void ofApp::recordH2HOutcome(const std::string & opponentSteamID, const std::string & opponentName, int outcome) {
+	if (opponentSteamID.empty() || opponentSteamID == "0") return;
+
+	H2HRecord & rec = h2hStatsMap[opponentSteamID];
+	if (!opponentName.empty() && opponentName != "Opponent") {
+		rec.opponentName = opponentName;
+	}
+	if (outcome == 1)
+		rec.wins++;
+	else if (outcome == 0)
+		rec.losses++;
+	else if (outcome == 2)
+		rec.draws++;
+
+	saveH2HStats();
 }
