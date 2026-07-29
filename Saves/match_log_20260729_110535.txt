@@ -1,0 +1,47 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-07-29 11:05:35
+End Reason: Victory
+Seed: 1748357044
+Turns: 2
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[11:01:03] --- MATCH STARTED ---
+[11:01:10] Turn 1: Player 1's turn
+[11:01:10] Autosaved turn-start (autosave.json)
+[11:01:37] Player 1 played Raise Dead
+[11:01:55] Unlimited time enabled (turn timer disabled).
+[11:01:56] Turn timer enabled.
+[11:02:36] Player 1 played Hand Block
+[11:03:42] Unlimited time enabled (turn timer disabled).
+[11:03:44] Player 1 moved to (11,0)
+[11:04:51] Player 1 played Shoot Arrow
+[11:05:00] Player 1 played Shock
+[11:05:17] Player 1 played Ethereal Jolt
+[11:05:22] Player 1 played Heal
+[11:05:24] Player 1 played Add Poison
+[11:05:25] Player 1 played Punch
+[11:05:29] Player 1 played Flame Hit
+[11:05:31] Player 1 played Smite
+[11:05:33] Player 1 played Hand Block
+[11:05:34] Turn 1: Player 2's turn
+[11:05:34] Autosaved turn-start (autosave.json)
+[11:05:34] Turn 2: Player 1's turn
+[11:05:34] Autosaved turn-start (autosave.json)
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 21
+  Cards Played: 11
+  Minions Spawned: 1
+  Total Healing: 9
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

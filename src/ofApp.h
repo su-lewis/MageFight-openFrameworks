@@ -37,6 +37,12 @@
 #define BOARD_HEIGHT 9
 // TILE_SIZE is defined as a const member in the class
 
+enum CardGlowState {
+	CARD_GLOW_NONE,
+	CARD_GLOW_GREEN,
+	CARD_GLOW_YELLOW
+};
+
 enum GameState {
 	STATE_MAIN_MENU,
 	STATE_MULTIPLAYER_MENU,
@@ -1184,7 +1190,7 @@ private:
 	bool isEffectSequenceComplete() const;
 
 	bool hasFinishedDiceRollFor(DicePurpose purpose, int ownerIndex) const;
-
+	bool hasValidTargetForGlow(int playerIndex, int cardIndex);
 	// Return true when all active dice visuals are finished and the result linger time passed
 	bool diceVisualsFinishedAndLinger() const;
 	void recalcTempLuck();
@@ -1669,6 +1675,14 @@ private:
 		SETTINGS_TAB_CONTROLS = 3
 	};
 	int currentSettingsTab = SETTINGS_TAB_VIDEO;
+
+	CardGlowState getCardGlowState(int playerIndex, int cardIndex);
+
+	float turnBannerStartTime = 0.0f;
+	std::string turnBannerText = "";
+	ofColor turnBannerColor = ofColor::gold;
+	int lastBannerTurnOwnerID = -1;
+	int lastBannerTurnCycle = -1;
 
 	// Audio settings (controls shown in Settings -> Audio)
 	float settingsMasterVolume = 1.0f; // 0.0 - 1.0

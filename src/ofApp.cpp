@@ -1338,6 +1338,27 @@ static void drawCardOutlineOutside(float x, float y, float w, float h, float lin
 	drawCardEdgeOutline(sx, sy, sw, sh, expand);
 }
 
+static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor color, int layers = 6) {
+	ofPushStyle();
+	ofFill();
+
+	// Concentric expanding alpha halos creating a soft glowing bloom aura
+	for (int i = layers; i >= 1; --i) {
+		float expand = (float)i * 2.2f;
+		float alphaFactor = (1.0f - ((float)i / (float)(layers + 1)));
+		alphaFactor = alphaFactor * alphaFactor; // Soft quadratic falloff
+
+		ofSetColor(color.r, color.g, color.b, (int)(color.a * alphaFactor * 0.45f));
+		drawCardEdgeOutline(drawX, drawY, w, h, expand);
+	}
+
+	// Crisp inner edge highlight
+	ofSetColor(color.r, color.g, color.b, std::min(255, (int)(color.a * 0.9f)));
+	drawCardEdgeOutline(drawX, drawY, w, h, 1.5f);
+
+	ofPopStyle();
+}
+
 static bool startsWith(const std::string & s, const std::string & prefix) {
 	return s.rfind(prefix, 0) == 0;
 }
@@ -3069,6 +3090,37 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		} else {
 			target.health -= remaining;
 		}
+
+		// Standardized Combat Colors
+		ofColor dmgColor = ofColor(220, 20, 60); // Physical: Crimson Red
+		switch (type) {
+		case DAMAGE_PHYSICAL:
+			dmgColor = ofColor(220, 20, 60); // Crimson Red
+			break;
+		case DAMAGE_PIERCING:
+			dmgColor = ofColor(192, 192, 192); // Silver
+			break;
+		case DAMAGE_MAGIC:
+			dmgColor = ofColor(148, 0, 211); // Void Purple
+			break;
+		case DAMAGE_ELECTRIC:
+			dmgColor = ofColor(30, 80, 220); // Navy Blue
+			break;
+		case DAMAGE_FIRE:
+			dmgColor = ofColor(255, 120, 0); // Flame Orange
+			break;
+		case DAMAGE_HOLY:
+			dmgColor = ofColor(255, 215, 0); // Radiant Gold
+			break;
+		case DAMAGE_POISON:
+			dmgColor = ofColor(50, 205, 50); // Toxic Green
+			break;
+		default:
+			dmgColor = ofColor::white;
+			break;
+		}
+
+		queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(remaining) + " HP", dmgColor);
 
 		if (doubledHoly) {
 			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 2.0f, 0), "x2!", ofColor::yellow);
@@ -6770,6 +6822,21 @@ void ofApp::draw() {
 				SafeDrawText(titleFont, diceRollResultText, tx, ty);
 			}
 
+			// --- TURN START BANNER ---
+			if (!turnBannerText.empty()) {
+				float bannerElapsed = ofGetElapsedTimef() - turnBannerStartTime;
+				if (bannerElapsed < 1.6f) {
+					float t = bannerElapsed / 1.6f;
+					float alpha = (t < 0.2f) ? (t / 0.2f) : ((t > 0.8f) ? (1.0f - (t - 0.8f) / 0.2f) : 1.0f);
+					float scale = 1.8f + 0.2f * sin(t * PI);
+
+					ofColor c = turnBannerColor;
+					c.a = (int)(alpha * 255.0f);
+
+					drawPixelTextCentered(titleFont, turnBannerText, ofGetWidth() / 2.0f, ofGetHeight() * 0.38f, scale, c, 3, ofColor(0, 0, 0, (int)(alpha * 220.0f)));
+				}
+			}
+
 			if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)) {
 				Player & currentPlayer = players[currentPlayerIndex];
 				if (selectedCardIndex < (int)currentPlayer.hand.size()) {
@@ -7327,19 +7394,6 @@ void ofApp::draw() {
 
 	// Hover sound resolution safely at the end
 	if (!g_isSecondPass) {
-		static std::string s_lastHoveredBtn = "";
-		static float s_lastHoverSoundTime = 0.0f;
-		if (g_hoveredButtonId != s_lastHoveredBtn) {
-			if (!g_hoveredButtonId.empty() && s_sfxHoverButton.isLoaded()) {
-				if (ofGetElapsedTimef() - s_lastHoverSoundTime >= 1.0f) {
-					float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
-					s_sfxHoverButton.setVolume(vol);
-					s_sfxHoverButton.play();
-					s_lastHoverSoundTime = ofGetElapsedTimef();
-				}
-			}
-			s_lastHoveredBtn = g_hoveredButtonId;
-		}
 		g_hoveredButtonId = "";
 	}
 }
@@ -9300,6 +9354,17 @@ void ofApp::prepareGameVisualState() {
 				playerVisualPos.y += hop;
 				if (t >= 0.999f) {
 					playerVisualPos = targetPos;
+
+					// Play footstep sound for arriving at this tile
+					if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty() && !isFastForwarding) {
+						std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+						int idx = footIdx(visualRNG);
+						std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+
+						float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f);
+						playOnBoardSound(getActiveCamera(), footstepSounds[idx], targetPos, vol, footSpeed(visualRNG));
+					}
+
 					{
 						glm::vec2 arrivedGridF = worldToGrid(targetPos);
 						int arrivedX = (int)std::round(arrivedGridF.x);
@@ -9335,17 +9400,6 @@ void ofApp::prepareGameVisualState() {
 					animationSegmentStartTime = ofGetElapsedTimef();
 					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
 					if (!pausedForKeyDraft) {
-						if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
-							if (!isFastForwarding) { // <-- Suppress audio during fast forward
-								std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-								int idx = footIdx(visualRNG);
-								std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-
-								// Play footstep through the new 3D Spatial Audio system!
-								float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.5f, 0.0f, 1.0f);
-								playOnBoardSound(getActiveCamera(), footstepSounds[idx], targetPos, vol, footSpeed(visualRNG));
-							}
-						}
 						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
 							isPlayerAnimating = false;
 							animatingPlayerIndex = -1;
@@ -10928,6 +10982,66 @@ void ofApp::drawGame() {
 				visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
 			}
 
+			// Draw Metallic Ground Circles for Key Tiles (Includes all active and pending keys)
+			for (const auto & inst : visibleKeyInstances) {
+				ofColor circleCol = ofColor(255, 215, 0); // Gold
+				if (inst.set == 2)
+					circleCol = ofColor(200, 200, 220); // Silver
+				else if (inst.set == 3)
+					circleCol = ofColor(205, 127, 50); // Bronze
+
+				glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
+
+				ofPushStyle();
+				ofEnableDepthTest();
+				glDepthMask(GL_FALSE);
+				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+				ofPushMatrix();
+				ofTranslate(worldPos.x, 0.02f, worldPos.z);
+				ofRotateXDeg(90);
+
+				// Low-transparency metallic fill
+				ofSetColor(circleCol.r, circleCol.g, circleCol.b, 60);
+				ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
+
+				// High-contrast metallic ring
+				ofNoFill();
+				ofSetLineWidth(2.5f);
+				ofSetColor(circleCol.r, circleCol.g, circleCol.b, 220);
+				ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
+
+				ofPopMatrix();
+				glDepthMask(GL_TRUE);
+				ofPopStyle();
+			}
+
+			// Add visual-only keys that were already consumed by lockstep command
+			// execution but should remain visible until movement animation arrives.
+			for (const auto & pending : pendingVisualKeyDraftQueue) {
+				if (pending.tileX < 0 || pending.tileX >= BOARD_WIDTH
+					|| pending.tileY < 0 || pending.tileY >= BOARD_HEIGHT) {
+					continue;
+				}
+
+				bool alreadyVisible = false;
+				for (const auto & inst : visibleKeyInstances) {
+					if (inst.pos.x == pending.tileX && inst.pos.y == pending.tileY) {
+						alreadyVisible = true;
+						break;
+					}
+				}
+				if (alreadyVisible) continue;
+
+				int visualKeySet = 1;
+				if (pending.classTier == 2)
+					visualKeySet = 2;
+				else if (pending.classTier == 1)
+					visualKeySet = 3;
+
+				visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
+			}
+
 			// Always use the local player's camera and flip logic so keys face the local view
 			ofCamera & localCamera = getActiveCamera();
 			(void)localCamera; // Suppress unused warning
@@ -10968,7 +11082,8 @@ void ofApp::drawGame() {
 				glm::vec3 p2(halfW, halfH, 0);
 				glm::vec3 p3(-halfW, halfH, 0);
 
-				ofMesh quad;
+				static ofMesh quad;
+				quad.clear();
 				quad.setMode(OF_PRIMITIVE_TRIANGLES);
 
 				// Transform the quad via matrix so it dynamically billboards
@@ -11077,7 +11192,8 @@ void ofApp::drawGame() {
 				glm::vec3 p2 = glm::vec3(p.x + halfSize, 0.01f, p.z + halfSize);
 				glm::vec3 p3 = glm::vec3(p.x - halfSize, 0.01f, p.z + halfSize);
 
-				ofMesh sq;
+				static ofMesh sq;
+				sq.clear();
 				sq.setMode(OF_PRIMITIVE_TRIANGLES);
 				sq.addVertex(p0);
 				sq.addTexCoord(glm::vec2(0, 1));
@@ -13474,51 +13590,41 @@ void ofApp::drawGame() {
 		// Position AP above the discard pile for the local player
 		float p0_apCenterX = p0_discardRect.getCenter().x;
 
-		// AP preview text: show hovered/dragged hand card cost as a fading line under AP.
-		bool hasPreviewCardForAP = false;
-		int previewCardCost = 0;
-		bool previewIsSprint = false;
+		// Calculate active card AP cost/gain preview on HOVER or DRAG
+		int previewCost = 0;
+		int previewGain = 0;
+		bool showAPPreview = false;
+
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
-			Player & apPreviewPlayer = players[currentPlayerIndex];
-			int apPreviewCardIndex = -1;
-			if (draggedCardIndex >= 0 && draggedCardIndex < (int)apPreviewPlayer.hand.size()) {
-				apPreviewCardIndex = draggedCardIndex;
-			} else if (hoveredCardIndex >= 0 && hoveredCardIndex < (int)apPreviewPlayer.hand.size()) {
-				apPreviewCardIndex = hoveredCardIndex;
-			}
-
-			if (apPreviewCardIndex >= 0 && apPreviewCardIndex < (int)apPreviewPlayer.hand.size()) {
-				hasPreviewCardForAP = true;
-				previewCardCost = getEffectiveCardCostForPlayer(apPreviewPlayer, apPreviewPlayer.hand[apPreviewCardIndex]);
-				previewIsSprint = (apPreviewPlayer.hand[apPreviewCardIndex].type == CARD_SPRINT);
+			Player & apP = players[currentPlayerIndex];
+			int cardIdx = (draggedCardIndex != -1) ? draggedCardIndex : ((hoveredCardIndex != -1) ? hoveredCardIndex : ((cardInteractionState == CARD_INTERACTION_STATE_TARGETING) ? interactingCardIndex : -1));
+			if (cardIdx >= 0 && cardIdx < (int)apP.hand.size()) {
+				const Card & previewCard = apP.hand[cardIdx];
+				previewCost = getEffectiveCardCostForPlayer(apP, previewCard);
+				previewGain = previewCard.apGain;
+				showAPPreview = true;
 			}
 		}
 
-		static float apPreviewAlpha = 0.0f;
-		float apPreviewTargetAlpha = hasPreviewCardForAP ? 230.0f : 0.0f;
-		static float apPreviewLastTime = ofGetElapsedTimef();
-		float apNow = ofGetElapsedTimef();
-		float apDt = std::max(0.0f, apNow - apPreviewLastTime);
-		apPreviewLastTime = apNow;
-		// Fade duration target: 0.1s in/out.
-		const float apPreviewFadeDuration = 0.10f;
-		const float apPreviewFadeRate = 230.0f / apPreviewFadeDuration;
-		if (apPreviewAlpha < apPreviewTargetAlpha) {
-			apPreviewAlpha = std::min(apPreviewTargetAlpha, apPreviewAlpha + apPreviewFadeRate * apDt);
-		} else if (apPreviewAlpha > apPreviewTargetAlpha) {
-			apPreviewAlpha = std::max(apPreviewTargetAlpha, apPreviewAlpha - apPreviewFadeRate * apDt);
-		}
-
-		string apCostPreviewText = previewIsSprint ? "+2" : ("-" + ofToString(previewCardCost));
-		static string apPreviewDisplayText = "";
-		if (hasPreviewCardForAP) {
-			apPreviewDisplayText = apCostPreviewText;
-		}
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(g_p0_apText_cache, 0, 0);
-		float p0_previewScale = quantizePixelTextScale(fontScale * 0.62f);
-		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(apPreviewDisplayText, 0, 0);
 		float apFontScale = quantizePixelTextScale(fontScale);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
+
+		int netAPChange = previewGain - previewCost;
+		std::string diffText = "";
+		ofColor diffColor = ofColor(255, 60, 60); // Default Red
+		if (showAPPreview && netAPChange != 0) {
+			if (netAPChange < 0) {
+				diffText = " (" + ofToString(netAPChange) + ")";
+				diffColor = ofColor(255, 60, 60); // Red for losing AP
+			} else {
+				diffText = " (+" + ofToString(netAPChange) + ")";
+				diffColor = ofColor(50, 220, 100); // Green for gaining AP
+			}
+			ofRectangle diffBox = titleFont.getStringBoundingBox(diffText, 0, 0);
+			p0_apRectWidth += (diffBox.width * apFontScale);
+		}
+
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 		// Place AP box slightly above the discard pile
 		float p0_apCenterY = p0_discardRect.y - (10.0f * scale) - (p0_apRectHeight / 2.0f);
@@ -13554,18 +13660,20 @@ void ofApp::drawGame() {
 
 			ofColor apTextCol(0, 255, 0, 255 * g_p0_apBoxAlpha);
 			ofColor apOutCol(0, 0, 0, 255 * g_p0_apBoxAlpha);
-			drawPixelTextCentered(titleFont, g_p0_apText_cache, p0_apCenterX, p0_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 
-			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
-				int alpha = (int)ofClamp(apPreviewAlpha * g_p0_apBoxAlpha, 0.0f, 255.0f);
-				ofColor previewColor(255, 70, 70, alpha);
-				ofColor outlineColor(0, 0, 0, alpha);
-				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) + (12.0f * scale);
-				float p0_previewCenterY = p0_apCenterY;
-				float p0_previewCenterX = p0_previewAnchorX - (p0_previewTextBox.width * p0_previewScale * 0.5f);
-				drawPixelTextCentered(titleFont, apPreviewDisplayText, p0_previewCenterX, p0_previewCenterY, p0_previewScale, previewColor, 2, outlineColor);
+			if (showAPPreview && !diffText.empty()) {
+				ofRectangle mainBox = titleFont.getStringBoundingBox(g_p0_apText_cache, 0, 0);
+				ofRectangle diffBox = titleFont.getStringBoundingBox(diffText, 0, 0);
+				float totalW = (mainBox.width + diffBox.width) * apFontScale;
+				float startX = p0_apCenterX - totalW / 2.0f;
+
+				drawPixelTextBaseline(titleFont, g_p0_apText_cache, startX, p0_apCenterY + (mainBox.height * apFontScale * 0.4f), apFontScale, apTextCol, 2, apOutCol);
+				drawPixelTextBaseline(titleFont, diffText, startX + (mainBox.width * apFontScale), p0_apCenterY + (mainBox.height * apFontScale * 0.4f), apFontScale, diffColor, 2, apOutCol);
+			} else {
+				drawPixelTextCentered(titleFont, g_p0_apText_cache, p0_apCenterX, p0_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 			}
 		}
+
 		// --- DRAW P0 STATUSES (BOTTOM - Local Player) ---
 		// Position these relative to the local player's health bar: bottom-right, stacked above the HP counter
 		float p0_statusXStart = p0_healthX + 5 * scale;
@@ -13625,6 +13733,22 @@ void ofApp::drawGame() {
 		float p1_apCenterX = p1_discardRect.getCenter().x;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(g_p1_apText_cache, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
+
+		int netAPChangeP1 = previewGain - previewCost;
+		std::string diffTextP1 = "";
+		ofColor diffColorP1 = ofColor(255, 60, 60); // Default Red
+		if (showAPPreview && netAPChangeP1 != 0 && (!isMultiplayer || !isMyTurn())) {
+			if (netAPChangeP1 < 0) {
+				diffTextP1 = " (" + ofToString(netAPChangeP1) + ")";
+				diffColorP1 = ofColor(255, 60, 60); // Red for losing AP
+			} else {
+				diffTextP1 = " (+" + ofToString(netAPChangeP1) + ")";
+				diffColorP1 = ofColor(50, 220, 100); // Green for gaining AP
+			}
+			ofRectangle diffBoxP1 = titleFont.getStringBoundingBox(diffTextP1, 0, 0);
+			p1_apRectWidth += (diffBoxP1.width * apFontScale);
+		}
+
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
 		// Place opponent AP box slightly above their discard pile
 		float p1_apCenterY = p1_discardRect.y - (10.0f * scale) - (p1_apRectHeight / 2.0f);
@@ -13656,16 +13780,17 @@ void ofApp::drawGame() {
 
 			ofColor apTextCol(0, 255, 0, 255 * g_p1_apBoxAlpha);
 			ofColor apOutCol(0, 0, 0, 255 * g_p1_apBoxAlpha);
-			drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 
-			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
-				int alpha = (int)ofClamp(apPreviewAlpha * g_p1_apBoxAlpha, 0.0f, 255.0f);
-				ofColor previewColor(255, 70, 70, alpha);
-				ofColor outlineColor(0, 0, 0, alpha);
-				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) + (12.0f * scale);
-				float p1_previewCenterY = p1_apCenterY;
-				float p1_previewCenterX = p1_previewAnchorX - (p0_previewTextBox.width * p0_previewScale * 0.5f);
-				drawPixelTextCentered(titleFont, apPreviewDisplayText, p1_previewCenterX, p1_previewCenterY, p0_previewScale, previewColor, 2, outlineColor);
+			if (showAPPreview && !diffTextP1.empty() && (!isMultiplayer || !isMyTurn())) {
+				ofRectangle mainBoxP1 = titleFont.getStringBoundingBox(g_p1_apText_cache, 0, 0);
+				ofRectangle diffBoxP1 = titleFont.getStringBoundingBox(diffTextP1, 0, 0);
+				float totalW1 = (mainBoxP1.width + diffBoxP1.width) * apFontScale;
+				float startX1 = p1_apCenterX - totalW1 / 2.0f;
+
+				drawPixelTextBaseline(titleFont, g_p1_apText_cache, startX1, p1_apCenterY + (mainBoxP1.height * apFontScale * 0.4f), apFontScale, apTextCol, 2, apOutCol);
+				drawPixelTextBaseline(titleFont, diffTextP1, startX1 + (mainBoxP1.width * apFontScale), p1_apCenterY + (mainBoxP1.height * apFontScale * 0.4f), apFontScale, diffColorP1, 2, apOutCol);
+			} else {
+				drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 			}
 		}
 
@@ -14153,23 +14278,18 @@ void ofApp::drawGame() {
 						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 					}
 				} else {
+					// 1. Playability Glows (Soft Radiant Bloom Aura)
+					CardGlowState glow = getCardGlowState(currentPlayerIndex, index);
+					if (glow == CARD_GLOW_YELLOW) {
+						drawCardGlowAura(drawX, drawY, w, h, ofColor(255, 215, 0, 240), 6); // Radiant Gold/Yellow Combo
+					} else if (glow == CARD_GLOW_GREEN) {
+						drawCardGlowAura(drawX, drawY, w, h, ofColor(0, 255, 120, 220), 5); // Vibrant Emerald Green
+					}
+
+					// 2. Selected / Dragged state
 					if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
-						ofSetColor(ofColor::green);
-						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
+						drawCardGlowAura(drawX, drawY, w, h, ofColor(0, 255, 120, 255), 7);
 					}
-					if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-						bool isAttack = (card.baseDamage > 0 || card.damageDiceNum > 0 || card.type == CARD_SHIELD_BASH || card.type == CARD_MASTER_FIST || card.type == CARD_ROCK_CRUSH || card.type == CARD_FLAIL || card.type == CARD_SHOOT_ARROW || card.type == CARD_FLURRY_OF_FISTS || card.type == CARD_FORTIFY);
-
-						if (isAttack) {
-							ofSetColor(255, 140, 0);
-							drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
-						}
-					}
-				}
-
-				if (currentState != STATE_DRAFTING && localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
-					ofSetColor(255, 255, 255, 200);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 				}
 				if (currentState != STATE_DRAFTING && isMultiplayer && (opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex == index) {
 					ofSetColor(255, 0, 0, 200);
@@ -18099,7 +18219,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 				if (candidate.type == CARD_SHOOT_ARROW && currentPlayer.deck.empty()) return false;
 
-				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
+				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth) return true;
 					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
@@ -18888,6 +19008,7 @@ void ofApp::keyPressed(int key) {
 
 		// Check if active actor (player or minion) already drew this turn
 		bool activeActorBelongsToLocal = false;
+		(void)activeActorBelongsToLocal; // Suppress unused warning
 		if (activePlayer.isMinion) {
 			activeActorBelongsToLocal = (activePlayer.ownerID == myLocalPlayerID);
 		} else {
@@ -19883,6 +20004,21 @@ void ofApp::continueNewTurn() {
 	currentTurnOwnerID = getOwnerIdForActorIndex(currentPlayerIndex);
 	currentTurnHadMeaningfulAction = false;
 	currentTurnTimeoutProcessed = false;
+
+	// Trigger Turn Banner ONCE per owner turn change
+	if (currentTurnOwnerID != lastBannerTurnOwnerID || globalTurnCounter != lastBannerTurnCycle) {
+		lastBannerTurnOwnerID = currentTurnOwnerID;
+		lastBannerTurnCycle = globalTurnCounter;
+
+		turnBannerStartTime = ofGetElapsedTimef();
+		if (isMyTurn()) {
+			turnBannerText = "YOUR TURN";
+			turnBannerColor = ofColor(255, 215, 0); // Radiant Gold
+		} else {
+			turnBannerText = "ENEMY TURN";
+			turnBannerColor = ofColor(220, 60, 60); // Crimson Red
+		}
+	}
 
 	// --- PLAY TURN START SOUND ---
 	static int s_lastTurnSoundPlayedCycle = -1;
@@ -26382,25 +26518,25 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			std::pair<std::string, ofColor> r;
 			switch (dt) {
 			case DAMAGE_PHYSICAL:
-				r = { " Physical", ofColor::red };
+				r = { " Physical", ofColor(220, 20, 60) }; // Crimson Red
 				break;
 			case DAMAGE_PIERCING:
-				r = { " Piercing", ofColor::yellow };
+				r = { " Piercing", ofColor(192, 192, 192) }; // Silver
 				break;
 			case DAMAGE_MAGIC:
-				r = { " Magic", ofColor::magenta };
+				r = { " Magic", ofColor(148, 0, 211) }; // Void Purple
 				break;
 			case DAMAGE_ELECTRIC:
-				r = { " Electric", ofColor::yellow };
+				r = { " Electric", ofColor(30, 80, 220) }; // Navy Blue
 				break;
 			case DAMAGE_FIRE:
-				r = { " Fire", ofColor::orange };
+				r = { " Fire", ofColor(255, 120, 0) }; // Orange
 				break;
 			case DAMAGE_HOLY:
-				r = { " Holy", ofColor::orange };
+				r = { " Holy", ofColor(255, 215, 0) }; // Radiant Gold
 				break;
 			case DAMAGE_POISON:
-				r = { " Poison", ofColor::green };
+				r = { " Poison", ofColor(50, 205, 50) }; // Toxic Green
 				break;
 			default:
 				r = { "", ofColor::white };
@@ -29097,17 +29233,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_BLOCKING_BOON: {
-		beginEffectSequence();
-
 		int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
 		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
 
 		if (physBlock <= 0 && nonPhys <= 0) {
-			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Defence!", ofColor::gray);
-			playedSuccessfully = true;
-			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Defence!", ofColor::red);
 			return true;
 		}
+
+		beginEffectSequence();
 
 		blockingBoonPendingCasterIndex = currentPlayerIndex;
 		blockingBoonPendingCoinRawResults.clear();
@@ -31414,14 +31548,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 										}
 									} else {
 										// Standard line of sight pathing for non-diagonal tiles
-										auto innerLosPath = getLineOfSightPath(glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f), glm::vec2(players[i].x + 0.5f, players[i].y + 0.5f));
-										for (const auto & stepP : innerLosPath) {
-											if ((int)stepP.x == impactTile.x && (int)stepP.y == impactTile.y) continue;
-											if ((int)stepP.x == players[i].x && (int)stepP.y == players[i].y) break;
-											if (isTileWall((int)stepP.x, (int)stepP.y)) {
-												blockedByWall = true;
-												break;
-											}
+										auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y), card.type);
+										if (!los.hasLos) {
+											blockedByWall = true;
 										}
 									}
 									if (!blockedByWall) {
@@ -31590,23 +31719,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	if (draggedCardIndex == -1 && (selectedCardIndex != -1 || hoveredCardIndex != -1)) {
 		isAimingOnBoard = false;
 	}
-
-	// Small helper: some edge cases can leave `board[x][y].hasWall` false
-	// while the level mesh still contains wall geometry. Provide a
-	// cheap fallback check to detect wall geometry at a grid cell.
-	auto meshHasWallAt = [&](int tx, int ty) {
-		if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return false;
-		glm::vec3 center = gridToWorld(tx, ty);
-		float thresh = TILE_SIZE * 0.4f; // area to consider
-		for (const auto & v : levelMesh.getVertices()) {
-			// Compare XZ distance only (ignore Y vertex height)
-			float dx = v.x - center.x;
-			float dz = v.z - center.z;
-			if ((dx * dx + dz * dz) <= (thresh * thresh)) return true;
-		}
-		return false;
-	};
-
 	// --- ITERATE BOARD ---
 
 	for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -31902,7 +32014,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 				// Red Highlight (Preview) for any adjacent tile to show range
 				if (dist == 1) {
-					bool isWall = board[x][y].hasWall || meshHasWallAt(x, y);
+					bool isWall = board[x][y].hasWall;
 					if (!isWall && board[x][y].hasPlayer) {
 						for (const auto & p : players) {
 							if (p.x == x && p.y == y && p.isWallUnit && p.health > 0) {
@@ -35438,8 +35550,6 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	glm::vec3 targetPos = gridToWorld(target.x, target.y);
 
 	if (applied > 0) {
-		queueFloatingTextVisual(targetPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
-
 		// --- AI REWARD SHAPING (POINTS) ---
 		// Consolidates rewards to prevent double-accumulation, and supports status damage (attackerIndex == -1)
 		if (headless && isAIvsAI) {
@@ -36157,6 +36267,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2 endPoint) {
 	std::vector<glm::vec2> path;
+	path.reserve(32);
 
 	// Convert floats to strict deterministic integers (scaled by 1000)
 	long long sx = (long long)std::round(startPoint.x * 1000.0);
@@ -37103,6 +37214,11 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 		ofPopStyle();
+
+		// If hovering a Minion Manager card, draw a 3D beacon/ring on the board around the minion model!
+		if (ui.bounds.inside(ofGetMouseX(), ofGetMouseY())) {
+			drawTileGlow(minion.x, minion.y, ofColor(255, 255, 255, 220), 5.0f);
+		}
 
 		// New Visual Outlines for Active and Hovered states
 		bool isActive = (currentPlayerIndex == ui.playerIndex);
@@ -40862,4 +40978,209 @@ void ofApp::recordH2HOutcome(const std::string & opponentSteamID, const std::str
 		rec.draws++;
 
 	saveH2HStats();
+}
+CardGlowState ofApp::getCardGlowState(int playerIndex, int cardIndex) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return CARD_GLOW_NONE;
+	Player & p = players[playerIndex];
+	if (cardIndex < 0 || cardIndex >= (int)p.hand.size()) return CARD_GLOW_NONE;
+
+	const Card & card = p.hand[cardIndex];
+	int cost = getEffectiveCardCostForPlayer(p, card);
+	if (currentAP < cost) return CARD_GLOW_NONE;
+
+	// Verify the card actually has a valid target or usage on the board
+	if (!hasValidTargetForGlow(playerIndex, cardIndex)) return CARD_GLOW_NONE;
+
+	bool isCombo = false;
+
+	// --- COMBO / SYNERGY CONDITIONS FOR YELLOW GLOW ---
+	// 1. Poison Ready active + Physical/Piercing attack
+	if (p.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
+		isCombo = true;
+	}
+	// 2. Free Kick active (0 AP Kick!)
+	else if (card.type == CARD_KICK && p.freeKickTurns > 0) {
+		isCombo = true;
+	}
+	// 3. Flurry of Fists stacks active for hand-related cards
+	else if (card.isHandRelated && p.flurryOfFistsStacks > 0) {
+		isCombo = true;
+	}
+	// 4. Strengthen Elements active + Fire/Electric spell
+	else if (p.strengthenElementsTurnsRemaining > 0 && (card.damageType == DAMAGE_FIRE || card.damageType == DAMAGE_ELECTRIC)) {
+		isCombo = true;
+	}
+	// 5. Shock 2nd-cast paralysis combo
+	else if (card.type == CARD_SHOCK && p.shocksPlayedThisTurn >= 1) {
+		isCombo = true;
+	}
+	// 6. Raise Dead when corpse present in graveyard
+	else if (card.type == CARD_RAISE_DEAD) {
+		for (const auto & grave : graveyard) {
+			if (grave.turnDied >= globalTurnCounter - 1 && !grave.deck.empty()) {
+				isCombo = true;
+				break;
+			}
+		}
+	}
+	// 7. Master Fist with hand cards in discard
+	else if (card.type == CARD_MASTER_FIST) {
+		auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+		for (const auto & c : p.discardPile) {
+			if (isHandRelated(c.type)) {
+				isCombo = true;
+				break;
+			}
+		}
+	}
+	// 8. Summon Golem after elemental spell played
+	else if (card.type == CARD_SUMMON_GOLEM) {
+		for (CardType ct : p.cardsPlayedThisTurn) {
+			if (ct == CARD_SHOCK || ct == CARD_CHAIN_LIGHTNING || ct == CARD_FIREBALL || ct == CARD_FLAME_HIT || ct == CARD_ROCK_CRUSH) {
+				isCombo = true;
+				break;
+			}
+		}
+	}
+	// 9. Necromancer's Blessing with alive skeleton
+	else if (card.type == CARD_NECROMANCER_S_BLESSING) {
+		for (const auto & unit : players) {
+			if (unit.isSkeleton && unit.health > 0 && unit.ownerID == p.playerID) {
+				isCombo = true;
+				break;
+			}
+		}
+	}
+	// 10. Constitution Boon at high Max HP
+	else if (card.type == CARD_CONSTITUTION_BOON && p.maxHealth >= 16) {
+		isCombo = true;
+	}
+	// 11. Renewed Inspiration with extra cards in hand
+	else if (card.type == CARD_RENEWED_INSPIRATION && p.hand.size() > 1) {
+		isCombo = true;
+	}
+	// 12. Full Restore when wounded or debuffed
+	else if (card.type == CARD_FULL_RESTORE && (p.health < p.maxHealth || p.onFire || p.isPoisoned || p.isParalyzed || p.sleepTurnsRemaining > 0)) {
+		isCombo = true;
+	}
+	// 13. Holy spells vs vulnerable enemies (Hellhound, Demon, Skeleton, Ghost)
+	else if (card.damageType == DAMAGE_HOLY) {
+		for (const auto & unit : players) {
+			if (unit.health > 0 && unit.ownerID != p.playerID) {
+				if (unit.isHellhound || unit.isDemon || unit.isSkeleton || unit.inGhostForm) {
+					isCombo = true;
+					break;
+				}
+			}
+		}
+	}
+	// 14. Piercing spells vs Call for Wolves vulnerability
+	else if (card.damageType == DAMAGE_PIERCING) {
+		for (const auto & unit : players) {
+			if (unit.health > 0 && unit.ownerID != p.playerID) {
+				bool hasWolfCall = false;
+				for (const auto & c : unit.deck)
+					if (c.type == CARD_CALL_FOR_WOLVES) {
+						hasWolfCall = true;
+						break;
+					}
+				if (hasWolfCall) {
+					isCombo = true;
+					break;
+				}
+			}
+		}
+	}
+	// 15. Drain Punch when wounded
+	else if (card.type == CARD_DRAIN_PUNCH && p.health < p.maxHealth) {
+		isCombo = true;
+	}
+	// 16. Wall interaction cards adjacent to a wall
+	else if (card.type == CARD_DEMOLITION || card.type == CARD_TRANSFORM_WALL || card.type == CARD_FORTIFY || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_ROCK_CRUSH) {
+		int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (const auto & d : dirs) {
+			int nx = p.x + d[0], ny = p.y + d[1];
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasWall) {
+				isCombo = true;
+				break;
+			}
+		}
+	}
+
+	return isCombo ? CARD_GLOW_YELLOW : CARD_GLOW_GREEN;
+}
+
+bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return false;
+	Player & p = players[playerIndex];
+	if (cardIndex < 0 || cardIndex >= (int)p.hand.size()) return false;
+	const Card & candidate = p.hand[cardIndex];
+
+	if (candidate.type == CARD_SHOOT_ARROW && p.deck.empty()) return false;
+
+	// Self/Instant cards that are always valid
+	if (candidate.type == CARD_BLOCKING_BOON) {
+		int phys = p.block + p.fortification + p.ward;
+		int nonPhys = p.holyBlock + p.barrier + p.ward + p.fortification;
+		return (phys > 0 || nonPhys > 0);
+	}
+
+	if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_HASTEN || candidate.type == CARD_SPARK_OF_GENIUS || candidate.type == CARD_STRENGTHEN_ELEMENTS || candidate.type == CARD_ADD_POISON || candidate.type == CARD_TIME_VORTEX || candidate.type == CARD_NECROMANCER_S_BLESSING || candidate.type == CARD_FULL_RESTORE) return true;
+
+	if (candidate.type == CARD_CONSTITUTION_BOON) {
+		return p.maxHealth >= 16;
+	}
+
+	if ((candidate.targeting == TARGET_SELF || candidate.targeting == TARGET_NONE) && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL && candidate.type != CARD_BURST_OF_LIGHT) return true;
+
+	if (candidate.type == CARD_TELEPORT) return true;
+
+	// For targeted cards, verify at least one targetable tile exists on the board right now
+	struct SavedTileState {
+		bool isTargetPreview;
+		bool isTargetable;
+		bool hasTooltipInfo;
+		int minRollRequired;
+		float hitChance;
+		bool isAoeCenter;
+		int aoeRadiusFeet;
+	};
+	SavedTileState savedBoard[BOARD_WIDTH][BOARD_HEIGHT];
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			savedBoard[x][y].isTargetPreview = board[x][y].isTargetPreview;
+			savedBoard[x][y].isTargetable = board[x][y].isTargetable;
+			savedBoard[x][y].hasTooltipInfo = board[x][y].hasTooltipInfo;
+			savedBoard[x][y].minRollRequired = board[x][y].minRollRequired;
+			savedBoard[x][y].hitChance = board[x][y].hitChance;
+			savedBoard[x][y].isAoeCenter = board[x][y].isAoeCenter;
+			savedBoard[x][y].aoeRadiusFeet = board[x][y].aoeRadiusFeet;
+		}
+	}
+
+	calculateTargetHighlights(cardIndex);
+
+	bool hasTarget = false;
+	for (int x = 0; x < BOARD_WIDTH && !hasTarget; x++) {
+		for (int y = 0; y < BOARD_HEIGHT && !hasTarget; y++) {
+			if (board[x][y].isTargetable) {
+				hasTarget = true;
+			}
+		}
+	}
+
+	// Restore current board targetable highlights and preview states completely
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			board[x][y].isTargetPreview = savedBoard[x][y].isTargetPreview;
+			board[x][y].isTargetable = savedBoard[x][y].isTargetable;
+			board[x][y].hasTooltipInfo = savedBoard[x][y].hasTooltipInfo;
+			board[x][y].minRollRequired = savedBoard[x][y].minRollRequired;
+			board[x][y].hitChance = savedBoard[x][y].hitChance;
+			board[x][y].isAoeCenter = savedBoard[x][y].isAoeCenter;
+			board[x][y].aoeRadiusFeet = savedBoard[x][y].aoeRadiusFeet;
+		}
+	}
+
+	return hasTarget;
 }
