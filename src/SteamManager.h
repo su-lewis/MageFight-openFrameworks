@@ -78,7 +78,8 @@ public:
 
 	// Elo Getters/Setters
 	int getLocalElo();
-	void setLocalElo(int elo);
+	void setLocalElo(int newElo);
+	bool areStatsLoaded() const { return m_bStatsLoaded; }
 
 	// Secure LeaverBuster
 	void armLeaverBuster(int oppElo);
@@ -86,6 +87,10 @@ public:
 	int checkLeaverBuster();
 
 private:
+	//ELO
+	bool m_bStatsLoaded = false;
+	STEAM_CALLBACK(SteamManager, onUserStatsReceived, UserStatsReceived_t, m_CallbackUserStatsReceived);
+
 	CSteamID m_OpponentID;
 	uint32_t m_nextSeq = 1;
 	bool m_bInitialized;

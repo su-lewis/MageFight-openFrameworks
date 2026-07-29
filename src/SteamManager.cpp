@@ -52,6 +52,7 @@ SteamManager::SteamManager()
 	: m_bInitialized(false)
 	, m_bIsHost(false)
 	, m_hListenSocket(k_HSteamListenSocket_Invalid)
+	, m_CallbackUserStatsReceived(this, &SteamManager::onUserStatsReceived)
 	, m_hConnection(k_HSteamNetConnection_Invalid) {
 }
 
@@ -750,6 +751,7 @@ int SteamManager::getLocalElo() {
 
 void SteamManager::setLocalElo(int elo) {
 	if (!SteamUserStats()) return;
+	if (elo <= 300) elo = 300; // Floor at 300 to prevent corrupted/negative values
 
 	// 1. Update the hidden background Stat
 	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "elo_rating", elo);
@@ -790,4 +792,11 @@ void SteamManager::updateRichPresence(const std::string & presenceText) {
 
 	// 2. CRITICAL: Tell Steam to display the "status" key using a Localization Token
 	SteamFriends()->SetRichPresence("steam_display", "#Status");
+}
+
+void SteamManager::onUserStatsReceived(UserStatsReceived_t * pCallback) {
+	if (pCallback && pCallback->m_eResult == k_EResultOK) {
+		m_bStatsLoaded = true;
+		ofLogNotice("Steam") << "User stats received successfully from Steam Cloud.";
+	}
 }

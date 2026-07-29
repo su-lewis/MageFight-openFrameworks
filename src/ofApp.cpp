@@ -5017,7 +5017,10 @@ void ofApp::updateStateMachine() {
 				if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
 					if (getOwnerIdForActorIndex(opponentDecisionPlayerIndex) == disconnectedOwner) isOpponentsTurn = true;
 				} else if (currentState == STATE_DRAFTING) {
-					if (!isLocalDraftingPlayer(draftPlayerIndex)) isOpponentsTurn = true;
+					if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+						int draftOwner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
+						if (draftOwner == disconnectedOwner) isOpponentsTurn = true;
+					}
 				} else if (currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 					if (getOwnerIdForActorIndex(currentPlayerIndex) == disconnectedOwner) isOpponentsTurn = true;
 				}
@@ -5025,9 +5028,19 @@ void ofApp::updateStateMachine() {
 				if (isOpponentsTurn && !g_isGameOver) {
 					reconnectForfeitStartTime += ofGetLastFrameTime(); // Accumulate delta time
 					if (reconnectForfeitStartTime >= 45.0f) {
-						handleOwnerForfeit(disconnectedOwner, "disconnected for 45s during their turn");
+						if (isHost()) {
+							// Host has sole authority to award forfeit
+							handleOwnerForfeit(disconnectedOwner, "disconnected for 45s during their turn");
+						} else {
+							// Client lost connection to host: abort match without claiming ranked win
+							ofLogNotice("Forfeit") << "Connection to host lost for 45s. Aborting match.";
+							addGameLog("Connection to host lost. Match aborted.");
+							g_isGameOver = true;
+							g_winnerID = 2; // Match Aborted / Draw
+						}
 					}
 				}
+
 			} else {
 				// Abort Guard: Disconnections in lobby/setup occur before any match states are active
 				ofLogNotice("Network") << "Connection dropped during lobby setup. Awaiting Steam auto-reconnect...";
@@ -5175,6 +5188,15 @@ void ofApp::update() {
 
 	steamManager.update();
 
+	// --- STEP 3: POLL ELO AS SOON AS STEAM CLOUD STATS ARE READY ---
+	if (myElo <= 0 && steamManager.isConnected()) {
+		int fetchedElo = steamManager.getLocalElo();
+		if (fetchedElo > 0) {
+			myElo = fetchedElo;
+			ofLogNotice("Elo") << "Steam Cloud stats loaded. Current ELO: " << myElo;
+		}
+	}
+
 	// --- RUN AI ---
 	updateAI();
 
@@ -5244,71 +5266,78 @@ void ofApp::update() {
 
 	// --- ELO CALCULATION (ZERO-SUM REVISED) ---
 	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2) {
-		eloCalculated = true;
-
-		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-		// Standard actual score outcomes: Win = 1.0, Draw = 0.5, Loss = 0.0
-		float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
-
-		// Module 2: Momentum Engine (Win Streak Tracker)
-		if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
-			s_winStreak++;
-		} else if (g_winnerID != 2) {
-			s_winStreak = 0;
+		// Try fetching ELO one last time if it was uninitialized
+		if (myElo <= 0) {
+			myElo = steamManager.getLocalElo();
 		}
 
-		// Calculate Momentum K-Factor Multiplier based on win streak
-		float myKMultiplier = 1.0f;
-		if (s_winStreak == 3) {
-			myKMultiplier = 1.25f;
-		} else if (s_winStreak >= 4) {
-			myKMultiplier = 1.50f;
+		// Abort saving if stats never loaded from Steam
+		if (myElo <= 0) {
+			ofLogWarning("Elo") << "Skipping ELO save: Steam Cloud stats not available.";
+			eloCalculated = true; // Prevent loop
+		} else {
+			eloCalculated = true;
+
+			if (opponentElo <= 0) opponentElo = 1000;
+
+			float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
+			float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
+
+			// Module 2: Momentum Engine (Win Streak Tracker)
+			if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
+				s_winStreak++;
+			} else if (g_winnerID != 2) {
+				s_winStreak = 0;
+			}
+
+			// Calculate Momentum K-Factor Multiplier based on win streak
+			float myKMultiplier = 1.0f;
+			if (s_winStreak == 3) {
+				myKMultiplier = 1.25f;
+			} else if (s_winStreak >= 4) {
+				myKMultiplier = 1.50f;
+			}
+
+			// Module 1: Base K-Factors
+			float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
+			float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
+
+			// Apply the win-streak acceleration to the player's personal K-Factor
+			myK *= myKMultiplier;
+
+			// Averaged Match K-Factor (volatility balance)
+			float avgK = (myK + oppK) / 2.0f;
+
+			// True skill calculation (Zero-Sum)
+			eloChange = (int)round(avgK * (myActual - myExpected));
+
+			// Module 4: Safety Nets (Maximum Swing Cap)
+			int maxSwing = (int)round(avgK);
+			eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
+
+			myElo += eloChange;
+			if (myElo < 300) {
+				eloChange += (300 - myElo);
+				myElo = 300;
+			}
+
+			steamManager.setLocalElo(myElo);
+			steamManager.disarmLeaverBuster();
+
+			ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected
+							   << ", Change: " << eloChange << ", New Rating: " << myElo;
 		}
-
-		// Module 1: Base K-Factors
-		float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
-		float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
-
-		// Apply the win-streak acceleration to the player's personal K-Factor
-		myK *= myKMultiplier;
-
-		// Averaged Match K-Factor (volatility balance)
-		float avgK = (myK + oppK) / 2.0f;
-
-		// True skill calculation (Zero-Sum)
-		eloChange = (int)round(avgK * (myActual - myExpected));
-
-		// Module 4: Safety Nets (Maximum Swing Cap)
-		int maxSwing = (int)round(avgK);
-		eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
-
-		myElo += eloChange;
-		if (myElo < 300) {
-			eloChange += (300 - myElo); // Adjust visual change if we hit the floor
-			myElo = 300;
-		}
-
-		steamManager.setLocalElo(myElo);
-
-		// DISARM THE LEAVERBUSTER TRAP (Match concluded legally)
-		steamManager.disarmLeaverBuster();
-
-		ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected
-						   << ", Change: " << eloChange << ", New Rating: " << myElo
-						   << ", Streak: " << s_winStreak << ", Final K_avg: " << avgK;
 
 		// Module 3: Endurance Engine (Performance & Length-Based XP)
 		int baseXP = 100;
 		int winXP = (g_winnerID == myLocalPlayerID) ? 50 : 0;
 		int marathonBonusXP = 0;
 
-		// 1. Length-Based Marathon Bonus
 		if (globalTurnCounter >= 30) {
 			int extraIntervals = (globalTurnCounter - 30) / 5;
 			marathonBonusXP = extraIntervals * 25;
 		}
 
-		// 2. Action/Performance-Based Bonuses (Capped to prevent exploits)
 		int myIndex = getLocalPlayerIndex();
 		int summonXP = 0;
 		int healingXP = 0;
@@ -5316,48 +5345,33 @@ void ofApp::update() {
 
 		if (myIndex >= 0 && myIndex < 2) {
 			const auto & stats = matchStats[myIndex];
-
-			// Minions: +5 XP per spawn, capped at 25 XP
 			summonXP = std::min(25, stats.minionsSpawned * 5);
-
-			// Healing: +1 XP per 2 HP restored, capped at 20 XP
 			healingXP = std::min(20, stats.totalHealing / 2);
-
-			// Cards Played: +1 XP per card, capped at 30 XP
 			cardPlayXP = std::min(30, stats.cardsPlayed);
 		}
 
-		// Calculate final XP sum
 		int totalXPToGain = baseXP + winXP + marathonBonusXP + summonXP + healingXP + cardPlayXP;
-
-		// Alias to resolve scope lookup for the Discord Webhook block further down
 		int bonusXP = marathonBonusXP;
 
-		// Apply XP and Level progress via Steamworks API
 		int32_t currentXP = 0;
 		int32_t currentLevel = 1;
 
 		if (steamManager.isConnected() && SteamUserStats()) {
-			// Retrieve current progress
 			SteamUserStats()->GetStat("account_xp", &currentXP);
 			SteamUserStats()->GetStat("account_level", &currentLevel);
 			if (currentLevel < 1) {
 				currentLevel = 1;
 			}
 
-			// Cache initial states for the Game Over animation
 			s_startingLevel = currentLevel;
 			s_startingXP = currentXP;
 			s_xpGained = totalXPToGain;
 			s_hasCachedGameOverVisuals = true;
 			s_gameOverScreenStartTime = ofGetElapsedTimef();
 
-			// Add earned XP
 			currentXP += totalXPToGain;
 			bool leveledUp = false;
 
-			// Ramped leveling curve (TF2-style quadratic progression):
-			// Starts fast (660 XP for Lvl 1), then curves upward at higher levels.
 			while (true) {
 				int32_t xpRequired = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
 				if (currentXP >= xpRequired) {
@@ -5369,12 +5383,10 @@ void ofApp::update() {
 				}
 			}
 
-			// Save updated progress back to Steam
 			SteamUserStats()->SetStat("account_xp", currentXP);
 			SteamUserStats()->SetStat("account_level", currentLevel);
 			SteamUserStats()->StoreStats();
 
-			// Log progress to the player
 			std::string xpLog = "Gained " + std::to_string(totalXPToGain) + " Account XP (";
 			xpLog += "Base: " + std::to_string(baseXP);
 			if (winXP > 0) xpLog += ", Win: +" + std::to_string(winXP);
@@ -5394,7 +5406,7 @@ void ofApp::update() {
 		}
 
 		// --- DISCORD GAME HISTORY WEBHOOK ---
-		if ((steamManager.isHost() || !steamManager.hasOpponent()) && !g_isSpectator && myLocalPlayerID != 2) {
+		if (steamManager.isHost() && !g_isSpectator && myLocalPlayerID != 2) {
 			std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
 
 			std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
@@ -5447,7 +5459,175 @@ void ofApp::update() {
 		if (gameSuspendedDueToInactivity) {
 			gameSuspendedDueToInactivity = false;
 			if (settingsFramerateSliderValue >= 0.999f) {
-				ofSetVerticalSync(false);
+				ofSetVerticalSync(false); // --- ELO CALCULATION (ZERO-SUM REVISED) ---
+				if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2) {
+					// Try fetching ELO one last time if it was uninitialized
+					if (myElo <= 0) {
+						myElo = steamManager.getLocalElo();
+					}
+
+					// Abort saving if stats never loaded from Steam
+					if (myElo <= 0) {
+						ofLogWarning("Elo") << "Skipping ELO save: Steam Cloud stats not available.";
+						eloCalculated = true; // Prevent loop
+					} else {
+						eloCalculated = true;
+
+						if (opponentElo <= 0) opponentElo = 1000;
+
+						float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
+						float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
+
+						// Module 2: Momentum Engine (Win Streak Tracker)
+						if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
+							s_winStreak++;
+						} else if (g_winnerID != 2) {
+							s_winStreak = 0;
+						}
+
+						// Calculate Momentum K-Factor Multiplier based on win streak
+						float myKMultiplier = 1.0f;
+						if (s_winStreak == 3) {
+							myKMultiplier = 1.25f;
+						} else if (s_winStreak >= 4) {
+							myKMultiplier = 1.50f;
+						}
+
+						// Module 1: Base K-Factors
+						float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
+						float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
+
+						// Apply the win-streak acceleration to the player's personal K-Factor
+						myK *= myKMultiplier;
+
+						// Averaged Match K-Factor (volatility balance)
+						float avgK = (myK + oppK) / 2.0f;
+
+						// True skill calculation (Zero-Sum)
+						eloChange = (int)round(avgK * (myActual - myExpected));
+
+						// Module 4: Safety Nets (Maximum Swing Cap)
+						int maxSwing = (int)round(avgK);
+						eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
+
+						myElo += eloChange;
+						if (myElo < 300) {
+							eloChange += (300 - myElo);
+							myElo = 300;
+						}
+
+						steamManager.setLocalElo(myElo);
+						steamManager.disarmLeaverBuster();
+
+						ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected
+										   << ", Change: " << eloChange << ", New Rating: " << myElo;
+					}
+
+					// Module 3: Endurance Engine (Performance & Length-Based XP)
+					int baseXP = 100;
+					int winXP = (g_winnerID == myLocalPlayerID) ? 50 : 0;
+					int marathonBonusXP = 0;
+
+					if (globalTurnCounter >= 30) {
+						int extraIntervals = (globalTurnCounter - 30) / 5;
+						marathonBonusXP = extraIntervals * 25;
+					}
+
+					int myIndex = getLocalPlayerIndex();
+					int summonXP = 0;
+					int healingXP = 0;
+					int cardPlayXP = 0;
+
+					if (myIndex >= 0 && myIndex < 2) {
+						const auto & stats = matchStats[myIndex];
+						summonXP = std::min(25, stats.minionsSpawned * 5);
+						healingXP = std::min(20, stats.totalHealing / 2);
+						cardPlayXP = std::min(30, stats.cardsPlayed);
+					}
+
+					int totalXPToGain = baseXP + winXP + marathonBonusXP + summonXP + healingXP + cardPlayXP;
+					int bonusXP = marathonBonusXP;
+
+					int32_t currentXP = 0;
+					int32_t currentLevel = 1;
+
+					if (steamManager.isConnected() && SteamUserStats()) {
+						SteamUserStats()->GetStat("account_xp", &currentXP);
+						SteamUserStats()->GetStat("account_level", &currentLevel);
+						if (currentLevel < 1) {
+							currentLevel = 1;
+						}
+
+						s_startingLevel = currentLevel;
+						s_startingXP = currentXP;
+						s_xpGained = totalXPToGain;
+						s_hasCachedGameOverVisuals = true;
+						s_gameOverScreenStartTime = ofGetElapsedTimef();
+
+						currentXP += totalXPToGain;
+						bool leveledUp = false;
+
+						while (true) {
+							int32_t xpRequired = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
+							if (currentXP >= xpRequired) {
+								currentXP -= xpRequired;
+								currentLevel++;
+								leveledUp = true;
+							} else {
+								break;
+							}
+						}
+
+						SteamUserStats()->SetStat("account_xp", currentXP);
+						SteamUserStats()->SetStat("account_level", currentLevel);
+						SteamUserStats()->StoreStats();
+
+						std::string xpLog = "Gained " + std::to_string(totalXPToGain) + " Account XP (";
+						xpLog += "Base: " + std::to_string(baseXP);
+						if (winXP > 0) xpLog += ", Win: +" + std::to_string(winXP);
+						if (marathonBonusXP > 0) xpLog += ", Marathon: +" + std::to_string(marathonBonusXP);
+						if (summonXP > 0) xpLog += ", Summoner: +" + std::to_string(summonXP);
+						if (healingXP > 0) xpLog += ", Healer: +" + std::to_string(healingXP);
+						if (cardPlayXP > 0) xpLog += ", Tactician: +" + std::to_string(cardPlayXP);
+						xpLog += ").";
+
+						if (leveledUp) {
+							xpLog += " LEVEL UP! You are now Account Level " + std::to_string(currentLevel) + "!";
+						} else {
+							int32_t nextLevelThreshold = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
+							xpLog += " Progress: " + std::to_string(currentXP) + " / " + std::to_string(nextLevelThreshold) + " XP to next level.";
+						}
+						addGameLog(xpLog);
+					}
+
+					// --- DISCORD GAME HISTORY WEBHOOK ---
+					if (steamManager.isHost() && !g_isSpectator && myLocalPlayerID != 2) {
+						std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
+
+						std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
+						std::string oppName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
+						std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : ((g_winnerID == myLocalPlayerID) ? myName : oppName);
+
+						int oppEloChange = -eloChange;
+						int newOppElo = std::max(300, opponentElo + oppEloChange);
+
+						std::string signMe = (eloChange >= 0) ? "+" : "";
+						std::string signOpp = (oppEloChange >= 0) ? "+" : "";
+
+						auto rankMe = getMageRank(myElo);
+						auto rankOpp = getMageRank(newOppElo);
+
+						std::string msg = "⚔️ **DUEL FINISHED** ⚔️\n";
+						msg += "**" + myName + "** (" + rankMe.first + ", " + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
+						msg += "**" + oppName + "** (" + rankOpp.first + ", " + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
+						msg += "🏆 **Winner:** " + winnerName;
+						if (bonusXP > 0) {
+							msg += "\n🏃 **Marathon Endurance Match:** Turn " + std::to_string(globalTurnCounter) + " reached! (+" + std::to_string(bonusXP) + "% XP Bonus)";
+						}
+
+						sendDiscordWebhook(historyWebhook, msg);
+					}
+				}
 				ofSetFrameRate(0);
 			} else {
 				int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
