@@ -4980,15 +4980,16 @@ void ofApp::updateStateMachine() {
 
 	// Disconnection / reconnection handling (multiplayer)
 	if (isMultiplayer) {
-		if (!steamManager.hasOpponent()) {
+		bool isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
+		if (isDisconnected) {
 			// If the game has already concluded, or we are viewing a desync, don't interrupt
 			if (g_isGameOver || currentState == STATE_DESYNC) return;
 
 			if (g_isSpectator) {
-				ofLogNotice("Network") << "Host disconnected. Spectator match ended.";
+				ofLogNotice("Network") << "Spectator connection lost. Returning to main menu.";
 				addGameLog("Host disconnected. Match ended.");
-				g_isGameOver = true;
-				g_winnerID = 2; // Match Aborted / Draw
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
 				return;
 			}
 
@@ -5242,7 +5243,7 @@ void ofApp::update() {
 	}
 
 	// --- ELO CALCULATION (ZERO-SUM REVISED) ---
-	if (g_isGameOver && !eloCalculated && isMultiplayer) {
+	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2) {
 		eloCalculated = true;
 
 		float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
@@ -5393,7 +5394,7 @@ void ofApp::update() {
 		}
 
 		// --- DISCORD GAME HISTORY WEBHOOK ---
-		if (steamManager.isHost() || !steamManager.hasOpponent()) {
+		if ((steamManager.isHost() || !steamManager.hasOpponent()) && !g_isSpectator && myLocalPlayerID != 2) {
 			std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
 
 			std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
@@ -32325,6 +32326,8 @@ const Card * ofApp::findCardByName(const std::string & name) const {
 
 //--------------------------------------------------------------
 bool ofApp::isMyTurn() const {
+	if (g_isSpectator || myLocalPlayerID == 2) return false;
+
 	// FIX: Make the turn check Draft-Aware so it correctly tracks who is currently picking cards!
 	if (currentState == STATE_DRAFTING) {
 		if (isAIvsAI) return true;
@@ -38491,6 +38494,7 @@ int ofApp::getLocalPlayerIndex() const {
 
 bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	if (!isMultiplayer) return true;
+	if (g_isSpectator || myLocalPlayerID == 2) return false;
 	int localIdx = getLocalPlayerIndex();
 	// Accept if either the slot index matches or the playerID at the slot matches local ID.
 	if (localIdx >= 0 && localIdx == draftIndex) return true;
