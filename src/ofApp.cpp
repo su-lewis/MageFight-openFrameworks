@@ -8619,7 +8619,7 @@ void ofApp::prepareGameVisualState() {
 		float life = quakeMoving ? 1.0f : ((cameraShakeDuration > 0.0f) ? (cameraShakeTimer / cameraShakeDuration) : 0.0f);
 		if (life > 0.0f) {
 			float t = ofGetElapsedTimef() * 45.0f;
-			float intensity = std::max(0.15f, cameraShakeIntensity);
+			float intensity = std::min(0.2f, std::max(0.08f, cameraShakeIntensity));
 			cameraShakeOffset = glm::vec3(sin(t), sin(t * 1.3f) * 0.6f, cos(t * 1.1f)) * intensity * life;
 		} else {
 			cameraShakeOffset = glm::vec3(0.0f);
@@ -9756,10 +9756,28 @@ void ofApp::updateGameLogic() {
 	// --- EARTHQUAKE LOGICAL UPDATE ---
 	if (isEarthquakeActive) {
 		if (isEarthquakeAnimatingStep) {
-			float earthquakeSpeedScale = 0.2f;
-			float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
+			float speed = SIMULATION_TIMESTEP * 2.2f; // ~0.45s per tile slide
 			float prevT = earthquakeT;
 			earthquakeT += speed;
+
+			// Smoothly interpolate 3D visual positions for all moving units during this step
+			float tClamped = std::clamp(earthquakeT, 0.0f, 1.0f);
+			for (auto & unit : earthquakeUnits) {
+				if (unit.isMoving && unit.tilesToMove > 0) {
+					glm::vec3 startW = gridToWorld(unit.startGrid.x, unit.startGrid.y);
+					glm::vec3 nextW = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
+					unit.visualPos = glm::mix(startW, nextW, tClamped);
+					float hop = sinf(tClamped * glm::pi<float>()) * 0.12f;
+					unit.visualPos.y += hop;
+
+					if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+						players[unit.playerIndex].visualPos = unit.visualPos;
+						if (unit.direction.x != 0 || unit.direction.y != 0) {
+							players[unit.playerIndex].facingAngle = glm::degrees(atan2((float)unit.direction.x, (float)unit.direction.y)) + 180.0f;
+						}
+					}
+				}
+			}
 
 			if (prevT < 0.0001f && earthquakeT > 0.0001f) {
 				// 1. PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver)
@@ -9979,12 +9997,14 @@ void ofApp::updateGameLogic() {
 					for (size_t pi = 0; pi < players.size(); ++pi) {
 						players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
 						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
+						players[pi].visualPos = gridToWorld(players[pi].x, players[pi].y);
 						board[players[pi].x][players[pi].y].hasPlayer = true;
 					}
 
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 					}
+
 					animationPath.clear();
 					currentPathIndex = 0;
 					isPlayerAnimating = false;
@@ -25680,7 +25700,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					board[target->x][target->y].hasPlayer = false;
 				}
 
-				target->x = -1000;
 				{
 					EffectOp kill = {};
 					kill.type = EffectOpType::MODIFY_STAT;
@@ -26030,7 +26049,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			opponentDecisionStartFrame = 0;
 			opponentDecisionPlayerIndex = -1;
 
-			if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_FINISHED);
+			if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_OUTCOME);
 		}
 		opComplete = true; // Complete so it doesn't loop; user input takes over
 		break;
@@ -29248,7 +29267,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		beginEffectSequence();
 
-		triggerCameraShake(1.2f, 0.9f);
+		triggerCameraShake(0.2f, 0.6f);
 
 		currentCardOutcome.cardIndex = -1;
 		isEarthquakeActive = true;
