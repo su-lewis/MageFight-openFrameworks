@@ -456,12 +456,25 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 
-	int numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64());
-	if (numPlayers > 2) {
-		g_isSpectator = true;
-		ofLogNotice("Steam") << "Joined Lobby as Spectator (" << numPlayers << " members).";
+	// Check if we are a returning player (reconnecting after crash/Alt+F4)
+	const char * p0Str = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "player0_id");
+	const char * p1Str = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "player1_id");
+
+	uint64_t p0ID = (p0Str && p0Str[0]) ? std::stoull(p0Str) : 0;
+	uint64_t p1ID = (p1Str && p1Str[0]) ? std::stoull(p1Str) : 0;
+	uint64_t myID = m_LocalID.ConvertToUint64();
+
+	if (myID != 0 && (myID == p0ID || myID == p1ID)) {
+		g_isSpectator = false; // Reconnecting Player!
+		ofLogNotice("Steam") << "Re-entering lobby as RECONNECTING PLAYER (p0=" << p0ID << ", p1=" << p1ID << ")";
 	} else {
-		g_isSpectator = false;
+		int numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64());
+		if (numPlayers > 2) {
+			g_isSpectator = true;
+			ofLogNotice("Steam") << "Joined Lobby as Spectator (" << numPlayers << " members).";
+		} else {
+			g_isSpectator = false;
+		}
 	}
 
 	// FIX: If we just created the lobby, we already know we are the Host.
@@ -612,6 +625,12 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 void SteamManager::setMatchStarted() {
 	if (m_LobbyID.IsValid()) {
 		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started", "1");
+		if (m_LocalID.IsValid()) {
+			SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "player0_id", std::to_string(m_LocalID.ConvertToUint64()).c_str());
+		}
+		if (m_OpponentID.IsValid()) {
+			SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "player1_id", std::to_string(m_OpponentID.ConvertToUint64()).c_str());
+		}
 	}
 }
 

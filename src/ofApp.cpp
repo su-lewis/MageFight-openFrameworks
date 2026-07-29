@@ -5197,6 +5197,25 @@ void ofApp::update() {
 		}
 	}
 
+	// Lobby Connection Timeout Watchdog
+	if (g_isConnectingToLobby) {
+		static float connectStartTime = 0.0f;
+		if (connectStartTime == 0.0f) connectStartTime = ofGetElapsedTimef();
+
+		if (steamManager.hasOpponent() || isMultiplayer) {
+			g_isConnectingToLobby = false;
+			connectStartTime = 0.0f;
+		} else if (ofGetElapsedTimef() - connectStartTime > 10.0f) {
+			g_isConnectingToLobby = false;
+			connectStartTime = 0.0f;
+			addGameLog("Connection timed out. Could not reach host.");
+			ofLogWarning("Steam") << "Lobby connection timed out after 10s.";
+		}
+	} else {
+		static float connectStartTime = 0.0f;
+		connectStartTime = 0.0f;
+	}
+
 	// --- RUN AI ---
 	updateAI();
 
@@ -16006,12 +16025,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// If user right-clicks to start panning, close any tooltips immediately
+	// If user right-clicks, close tooltips AND instantly cancel any active card drag or targeting!
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (isShowingTooltip) isShowingTooltip = false;
 		if (isTooltipExpanded) {
 			isTooltipExpanded = false;
 			tooltipExpandedText.clear();
+		}
+
+		if (draggedCardIndex != -1 || selectedCardIndex != -1 || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
+			if (draggedCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				Player & p = players[currentPlayerIndex];
+				if (draggedCardIndex < (int)p.hand.size()) {
+					p.hand[draggedCardIndex].currentPos = p.hand[draggedCardIndex].targetPos;
+					p.hand[draggedCardIndex].currentScale = 1.0f;
+				}
+			}
+
+			draggedCardIndex = -1;
+			pressedCardIndex = -1;
+			selectedCardIndex = -1;
+			handDragInValidPlayZone = false;
+			handDragVelocity.set(0.0f, 0.0f);
+			if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
+				draggingHandTargetVolume = 0.0f;
+				draggingHandFadeSpeed = 48.0f;
+			}
+
+			cancelAllTargeting();
+			resetCardState();
+			ofLogNotice("Input") << "Right-click cancelled active card drag/targeting.";
+			return;
 		}
 	}
 
@@ -18264,64 +18308,60 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	if (isDiceSpinning) return;
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
-		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
-				ofLogNotice("Input") << "Right-click ignored for mandatory targeting (Blocking Boon).";
-				return;
-			}
-			if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-				ofLogNotice("Input") << "Right-click ignored for mandatory unit placement.";
-				return;
-			}
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-				renewedSelectedHandIndices.clear();
-				resetCardInteraction();
-				resetCardState(); // Restores cardPlayState to CARD_PLAY_STATE_IDLE
-				return;
-			}
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
-				ofLogNotice("Input") << "Right-click ignored for mandatory ghost relocate targeting.";
-				return;
-			}
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
-				ofLogNotice("Input") << "Right-click ignored for mandatory magic hand relocate targeting.";
-				return;
-			}
-			// If we are in an in-game key draft, ignore right-click cancels
-			if (currentState == STATE_DRAFTING && isInGameDraft) {
-				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
-				return;
-			}
-			// Prevent cancelling menus that are actively resolving mid-effect over the network.
-			// (e.g., Amnesia or Magic Blast, where the dice have already rolled and AP is paid).
-			if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-				if (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_MAGIC_BLAST) {
-					ofLogNotice("Input") << "Right-click ignored: this menu cannot be cancelled mid-resolution.";
-					return;
-				}
-			}
-
-			// CRITICAL FIX: Prevent cancelling ANY spell that has started processing through the network state machine.
-			// By checking cardPlayState directly, we seal the Teleport AP refund exploit without relying on apPaid.
-			if (cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE || cardPlayState == CARD_PLAY_STATE_OUTCOME) {
-				ofLogNotice("Input") << "Right-click ignored: Cannot cancel a spell mid-resolution over the network.";
-				return;
-			}
-
-			selectedCardIndex = -1;
-			draggedCardIndex = -1;
-			if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
-				draggingHandTargetVolume = 0.0f;
-				draggingHandFadeSpeed = 48.0f; // very fast fade
-			}
-			pressedCardIndex = -1;
-			handDragInValidPlayZone = false;
-			handDragVelocity.set(0.0f, 0.0f);
-			playerAction = NONE;
-
-			// Unified cancel for all targeting modes/menus
-			cancelAllTargeting();
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
+			ofLogNotice("Input") << "Right-click ignored for mandatory targeting (Blocking Boon).";
+			return;
 		}
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+			ofLogNotice("Input") << "Right-click ignored for mandatory unit placement.";
+			return;
+		}
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+			renewedSelectedHandIndices.clear();
+			resetCardInteraction();
+			resetCardState(); // Restores cardPlayState to CARD_PLAY_STATE_IDLE
+			return;
+		}
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
+			ofLogNotice("Input") << "Right-click ignored for mandatory ghost relocate targeting.";
+			return;
+		}
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
+			ofLogNotice("Input") << "Right-click ignored for mandatory magic hand relocate targeting.";
+			return;
+		}
+		// If we are in an in-game key draft, ignore right-click cancels
+		if (currentState == STATE_DRAFTING && isInGameDraft) {
+			ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
+			return;
+		}
+		// Prevent cancelling menus that are actively resolving mid-effect over the network.
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+			if (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_MAGIC_BLAST) {
+				ofLogNotice("Input") << "Right-click ignored: this menu cannot be cancelled mid-resolution.";
+				return;
+			}
+		}
+
+		// Prevent cancelling ANY spell that has started processing through the network state machine.
+		if (cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE || cardPlayState == CARD_PLAY_STATE_OUTCOME) {
+			ofLogNotice("Input") << "Right-click ignored: Cannot cancel a spell mid-resolution over the network.";
+			return;
+		}
+
+		selectedCardIndex = -1;
+		draggedCardIndex = -1;
+		if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
+			draggingHandTargetVolume = 0.0f;
+			draggingHandFadeSpeed = 48.0f; // very fast fade
+		}
+		pressedCardIndex = -1;
+		handDragInValidPlayZone = false;
+		handDragVelocity.set(0.0f, 0.0f);
+		playerAction = NONE;
+
+		// Unified cancel for all targeting modes/menus
+		cancelAllTargeting();
 		return;
 	}
 
@@ -32670,6 +32710,12 @@ std::string ofApp::buildSnapshotString() {
 	}
 	ss << "\n";
 
+	ss << "DEATHDELAYS\t" << s_playerDeathDelayMap.size();
+	for (const auto & [pID, delay] : s_playerDeathDelayMap) {
+		ss << "\t" << pID << "\t" << delay;
+	}
+	ss << "\n";
+
 	ss << "DEFENSES\t" << g_playerDefenses.size();
 	for (const auto & pair : g_playerDefenses) {
 		ss << "\t" << pair.first << "\t" << pair.second.size();
@@ -33067,6 +33113,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				int pIdx = 2;
 				for (int i = 0; i < count && pIdx + 1 < (int)parts.size(); ++i) {
 					g_lastDamagerMap[std::stoi(parts[pIdx])] = std::stoi(parts[pIdx + 1]);
+					pIdx += 2;
+				}
+			} else if (parts[0] == "DEATHDELAYS") {
+				s_playerDeathDelayMap.clear();
+				int count = std::stoi(parts[1]);
+				int pIdx = 2;
+				for (int i = 0; i < count && pIdx + 1 < (int)parts.size(); ++i) {
+					s_playerDeathDelayMap[std::stoi(parts[pIdx])] = std::stoi(parts[pIdx + 1]);
 					pIdx += 2;
 				}
 			} else if (parts[0] == "DEFENSES") {
