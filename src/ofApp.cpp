@@ -23,7 +23,9 @@
 #include <unordered_map>
 
 #ifdef _WIN32
+	#include <timeapi.h>
 	#include <windows.h>
+	#pragma comment(lib, "winmm.lib")
 #endif
 
 // --- CRITICAL FIX: OVERRIDE EXTERNAL SHUFFLES ---
@@ -3656,7 +3658,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.playerID = myLocalPlayerID;
-	cmd.commandId = nextCommandId++;
+	cmd.commandId = 0;
 	cmd.turnNumber = globalTurnCounter;
 	cmd.commandType = CMD_DRAW_CARDS;
 	cmd.params[0] = minionIndex;
@@ -4082,6 +4084,9 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 
 //--------------------------------------------------------------
 void ofApp::setup() {
+#ifdef _WIN32
+	timeBeginPeriod(1); // Enable 1ms high-precision Windows kernel timer
+#endif
 	// --- BULLETPROOF STEAM APP ID FIX ---
 	// When launched as a "Non-Steam Game", Steam assigns a random fake AppID (e.g. 14930192)
 	// which completely overrides the steam_appid.txt file and causes SteamAPI_Init() to fail.
@@ -4109,9 +4114,10 @@ void ofApp::setup() {
 		nullSettings.numInputChannels = 0;
 		ofSoundStreamSetup(nullSettings);
 	} else {
-		// CRITICAL FIX: Force application audio to MONO to prevent stereo panning artifacts!
+		// CRITICAL FIX: Request 2 output channels (Stereo) so the OS doesn't mute the right ear.
+		// We enforce "mono" by explicitly setting pan = 0.0f on our sound players!
 		ofSoundStreamSettings soundSettings;
-		soundSettings.numOutputChannels = 1;
+		soundSettings.numOutputChannels = 2;
 		soundSettings.numInputChannels = 0;
 		ofSoundStreamSetup(soundSettings);
 	}
@@ -4893,12 +4899,8 @@ void ofApp::setup() {
 	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 	if (glfwArrow) glfwSetCursor(window, glfwArrow);
 
-	// Ensure the GLFW swap interval is set to 1 to enable vsync at the GL level
-	if (window) {
-		// Make sure the context is current before calling glfwSwapInterval
-		glfwMakeContextCurrent(window);
-		glfwSwapInterval(1);
-	}
+	// FIX: Removed hardcoded glfwSwapInterval(1) which was permanently locking
+	// the game to VSync regardless of what the user chose in settings!
 
 	// --- HYPER-SPEED TRAINING AUTO-START ---
 	if (headless) {
@@ -5022,7 +5024,7 @@ void ofApp::updateStateMachine() {
 			InputCommandPacket startCmd = {};
 			startCmd.type = PKT_INPUT_COMMAND;
 			startCmd.playerID = myLocalPlayerID;
-			startCmd.commandId = nextCommandId++;
+			startCmd.commandId = 0;
 			startCmd.turnNumber = globalTurnCounter;
 			startCmd.commandType = CMD_PSEUDO_ACTION;
 			strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
@@ -5250,8 +5252,8 @@ void ofApp::update() {
 	}
 
 	// Lobby Connection Timeout Watchdog
+	static float connectStartTime = 0.0f;
 	if (g_isConnectingToLobby) {
-		static float connectStartTime = 0.0f;
 		if (connectStartTime == 0.0f) connectStartTime = ofGetElapsedTimef();
 
 		if (steamManager.hasOpponent() || isMultiplayer) {
@@ -5264,7 +5266,6 @@ void ofApp::update() {
 			ofLogWarning("Steam") << "Lobby connection timed out after 10s.";
 		}
 	} else {
-		static float connectStartTime = 0.0f;
 		connectStartTime = 0.0f;
 	}
 
@@ -5534,182 +5535,7 @@ void ofApp::update() {
 	if (isMultiplayer) {
 		if (gameSuspendedDueToInactivity) {
 			gameSuspendedDueToInactivity = false;
-			if (settingsFramerateSliderValue >= 0.999f) {
-				ofSetVerticalSync(false); // --- ELO CALCULATION (ZERO-SUM REVISED) ---
-				if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2) {
-					// Try fetching ELO one last time if it was uninitialized
-					if (myElo <= 0) {
-						myElo = steamManager.getLocalElo();
-					}
-
-					// Abort saving if stats never loaded from Steam
-					if (myElo <= 0) {
-						ofLogWarning("Elo") << "Skipping ELO save: Steam Cloud stats not available.";
-						eloCalculated = true; // Prevent loop
-					} else {
-						eloCalculated = true;
-
-						if (opponentElo <= 0) opponentElo = 1000;
-
-						float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-						float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
-
-						// Module 2: Momentum Engine (Win Streak Tracker)
-						if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
-							s_winStreak++;
-						} else if (g_winnerID != 2) {
-							s_winStreak = 0;
-						}
-
-						// Calculate Momentum K-Factor Multiplier based on win streak
-						float myKMultiplier = 1.0f;
-						if (s_winStreak == 3) {
-							myKMultiplier = 1.25f;
-						} else if (s_winStreak >= 4) {
-							myKMultiplier = 1.50f;
-						}
-
-						// Module 1: Base K-Factors
-						float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
-						float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
-
-						// Apply the win-streak acceleration to the player's personal K-Factor
-						myK *= myKMultiplier;
-
-						// Averaged Match K-Factor (volatility balance)
-						float avgK = (myK + oppK) / 2.0f;
-
-						// True skill calculation (Zero-Sum)
-						eloChange = (int)round(avgK * (myActual - myExpected));
-
-						// Module 4: Safety Nets (Maximum Swing Cap)
-						int maxSwing = (int)round(avgK);
-						eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
-
-						myElo += eloChange;
-						if (myElo < 300) {
-							eloChange += (300 - myElo);
-							myElo = 300;
-						}
-
-						steamManager.setLocalElo(myElo);
-						steamManager.disarmLeaverBuster();
-
-						ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected
-										   << ", Change: " << eloChange << ", New Rating: " << myElo;
-					}
-
-					// Module 3: Endurance Engine (Performance & Length-Based XP)
-					int baseXP = 100;
-					int winXP = (g_winnerID == myLocalPlayerID) ? 50 : 0;
-					int marathonBonusXP = 0;
-
-					if (globalTurnCounter >= 30) {
-						int extraIntervals = (globalTurnCounter - 30) / 5;
-						marathonBonusXP = extraIntervals * 25;
-					}
-
-					int myIndex = getLocalPlayerIndex();
-					int summonXP = 0;
-					int healingXP = 0;
-					int cardPlayXP = 0;
-
-					if (myIndex >= 0 && myIndex < 2) {
-						const auto & stats = matchStats[myIndex];
-						summonXP = std::min(25, stats.minionsSpawned * 5);
-						healingXP = std::min(20, stats.totalHealing / 2);
-						cardPlayXP = std::min(30, stats.cardsPlayed);
-					}
-
-					int totalXPToGain = baseXP + winXP + marathonBonusXP + summonXP + healingXP + cardPlayXP;
-					int bonusXP = marathonBonusXP;
-
-					int32_t currentXP = 0;
-					int32_t currentLevel = 1;
-
-					if (steamManager.isConnected() && SteamUserStats()) {
-						SteamUserStats()->GetStat("account_xp", &currentXP);
-						SteamUserStats()->GetStat("account_level", &currentLevel);
-						if (currentLevel < 1) {
-							currentLevel = 1;
-						}
-
-						s_startingLevel = currentLevel;
-						s_startingXP = currentXP;
-						s_xpGained = totalXPToGain;
-						s_hasCachedGameOverVisuals = true;
-						s_gameOverScreenStartTime = ofGetElapsedTimef();
-
-						currentXP += totalXPToGain;
-						bool leveledUp = false;
-
-						while (true) {
-							int32_t xpRequired = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
-							if (currentXP >= xpRequired) {
-								currentXP -= xpRequired;
-								currentLevel++;
-								leveledUp = true;
-							} else {
-								break;
-							}
-						}
-
-						SteamUserStats()->SetStat("account_xp", currentXP);
-						SteamUserStats()->SetStat("account_level", currentLevel);
-						SteamUserStats()->StoreStats();
-
-						std::string xpLog = "Gained " + std::to_string(totalXPToGain) + " Account XP (";
-						xpLog += "Base: " + std::to_string(baseXP);
-						if (winXP > 0) xpLog += ", Win: +" + std::to_string(winXP);
-						if (marathonBonusXP > 0) xpLog += ", Marathon: +" + std::to_string(marathonBonusXP);
-						if (summonXP > 0) xpLog += ", Summoner: +" + std::to_string(summonXP);
-						if (healingXP > 0) xpLog += ", Healer: +" + std::to_string(healingXP);
-						if (cardPlayXP > 0) xpLog += ", Tactician: +" + std::to_string(cardPlayXP);
-						xpLog += ").";
-
-						if (leveledUp) {
-							xpLog += " LEVEL UP! You are now Account Level " + std::to_string(currentLevel) + "!";
-						} else {
-							int32_t nextLevelThreshold = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
-							xpLog += " Progress: " + std::to_string(currentXP) + " / " + std::to_string(nextLevelThreshold) + " XP to next level.";
-						}
-						addGameLog(xpLog);
-					}
-
-					// --- DISCORD GAME HISTORY WEBHOOK ---
-					if (steamManager.isHost() && !g_isSpectator && myLocalPlayerID != 2) {
-						std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
-
-						std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
-						std::string oppName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
-						std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : ((g_winnerID == myLocalPlayerID) ? myName : oppName);
-
-						int oppEloChange = -eloChange;
-						int newOppElo = std::max(300, opponentElo + oppEloChange);
-
-						std::string signMe = (eloChange >= 0) ? "+" : "";
-						std::string signOpp = (oppEloChange >= 0) ? "+" : "";
-
-						auto rankMe = getMageRank(myElo);
-						auto rankOpp = getMageRank(newOppElo);
-
-						std::string msg = "⚔️ **DUEL FINISHED** ⚔️\n";
-						msg += "**" + myName + "** (" + rankMe.first + ", " + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
-						msg += "**" + oppName + "** (" + rankOpp.first + ", " + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
-						msg += "🏆 **Winner:** " + winnerName;
-						if (bonusXP > 0) {
-							msg += "\n🏃 **Marathon Endurance Match:** Turn " + std::to_string(globalTurnCounter) + " reached! (+" + std::to_string(bonusXP) + "% XP Bonus)";
-						}
-
-						sendDiscordWebhook(historyWebhook, msg);
-					}
-				}
-				ofSetFrameRate(0);
-			} else {
-				int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-				ofSetVerticalSync(false);
-				ofSetFrameRate(std::min(targetFPS, 300));
-			}
+			applySettings(); // FIX: Safely restores both VSync and custom Framerates
 			ofLogNotice("Power") << "Multiplayer active: Battery saver disarmed.";
 		}
 	} else {
@@ -5750,14 +5576,7 @@ void ofApp::update() {
 		} else {
 			if (gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = false;
-				if (settingsFramerateSliderValue >= 0.999f) {
-					ofSetVerticalSync(false);
-					ofSetFrameRate(0);
-				} else {
-					int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-					ofSetVerticalSync(false);
-					ofSetFrameRate(std::min(targetFPS, 300));
-				}
+				applySettings(); // FIX: Safely restores both VSync and custom Framerates
 				ofLogNotice("Power") << "Singleplayer active: visuals resumed.";
 			}
 		}
@@ -8176,6 +7995,21 @@ void ofApp::applySettings() {
 		return;
 	}
 
+	// --- FRAMERATE & VSYNC FIX ---
+	if (settingsUseVSync) {
+		ofSetVerticalSync(true);
+		// If VSync is ON, disable CPU throttling so the GPU naturally locks it to your monitor's refresh rate (e.g. 180hz)
+		ofSetFrameRate(0);
+	} else {
+		ofSetVerticalSync(false);
+		if (settingsFramerateSliderValue >= 0.999f) {
+			ofSetFrameRate(0);
+		} else {
+			int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
+			ofSetFrameRate(std::min(targetFPS, 300));
+		}
+	}
+
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
@@ -8821,13 +8655,8 @@ void ofApp::updateGame() {
 static void playOnBoardSound(ofCamera & cam, ofSoundPlayer & sound, glm::vec3 worldPos, float volume, float speed) {
 	if (!sound.isLoaded()) return;
 
-	// Project the 3D world coordinate to the 2D screen coordinate
-	glm::vec3 screenPos = cam.worldToScreen(worldPos);
-
-	// Map the screen X position (0 to width) to a pan value (-1.0 to 1.0)
-	float pan = ofMap(screenPos.x, 0.0f, (float)ofGetWidth(), -1.0f, 1.0f, true);
-
-	sound.setPan(pan);
+	// FIX: Force pan to 0.0f to guarantee true centered Mono audio in both ears!
+	sound.setPan(0.0f);
 	sound.setVolume(std::clamp(volume, 0.0f, 1.0f));
 	sound.setSpeed(speed);
 	sound.play();
@@ -8835,12 +8664,13 @@ static void playOnBoardSound(ofCamera & cam, ofSoundPlayer & sound, glm::vec3 wo
 
 void ofApp::prepareGameVisualState() {
 	// =========================================================================
-	// --- CONTINUOUS 144Hz VISUAL INTERPOLATIONS ---
+	// --- CONTINUOUS HIGH-REFRESH VISUAL INTERPOLATIONS ---
 	// =========================================================================
 	float deltaTime = ofGetLastFrameTime();
-	if (deltaTime > 0.1f) deltaTime = 0.016f;
+	if (deltaTime > 0.1f) deltaTime = 0.0055f; // ~180Hz fallback timestep
 
-	float frame_independent_smoothing = 1.0f - pow(0.6f, deltaTime * 60.0f);
+	// Smooth exponential interpolation for high-refresh-rate displays
+	float frame_independent_smoothing = 1.0f - std::exp(-15.0f * deltaTime);
 	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
 	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
 
@@ -9250,80 +9080,72 @@ void ofApp::prepareGameVisualState() {
 	}
 
 	// Hand Interpolation (144Hz Smooth + No Bouncing)
-	if (!players.empty() && currentPlayerIndex >= 0) {
-		auto getLocalHandPlayer = [&]() -> Player * {
-			if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return nullptr;
-			return &players[currentPlayerIndex];
-		};
+	// Update hand layouts for ALL players/minions so card draw targets are always valid
+	for (size_t pIdx = 0; pIdx < players.size(); ++pIdx) {
+		Player & handPlayer = players[pIdx];
+		size_t numCards = handPlayer.hand.size();
+		if (numCards == 0) continue;
 
-		Player * handPlayer = getLocalHandPlayer();
-		if (handPlayer) {
-			size_t numCards = handPlayer->hand.size();
+		// Calculate the target layout for the fan of cards
+		HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
 
-			// 1. Calculate the target layout for the fan of cards
-			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+		for (size_t i = 0; i < numCards; i++) {
+			float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
+			float fanT = 0.0f;
+			if (numCards >= 4) {
+				fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+			}
+			float arcDrop = 0.0f;
+			if (numCards >= 4) {
+				arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
+			}
 
-			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
-				float fanT = 0.0f;
-				if (numCards >= 4) {
-					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+			// Enhanced breathing (only for active local player)
+			float breathing = 0.0f;
+			if ((int)pIdx == currentPlayerIndex && draggedCardIndex == -1) {
+				breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
+			}
+
+			float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
+			handPlayer.hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+
+			if ((int)pIdx != currentPlayerIndex || static_cast<int>(i) != draggedCardIndex) {
+				float dt = ofGetLastFrameTime();
+				if (dt > 0.1f) dt = 0.0055f;
+
+				// Apply hover lift dynamically only for active local player
+				float hoverLift = 0.0f;
+				bool isLocallyHovered = ((int)pIdx == currentPlayerIndex && static_cast<int>(i) == hoveredCardIndex);
+
+				bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
+				bool isRenewedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
+
+				if (isLocallyHovered && draggedCardIndex == -1 && !isActivelyTargeting && !isRenewedMenu) {
+					float uiScale = getUIScaleFromHeight(ofGetHeight());
+					float scaledCardHeight = handLayout.cardH * kHandHoverScale;
+					float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
+					hoverLift = desiredHoverY - handPlayer.hand[i].targetPos.y;
 				}
-				float arcDrop = 0.0f;
-				if (numCards >= 4) {
-					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
+
+				float targetScaleVal = 1.0f;
+				if (isRenewedMenu) {
+					targetScaleVal = 1.0f;
+				} else if (isLocallyHovered && !isActivelyTargeting) {
+					targetScaleVal = kHandHoverScale;
 				}
+				if (isCurrentPlayerLocal() && (int)pIdx == currentPlayerIndex && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
 
-				// Enhanced breathing
-				float breathing = 0.0f;
-				if (draggedCardIndex == -1) {
-					breathing = sinf(ofGetElapsedTimef() * 1.8f + (float)i * 0.4f) * 4.0f;
-				}
+				handPlayer.hand[i].targetScale = targetScaleVal;
 
-				// PURE RESTING POSITION - TargetPos never jumps up!
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
-				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+				float springScale = (handPlayer.hand[i].targetScale > handPlayer.hand[i].currentScale) ? 25.0f : 12.0f;
+				float scaleLerp = 1.0f - std::exp(-springScale * dt);
+				handPlayer.hand[i].currentScale = ofLerp(handPlayer.hand[i].currentScale, handPlayer.hand[i].targetScale, scaleLerp);
 
-				if (static_cast<int>(i) != draggedCardIndex) {
-					float dt = ofGetLastFrameTime();
-					if (dt > 0.1f) dt = 0.016f;
+				ofVec2f actualTarget = handPlayer.hand[i].targetPos + ofVec2f(0.0f, hoverLift);
 
-					// Apply hover lift dynamically
-					float hoverLift = 0.0f;
-					bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
-
-					// If the card is actively being aimed/targeted, DO NOT hover it
-					bool isActivelyTargeting = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardIndex == (int)i);
-					bool isRenewedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
-
-					if (isLocallyHovered && draggedCardIndex == -1 && !isActivelyTargeting && !isRenewedMenu) {
-						float uiScale = getUIScaleFromHeight(ofGetHeight());
-						float scaledCardHeight = handLayout.cardH * kHandHoverScale;
-						float desiredHoverY = ofGetHeight() - (20.0f * uiScale) - (scaledCardHeight * 0.5f);
-						hoverLift = desiredHoverY - handPlayer->hand[i].targetPos.y;
-					}
-
-					float targetScaleVal = 1.0f;
-					if (isRenewedMenu) {
-						targetScaleVal = 1.0f;
-					} else if (isLocallyHovered && !isActivelyTargeting) {
-						targetScaleVal = kHandHoverScale;
-					}
-					if (isCurrentPlayerLocal() && (int)i == draggedCardIndex) targetScaleVal = 1.0f;
-
-					handPlayer->hand[i].targetScale = targetScaleVal;
-
-					float springScale = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 25.0f : 12.0f;
-					float scaleLerp = 1.0f - std::exp(-springScale * dt);
-					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
-
-					// Interpolate toward the resting position + the hover lift
-					ofVec2f actualTarget = handPlayer->hand[i].targetPos + ofVec2f(0.0f, hoverLift);
-
-					float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
-					float posLerp = 1.0f - std::exp(-springPos * dt);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(actualTarget, posLerp);
-				}
+				float springPos = (hoverLift < 0.0f) ? 22.0f : 14.0f;
+				float posLerp = 1.0f - std::exp(-springPos * dt);
+				handPlayer.hand[i].currentPos = handPlayer.hand[i].currentPos.getInterpolated(actualTarget, posLerp);
 			}
 		}
 	}
@@ -9739,7 +9561,7 @@ void ofApp::updateGameLogic() {
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
 
@@ -9870,7 +9692,7 @@ void ofApp::updateGameLogic() {
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
+							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_ACCEPT_DRAFT;
 							cmd.params[0] = draftPlayerIndex;
@@ -9886,7 +9708,7 @@ void ofApp::updateGameLogic() {
 								InputCommandPacket endCmd = {};
 								endCmd.type = PKT_INPUT_COMMAND;
 								endCmd.playerID = myLocalPlayerID;
-								endCmd.commandId = nextCommandId++;
+								endCmd.commandId = 0;
 								endCmd.turnNumber = globalTurnCounter;
 								endCmd.commandType = CMD_END_TURN;
 								sendInputCommand(endCmd, true);
@@ -9956,7 +9778,7 @@ void ofApp::updateGameLogic() {
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
+							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 
 							// Ensure Renewed Inspiration uses its specific command type
@@ -9989,7 +9811,7 @@ void ofApp::updateGameLogic() {
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
+							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_PSEUDO_ACTION;
 							cmd.params[0] = currentPlayerIndex;
@@ -10000,7 +9822,7 @@ void ofApp::updateGameLogic() {
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
+							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_END_TURN;
 							sendInputCommand(cmd, true);
@@ -14704,44 +14526,7 @@ void ofApp::mouseMoved(int x, int y) {
 			}
 		}
 
-		// A. PRIORITY CHECK: Always check the currently popped-up/top card FIRST
-		int topCardIndex = (draggedCardIndex != -1) ? draggedCardIndex : hoveredCardIndex;
-		if (topCardIndex >= 0 && topCardIndex < numCards) {
-			Card & topCard = p.hand[topCardIndex];
-			float w = handBaseCardWidth * std::max(0.9f, topCard.currentScale);
-			float h = baseCardHeight * std::max(0.9f, topCard.currentScale);
-			ofRectangle hitRect(topCard.currentPos.x - w * 0.5f, topCard.currentPos.y - h * 0.5f, w, h);
-
-			// Stretch the hitbox all the way to the bottom of the screen
-			// so the mouse doesn't fall into the gap when pulling down!
-			hitRect.height = std::max(hitRect.height, (float)ofGetHeight() - hitRect.y);
-
-			if (hitRect.inside((float)x, (float)y)) {
-				foundHandHover = topCardIndex;
-			}
-		}
-
-		// B. If we didn't hit the top card, check the rest of the hand normally
-		if (foundHandHover == -1) {
-			float bestDist = 999999.0f;
-			for (int i = numCards - 1; i >= 0; i--) {
-				if (i == topCardIndex) continue; // Already checked
-
-				Card & card = p.hand[i];
-				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
-				float h = baseCardHeight * std::max(0.9f, card.currentScale);
-				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
-
-				if (hitRect.inside((float)x, (float)y)) {
-					// Prioritize the card whose center is closest to the mouse horizontally
-					float distX = std::abs(card.currentPos.x - x);
-					if (distX < bestDist) {
-						bestDist = distX;
-						foundHandHover = i;
-					}
-				}
-			}
-		}
+		// FIX: Deleted the duplicate block of card hover checks here that bypassed the !isMenuOpen safeguard!
 
 		if (foundHandHover != -1 && newHoverType == HOVER_NONE) {
 			currentCursor = CURSOR_GRAB;
@@ -15876,11 +15661,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (settingsVSyncBox.inside(x, y)) {
 			settingsUseVSync = !settingsUseVSync;
+			applySettings(); // Safely configures FPS/VSync together
 			saveSettings();
-			if (settingsUseVSync)
-				ofSetVerticalSync(true);
-			else
-				ofSetVerticalSync(false);
 			return;
 		}
 		if (settingsShowHintsBox.inside(x, y)) {
@@ -16412,7 +16194,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_PSEUDO_ACTION;
 			strncpy(cmd.stringData, "ToggleUnlimitedAP", sizeof(cmd.stringData) - 1);
@@ -16423,7 +16205,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_PSEUDO_ACTION;
 			strncpy(cmd.stringData, "ToggleUnlimitedTime", sizeof(cmd.stringData) - 1);
@@ -16453,7 +16235,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
 					cmd.seq = 0;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_END_TURN;
 					sendInputCommand(cmd, true);
@@ -16729,7 +16511,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = nextCommandId++;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_ACCEPT_DRAFT;
 				cmd.params[0] = draftPlayerIndex;
@@ -16859,7 +16641,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
+							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_DRAFT_ACTION;
 							cmd.params[0] = 0; // Toggle
@@ -16881,7 +16663,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
-							cmd.commandId = nextCommandId++;
+							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_DRAFT_ACTION;
 							cmd.params[0] = 0; // toggle
@@ -16928,7 +16710,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = nextCommandId++;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_PSEUDO_ACTION;
 				strncpy(cmd.stringData, actionStr.c_str(), sizeof(cmd.stringData) - 1);
@@ -16982,8 +16764,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = nextCommandId;
-				nextCommandId = nextCommandId + 1;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_PSEUDO_ACTION;
 				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
@@ -17528,42 +17309,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// Main Deck Click: Map the target deck rect dynamically based on local perspective
 			ofRectangle activeDeckRect = (activePlayer.playerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+			if (!isMultiplayer) {
+				activeDeckRect = (currentPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+			}
+
 			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
 			bool activeAlreadyDrew = activePlayer.hasDrawnThisTurn;
 			if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
-				int localPlayerIndex = -1;
-				if (isMultiplayer) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-							localPlayerIndex = (int)i;
-							break;
-						}
-					}
-					if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback
-				} else {
-					// Singleplayer: the authoritative index is the active player
-					localPlayerIndex = currentPlayerIndex;
-				}
+				int targetDrawIndex = currentPlayerIndex; // Target the active unit
 
-				int baseDraw = localPlayer->isDemon ? 3 : 2;
-				int cycle = localPlayer->nextTurnExtraDrawSetOnCycle & 0xFFFF;
-				int count = (localPlayer->nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
-				int extra = (localPlayer->nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
+				int baseDraw = activePlayer.isDemon ? 3 : 2;
+				int cycle = activePlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+				int count = (activePlayer.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+				int extra = (activePlayer.nextTurnExtraDraw && globalTurnCounter > cycle) ? count : 0;
 				int cardsToDraw = baseDraw + extra;
 
-				// Queue deterministic draw command instead of performing immediate local draw.
+				// Queue deterministic draw command
 				InputCommandPacket out = {};
 				out.type = PKT_INPUT_COMMAND;
 				out.playerID = myLocalPlayerID;
-				out.commandId = nextCommandId++;
+				out.commandId = 0; // sendInputCommand will assign canonical commandId
 				out.turnNumber = globalTurnCounter;
 				out.commandType = CMD_DRAW_CARDS;
-				out.params[0] = localPlayerIndex;
+				out.params[0] = targetDrawIndex;
 				out.params[1] = cardsToDraw;
-				if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
-				// Optimistic UI: apply locally immediately in multiplayer (turn-based, no simultaneous inputs expected)
-				bool applyLocally = true;
-				sendInputCommand(out, applyLocally);
+
+				sendInputCommand(out, true);
+				return; // <--- FIX: Consume click so it doesn't unselect movement on the board underneath!
 			}
 		}
 
@@ -17586,7 +17358,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = assistantIndex;
@@ -17617,7 +17389,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_MENU_CHOICE;
 					cmd.params[0] = (int)CARD_BLOCKING_BOON;
@@ -17627,7 +17399,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = -1;
@@ -17638,7 +17410,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = -1;
@@ -17649,7 +17421,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = -1;
@@ -17704,7 +17476,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = currentPlayerIndex;
@@ -17725,7 +17497,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_END_TURN;
 				sendInputCommand(cmd, true);
@@ -17774,7 +17546,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						cmd.type = PKT_INPUT_COMMAND; // deterministic input command
 						cmd.playerID = myLocalPlayerID;
 						cmd.seq = 0;
-						cmd.commandId = nextCommandId++;
+						cmd.commandId = 0;
 						cmd.turnNumber = globalTurnCounter;
 						cmd.commandType = CMD_PLAY_CARD;
 						cmd.params[0] = selectedCardIndex;
@@ -17918,11 +17690,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 								}
 							}
 
-							// Enqueue deterministic move command instead of executing locally
+							// Enqueue deterministic move command using unified sendInputCommand
 							InputCommandPacket mcmd = {};
 							mcmd.type = PKT_INPUT_COMMAND;
 							mcmd.playerID = myLocalPlayerID;
-							mcmd.commandId = nextCommandId++;
+							mcmd.commandId = 0; // sendInputCommand will assign canonical commandId
 							mcmd.turnNumber = globalTurnCounter;
 							mcmd.commandType = CMD_MOVE_UNIT;
 							// params: fromX, fromY, toX, toY
@@ -17931,17 +17703,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 							mcmd.params[2] = gridX;
 							mcmd.params[3] = gridY;
 
-							// Queue locally (singleplayer/host will process it) and send over network when appropriate
-							if (isMultiplayer) {
-								ofLogNotice("Movement") << "Enqueue CMD_MOVE_UNIT: from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ") player=" << mcmd.playerID << " cmdId=" << mcmd.commandId;
-								bool ok = steamManager.sendPacket(&mcmd, sizeof(mcmd));
-								if (!ok) ofLogWarning("Network") << "Movement send failed (no connection).";
-								// Also queue locally so the sender processes its own command via the lockstep queue
-								queueInputCommand(mcmd);
-							} else {
-								ofLogNotice("Movement") << "Enqueue CMD_MOVE_UNIT (local): from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ") player=" << mcmd.playerID << " cmdId=" << mcmd.commandId;
-								queueInputCommand(mcmd);
-							}
+							ofLogNotice("Movement") << "Sending CMD_MOVE_UNIT: from=(" << mcmd.params[0] << "," << mcmd.params[1] << ") to=(" << mcmd.params[2] << "," << mcmd.params[3] << ")";
+							sendInputCommand(mcmd, true);
 						}
 					}
 				}
@@ -17973,8 +17736,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = nextCommandId;
-				nextCommandId = nextCommandId + 1;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_PSEUDO_ACTION;
 				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
@@ -18312,8 +18074,12 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			draggedCard.currentScale = 1.0f;
 			handDragVelocity = draggedCard.currentPos - prevPos;
 
-			// While dragging, keep target highlights up-to-date so swipe shows previews without hovering
-			calculateTargetHighlights(draggedCardIndex);
+			// FIX: Only calculate the heavy board targeting math ONCE when the drag initiates,
+			// preventing 1000Hz CPU spam from high-polling mice!
+			if (lastHoveredCardIndex != draggedCardIndex) {
+				lastHoveredCardIndex = draggedCardIndex;
+				calculateTargetHighlights(draggedCardIndex);
+			}
 		} else if (playerAction == PIECE_SELECTED) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gridX = floor(boardPos.x);
@@ -19028,7 +18794,7 @@ void ofApp::keyPressed(int key) {
 		InputCommandPacket out = {};
 		out.type = PKT_INPUT_COMMAND;
 		out.playerID = myLocalPlayerID;
-		out.commandId = nextCommandId++;
+		out.commandId = 0;
 		out.turnNumber = globalTurnCounter;
 		out.commandType = CMD_DRAW_CARDS;
 		out.params[0] = currentPlayerIndex;
@@ -19135,7 +18901,7 @@ void ofApp::keyPressed(int key) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = nextCommandId++;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_PSEUDO_ACTION;
 				cmd.params[0] = currentPlayerIndex;
@@ -19150,7 +18916,7 @@ void ofApp::keyPressed(int key) {
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_END_TURN;
 			sendInputCommand(cmd, true);
@@ -20668,7 +20434,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_MENU_CHOICE;
 				cmd.params[0] = CARD_DISPEL;
@@ -20686,7 +20452,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
+		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_MENU_CHOICE;
 		cmd.params[0] = card.type;
@@ -20700,12 +20466,12 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return;
 	}
 
-	if (amnesiaAutoTargetSelf || psionicAutoPlay || teleportAutoPlay || blockingBoonAutoPlay) { // <--- ADDED BLOCKING BOON
+	if (amnesiaAutoTargetSelf || psionicAutoPlay || teleportAutoPlay || blockingBoonAutoPlay) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
+		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_PLAY_CARD;
 		cmd.params[0] = cardIndex;
@@ -20787,7 +20553,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
+		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_PLAY_CARD;
 		cmd.params[0] = cardIndex;
@@ -20842,7 +20608,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
+		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_MENU_CHOICE;
 		cmd.params[0] = (int)CARD_TELEPORT;
@@ -20872,7 +20638,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
 			cmd.params[0] = MENU_GHOST_RELOCATE;
@@ -20899,7 +20665,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
 			cmd.params[0] = MENU_MAGIC_HAND_RELOCATE;
@@ -20926,7 +20692,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
 			cmd.params[0] = (int)CARD_BLOCKING_BOON;
@@ -20948,7 +20714,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = gx;
@@ -20975,7 +20741,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = gx;
@@ -21040,7 +20806,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = gx;
@@ -21079,7 +20845,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
+		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_PSEUDO_ACTION;
 		cmd.params[0] = gridX;
@@ -21110,7 +20876,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
 			cmd.params[0] = interactingCardType;
@@ -21326,7 +21092,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
 			cmd.params[0] = (int)interactingCardType;
@@ -22131,7 +21897,7 @@ void ofApp::drawCard(bool sendPacket) {
 		InputCommandPacket ic = {};
 		ic.type = PKT_INPUT_COMMAND;
 		ic.playerID = myLocalPlayerID;
-		ic.commandId = nextCommandId++;
+		ic.commandId = 0;
 		ic.turnNumber = globalTurnCounter;
 		ic.commandType = CMD_DRAW_CARDS;
 		ic.params[0] = currentPlayerIndex;
@@ -22228,18 +21994,11 @@ void ofApp::drawCard(bool sendPacket) {
 		currentPlayer.hand.push_back(newCard);
 		// Compute the final hand slot for the newly added card (it's the last one)
 		size_t numCardsNow = currentPlayer.hand.size();
-		float handCenterY_now = ofGetHeight() - 130;
-		float handBaseCardWidth_now = 120;
-		float handAreaWidth_now = ofGetWidth() * 0.6f;
-		int cardsToFitNow = std::max(5, (int)numCardsNow);
-		float totalCardWidths_now = cardsToFitNow * handBaseCardWidth_now;
-		float padding_now = (cardsToFitNow > 1) ? (handAreaWidth_now - totalCardWidths_now) / (cardsToFitNow - 1) : 0;
-		padding_now = std::min(padding_now, 20.0f);
-		float totalHandWidth_now = (cardsToFitNow * handBaseCardWidth_now) + ((cardsToFitNow - 1) * padding_now);
-		float startX_now = (ofGetWidth() - totalHandWidth_now) / 2.0f;
-		float cardCenterX_now = startX_now + (numCardsNow - 1) * (handBaseCardWidth_now + padding_now) + (handBaseCardWidth_now / 2.0f);
-		// Initialize the in-hand card visual state to final position/scale but hidden until animation completes
-		currentPlayer.hand.back().targetPos = ofVec2f(cardCenterX_now, handCenterY_now);
+		HandLayout handLayoutDraw = computeHandLayout(numCardsNow, (float)ofGetWidth(), (float)ofGetHeight());
+		float cardCenterX_now = handLayoutDraw.startX + (float)(numCardsNow - 1) * (handLayoutDraw.cardW + handLayoutDraw.spacing) + (handLayoutDraw.cardW * 0.5f);
+		float cardCenterY_now = handLayoutDraw.restY;
+
+		currentPlayer.hand.back().targetPos = ofVec2f(cardCenterX_now, cardCenterY_now);
 		currentPlayer.hand.back().currentPos = currentPlayer.hand.back().targetPos;
 		currentPlayer.hand.back().currentScale = 1.0f;
 		currentPlayer.hand.back().targetScale = 1.0f;
@@ -22421,7 +22180,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			return true;
 		} else if (isHost()) {
 			cmd.seq = ++watchdogClientActionCounter;
-			cmd.commandId = nextCommandId++; // Host assigns official ID
+			cmd.commandId = nextCommandId++; // <-- RESTORE THIS: Host assigns official ID
 
 			steamManager.sendPacket(&cmd, sizeof(cmd)); // CRITICAL FIX: Send BEFORE queuing
 
@@ -22434,7 +22193,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	}
 
 	// Singleplayer Mode
-	cmd.commandId = nextCommandId++;
+	cmd.commandId = nextCommandId++; // <-- RESTORE THIS
 	queueInputCommand(cmd);
 	if (applyLocally) {
 		processCommandQueue();
@@ -22443,21 +22202,28 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 }
 
 void ofApp::processCommandQueue() {
-	// Simply execute commands in the exact order they arrive in the queue (FIFO).
 	while (!commandQueue.empty()) {
-		int cmdType = commandQueue.front().commandType;
+		InputCommandPacket cmd = commandQueue.front();
 
-		// CRITICAL FIX: Prevent Optimistic UI and Packet Bunching from corrupting the State Machine!
-		// If the game is resolving a card, moving, or earthquake, PAUSE the queue for all new actions.
-		// Removed !activeDraftPickedMoves.empty() from this check because visual animations
-		// must NEVER pause the deterministic lockstep queue!
+		// --- LOCKSTEP ORDERING FIX: Hold queue if a lower command ID is still missing ---
+		// Bypass this check for optimistic client commands (which have huge IDs)
+		if (cmd.commandId < 0x7FFFFFFF) {
+			if (lastProcessedCommandId > 0 && cmd.commandId > lastProcessedCommandId + 1) {
+				ofLogNotice("Lockstep") << "Holding queue: waiting for missing commandId="
+										<< (lastProcessedCommandId + 1)
+										<< " (front is " << cmd.commandId << ")";
+				break; // Pause queue until missing packet arrives
+			}
+		}
+
+		int cmdType = cmd.commandType;
+
 		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE) {
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
 				break; // PAUSE THE QUEUE
 			}
 		}
 
-		InputCommandPacket cmd = commandQueue.front();
 		commandQueue.erase(commandQueue.begin());
 
 		const uint64_t key = (uint64_t(cmd.playerID) << 32) | uint64_t(cmd.commandId);
@@ -22473,7 +22239,11 @@ void ofApp::processCommandQueue() {
 
 		executeInputCommand(cmd); // Execute the command
 		executedCommandKeys.insert(key);
-		lastProcessedCommandId = cmd.commandId;
+
+		// Only update lastProcessedCommandId for official commands
+		if (cmd.commandId < 0x7FFFFFFF) {
+			lastProcessedCommandId = cmd.commandId;
+		}
 
 		isExecutingLockstepCommand = prevExecuting;
 	}
@@ -22767,6 +22537,43 @@ void ofApp::simulationTick() {
 					writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "UNIT_DIED: index=" + std::to_string(idx) + " playerID=" + std::to_string(players[idx].playerID) + " isMinion=" + std::to_string(players[idx].isMinion));
 				}
 
+				// --- FIX: Shift target indices in queued EffectOps before erasing player ---
+				for (auto & op : currentEffectSequence.ops) {
+					switch (op.type) {
+					case EffectOpType::DAMAGE:
+					case EffectOpType::HEAL:
+					case EffectOpType::APPLY_GENERIC_DAMAGE:
+					case EffectOpType::APPLY_GENERIC_HEAL:
+						if (op.data.damage.targetIndex == idx)
+							op.data.damage.targetIndex = -1;
+						else if (op.data.damage.targetIndex > idx)
+							op.data.damage.targetIndex--;
+						break;
+					case EffectOpType::MODIFY_STAT:
+						if (op.data.modifyStat.targetIndex == idx)
+							op.data.modifyStat.targetIndex = -1;
+						else if (op.data.modifyStat.targetIndex > idx)
+							op.data.modifyStat.targetIndex--;
+						break;
+					case EffectOpType::APPLY_STATUS:
+					case EffectOpType::REMOVE_STATUS:
+						if (op.data.status.targetIndex == idx)
+							op.data.status.targetIndex = -1;
+						else if (op.data.status.targetIndex > idx)
+							op.data.status.targetIndex--;
+						break;
+					case EffectOpType::MOVE_UNIT:
+						if (op.data.moveUnit.unitIndex == idx)
+							op.data.moveUnit.unitIndex = -1;
+						else if (op.data.moveUnit.unitIndex > idx)
+							op.data.moveUnit.unitIndex--;
+						break;
+					default:
+						break;
+					}
+				}
+				// ------------------------------------------------------------------------
+
 				DeathMarker death;
 				death.x = players[idx].x;
 				death.y = players[idx].y;
@@ -22940,36 +22747,44 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		int savedCurrent = currentPlayerIndex;
 		currentPlayerIndex = targetIdx;
+		Player & lp = players[targetIdx];
+		int handSizeBefore = (int)lp.hand.size();
+
 		for (int d = 0; d < num; ++d) {
 			drawCard(false);
 		}
-		// Normalize hand visuals and flags similar to other draw code
-		Player & lp = players[targetIdx];
+
+		int actualDrawn = (int)lp.hand.size() - handSizeBefore;
+
+		// Normalize hand visuals and flags
 		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
-			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
+			lp.hand[idx].currentScale = lp.hand[idx].currentScale;
 		}
 
-		// Only remove the buff if we actually used it (i.e. we drew on the NEXT turn)
-		int cycle = lp.nextTurnExtraDrawSetOnCycle & 0xFFFF;
-		if (lp.nextTurnExtraDraw && globalTurnCounter > cycle) {
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = targetIdx;
-			rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-			if (!isProcessingEffect) beginEffectSequence();
+		// Only mark as drawn if at least one card was successfully drawn
+		if (actualDrawn > 0) {
+			int cycle = lp.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+			if (lp.nextTurnExtraDraw && globalTurnCounter > cycle) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = targetIdx;
+				rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				if (!isProcessingEffect) beginEffectSequence();
+			}
+			int ownerID = lp.isMinion ? lp.ownerID : lp.playerID;
+			if (ownerID == myLocalPlayerID) {
+				hasDrawnCardsThisTurn = true;
+				lp.hasDrawnThisTurn = true;
+			} else {
+				opponentHasDrawnCardsThisTurn = true;
+				lp.hasDrawnThisTurn = true;
+			}
 		}
-		int ownerID = lp.isMinion ? lp.ownerID : lp.playerID;
-		if (ownerID == myLocalPlayerID) {
-			hasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		} else {
-			opponentHasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		}
+
 		currentPlayerIndex = savedCurrent;
-		ofLogNotice("Lockstep") << "Execute CMD_DRAW_CARDS: playerIndex=" << targetIdx << " num=" << num;
+		ofLogNotice("Lockstep") << "Execute CMD_DRAW_CARDS: playerIndex=" << targetIdx << " requested=" << num << " actual=" << actualDrawn;
 		break;
 	}
 	case CMD_PLAY_CARD: {
@@ -23273,7 +23088,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				InputCommandPacket endCmd = {};
 				endCmd.type = PKT_INPUT_COMMAND;
 				endCmd.playerID = myLocalPlayerID;
-				endCmd.commandId = nextCommandId++;
+				endCmd.commandId = 0;
 				endCmd.turnNumber = globalTurnCounter;
 				endCmd.commandType = CMD_END_TURN;
 				sendInputCommand(endCmd, true);
@@ -24537,7 +24352,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		if (slot >= 0 && slot < 16) preHP = currentEffectSequence.blackboard[slot];
 		int playerID = op.data.damage.fixedDamage;
 		int pidx = findPlayerIndexByID(playerID);
-		if (pidx >= 0) {
+
+		// FIX: Verify target exists AND is still alive before applying status
+		if (pidx >= 0 && pidx < (int)players.size() && players[pidx].health > 0) {
 			Player & target = players[pidx];
 			int postHP = target.health;
 			int taken = preHP - postHP;
@@ -28088,7 +27905,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
+				cmd.commandId = 0;
 				cmd.turnNumber = globalTurnCounter;
 				cmd.commandType = CMD_RENEWED_INSPIRATION;
 				cmd.params[0] = currentPlayerIndex;
@@ -28140,7 +27957,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						InputCommandPacket syncCmd = {};
 						syncCmd.type = PKT_INPUT_COMMAND;
 						syncCmd.playerID = myLocalPlayerID;
-						syncCmd.commandId = nextCommandId++;
+						syncCmd.commandId = 0;
 						syncCmd.turnNumber = globalTurnCounter;
 						syncCmd.commandType = CMD_PSEUDO_ACTION;
 						strncpy(syncCmd.stringData, "SyncRI", sizeof(syncCmd.stringData) - 1);
@@ -28177,7 +27994,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.type = PKT_INPUT_COMMAND;
 						cmd.playerID = myLocalPlayerID;
 						cmd.seq = 0;
-						cmd.commandId = nextCommandId++;
+						cmd.commandId = 0;
 						cmd.turnNumber = globalTurnCounter;
 						cmd.commandType = CMD_MENU_CHOICE;
 						cmd.params[0] = (int)interactingCardType;
@@ -28289,7 +28106,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
 					cmd.seq = 0;
-					cmd.commandId = nextCommandId++;
+					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_STATUS_ACTION;
 					cmd.params[0] = interactingCardIndex;
@@ -36934,18 +36751,8 @@ void ofApp::loadSettings() {
 		// Apply audio immediately
 		updateAudioVolumes();
 
-		// Apply v-sync/framerate
-		if (settingsUseVSync)
-			ofSetVerticalSync(true);
-		else
-			ofSetVerticalSync(false);
-
-		if (settingsFramerateSliderValue >= 0.999f) {
-			ofSetFrameRate(0);
-		} else {
-			int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-			ofSetFrameRate(std::min(targetFPS, 300));
-		}
+		// Apply v-sync/framerate/window mode natively
+		applySettings();
 
 		ofLogNotice("Settings") << "Loaded settings from " << path;
 	} catch (...) {
@@ -37554,7 +37361,7 @@ void ofApp::drawMinionManagerUI() {
 			if (maxScroll > 0.0f) {
 				thumbY += (p0_minionScroll / maxScroll) * (p0_minionViewH - thumbH);
 			}
-			float barX = p0_minionLeft + minionPanelW - barW - inset; // board-facing edge for left panel
+			float barX = inset; // FIX: Lock Player 1 scrollbar to the absolute left edge of the screen
 
 			ofSetColor(255, 255, 255, 35);
 			ofDrawRectRounded(barX, p0_minionTop + inset, barW, p0_minionViewH - 2.0f * inset, 4.0f * scale);
@@ -37570,7 +37377,7 @@ void ofApp::drawMinionManagerUI() {
 			if (maxScroll > 0.0f) {
 				thumbY += (p1_minionScroll / maxScroll) * (p1_minionViewH - thumbH);
 			}
-			float barX = p1_minionLeft + inset; // board-facing edge for right panel
+			float barX = ofGetWidth() - barW - inset; // FIX: Lock Player 2 scrollbar to the absolute right edge of the screen
 
 			ofSetColor(255, 255, 255, 35);
 			ofDrawRectRounded(barX, p1_minionTop + inset, barW, p1_minionViewH - 2.0f * inset, 4.0f * scale);
@@ -38815,6 +38622,9 @@ void ofApp::drawTrainMenuUI() {
 }
 //--------------------------------------------------------------
 void ofApp::exit() {
+#ifdef _WIN32
+	timeEndPeriod(1); // Release kernel timer precision
+#endif
 	// 1. Close network sockets first
 	if (zmqSocket) {
 		zmqSocket->close();
@@ -39143,7 +38953,7 @@ void ofApp::processNetworkPackets() {
 						InputCommandPacket startCmd = {};
 						startCmd.type = PKT_INPUT_COMMAND;
 						startCmd.playerID = myLocalPlayerID;
-						startCmd.commandId = nextCommandId++;
+						startCmd.commandId = 0;
 						startCmd.turnNumber = globalTurnCounter;
 						startCmd.commandType = CMD_PSEUDO_ACTION;
 						strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
@@ -39161,7 +38971,7 @@ void ofApp::processNetworkPackets() {
 				if (isHost()) {
 					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
 						// Host receives client intent. Assign official ID, execute, and echo.
-						cmd->commandId = nextCommandId++;
+						cmd->commandId = nextCommandId++; // <-- RESTORE THIS
 						steamManager.sendPacket(cmd, sizeof(InputCommandPacket)); // CRITICAL FIX: Send BEFORE queuing
 						queueInputCommand(*cmd);
 					}
@@ -39370,9 +39180,11 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 				}
-				// If opponent cleared hover, clear highlights
+				// If opponent cleared hover, clear opponent hover tracking without wiping local movement highlights
 				else if (opponentHoverType == HOVER_NONE) {
-					clearHighlights();
+					opponentHoverGridX = -1;
+					opponentHoverGridY = -1;
+					opponentHoverCardIndex = -1;
 				}
 			}
 
@@ -39486,7 +39298,7 @@ void ofApp::processNetworkPackets() {
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = nextCommandId++;
+			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_PSEUDO_ACTION;
 			strncpy(cmd.stringData, "Desync", sizeof(cmd.stringData) - 1);
@@ -39567,7 +39379,7 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	InputCommandPacket pkt = {};
 	pkt.type = PKT_INPUT_COMMAND;
 	pkt.playerID = myLocalPlayerID;
-	pkt.commandId = nextCommandId++;
+	pkt.commandId = 0;
 	pkt.turnNumber = globalTurnCounter;
 	pkt.commandType = CMD_PLAY_CARD;
 	pkt.params[0] = cardIndex;
@@ -39639,7 +39451,7 @@ void ofApp::sendMagicHandResolutionPacket(int choice) {
 	InputCommandPacket pkt = {};
 	pkt.type = PKT_INPUT_COMMAND;
 	pkt.playerID = myLocalPlayerID;
-	pkt.commandId = nextCommandId++;
+	pkt.commandId = 0;
 	pkt.turnNumber = globalTurnCounter;
 	pkt.commandType = CMD_MENU_CHOICE;
 	pkt.params[0] = interactingCardIndex;
@@ -40004,7 +39816,7 @@ void ofApp::harnessAutoAdvanceTurns(int turns) {
 					menuCmd.type = PKT_INPUT_COMMAND;
 					menuCmd.playerID = myLocalPlayerID;
 					menuCmd.seq = 0;
-					menuCmd.commandId = nextCommandId++;
+					menuCmd.commandId = 0;
 					menuCmd.turnNumber = globalTurnCounter;
 					menuCmd.commandType = CMD_MENU_CHOICE;
 					menuCmd.params[0] = interactingCardType;
