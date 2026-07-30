@@ -1181,7 +1181,7 @@ static std::string findCardTemplatePath() {
 	for (const auto & path : candidates) {
 		if (ofFile(path).exists()) return path;
 	}
-	return "UI/card_template_withrange.png";
+	return "UI/card_template_withrange.PNG";
 }
 
 static ofRectangle computeOpaqueBoundsNormalized(const ofImage & image, unsigned char alphaThreshold = 0, int paddingPx = 2) {
@@ -20946,8 +20946,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
 
-		cmd.commandId = nextCommandId;
-		nextCommandId = nextCommandId + 1;
+		cmd.commandId = 0; // sendInputCommand will assign canonical commandId
 
 		cmd.turnNumber = globalTurnCounter;
 		cmd.commandType = CMD_PLAY_CARD;
@@ -36702,10 +36701,12 @@ void ofApp::updateAudioVolumes() {
 	float master = std::clamp(settingsMasterVolume, 0.0f, 1.0f);
 	float music = std::clamp(settingsMenuVolume, 0.0f, 1.0f);
 
-	// 1. Set OpenFrameworks Global Master Output Volume
-	ofSoundSetVolume(master);
+	// FIX: Removed ofSoundSetVolume(master) because it is NOT implemented on Linux
+	// (ALSA/PulseAudio/PipeWire), which causes terminal spam and breaks audio panning.
+	// We already manually multiply `settingsMasterVolume` into every individual
+	// sfx.setVolume() call anyway, so the global engine override is completely unnecessary!
 
-	// 2. Update active background music streams immediately
+	// Update active background music streams immediately
 	float finalMusicVol = master * music;
 	if (mainMenuMusic.isLoaded()) {
 		mainMenuMusic.setVolume(finalMusicVol);
@@ -36751,8 +36752,9 @@ void ofApp::loadSettings() {
 		// Apply audio immediately
 		updateAudioVolumes();
 
-		// Apply v-sync/framerate/window mode natively
-		applySettings();
+		// FIX: Removed applySettings() from here!
+		// Doing it here crashes the game because availableResolutions is empty at this stage of startup.
+		// The game already safely calls applySettings() at the end of setup() naturally!
 
 		ofLogNotice("Settings") << "Loaded settings from " << path;
 	} catch (...) {

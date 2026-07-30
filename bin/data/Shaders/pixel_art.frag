@@ -28,14 +28,45 @@ float lum(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
 }
 
+// Safely downsamples while preserving dark 1px outlines (like UI borders)
+vec3 getFatPixel(vec2 center) {
+    vec2 texelNative = 1.0 / uResolution;
+    
+    // Check all 4 native pixels inside this 2x2 downscaled fat pixel
+    vec3 c0 = texture(tex0, center + vec2(-0.5, -0.5) * texelNative).rgb;
+    vec3 c1 = texture(tex0, center + vec2( 0.5, -0.5) * texelNative).rgb;
+    vec3 c2 = texture(tex0, center + vec2(-0.5,  0.5) * texelNative).rgb;
+    vec3 c3 = texture(tex0, center + vec2( 0.5,  0.5) * texelNative).rgb;
+    
+    float l0 = lum(c0);
+    float l1 = lum(c1);
+    float l2 = lum(c2);
+    float l3 = lum(c3);
+    
+    float minL = min(min(l0, l1), min(l2, l3));
+    float maxL = max(max(l0, l1), max(l2, l3));
+    
+    // If there is high contrast (an outline), always keep the dark line pixel
+    // This stops 1-pixel native vertical/horizontal lines from vanishing!
+    if (maxL - minL > 0.15) {
+        if (minL == l0) return c0;
+        if (minL == l1) return c1;
+        if (minL == l2) return c2;
+        return c3;
+    }
+    
+    // Otherwise, point sample to keep the flat pixel art blockiness
+    return c0;
+}
+
 void main() {
     vec2 uv = vTexCoord;
     
-    // Pixel-center sample in low-res grid (crisp pixel-art sampling)
+    // Pixel-center sample in low-res grid
     vec2 texel = 1.0 / uLowRes;
     vec2 lowCoord = floor(uv * uLowRes) / uLowRes + 0.5 / uLowRes;
     
-    vec3 base = texture(tex0, lowCoord).rgb;
+    vec3 base = getFatPixel(lowCoord);
 
     // --- Milder Color Modifications ---
     float luma = lum(base);
@@ -56,13 +87,12 @@ void main() {
         }
     }
 
-    // --- Center-Relative Edge Detection (Laplacian Gradient) ---
-    // Compares center pixel against 4-way neighbors so thin vertical AND horizontal lines are BOTH captured!
+    // --- Center-Relative Edge Detection ---
     float c = lum(base);
-    float l = lum(texture(tex0, lowCoord + vec2(-texel.x, 0)).rgb);
-    float r = lum(texture(tex0, lowCoord + vec2(texel.x, 0)).rgb);
-    float u = lum(texture(tex0, lowCoord + vec2(0, -texel.y)).rgb);
-    float d = lum(texture(tex0, lowCoord + vec2(0, texel.y)).rgb);
+    float l = lum(getFatPixel(lowCoord + vec2(-texel.x, 0)));
+    float r = lum(getFatPixel(lowCoord + vec2(texel.x, 0)));
+    float u = lum(getFatPixel(lowCoord + vec2(0, -texel.y)));
+    float d = lum(getFatPixel(lowCoord + vec2(0, texel.y)));
     
     float diffL = abs(c - l);
     float diffR = abs(c - r);
@@ -71,11 +101,19 @@ void main() {
 
     float edge = max(max(diffL, diffR), max(diffU, diffD));
 
-    // Threshold to detect crisp outlines on cards and UI borders
+    // Threshold to detect crisp outlines on 3D models
     float edgeFactor = step(0.12, edge) * max(edgeStrength, 0.4);
 
-    // Apply outline (50% opacity for a clean, non-harsh blend)
-    vec3 finalCol = mix(q, edgeColor, edgeFactor * 0.50);
+    vec3 finalCol;
+    
+    // --- UI OVERWRITE FIX ---
+    // If the pixel is ALREADY part of a dark UI outline, protect it!
+    // Without this, the edge detector mixes black lines with 50% opacity and turns them gray.
+    if (lum(q) < 0.15) {
+        finalCol = q;
+    } else {
+        finalCol = mix(q, edgeColor, edgeFactor * 0.50);
+    }
 
     fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
 }
