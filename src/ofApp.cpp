@@ -12927,12 +12927,13 @@ void ofApp::drawGame() {
 			auto rank = getMageRank(elo);
 			std::string rankStr = rank.first + " (" + std::to_string(elo) + ")";
 
-			// Append H2H Record if viewing the opponent
+			std::string h2hStr = "";
 			if (!isLocal && isMultiplayer) {
 				std::string oppIDStr = std::to_string(steamManager.getOpponentSteamID().ConvertToUint64());
 				if (h2hStatsMap.find(oppIDStr) != h2hStatsMap.end()) {
 					const auto & h2h = h2hStatsMap[oppIDStr];
-					rankStr += " | H2H: " + std::to_string(h2h.wins) + "W-" + std::to_string(h2h.losses) + "L-" + std::to_string(h2h.draws) + "D";
+					h2hStr = "H2H: " + std::to_string(h2h.wins) + "W - " + std::to_string(h2h.losses) + "L";
+					if (h2h.draws > 0) h2hStr += " - " + std::to_string(h2h.draws) + "D";
 				}
 			}
 
@@ -12952,6 +12953,10 @@ void ofApp::drawGame() {
 			float qRFontS = std::max(0.5f, std::round(rFontS * 2.0f) / 2.0f);
 			float rnx = textX + (rankBox.x + rankBox.width * 0.5f) * qRFontS;
 			drawPixelTextCentered(uiFont, rankStr, rnx, y + h * 0.7f, rFontS, rank.second);
+
+			if (!h2hStr.empty()) {
+				drawPixelTextCentered(uiFont, h2hStr, x + w / 2.0f, y + h + 16.0f * scale, 0.6f, ofColor(200));
+			}
 		} else {
 			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
 			float fontS = 1.0f;
@@ -13477,20 +13482,18 @@ void ofApp::drawGame() {
 		g_p0_apBoxAlpha = skipDrawP0AP ? std::max(0.0f, g_p0_apBoxAlpha - alphaFadeSpeed * dtFrame) : std::min(1.0f, g_p0_apBoxAlpha + alphaFadeSpeed * dtFrame);
 
 		if (g_p0_apBoxAlpha > 0.01f) {
+			float p0_baseRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 			ofSetColor(0, 0, 0, 150 * g_p0_apBoxAlpha);
-			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
+			ofDrawRectRounded(p0_apCenterX - p0_baseRectWidth / 2.0f, p0_apCenterY - p0_apRectHeight / 2.0f, p0_apRectWidth, p0_apRectHeight, 10 * scale);
 
 			ofColor apTextCol(0, 255, 0, 255 * g_p0_apBoxAlpha);
 			ofColor apOutCol(0, 0, 0, 255 * g_p0_apBoxAlpha);
 
 			if (showAPPreview && !diffText.empty()) {
 				ofRectangle mainBox = titleFont.getStringBoundingBox(g_p0_apText_cache, 0, 0);
-				ofRectangle diffBox = titleFont.getStringBoundingBox(diffText, 0, 0);
-				float totalW = (mainBox.width + diffBox.width) * apFontScale;
-				float startX = p0_apCenterX - totalW / 2.0f;
-
-				drawPixelTextBaseline(titleFont, g_p0_apText_cache, startX, p0_apCenterY + (mainBox.height * apFontScale * 0.4f), apFontScale, apTextCol, 2, apOutCol);
-				drawPixelTextBaseline(titleFont, diffText, startX + (mainBox.width * apFontScale), p0_apCenterY + (mainBox.height * apFontScale * 0.4f), apFontScale, diffColor, 2, apOutCol);
+				drawPixelTextCentered(titleFont, g_p0_apText_cache, p0_apCenterX, p0_apCenterY, apFontScale, apTextCol, 2, apOutCol);
+				float diffStartX = p0_apCenterX + (mainBox.width * apFontScale * 0.5f);
+				drawPixelTextBaseline(titleFont, diffText, diffStartX, p0_apCenterY + (mainBox.height * apFontScale * 0.4f), apFontScale, diffColor, 2, apOutCol);
 			} else {
 				drawPixelTextCentered(titleFont, g_p0_apText_cache, p0_apCenterX, p0_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 			}
@@ -13597,20 +13600,18 @@ void ofApp::drawGame() {
 		g_p1_apBoxAlpha = skipDrawP1AP ? std::max(0.0f, g_p1_apBoxAlpha - alphaFadeSpeed * dtFrame) : std::min(1.0f, g_p1_apBoxAlpha + alphaFadeSpeed * dtFrame);
 
 		if (g_p1_apBoxAlpha > 0.01f) {
+			float p1_baseRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 			ofSetColor(0, 0, 0, 150 * g_p1_apBoxAlpha);
-			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
+			ofDrawRectRounded(p1_apCenterX - p1_baseRectWidth / 2.0f, p1_apCenterY - p1_apRectHeight / 2.0f, p1_apRectWidth, p1_apRectHeight, 10 * scale);
 
 			ofColor apTextCol(0, 255, 0, 255 * g_p1_apBoxAlpha);
 			ofColor apOutCol(0, 0, 0, 255 * g_p1_apBoxAlpha);
 
 			if (showAPPreview && !diffTextP1.empty() && (!isMultiplayer || !isMyTurn())) {
 				ofRectangle mainBoxP1 = titleFont.getStringBoundingBox(g_p1_apText_cache, 0, 0);
-				ofRectangle diffBoxP1 = titleFont.getStringBoundingBox(diffTextP1, 0, 0);
-				float totalW1 = (mainBoxP1.width + diffBoxP1.width) * apFontScale;
-				float startX1 = p1_apCenterX - totalW1 / 2.0f;
-
-				drawPixelTextBaseline(titleFont, g_p1_apText_cache, startX1, p1_apCenterY + (mainBoxP1.height * apFontScale * 0.4f), apFontScale, apTextCol, 2, apOutCol);
-				drawPixelTextBaseline(titleFont, diffTextP1, startX1 + (mainBoxP1.width * apFontScale), p1_apCenterY + (mainBoxP1.height * apFontScale * 0.4f), apFontScale, diffColorP1, 2, apOutCol);
+				drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
+				float diffStartX1 = p1_apCenterX + (mainBoxP1.width * apFontScale * 0.5f);
+				drawPixelTextBaseline(titleFont, diffTextP1, diffStartX1, p1_apCenterY + (mainBoxP1.height * apFontScale * 0.4f), apFontScale, diffColorP1, 2, apOutCol);
 			} else {
 				drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 			}
