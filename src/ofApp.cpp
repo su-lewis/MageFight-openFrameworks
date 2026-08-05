@@ -40415,7 +40415,7 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 	zmqSocket->send(request, zmq::send_flags::none);
 
 	zmq::message_t reply;
-	auto res = zmqSocket->recv(reply, zmq::recv_flags::none);
+	auto res = zmqSocket->recv(reply, zmq::recv_flags::dontwait);
 
 	int actionIndex = 0;
 	if (res.has_value() && reply.size() >= sizeof(int)) {
