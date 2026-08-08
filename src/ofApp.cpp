@@ -461,45 +461,41 @@ static bool g_suppressText = false;
 
 static ofFbo g_textFbo;
 
-// Intercept OF blend mode functions to enforce Eraser mode during Pass 2
-#define ofEnableAlphaBlending()                           \
-	do {                                                  \
-		if (g_isSecondPass) {                             \
-			glEnable(GL_BLEND);                           \
-			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
-		} else {                                          \
-			(ofEnableAlphaBlending)();                    \
-		}                                                 \
-	} while (0)
+// Helper functions to safely enforce Eraser mode during Pass 2
+static void safeEnableAlphaBlending() {
+	if (g_isSecondPass) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+	} else {
+		ofEnableAlphaBlending();
+	}
+}
 
-#define ofEnableBlendMode(mode)                               \
-	do {                                                      \
-		if (g_isSecondPass && (mode) == OF_BLENDMODE_ALPHA) { \
-			glEnable(GL_BLEND);                               \
-			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);     \
-		} else {                                              \
-			(ofEnableBlendMode)(mode);                        \
-		}                                                     \
-	} while (0)
+static void safeEnableBlendMode(ofBlendMode mode) {
+	if (g_isSecondPass && mode == OF_BLENDMODE_ALPHA) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+	} else {
+		ofEnableBlendMode(mode);
+	}
+}
 
-#define ofDisableBlendMode()                              \
-	do {                                                  \
-		if (g_isSecondPass) {                             \
-			glEnable(GL_BLEND);                           \
-			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
-		} else {                                          \
-			(ofDisableBlendMode)();                       \
-		}                                                 \
-	} while (0)
+static void safeDisableBlendMode() {
+	if (g_isSecondPass) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+	} else {
+		ofDisableBlendMode();
+	}
+}
 
-#define ofPopStyle()                                      \
-	do {                                                  \
-		(ofPopStyle)();                                   \
-		if (g_isSecondPass) {                             \
-			glEnable(GL_BLEND);                           \
-			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
-		}                                                 \
-	} while (0)
+static void safePopStyle() {
+	ofPopStyle();
+	if (g_isSecondPass) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+	}
+}
 
 #define TEXT_PASS_BEGIN()                                  \
 	if (g_isSecondPass) {                                  \
@@ -783,7 +779,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		ofPopMatrix();
 	}
 
-	ofPopStyle();
+	safePopStyle();
 }
 
 // Robust cross-platform deterministic shuffle to replace std::shuffle
@@ -1278,11 +1274,28 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 	}
 
 	if (!leftEdge.empty() && !rightEdge.empty()) {
-		gCardEdgeOutlineNormalized.reserve(leftEdge.size() + rightEdge.size());
-		for (const auto & p : leftEdge)
-			gCardEdgeOutlineNormalized.push_back(p);
-		for (auto it = rightEdge.rbegin(); it != rightEdge.rend(); ++it)
-			gCardEdgeOutlineNormalized.push_back(*it);
+		// FIX: Decimate the outline points to prevent massive FPS lag when usable cards glow!
+		// A 1500px high template creates 3000 vertices. Drawn 7 times for a glow = 21,000 vertices per card!
+		// By stepping every ~40 pixels, we reduce the vertex count by 97% while keeping the shape perfectly smooth.
+		int step = std::max(1, gCardAlphaMaskHeight / 40);
+
+		gCardEdgeOutlineNormalized.reserve((leftEdge.size() / step) + (rightEdge.size() / step) + 4);
+
+		for (size_t i = 0; i < leftEdge.size(); i += step) {
+			gCardEdgeOutlineNormalized.push_back(leftEdge[i]);
+		}
+		// Ensure the exact bottom-left corner is included to close gaps
+		if ((leftEdge.size() - 1) % step != 0) {
+			gCardEdgeOutlineNormalized.push_back(leftEdge.back());
+		}
+
+		for (int i = (int)rightEdge.size() - 1; i >= 0; i -= step) {
+			gCardEdgeOutlineNormalized.push_back(rightEdge[i]);
+		}
+		// Ensure the exact top-right corner is included to close gaps
+		if (rightEdge.size() > 0 && ((rightEdge.size() - 1) % step != 0)) {
+			gCardEdgeOutlineNormalized.push_back(rightEdge.front());
+		}
 	}
 }
 
@@ -1358,7 +1371,7 @@ static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor
 	ofSetColor(color.r, color.g, color.b, std::min(255, (int)(color.a * 0.9f)));
 	drawCardEdgeOutline(drawX, drawY, w, h, 1.5f);
 
-	ofPopStyle();
+	safePopStyle();
 }
 
 static bool startsWith(const std::string & s, const std::string & prefix) {
@@ -1763,11 +1776,15 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 	ofLogNotice("Cards") << "Loaded card template: " << actualTemplatePath << " (" << templateImage.getWidth() << "x" << templateImage.getHeight() << ")";
 
-	const int cardW = (int)templateImage.getWidth();
-	const int cardH = (int)templateImage.getHeight();
+	// FIX: Force the rendering slot to match the texture rect, NOT the raw image size.
+	// This ensures the 1050x1500 source image scales down into the safe 409x585 slot!
+	const int cardW = (int)allCards[0].textureRect.width;
+	const int cardH = (int)allCards[0].textureRect.height;
 	if (cardW <= 0 || cardH <= 0) return false;
-	g_templateWidth = (float)cardW;
-	g_templateHeight = (float)cardH;
+
+	// Keep the original template proportions mapped so the text renders in the correct spots
+	g_templateWidth = (float)templateImage.getWidth();
+	g_templateHeight = (float)templateImage.getHeight();
 
 	CardTemplateLayout outlineLayout;
 	ofRectangle damageTypeNorm(
@@ -2361,6 +2378,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		fbo.begin();
 		ofPushMatrix();
 		ofTranslate(x, y);
+		ofScale((float)cardW / g_templateWidth, (float)cardH / g_templateHeight);
 		ofSetColor(255, 255, 255, 255);
 
 		if (art && art->isAllocated()) {
@@ -2409,16 +2427,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofSetColor(255, 255, 255, 255);
 		auto classTplIt = classTemplateImages.find(effectiveClass);
 		if (classTplIt != classTemplateImages.end()) {
-			classTplIt->second.draw(0, 0, cardW, cardH);
+			classTplIt->second.draw(0, 0, g_templateWidth, g_templateHeight);
 		} else {
-			templateImage.draw(0, 0, cardW, cardH);
+			templateImage.draw(0, 0, g_templateWidth, g_templateHeight);
 		}
 
 		if (rec.name.empty()) rec.name = card.name;
 		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
 
 		ofPushStyle();
-		auto isFullCardOverlay = [&](const ofImage & img) { return img.getWidth() >= cardW * 0.9f && img.getHeight() >= cardH * 0.9f; };
+		auto isFullCardOverlay = [&](const ofImage & img) { return img.getWidth() >= g_templateWidth * 0.9f && img.getHeight() >= g_templateHeight * 0.9f; };
 		auto makeKey = [&](const std::string & s) {
 			std::string k;
 			for (char c : s)
@@ -2438,7 +2456,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			if (itBanner != overlayCache.end()) {
 				ofSetColor(255, 255, 255, 255);
 				if (isFullCardOverlay(itBanner->second))
-					itBanner->second.draw(0, 0, cardW, cardH);
+					itBanner->second.draw(0, 0, g_templateWidth, g_templateHeight);
 				else
 					itBanner->second.draw(layout.damageTypeRect.x, layout.damageTypeRect.y, layout.damageTypeRect.width, layout.damageTypeRect.height);
 			}
@@ -2460,7 +2478,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 				for (const auto * img : fullCardDamageImages) {
 					ofSetColor(255, 255, 255, 255);
-					img->draw(0, 0, cardW, cardH);
+					img->draw(0, 0, g_templateWidth, g_templateHeight);
 				}
 
 				if (!iconDamageImages.empty()) {
@@ -2507,7 +2525,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			if (itTarget != overlayCache.end()) {
 				ofSetColor(255, 255, 255, 255);
 				if (isFullCardOverlay(itTarget->second))
-					itTarget->second.draw(0, 0, cardW, cardH);
+					itTarget->second.draw(0, 0, g_templateWidth, g_templateHeight);
 				else
 					itTarget->second.draw(layout.targetingRect.x, layout.targetingRect.y, layout.targetingRect.width, layout.targetingRect.height);
 			}
@@ -2518,7 +2536,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			if (itAPHP != overlayCache.end()) {
 				ofSetColor(255, 255, 255, 255);
 				if (isFullCardOverlay(itAPHP->second))
-					itAPHP->second.draw(0, 0, cardW, cardH);
+					itAPHP->second.draw(0, 0, g_templateWidth, g_templateHeight);
 				else {
 					float x0 = std::min(layout.summonAPRect.x, layout.summonHPRect.x);
 					float y0 = std::min(layout.summonAPRect.y, layout.summonHPRect.y);
@@ -2536,13 +2554,14 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 		}
 
-		ofPopStyle();
+		safePopStyle();
 		ofPopMatrix();
 		fbo.end();
 
 		fboText.begin(); // Switch to Text FBO!
 		ofPushMatrix(); // <--- FIX: Save matrix state
 		ofTranslate(x, y); // <--- FIX: Move to this specific card's slot
+		ofScale((float)cardW / g_templateWidth, (float)cardH / g_templateHeight);
 		ofPushStyle();
 		ofSetColor(255);
 
@@ -2567,8 +2586,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPopMatrix(); // <--- FIX: Pop Text FBO matrix
 		fboText.end(); // Close text fbo
 
-		ofPopStyle(); // Pop Base FBO style
-		ofPopMatrix(); // Pop Base FBO matrix
+		// REMOVED: Extra ofPopStyle and ofPopMatrix that caused the OpenGL crash!
 	}
 
 	ofPixels pixels;
@@ -4912,8 +4930,7 @@ void ofApp::setup() {
 	}
 
 	// Connect to Python AI if in training mode or Singleplayer vs AI!
-	// (ZMQ connections in C++ are non-blocking, so this is 100% safe to do unconditionally)
-	if (true) {
+	try {
 		zmqContext = new zmq::context_t(1);
 		zmqSocket = new zmq::socket_t(*zmqContext, zmq::socket_type::rep); // REP socket
 		std::string port = "5555";
@@ -4923,6 +4940,9 @@ void ofApp::setup() {
 		zmqSocket->bind("tcp://*:" + port);
 		zmqConnected = true;
 		ofLogNotice("AI") << "Bound C++ Game to port " << port;
+	} catch (const std::exception & e) {
+		ofLogError("AI") << "Failed to bind ZMQ socket on port 5555 (Is a previous instance still running?). Error: " << e.what();
+		zmqConnected = false;
 	}
 }
 //--------------------------------------------------------------
@@ -5191,12 +5211,9 @@ void ofApp::updateStateMachine() {
 			deltaTime = 0.0f;
 		}
 
-		// CRITICAL FIX: Unconditionally clamp delta time in both headless and visual modes.
-		// This prevents first-frame loading spikes or Python ZMQ socket wait blocks from
-		// causing massive "time-warp" simulation loops that freeze the game thread.
-		if (deltaTime > SIMULATION_TIMESTEP * 1.5f) {
-			deltaTime = SIMULATION_TIMESTEP * 1.5f;
-		}
+		// Clamp delta time in both headless and visual modes to prevent freezing.
+		// Use std::min so we don't accidentally "delete" elapsed time.
+		deltaTime = std::min(deltaTime, SIMULATION_TIMESTEP * 4.0f); // Allow up to 4 ticks per frame to catch up smoothly
 
 		simulationAccumulator += deltaTime;
 		while (simulationAccumulator >= SIMULATION_TIMESTEP) {
@@ -5545,7 +5562,9 @@ void ofApp::update() {
 		if (window) {
 			int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
 			iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
-			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
+
+			// FIX: Only suspend the game if it is actually minimized to the taskbar
+			windowActive = (iconified == GLFW_FALSE);
 		}
 
 		if (currentState == STATE_MAIN_MENU && steamManager.isConnected() && iconified == GLFW_FALSE) {
@@ -6022,7 +6041,7 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	ofDrawRectangle(halfTile - hThick, -halfTile - hThick, t, TILE_SIZE + t);
 
 	ofPopMatrix();
-	ofPopStyle();
+	safePopStyle();
 }
 //--------------------------------------------------------------
 void ofApp::draw() {
@@ -6133,7 +6152,7 @@ void ofApp::draw() {
 				ofPushStyle();
 				ofSetColor(0, 0, 0, 170);
 				ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-				ofPopStyle();
+				safePopStyle();
 			}
 			drawSettings = true;
 			break;
@@ -6185,7 +6204,7 @@ void ofApp::draw() {
 			ofPushStyle();
 			ofDisableDepthTest();
 			ofDisableLighting();
-			ofEnableAlphaBlending();
+			safeEnableAlphaBlending();
 
 			float scale = ofGetHeight() / 1080.0f;
 			float uiScale = getUIScaleFromHeight(ofGetHeight());
@@ -6334,7 +6353,7 @@ void ofApp::draw() {
 						if (!isMultiplayer) {
 							drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
 						}
-						ofPopStyle();
+						safePopStyle();
 
 						ofPushStyle();
 						if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
@@ -6528,7 +6547,7 @@ void ofApp::draw() {
 						}
 
 						if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
-						ofPopStyle();
+						safePopStyle();
 
 					} else {
 						chatWindowRect.set(0, 0, 0, 0);
@@ -6907,7 +6926,7 @@ void ofApp::draw() {
 				ofDrawRectRounded(tX, tY, bbox.width + pad * 2, bbox.height + pad * 2, 8);
 				ofSetColor(255);
 				SafeDrawText(uiFont, tooltipText, tX + pad, tY + bbox.height + pad - 2);
-				ofPopStyle();
+				safePopStyle();
 			}
 
 			// --- ELO & GAME OVER SCREEN ---
@@ -7105,7 +7124,7 @@ void ofApp::draw() {
 					ofFill();
 					drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
 				}
-				ofPopStyle();
+				safePopStyle();
 			}
 
 			if (isReplayMode) {
@@ -7132,12 +7151,10 @@ void ofApp::draw() {
 				int maxSecs = replayMaxFrame / 60;
 				std::string timeStr = "Replay: " + std::to_string(curSecs) + "s / " + std::to_string(maxSecs) + "s";
 				drawPixelTextCentered(uiFont, timeStr, ofGetWidth() / 2, barY - 15 * scale, 1.0f, ofColor::white);
-				ofPopStyle();
-
-				replayProgressBarRect.set(barX, barY, barW, barH);
+				safePopStyle();
 			}
 
-			ofPopStyle();
+			safePopStyle();
 		}
 	};
 
@@ -7167,7 +7184,7 @@ void ofApp::draw() {
 
 			// Restore normal OpenGL state
 			g_isSecondPass = false;
-			ofEnableAlphaBlending();
+			safeEnableAlphaBlending();
 			g_textFbo.end();
 		}
 
@@ -7188,7 +7205,7 @@ void ofApp::draw() {
 			pixelArtShader.end();
 
 			// Composite the crisp Text FBO on top of the pixelated screen
-			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 			g_textFbo.draw(0, 0, ofGetWidth(), ofGetHeight());
 		} else if (useC64Pass) {
 			c64Shader.begin();
@@ -7269,7 +7286,7 @@ void ofApp::drawMainMenu() {
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
 	ofDisableLighting();
-	ofEnableAlphaBlending();
+	safeEnableAlphaBlending();
 
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
@@ -7288,7 +7305,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetLineWidth(2.0f);
 		ofSetColor(80, 80, 90, 255);
 		ofDrawRectRounded(panelRect, 16.0f);
-		ofPopStyle();
+		safePopStyle();
 	}
 
 	// Draw Title
@@ -7538,7 +7555,7 @@ void ofApp::drawSettingsMenu() {
 		}
 
 		if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
-		ofPopStyle();
+		safePopStyle();
 
 		// Draw scrollbar if needed (right side of list)
 		if (maxScroll > 0.0f) {
@@ -7572,7 +7589,7 @@ void ofApp::drawSettingsMenu() {
 
 void ofApp::drawSingleplayerMenu() {
 	ofDisableLighting();
-	ofEnableAlphaBlending();
+	safeEnableAlphaBlending();
 
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
@@ -7796,7 +7813,7 @@ void ofApp::drawSaveBrowser() {
 
 void ofApp::drawMultiplayerMenu() {
 	ofDisableLighting();
-	ofEnableAlphaBlending();
+	safeEnableAlphaBlending();
 
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
@@ -8667,7 +8684,7 @@ void ofApp::prepareGameVisualState() {
 	// --- CONTINUOUS HIGH-REFRESH VISUAL INTERPOLATIONS ---
 	// =========================================================================
 	float deltaTime = ofGetLastFrameTime();
-	if (deltaTime > 0.1f) deltaTime = 0.0055f; // ~180Hz fallback timestep
+	deltaTime = std::min(deltaTime, 0.1f); // Clamp to 0.1s max to prevent huge jumps, never reset to near-zero
 
 	// Smooth exponential interpolation for high-refresh-rate displays
 	float frame_independent_smoothing = 1.0f - std::exp(-15.0f * deltaTime);
@@ -9111,7 +9128,7 @@ void ofApp::prepareGameVisualState() {
 
 			if ((int)pIdx != currentPlayerIndex || static_cast<int>(i) != draggedCardIndex) {
 				float dt = ofGetLastFrameTime();
-				if (dt > 0.1f) dt = 0.0055f;
+				dt = std::min(dt, 0.1f);
 
 				// Apply hover lift dynamically only for active local player
 				float hoverLift = 0.0f;
@@ -10439,7 +10456,7 @@ void ofApp::drawGame() {
 		ofDrawRectRounded(gameOverReturnBtn, 10);
 		drawPixelTextCentered(uiFont, "Quit to Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f, ofColor::white);
 
-		ofPopStyle();
+		safePopStyle();
 		return;
 	}
 
@@ -10817,7 +10834,7 @@ void ofApp::drawGame() {
 				ofPushStyle();
 				ofEnableDepthTest();
 				glDepthMask(GL_FALSE);
-				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 				ofPushMatrix();
 				ofTranslate(worldPos.x, 0.02f, worldPos.z);
@@ -10835,7 +10852,7 @@ void ofApp::drawGame() {
 
 				ofPopMatrix();
 				glDepthMask(GL_TRUE);
-				ofPopStyle();
+				safePopStyle();
 			}
 
 			// Add visual-only keys that were already consumed by lockstep command
@@ -11035,14 +11052,14 @@ void ofApp::drawGame() {
 				// Draw with alpha blending, do not write depth so units and walls still occlude correctly
 				glEnable(GL_DEPTH_TEST);
 				glDepthMask(GL_FALSE);
-				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 				// Reduce shadow darkness slightly so units appear less heavy
 				ofSetColor(255, 180);
 				shadowTexture.bind();
 				sq.draw();
 				shadowTexture.unbind();
 				ofSetColor(255);
-				ofDisableBlendMode();
+				safeDisableBlendMode();
 				glDepthMask(GL_TRUE);
 			}
 
@@ -11118,7 +11135,7 @@ void ofApp::drawGame() {
 			teamRing.draw();
 
 			ofPopMatrix();
-			ofPopStyle();
+			safePopStyle();
 
 			ofxAssimpModelLoader * currentModel = &playerModel;
 			if (player.inTortoiseForm)
@@ -11173,7 +11190,7 @@ void ofApp::drawGame() {
 			if (player.inGhostForm) {
 				if (shaderWasBound) pbrShader.end(); // Briefly pause shader for transparent ghost pass
 
-				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 				ofSetColor(255, 255, 255, 160); // Pure white/transparent ghost, no team tint!
 
 				ofPushMatrix();
@@ -11203,7 +11220,7 @@ void ofApp::drawGame() {
 					}
 				}
 
-				ofDisableBlendMode();
+				safeDisableBlendMode();
 				ofSetColor(255);
 
 				if (shaderWasBound) pbrShader.begin(); // Restore shader for the next unit in the loop
@@ -11318,13 +11335,13 @@ void ofApp::drawGame() {
 
 				glDisable(GL_POLYGON_OFFSET_FILL);
 				ofSetColor(unitTint);
-				ofEnableAlphaBlending();
+				safeEnableAlphaBlending();
 			}
 
 			glDisable(GL_NORMALIZE); // Clean up lag fix
 			glDisable(GL_CULL_FACE);
 			ofPopMatrix();
-			ofPopStyle();
+			safePopStyle();
 
 			// Safe cleanup: Reset OF's global color state instead of hard-disabling GL materials.
 			// Disabling GL_COLOR_MATERIAL causes openFrameworks to render subsequent models invisibly!
@@ -11425,7 +11442,7 @@ void ofApp::drawGame() {
 		//  (Disable depth writing to prevent artifacts)
 		// ===================================================================
 		glDepthMask(GL_FALSE);
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 		int transPlayerIdx = 0;
 		for (const auto & player : players) {
@@ -11486,9 +11503,9 @@ void ofApp::drawGame() {
 			ofRotateXDeg(90);
 			float shadowSize = TILE_SIZE * 0.8f;
 			if (player.isDemon) shadowSize *= 1.5f;
-			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
-			ofDisableBlendMode();
+			safeDisableBlendMode();
 			ofPopMatrix();
 
 			// --- REGENERATION (Tiny Pixel Heart) ---
@@ -11564,7 +11581,7 @@ void ofApp::drawGame() {
 
 				ofEnableBlendMode(OF_BLENDMODE_ADD); // Make the fire transparent and glowing!
 				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
-				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 				ofPopMatrix();
 			}
@@ -11702,7 +11719,7 @@ void ofApp::drawGame() {
 				ofDrawTriangle(-w / 2 + inset, h / 2 - inset * 0.8f, w / 2 - inset, h / 2 - inset * 0.8f, 0, -h / 2 + inset * 1.2f);
 
 				ofEnableLighting(); // Restore lighting for the rest of the transparent pass
-				ofPopStyle();
+				safePopStyle();
 
 				ofPopMatrix();
 			}
@@ -11758,8 +11775,8 @@ void ofApp::drawGame() {
 									ofDrawRectangle(-w / 10.0f, 0.0f, w / 5.0f, h);
 									ofPopMatrix();
 								}
-								ofDisableBlendMode();
-								ofPopStyle();
+								safeDisableBlendMode();
+								safePopStyle();
 								ofEnableLighting();
 							}
 						}
@@ -11942,7 +11959,7 @@ void ofApp::drawGame() {
 					ofPushStyle();
 					ofEnableDepthTest();
 					glDepthMask(GL_FALSE);
-					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+					safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 					// 75% opacity (0.75 * 255 = 191)
 					ofSetColor(255, 255, 255, 191);
@@ -11974,7 +11991,7 @@ void ofApp::drawGame() {
 					}
 
 					glDepthMask(GL_TRUE);
-					ofPopStyle();
+					safePopStyle();
 				} else {
 					// Fallback if the image isn't found
 					ofColor assistantGreenColor(100, 220, 150, 170);
@@ -12013,7 +12030,7 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 				}
 				glDepthMask(GL_TRUE);
-				ofPopStyle();
+				safePopStyle();
 
 				// 3. Draw semi-transparent model of the actor at the starting tile (resolved via stable ID)
 				int foundIdx = -1;
@@ -12060,7 +12077,7 @@ void ofApp::drawGame() {
 					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
 
 					ofPushStyle();
-					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+					safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 					ofSetColor(255, 255, 255, 110); // Translucent ghostly model
 					ofEnableDepthTest();
 					glDepthMask(GL_FALSE);
@@ -12077,8 +12094,8 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 
 					glDepthMask(GL_TRUE);
-					ofDisableBlendMode();
-					ofPopStyle();
+					safeDisableBlendMode();
+					safePopStyle();
 				}
 			} else if (entry.hasTracers && entry.casterX != -1 && entry.targetX != -1) {
 				// Outline both cast and target tiles
@@ -12088,7 +12105,7 @@ void ofApp::drawGame() {
 				// Draw 3D spell tracer beam
 				ofPushStyle();
 				ofDisableLighting();
-				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 				ofEnableDepthTest();
 				glDepthMask(GL_FALSE);
 
@@ -12100,9 +12117,9 @@ void ofApp::drawGame() {
 				ofDrawLine(startW, endW);
 
 				glDepthMask(GL_TRUE);
-				ofDisableBlendMode();
+				safeDisableBlendMode();
 				ofEnableLighting();
-				ofPopStyle();
+				safePopStyle();
 			}
 		}
 
@@ -12172,7 +12189,7 @@ void ofApp::drawGame() {
 						}
 
 						// Restore standard drawing state
-						ofDisableBlendMode();
+						safeDisableBlendMode();
 						ofSetColor(255);
 					}
 				}
@@ -12391,7 +12408,7 @@ void ofApp::drawGame() {
 			ofDisableLighting();
 			ofEnableDepthTest();
 			glDepthMask(GL_FALSE);
-			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 			if (hasValidTarget) {
 				// START FROM CURRENT UNIT INSTEAD OF CARD
@@ -12602,7 +12619,7 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 				}
 			}
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		glDepthMask(GL_TRUE);
@@ -12634,7 +12651,7 @@ void ofApp::drawGame() {
 				ofDisableLighting();
 				glDisable(GL_LIGHTING);
 				glDisable(GL_COLOR_MATERIAL);
-				ofEnableAlphaBlending();
+				safeEnableAlphaBlending();
 				for (const auto & label : previewLabelsToDraw) {
 					// Use 1.0f scale for a set size, and pure white/black colors
 					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 1.0f, ofColor::white, 2, ofColor::black);
@@ -12753,7 +12770,7 @@ void ofApp::drawGame() {
 		renderWorld3D(true);
 	}
 
-	ofEnableAlphaBlending();
+	safeEnableAlphaBlending();
 
 	// === FIX 3: ENSURE LIGHTING IS OFF BEFORE ANY UI ===
 	ofDisableLighting();
@@ -12763,7 +12780,7 @@ void ofApp::drawGame() {
 	// === NUCLEAR GRAPHICS RESET ===
 	ofDisableLighting();
 	ofDisableDepthTest();
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA); // Ensure alpha blending for UI
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA); // Ensure alpha blending for UI
 
 	// 1. Reset Texture
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -12783,7 +12800,7 @@ void ofApp::drawGame() {
 	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
 
 	// 4. Re-enable Alpha for UI
-	ofEnableAlphaBlending();
+	safeEnableAlphaBlending();
 
 	// (floating key is rendered as a vertical 3D billboard in the world pass so it can be occluded)
 
@@ -13241,7 +13258,7 @@ void ofApp::drawGame() {
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
 			ofDrawRectangle(hoverRect);
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		// Compute whether the local player should be allowed to draw from the main deck
@@ -13266,7 +13283,7 @@ void ofApp::drawGame() {
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
 			ofDrawRectangle(hoverRect);
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		// P0 Discard (LOCAL player's discard)
@@ -13290,7 +13307,7 @@ void ofApp::drawGame() {
 			} else {
 				ofDrawRectangle(p0_discardRect);
 			}
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		// 3. Draw Player 1 (Right) UI - opponent mirrored on right side
@@ -13325,7 +13342,7 @@ void ofApp::drawGame() {
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
 			ofDrawRectangle(hoverRect);
-			ofPopStyle();
+			safePopStyle();
 		}
 		if (hoverP1Discard) {
 			ofPushStyle();
@@ -13338,7 +13355,7 @@ void ofApp::drawGame() {
 			} else {
 				ofDrawRectangle(p1_discardRect);
 			}
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		// Show outline for opponent's deck when it's their main-deck turn and they haven't drawn yet
@@ -13359,7 +13376,7 @@ void ofApp::drawGame() {
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
 			ofDrawRectangle(hoverRect);
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		// Draw active shuffle animations (deck reshuffle visual)
@@ -13775,7 +13792,7 @@ void ofApp::drawGame() {
 			SafeDrawText(uiFont, initials, 0, 0);
 			ofPopMatrix();
 		}
-		ofPopStyle();
+		safePopStyle();
 
 		// Draw text to the right of avatar
 		ofSetColor(ofColor::gold);
@@ -13865,7 +13882,7 @@ void ofApp::drawGame() {
 		p.setStrokeColor(ofColor::green);
 		p.draw();
 
-		ofPopStyle();
+		safePopStyle();
 	}
 
 	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
@@ -14005,7 +14022,7 @@ void ofApp::drawGame() {
 			ofSetColor(120, 120, 140, 135);
 			ofSetLineWidth(2.0f);
 			ofDrawRectRounded(handAreaRect, 24.0f);
-			ofPopStyle();
+			safePopStyle();
 
 			// 1. Determine which card should be drawn LAST (On Top)
 			int indexToDrawLast = -1;
@@ -14080,7 +14097,7 @@ void ofApp::drawGame() {
 					ofSetColor(0, 0, 0, 34);
 					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 11.0f, drawY + 15.0f, w, h,
 						card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-					ofPopStyle();
+					safePopStyle();
 				}
 
 				// B. Draw Overlays as Solid Polygons BEFORE the card face
@@ -14119,7 +14136,7 @@ void ofApp::drawGame() {
 					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 				}
 
-				ofPopStyle();
+				safePopStyle();
 
 				// A. Draw Sprite
 				// Ghostly tint for copied cards in Renewed Inspiration mode
@@ -14308,7 +14325,7 @@ void ofApp::drawGame() {
 			}
 
 			if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
-			ofPopStyle();
+			safePopStyle();
 
 			// Draw scrollbar
 			if (maxScroll > 0.0f) {
@@ -14348,7 +14365,7 @@ void ofApp::drawGame() {
 		}
 
 		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
-		ofPopStyle();
+		safePopStyle();
 	}
 
 	// --- Draw Discard Animations (hand -> discard, visual only) ---
@@ -14369,7 +14386,7 @@ void ofApp::drawGame() {
 		}
 
 		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
-		ofPopStyle();
+		safePopStyle();
 	}
 	// --- Draw Stolen Card Animation (On top of most UI) ---
 	for (const auto & anim : activeStolenCardAnimations) {
@@ -14753,7 +14770,34 @@ cursor_check_done:;
 			}
 		}
 
-		calculateTargetHighlights(activeCardForHighlight);
+		// FIX: Lock the massive 400-tile highlight matrix so it doesn't recalculate on every mouse pixel!
+		// We explicitly track globalTurnCounter to prevent the cache from getting stuck when turns change.
+		static int s_lastHighlightCard = -999;
+		static int s_lastHighlightState = -999;
+		static int s_lastHighlightPlayerIndex = -999;
+		static int s_lastHighlightX = -999;
+		static int s_lastHighlightY = -999;
+		static int s_lastHighlightTurn = -999;
+
+		int curX = -1, curY = -1;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			curX = players[currentPlayerIndex].x;
+			curY = players[currentPlayerIndex].y;
+		}
+
+		// Only recalculate if the card we are holding, the game state, or our character's position has actually changed!
+		if (activeCardForHighlight != s_lastHighlightCard || (int)cardInteractionState != s_lastHighlightState || currentPlayerIndex != s_lastHighlightPlayerIndex || curX != s_lastHighlightX || curY != s_lastHighlightY || globalTurnCounter != s_lastHighlightTurn) {
+
+			calculateTargetHighlights(activeCardForHighlight);
+
+			s_lastHighlightCard = activeCardForHighlight;
+			s_lastHighlightState = (int)cardInteractionState;
+			s_lastHighlightPlayerIndex = currentPlayerIndex;
+			s_lastHighlightX = curX;
+			s_lastHighlightY = curY;
+			s_lastHighlightTurn = globalTurnCounter;
+		}
+
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
 		if (rerollButtonRect.inside(x, y)) {
@@ -14845,85 +14889,99 @@ cursor_check_done:;
 				isShowingTooltip = true;
 				tooltipPos = glm::vec2(x, y - 20);
 
-				// Format: "Min Roll: 15 (65%)" or "Min Roll: 5 (95%)"
-				int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
-				float hitChance = board[tooltipGX][tooltipGY].hitChance;
-				int percentage = (int)(hitChance * 100.0f);
+				// FIX: Cache the extremely heavy probability math so it doesn't recalculate
+				// 1000 times a second when dragging a mouse over an AOE target tile!
+				static int s_lastTooltipX = -1;
+				static int s_lastTooltipY = -1;
+				static std::string s_cachedTooltipText = "";
 
-				tooltipText = "Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
-				if (board[tooltipGX][tooltipGY].isAoeCenter) {
-					int feet = board[tooltipGX][tooltipGY].aoeRadiusFeet;
-					int tiles = (int)round((double)feet / 5.0);
-					tooltipText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
+				if (s_lastTooltipX == tooltipGX && s_lastTooltipY == tooltipGY && !s_cachedTooltipText.empty()) {
+					tooltipText = s_cachedTooltipText;
+				} else {
+					// Format: "Min Roll: 15 (65%)" or "Min Roll: 5 (95%)"
+					int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
+					float hitChance = board[tooltipGX][tooltipGY].hitChance;
+					int percentage = (int)(hitChance * 100.0f);
 
-					// Per-target breakdown: compute min roll & hit chance for each candidate
-					std::string breakdown = "\nHits:";
-					for (size_t i = 0; i < players.size(); ++i) {
-						if ((int)i == currentPlayerIndex) continue;
-						if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
-						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
-						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
-						if (distToPlayerFeet <= feet + 0.01f) {
-							// verify LOS from center to player using the precise clear ray
-							auto clearRay = getClearLosRay(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y), CARD_FIREBALL);
+					std::string newTooltipText = "Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+					if (board[tooltipGX][tooltipGY].isAoeCenter) {
+						int feet = board[tooltipGX][tooltipGY].aoeRadiusFeet;
+						int tiles = (int)round((double)feet / 5.0);
+						newTooltipText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
 
-							if (clearRay.hasLos) { // <--- CHANGED THIS LINE! Much cleaner!
-								int minRoll = (int)ceil(distToPlayerFeet);
+						// Per-target breakdown: compute min roll & hit chance for each candidate
+						std::string breakdown = "\nHits:";
+						for (size_t i = 0; i < players.size(); ++i) {
+							if ((int)i == currentPlayerIndex) continue;
+							if (board[players[i].x][players[i].y].hasWall) continue; // AoE wall immunity
+							float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
+							float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
+							if (distToPlayerFeet <= feet + 0.01f) {
+								// verify LOS from center to player using the precise clear ray
+								auto clearRay = getClearLosRay(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y), CARD_FIREBALL);
 
-								int diceNum = 1;
-								int sides = 20;
-								if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
-									const Card & c = currentPlayer.hand[activeCardForHighlight];
-									if (c.aoeRadiusDiceNum > 0) diceNum = c.aoeRadiusDiceNum;
-									if (c.aoeRadiusDiceSides > 0) sides = c.aoeRadiusDiceSides;
-								}
-								int maxPossible = diceNum * sides;
-								double p = 0.0;
-								if (minRoll <= diceNum)
-									p = 1.0;
-								else if (minRoll > maxPossible)
-									p = 0.0;
-								else if (diceNum == 1) {
-									int success = sides - minRoll + 1;
-									if (success < 0) success = 0;
-									p = (double)success / (double)sides;
-								} else if (diceNum <= 6) {
-									int maxRoll = maxPossible;
-									std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxRoll + 1, 0));
-									dp[0][0] = 1;
-									for (int d = 1; d <= diceNum; ++d) {
-										for (int s = d; s <= d * sides; ++s) {
-											int sum = 0;
-											int faceMax = std::min(s - (d - 1), sides);
-											for (int face = 1; face <= faceMax; ++face)
-												sum += dp[d - 1][s - face];
-											dp[d][s] = sum;
+								if (clearRay.hasLos) {
+									int minRollTarget = (int)ceil(distToPlayerFeet);
+
+									int diceNum = 1;
+									int sides = 20;
+									if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
+										const Card & c = currentPlayer.hand[activeCardForHighlight];
+										if (c.aoeRadiusDiceNum > 0) diceNum = c.aoeRadiusDiceNum;
+										if (c.aoeRadiusDiceSides > 0) sides = c.aoeRadiusDiceSides;
+									}
+									int maxPossible = diceNum * sides;
+									double p = 0.0;
+									if (minRollTarget <= diceNum)
+										p = 1.0;
+									else if (minRollTarget > maxPossible)
+										p = 0.0;
+									else if (diceNum == 1) {
+										int success = sides - minRollTarget + 1;
+										if (success < 0) success = 0;
+										p = (double)success / (double)sides;
+									} else if (diceNum <= 6) {
+										int maxRollVal = maxPossible;
+										std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxRollVal + 1, 0));
+										dp[0][0] = 1;
+										for (int d = 1; d <= diceNum; ++d) {
+											for (int s = d; s <= d * sides; ++s) {
+												int sum = 0;
+												int faceMax = std::min(s - (d - 1), sides);
+												for (int face = 1; face <= faceMax; ++face)
+													sum += dp[d - 1][s - face];
+												dp[d][s] = sum;
+											}
+										}
+										long long successCount = 0;
+										for (int s = minRollTarget; s <= maxRollVal; ++s)
+											successCount += dp[diceNum][s];
+										long long total = 1;
+										for (int t = 0; t < diceNum; ++t)
+											total *= sides;
+										if (total > 0) p = (double)successCount / (double)total;
+									} else {
+										p = 0.5;
+									}
+
+									double combinedP = p;
+									if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
+										const Card & hc = currentPlayer.hand[activeCardForHighlight];
+										if (hc.type == CARD_MAGIC_BOLT && board[tooltipGX][tooltipGY].hasTooltipInfo) {
+											combinedP *= (double)board[tooltipGX][tooltipGY].hitChance;
 										}
 									}
-									long long successCount = 0;
-									for (int s = minRoll; s <= maxRoll; ++s)
-										successCount += dp[diceNum][s];
-									long long total = 1;
-									for (int t = 0; t < diceNum; ++t)
-										total *= sides;
-									if (total > 0) p = (double)successCount / (double)total;
-								} else {
-									p = 0.5;
+									int pct = (int)round(combinedP * 100.0);
+									breakdown += " \nP" + ofToString((int)i) + ": Min " + ofToString(minRollTarget) + " (" + ofToString(pct) + "%)";
 								}
-
-								double combinedP = p;
-								if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
-									const Card & hc = currentPlayer.hand[activeCardForHighlight];
-									if (hc.type == CARD_MAGIC_BOLT && board[tooltipGX][tooltipGY].hasTooltipInfo) {
-										combinedP *= (double)board[tooltipGX][tooltipGY].hitChance;
-									}
-								}
-								int pct = (int)round(combinedP * 100.0);
-								breakdown += " \nP" + ofToString((int)i) + ": Min " + ofToString(minRoll) + " (" + ofToString(pct) + "%)";
 							}
 						}
+						newTooltipText += breakdown;
 					}
-					tooltipText += breakdown;
+					s_lastTooltipX = tooltipGX;
+					s_lastTooltipY = tooltipGY;
+					s_cachedTooltipText = newTooltipText;
+					tooltipText = newTooltipText;
 				}
 			}
 
@@ -17818,38 +17876,36 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	}
 	// --- SETTINGS MENU SLIDER DRAG ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
-		bool changed = false;
 		// Audio tab sliders
 		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			bool audioChanged = false;
 			if (draggingAudioMaster) {
 				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
 				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-				changed = true;
+				audioChanged = true;
 			}
 			if (draggingAudioMenu) {
 				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
 				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-				changed = true;
+				audioChanged = true;
 			}
 			if (draggingAudioSfx) {
 				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
 				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
-				changed = true;
+				audioChanged = true;
 			}
-			if (changed) {
-				updateAudioVolumes();
+			if (audioChanged) {
+				updateAudioVolumes(); // Fast memory update, fine to keep in drag loop
 			}
 		}
 		// Video tab: framerate slider
 		if (currentSettingsTab == SETTINGS_TAB_VIDEO && draggingFramerateSlider) {
 			float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
 			settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
-			applySettings();
-			changed = true;
 		}
-		if (changed) {
-			saveSettings();
-		}
+
+		// CRITICAL FIX: DO NOT call saveSettings() or applySettings() here!
+		// It causes massive Disk I/O bottlenecks and framerate drops!
 		return;
 	}
 	if (currentState != STATE_GAMEPLAY) return;
@@ -17976,57 +18032,10 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			Player & currentPlayer = *hpPtr;
 
 			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
-			auto hasAnyValidTargetForCard = [&](int cardIndex) {
-				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
-				const Card & candidate = currentPlayer.hand[cardIndex];
-
-				if (candidate.type == CARD_SHOOT_ARROW && currentPlayer.deck.empty()) return false;
-
-				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL) return true;
-				if (candidate.type == CARD_BURST_OF_LIGHT) {
-					if (currentPlayer.health < currentPlayer.maxHealth) return true;
-					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
-					for (const auto & p : players) {
-						if (&p == &currentPlayer || p.health <= 0) continue;
-						TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-						if (info.reason == VALID) return true;
-					}
-					return false;
-				}
-				if (candidate.type == CARD_FLAIL) {
-					calculateTargetHighlights(cardIndex);
-					for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
-						for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-							if (tx == currentPlayer.x && ty == currentPlayer.y) continue;
-							if (board[tx][ty].isTargetable) return true;
-						}
-					}
-					return false;
-				}
-				if ((candidate.targeting == TARGET_SELF || candidate.targeting == TARGET_NONE) && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
-				if (candidate.type == CARD_TELEPORT) return true;
-				if (candidate.type == CARD_BLOCKING_BOON) {
-					int phys = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
-					int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
-					if (phys <= 0 && nonPhys <= 0) return false;
-					return true;
-				}
-				if (candidate.type == CARD_CONSTITUTION_BOON) {
-					if (currentPlayer.maxHealth <= 15) return false;
-					return true;
-				}
-
-				calculateTargetHighlights(cardIndex);
-				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
-					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-						if (board[tx][ty].isTargetable) return true;
-					}
-				}
-				return false;
-			};
 
 			bool hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
-			bool hasPossibleTargets = hasAnyValidTargetForCard(draggedCardIndex);
+			// FIX: Use our new globally-cached method instead of re-calculating the board every mouse event!
+			bool hasPossibleTargets = hasValidTargetForGlow(currentPlayerIndex, draggedCardIndex);
 			bool canDragOutOfHand = hasEnoughAP && hasPossibleTargets;
 			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
 
@@ -18102,15 +18111,29 @@ void ofApp::mouseDragged(int x, int y, int button) {
 void ofApp::mouseReleased(int x, int y, int button) {
 	// --- SETTINGS MENU SLIDER DRAG END ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
+		bool settingsChanged = false;
+
 		// Audio tab
 		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			if (draggingAudioMaster || draggingAudioMenu || draggingAudioSfx) {
+				settingsChanged = true;
+			}
 			draggingAudioMaster = false;
 			draggingAudioMenu = false;
 			draggingAudioSfx = false;
 		}
 		// Video tab
 		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+			if (draggingFramerateSlider) {
+				applySettings(); // Safely apply framerate window hooks once upon release
+				settingsChanged = true;
+			}
 			draggingFramerateSlider = false;
+		}
+
+		// Save to disk exactly ONCE when the user finishes dragging
+		if (settingsChanged) {
+			saveSettings();
 		}
 	}
 	// Recompute hover state immediately so cursor stays correct while stationary
@@ -20982,14 +21005,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return; // Safety check
 
 	std::string cardName = "Unknown";
-	int cardCost = 0;
-	(void)cardCost; // Suppress unused warning
 
 	// Safe index fetching: The victim of a Magic Blast shouldn't check the Caster's hand size!
 	if (interactingCardType != CARD_MAGIC_BLAST && interactingCardType != PSEUDO_CARD_GHOST_RELOCATE) {
-		if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
-		cardName = players[currentPlayerIndex].hand[interactingCardIndex].name;
-		cardCost = players[currentPlayerIndex].hand[interactingCardIndex].cost;
+		if (interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+			cardName = players[currentPlayerIndex].hand[interactingCardIndex].name;
+		}
 	} else {
 		if (interactingCardType == CARD_MAGIC_BLAST) cardName = "Magic Blast";
 		if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) cardName = "Ghost Relocate";
@@ -20998,37 +21019,66 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	interactionMenuChoice = buttonId;
 
 	if (!isExecutingLockstepCommand) {
+		MenuChoiceID parsedChoice = MenuChoiceID::None;
+		if (buttonId == "damage")
+			parsedChoice = MenuChoiceID::Damage;
+		else if (buttonId == "heal")
+			parsedChoice = MenuChoiceID::Heal;
+		else if (buttonId == "block")
+			parsedChoice = MenuChoiceID::Block;
+		else if (buttonId == "x2 Punch")
+			parsedChoice = MenuChoiceID::PunchX2;
+		else if (buttonId == "x2 Hand Block")
+			parsedChoice = MenuChoiceID::BlockX2;
+		else if (buttonId == "draft")
+			parsedChoice = MenuChoiceID::Draft;
+		else if (buttonId == "ap")
+			parsedChoice = MenuChoiceID::AP;
+		else if (buttonId == "Barrier")
+			parsedChoice = MenuChoiceID::Barrier;
+		else if (buttonId == "Purge")
+			parsedChoice = MenuChoiceID::Purge;
+		else if (buttonId == "push" || buttonId == "PUSH")
+			parsedChoice = MenuChoiceID::Push;
+		else if (buttonId == "pull" || buttonId == "PULL")
+			parsedChoice = MenuChoiceID::Pull;
+		else if (buttonId == "discard")
+			parsedChoice = MenuChoiceID::Discard;
+		else if (buttonId == "Self")
+			parsedChoice = MenuChoiceID::Self;
+
 		int choice = 0;
 		bool choiceNeedsTarget = false;
+
 		switch (interactingCardType) {
 		case CARD_BURST_OF_LIGHT:
-			choice = (buttonId == "damage") ? 1 : 2;
+			choice = (parsedChoice == MenuChoiceID::Damage) ? 1 : 2;
 			choiceNeedsTarget = true;
 			break;
 		case CARD_WISDOM_BOON:
-			choice = (buttonId == "damage") ? 1 : 2;
-			choiceNeedsTarget = (buttonId == "damage");
+			choice = (parsedChoice == MenuChoiceID::Damage) ? 1 : 2;
+			choiceNeedsTarget = (parsedChoice == MenuChoiceID::Damage);
 			break;
 		case CARD_DOUBLE_HANDED:
-			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
+			choice = (parsedChoice == MenuChoiceID::PunchX2) ? 1 : 2;
 			choiceNeedsTarget = true;
 			break;
 		case CARD_TRAIN:
-			choice = (buttonId == "draft") ? 1 : 2;
+			choice = (parsedChoice == MenuChoiceID::Draft) ? 1 : 2;
 			break;
 		case CARD_AMNESIA:
 			choice = 1;
 			break;
 		case CARD_DISPEL:
-			choice = (buttonId == "Barrier") ? 1 : 2;
+			choice = (parsedChoice == MenuChoiceID::Barrier) ? 1 : 2;
 			choiceNeedsTarget = false;
 			break;
 		case CARD_MAGIC_BLAST:
-			choice = (buttonId == "damage") ? 1 : 2;
+			choice = (parsedChoice == MenuChoiceID::Damage) ? 1 : 2;
 			choiceNeedsTarget = false; // Target was chosen by caster previously
 			break;
 		case CARD_GIANT_MAGIC_HAND:
-			choice = (buttonId == "push" || buttonId == "PUSH") ? 1 : 2;
+			choice = (parsedChoice == MenuChoiceID::Push) ? 1 : 2;
 			choiceNeedsTarget = false; // Target was already chosen!
 			break;
 		default:
@@ -21038,7 +21088,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 		// Dispel Router (Handles both Barrier and Purge targeting flows)
 		if (interactingCardType == CARD_DISPEL) {
-			if (buttonId == "Purge") {
+			if (parsedChoice == MenuChoiceID::Purge) {
 				bool adjStatus = false;
 				Player & cPlayer = players[currentPlayerIndex];
 				for (auto & p : players) {
@@ -21059,7 +21109,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					determineStatusOptions(getPlayer(currentPlayerIndex));
 				}
 				return;
-			} else if (buttonId == "Barrier") {
+			} else if (parsedChoice == MenuChoiceID::Barrier) {
 				bool hasAdj = false;
 				Player & cPlayer = players[currentPlayerIndex];
 				for (auto & p : players) {
@@ -21117,17 +21167,17 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	switch (interactingCardType) {
 
 	case CARD_TRAIN: {
-		int safeCardIdx = interactingCardIndex; // Cache it!
-		std::string safeChoice = interactionMenuChoice; // CACHE IT BEFORE RESET
+		int safeCardIdx = interactingCardIndex;
+		std::string safeChoice = interactionMenuChoice;
 		currentCardOutcome.cardType = CARD_TRAIN;
-		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+		currentCardOutcome.cardIndex = safeCardIdx;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
 		if (safeChoice == "draft") {
-			networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 1); // Queue Class 1 draft for caster
+			networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 1);
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C1", ofColor::cyan);
-		} else { // "ap"
+		} else {
 			EffectOp apOp = {};
 			apOp.type = EffectOpType::MODIFY_STAT;
 			apOp.data.modifyStat.targetIndex = currentPlayerIndex;
@@ -21140,11 +21190,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		break;
 	}
 	case CARD_GIANT_MAGIC_HAND: {
-		int safeCardIdx = interactingCardIndex; // Cache it!
+		int safeCardIdx = interactingCardIndex;
 		std::string safeChoice = interactionMenuChoice;
 		glm::ivec2 wallPos = magicHandTargetTile;
 		currentCardOutcome.cardType = CARD_GIANT_MAGIC_HAND;
-		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+		currentCardOutcome.cardIndex = safeCardIdx;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
@@ -21172,7 +21222,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				}
 			}
 
-			// Only roll damage dice if there is actually a unit to crush!
 			if (magicHandPushedUnitIndex != -1) {
 				std::vector<int> rawDmg;
 				int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
@@ -21182,7 +21231,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 				queueVisualDiceRoll(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 
-				// Queue a visual delay so the dice can spin before the wall crunches the unit
 				EffectOp wait = {};
 				wait.type = EffectOpType::WAIT_VISUAL;
 				wait.data.damage.fixedDamage = 1;
@@ -21196,7 +21244,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			queueEffect(pushOp);
 
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		} else { // Pull
+		} else {
 			glm::ivec2 newWallPos = casterPos;
 			glm::ivec2 newCasterPos = casterPos - dir;
 
@@ -21227,7 +21275,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					queueEffect(createWall);
 				}
 
-				// Move Caster back 1 tile
 				EffectOp mvCaster = {};
 				mvCaster.type = EffectOpType::MOVE_UNIT;
 				mvCaster.data.moveUnit.unitIndex = currentPlayerIndex;
@@ -21244,13 +21291,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case PSEUDO_CARD_GHOST_RELOCATE:
-		// Menu click for Ghost Relocate is intercepted natively by processCardStateInput
 		break;
 
 	case CARD_AMNESIA: {
-		int safeCardIdx = interactingCardIndex; // Cache it!
+		int safeCardIdx = interactingCardIndex;
 		currentCardOutcome.cardType = CARD_AMNESIA;
-		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+		currentCardOutcome.cardIndex = safeCardIdx;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -21258,12 +21304,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DISPEL: {
-		int safeCardIdx = interactingCardIndex; // Cache it!
+		int safeCardIdx = interactingCardIndex;
 		std::string safeChoice = interactionMenuChoice;
-		int safeTarget = interactionTargetIndex; // Cache it before resetCardState clears it!
+		int safeTarget = interactionTargetIndex;
 		if (safeChoice == "Barrier") {
 			currentCardOutcome.cardType = CARD_DISPEL;
-			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+			currentCardOutcome.cardIndex = safeCardIdx;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
@@ -21274,21 +21320,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 			currentEffectSequence.blackboard[0] = barrierAmount;
 
-			// Get target position for the visual dice
 			int tgtIdx = safeTarget >= 0 ? safeTarget : currentPlayerIndex;
 			Player & targetUnit = players[tgtIdx];
 			queueVisualDiceRoll(gridToWorld(targetUnit.x, targetUnit.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, barrierAmount, PURPOSE_DEBUG, tgtIdx, 1.0f);
 
 			EffectOp barrierOp = {};
 			barrierOp.type = EffectOpType::MODIFY_STAT;
-			// FIX: Apply the barrier to the targeted unit!
 			barrierOp.data.modifyStat.targetIndex = tgtIdx;
 			barrierOp.data.modifyStat.statType = 6; // Barrier
 			barrierOp.data.modifyStat.delta = 0;
-			barrierOp.data.modifyStat.deltaFromSlot = 0; // Read from blackboard
+			barrierOp.data.modifyStat.deltaFromSlot = 0;
 			queueEffect(barrierOp);
 
-			// ADVANCE IMMEDIATELY TO EFFECT SEQUENCE (Don't wait for dice)
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 		break;
@@ -21301,7 +21344,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
-			// Use interactionMenuChoice instead of buttonId
 			if (interactionMenuChoice == "damage") {
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
@@ -21326,10 +21368,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	case CARD_WISDOM_BOON: {
 		int safeTarget = interactionTargetIndex;
-		int safeCardIdx = interactingCardIndex; // Cache it!
+		int safeCardIdx = interactingCardIndex;
 		std::string safeChoice = interactionMenuChoice;
 		currentCardOutcome.cardType = CARD_WISDOM_BOON;
-		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+		currentCardOutcome.cardIndex = safeCardIdx;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
@@ -21347,7 +21389,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			EffectOp blkOp = {};
 			blkOp.type = EffectOpType::MODIFY_STAT;
 			blkOp.data.modifyStat.targetIndex = (safeTarget != -1) ? safeTarget : currentPlayerIndex;
-			blkOp.data.modifyStat.statType = 5; // Block
+			blkOp.data.modifyStat.statType = 5;
 			blkOp.data.modifyStat.delta = strength;
 			blkOp.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(blkOp);
@@ -21358,15 +21400,14 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	case CARD_DOUBLE_HANDED: {
 		int safeTarget = interactionTargetIndex;
-		int safeCardIdx = interactingCardIndex; // Cache it!
+		int safeCardIdx = interactingCardIndex;
 		std::string safeChoice = interactionMenuChoice;
 		if (safeTarget != -1) {
 			currentCardOutcome.cardType = CARD_DOUBLE_HANDED;
-			currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+			currentCardOutcome.cardIndex = safeCardIdx;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
-			// Apply Flurry of Fists multiplier
 			int mult = 1;
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				mult += players[currentPlayerIndex].flurryOfFistsStacks;
@@ -21388,15 +21429,15 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_MAGIC_BLAST: {
-		int safeTarget = interactionTargetIndex; // Cache target securely
-		int safeCardIdx = interactingCardIndex; // Cache it!
+		int safeTarget = interactionTargetIndex;
+		int safeCardIdx = interactingCardIndex;
 		std::string safeChoice = interactionMenuChoice;
 		currentCardOutcome.cardType = CARD_MAGIC_BLAST;
-		currentCardOutcome.cardIndex = safeCardIdx; // Use the cached value
+		currentCardOutcome.cardIndex = safeCardIdx;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 
-		int dmgAmount = 5; // Default fallback
+		int dmgAmount = 5;
 		if (safeCardIdx >= 0 && safeCardIdx < (int)players[currentPlayerIndex].hand.size()) {
 			int bd = players[currentPlayerIndex].hand[safeCardIdx].baseDamage;
 			if (bd > 0) dmgAmount = bd;
@@ -21410,30 +21451,25 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			dmgOp.data.damage.fixedDamage = dmgAmount;
 			dmgOp.data.damage.damageFromSlot = -1;
 			queueEffect(dmgOp);
-		} else if (safeTarget != -1) { // "discard"
+		} else if (safeTarget != -1) {
 			EffectOp rmDeck = {};
 			rmDeck.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
 			rmDeck.data.removeTopCard.targetIndex = safeTarget;
 			queueEffect(rmDeck);
 		}
 
-		// Decrement our remaining choices for the current target
 		magicBlastChoicesRemaining--;
 
-		// Queue a Wait so damage numbers / animations play out before the next menu returns
 		EffectOp wait = {};
 		wait.type = EffectOpType::WAIT_VISUAL;
 		queueEffect(wait);
 
-		// Queue the Menu op to check if we have choices or splash targets left
 		EffectOp menu = {};
 		menu.type = EffectOpType::APPLY_MAGIC_BLAST_MENU;
 		queueEffect(menu);
 
-		// Close the interaction state so the menu disappears while we wait for visuals
 		resetCardInteraction();
 
-		// Move state machine to effect sequence execution
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		break;
 	}
@@ -21508,7 +21544,7 @@ void ofApp::drawActiveCardInteractionUI() {
 			ofSetColor(255, 255, 255, 220); // Bright white glow
 			ofSetLineWidth(5.0f);
 			ofDrawRectRounded(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4, 12);
-			ofPopStyle();
+			safePopStyle();
 		};
 
 		// STANDARD MENU MATH FOR ALL CARDS
@@ -21751,7 +21787,7 @@ void ofApp::drawActiveCardInteractionUI() {
 				}
 
 				if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
-				ofPopStyle();
+				safePopStyle();
 
 				// Render scrollbar
 				if (maxScroll > 0.0f) {
@@ -27788,6 +27824,9 @@ void ofApp::applyCardOutcomeEffects() {
 		// Ensure player struct is synchronized with authoritative currentAP
 		updatePlayerAP(caster, currentAP);
 	}
+
+	// Force the target cache to reset cleanly so we don't get stuck highlights after playing a card!
+	invalidateTargetCache();
 
 	// Recalculate highlights for next action
 	calculateTargetHighlights();
@@ -34560,7 +34599,7 @@ void ofApp::drawDiceLabel(const string & message, ofColor color, float yPos) {
 }
 //--------------------------------------------------------------
 void ofApp::drawMenuOverlay() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(0, 0, 0, 180 * g_menuAlphaMult);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 }
@@ -34921,7 +34960,7 @@ void ofApp::drawCardEncyclopediaUI() {
 					ofSetLineWidth(lineW);
 					ofSetColor(255, 255, 100, 190);
 					drawCardOutlineOutside(drawX, drawY, thisCardW, thisCardH, lineW, 1.0f);
-					ofPopStyle();
+					safePopStyle();
 				}
 
 				// Card rect for interaction
@@ -34936,7 +34975,7 @@ void ofApp::drawCardEncyclopediaUI() {
 					ofSetLineWidth(lineW);
 					ofSetColor(100, 150, 255, 170);
 					drawCardOutlineOutside(drawX, drawY, thisCardW, thisCardH, lineW, 1.0f);
-					ofPopStyle();
+					safePopStyle();
 				}
 
 				// Draw card art
@@ -34981,7 +35020,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	}
 
 	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
-	ofPopStyle();
+	safePopStyle();
 
 	// Scroll indicator
 	if (maxScroll > 0.0f) {
@@ -35214,7 +35253,7 @@ void ofApp::drawExpandingAOERings(float surfaceY) {
 //--------------------------------------------------------------
 void ofApp::drawOpponentMenu() {
 	drawMenuOverlay();
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(0, 0, 0, 100);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
@@ -35224,7 +35263,7 @@ void ofApp::drawOpponentMenu() {
 		ofSetColor(255, 255, 255, 220); // Bright white glow
 		ofSetLineWidth(5.0f);
 		ofDrawRectRounded(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4, 12);
-		ofPopStyle();
+		safePopStyle();
 	};
 
 	int hover = opponentInteraction.hoveredChoice;
@@ -36520,21 +36559,10 @@ void ofApp::loadCardData(const std::string & filePath) {
 
 	int cardPixelWidth = 409;
 	int cardPixelHeight = 585;
-	// If using a custom template, match texture rect dimensions to the
-	// template image size so cards are not clipped/overlapped.
-	{
-		ofImage templateProbe;
-		std::string chosenProbePath = findCardTemplatePath();
-		if (!chosenProbePath.empty() && templateProbe.load(chosenProbePath)) {
-			if (templateProbe.getWidth() > 0 && templateProbe.getHeight() > 0) {
-				cardPixelWidth = (int)templateProbe.getWidth();
-				cardPixelHeight = (int)templateProbe.getHeight();
-				ofLogNotice("Cards") << "Card slot size set from template: " << cardPixelWidth << "x" << cardPixelHeight << " (" << chosenProbePath << ")";
-			}
-		} else {
-			ofLogNotice("Cards") << "No template probe found in UI/; using default card slot size: " << cardPixelWidth << "x" << cardPixelHeight;
-		}
-	}
+	// FIX: Do NOT inflate the cardPixel dimensions based on the template image!
+	// A 1050x1500 template creates a 10500x10500 texture atlas, which exceeds the 8192x8192
+	// maximum texture size of many OpenGL drivers, causing an instant Segmentation Fault.
+	ofLogNotice("Cards") << "Using safe fixed card slot size: " << cardPixelWidth << "x" << cardPixelHeight;
 	const int numCols = 10;
 
 	for (const auto & cardJson : json) {
@@ -37020,10 +37048,10 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- Draw UI Panel ---
 		ofPushStyle();
-		ofEnableAlphaBlending();
+		safeEnableAlphaBlending();
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
-		ofPopStyle();
+		safePopStyle();
 
 		// If hovering a Minion Manager card, draw a 3D beacon/ring on the board around the minion model!
 		if (ui.bounds.inside(ofGetMouseX(), ofGetMouseY())) {
@@ -37198,7 +37226,7 @@ void ofApp::drawMinionManagerUI() {
 			currentModel = &assistantModel;
 
 		if (minion.inGhostForm) {
-			ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 			ofSetColor(unitTint.r, unitTint.g, unitTint.b, 150);
 			ofPushMatrix();
 			ofMultMatrix(currentModel->getModelMatrix());
@@ -37209,7 +37237,7 @@ void ofApp::drawMinionManagerUI() {
 				ofPopMatrix();
 			}
 			ofPopMatrix();
-			ofDisableBlendMode();
+			safeDisableBlendMode();
 			ofSetColor(255);
 		} else {
 			if (pbrShaderLoaded && enableShaders) {
@@ -37294,7 +37322,7 @@ void ofApp::drawMinionManagerUI() {
 				ofPopMatrix();
 				glDisable(GL_POLYGON_OFFSET_FILL);
 				ofSetColor(unitTint);
-				ofEnableAlphaBlending();
+				safeEnableAlphaBlending();
 			}
 		}
 
@@ -37337,7 +37365,7 @@ void ofApp::drawMinionManagerUI() {
 			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.deckRect, 5);
-			ofPopStyle();
+			safePopStyle();
 		}
 
 		// Discard
@@ -37819,7 +37847,7 @@ void ofApp::drawDraftScreen() {
 	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
 	ofDisableLighting();
 	ofDisableDepthTest();
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(255, 255, 255, 255);
 	// Dim the world behind draft cards (modal overlay)
 	ofSetColor(0, 0, 0, 180);
@@ -37827,7 +37855,7 @@ void ofApp::drawDraftScreen() {
 
 	if (draftOptions.empty()) {
 		ofPushStyle();
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 		ofSetColor(0, 0, 0, 180);
 		float boxW = std::min(540.0f, ofGetWidth() * 0.72f);
 		float boxH = 96.0f;
@@ -37853,10 +37881,10 @@ void ofApp::drawDraftScreen() {
 								  << " class1Cards=" << class1Cards.size()
 								  << " class2Cards=" << class2Cards.size()
 								  << " class3Cards=" << class3Cards.size();
-		ofDisableBlendMode();
-		ofPopStyle();
-		ofDisableBlendMode();
-		ofPopStyle();
+		safeDisableBlendMode();
+		safePopStyle();
+		safeDisableBlendMode();
+		safePopStyle();
 		return;
 	}
 
@@ -38094,7 +38122,7 @@ void ofApp::drawDraftScreen() {
 				}
 				ofSetColor(ofColor::yellow);
 				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
-				ofPopStyle();
+				safePopStyle();
 			}
 
 			bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
@@ -38109,7 +38137,7 @@ void ofApp::drawDraftScreen() {
 				}
 				ofSetColor(ofColor::white);
 				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
-				ofPopStyle();
+				safePopStyle();
 			}
 		}
 
@@ -38206,8 +38234,8 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// Restore blend mode & style before exiting
-	ofDisableBlendMode();
-	ofPopStyle();
+	safeDisableBlendMode();
+	safePopStyle();
 }
 
 // Draw and advance active draft-picked move animations (visual only)
@@ -38455,7 +38483,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	}
 
 	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
-	ofPopStyle();
+	safePopStyle();
 
 	if (maxScroll > 0.0f) {
 		float scrollBarHeight = visibleContentHeight * (visibleContentHeight / totalContentHeight);
@@ -38497,7 +38525,7 @@ void ofApp::updateDraftUiAnimations() {
 
 void ofApp::drawPauseMenu() {
 	ofPushStyle();
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(0, 0, 0, 180);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
@@ -38593,7 +38621,7 @@ void ofApp::drawPauseMenu() {
 		drawBtn(pauseMenuQuitButton, "Disconnect", 2);
 	}
 
-	ofPopStyle();
+	safePopStyle();
 }
 //--------------------------------------------------------------
 void ofApp::drawTrainMenuUI() {
@@ -39564,6 +39592,7 @@ long long ofApp::calculateChecksum() {
 		mix_players((uint64_t)p.holyBlock);
 		mix_players((uint64_t)p.luck);
 		mix_players((uint64_t)p.bonusTurns);
+		// REMOVED: p.facingAngle (Visual only, causes float desyncs)
 		mix_players((uint64_t)p.ap);
 		mix_players((uint64_t)p.onFire);
 		mix_players((uint64_t)p.isParalyzed);
@@ -40104,7 +40133,11 @@ void ofApp::updateAI() {
 	cumulativeReward = 0.0f;
 
 	int actionIndex = getAIActionFromModel(stateVector, rewardToSend, false);
-	executeAIAction(actionIndex);
+
+	// Only execute if we actually received an action from Python
+	if (actionIndex != -1) {
+		executeAIAction(actionIndex);
+	}
 }
 
 std::vector<float> ofApp::extractGameStateForAI() {
@@ -40417,7 +40450,7 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 	zmq::message_t reply;
 	auto res = zmqSocket->recv(reply, zmq::recv_flags::dontwait);
 
-	int actionIndex = 0;
+	int actionIndex = -1; // -1 means no data received yet (WAIT)
 	if (res.has_value() && reply.size() >= sizeof(int)) {
 		actionIndex = *static_cast<int *>(reply.data());
 	}
@@ -40929,6 +40962,31 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 	if (playerIndex < 0 || playerIndex >= (int)players.size()) return false;
 	Player & p = players[playerIndex];
 	if (cardIndex < 0 || cardIndex >= (int)p.hand.size()) return false;
+
+	// FIX: Permanent Caching!
+	// The glow state of cards only ever changes when your AP changes, your turn ends, or the game state shifts.
+	// We no longer tie this to `simulationFrame` because that increments 60 times a second and ruins the cache!
+	static int s_cacheTurn = -1;
+	static int s_cacheAP = -1;
+	static int s_cachePlayerIdx = -1;
+	static int s_cacheInteractState = -1;
+	static std::map<int, bool> s_glowCache;
+
+	// Invalidate cache only when a deliberate gameplay action occurs
+	if (s_cacheTurn != globalTurnCounter || s_cacheAP != currentAP || s_cachePlayerIdx != playerIndex || s_cacheInteractState != (int)cardInteractionState) {
+
+		s_glowCache.clear();
+		s_cacheTurn = globalTurnCounter;
+		s_cacheAP = currentAP;
+		s_cachePlayerIdx = playerIndex;
+		s_cacheInteractState = (int)cardInteractionState;
+	}
+
+	auto cacheIt = s_glowCache.find(cardIndex);
+	if (cacheIt != s_glowCache.end()) {
+		return cacheIt->second; // Return instantly, 0 lag!
+	}
+
 	const Card & candidate = p.hand[cardIndex];
 
 	if (candidate.type == CARD_SHOOT_ARROW && p.deck.empty()) return false;
@@ -40997,5 +41055,6 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 		}
 	}
 
+	s_glowCache[cardIndex] = hasTarget; // Save the answer for the next frame
 	return hasTarget;
 }

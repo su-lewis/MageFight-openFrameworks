@@ -1729,6 +1729,23 @@ private:
 	// Helper to know if we are waiting in a lobby
 	bool isInLobby = false;
 
+	enum class MenuChoiceID {
+		None = 0,
+		Damage,
+		Heal,
+		Block,
+		PunchX2,
+		BlockX2,
+		Draft,
+		AP,
+		Purge,
+		Barrier,
+		Push,
+		Pull,
+		Discard,
+		Self
+	};
+
 	// --- BOARD & ENTITIES ---
 	const float TILE_SIZE = 5.0f;
 	Tile board[BOARD_WIDTH][BOARD_HEIGHT];
