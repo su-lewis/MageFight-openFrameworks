@@ -2236,7 +2236,7 @@ private:
 		activeCardIndex = -1;
 		resetCardInteraction();
 	}
-
+	void resetCardInteraction(bool syncNetwork = true);
 	// Attack
 	// Attack dice/result now use centralized `interactionDiceRoll` and
 	// `interactingCardName` for logging/special cases. Targets & damage type
@@ -2499,7 +2499,6 @@ private:
 	// ===== CENTRALIZED CARD INTERACTION SYSTEM =====
 	void resetCardToBaseStats(Card & card);
 	void updateCardInteractionState(CardInteractionState newState, int cardIdx = -1, int cardType = CARD_NONE);
-	void resetCardInteraction();
 	void handleCardDragToPlay(int cardIndex);
 	void handleCardTargetClick(int gridX, int gridY);
 	void handleCardMenuClick(const std::string & buttonId);

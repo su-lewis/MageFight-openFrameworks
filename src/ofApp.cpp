@@ -56,6 +56,9 @@ static std::vector<std::string> s_fullMatchLog;
 // --- NEW: OPPONENT DECISION QUEUE ---
 static std::deque<int> g_opponentDecisionQueue;
 
+// --- OPTIMISTIC UI LOCKSTEP FIX ---
+static std::set<uint64_t> skippedOptimisticCommands;
+
 // --- WIN STREAK TRACKING ---
 static int s_winStreak = 0;
 
@@ -8214,6 +8217,7 @@ void ofApp::setupGame() {
 	commandQueue.clear();
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear();
+	skippedOptimisticCommands.clear();
 	provisionalSnapshots.clear();
 	provisionalCommands.clear();
 
@@ -8509,6 +8513,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	commandQueue.clear();
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear();
+	skippedOptimisticCommands.clear();
 	provisionalSnapshots.clear();
 	provisionalCommands.clear();
 	nextCommandId = 1;
@@ -20322,30 +20327,29 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 	ofLogNotice("CardInteraction") << "State: " << (int)newState << " | Card: " << cardIdx << " Type: " << cardType;
 }
 
-void ofApp::resetCardInteraction() {
+void ofApp::resetCardInteraction(bool syncNetwork) {
 	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-	if (isMultiplayer && isCurrentPlayerLocal()) {
+
+	// FIX: Only send network closures when the user manually cancels the UI.
+	if (syncNetwork && isMultiplayer && isCurrentPlayerLocal()) {
 		sendMenuState(0, -1, -1, -1);
 	}
-	// Clear centralized interaction helpers and transient UI lists only.
+
 	interactionMenuChoice.clear();
 	interactionTargetIndex = -1;
 	interactionNeedsStatusSelect = false;
 	statusSelectLabels.clear();
 	statusSelectButtons.clear();
 	statusSelectMenuRect.set(0, 0, 0, 0);
-	interactionDiceRoll = 0; // Prevent clicking before dice finish!
+	interactionDiceRoll = 0;
 
-	// CRITICAL FIX: Ensure opponent menu visualization is fully cleared so menus don't get stuck!
 	opponentInteraction.open = false;
 	opponentInteraction.type = 0;
 	opponentInteraction.targetIndex = -1;
 	opponentInteraction.hoveredChoice = -1;
 	opponentInteraction.cardIndex = -1;
-	s_opponentRiMask = 0; // Clear the network selection mask
+	s_opponentRiMask = 0;
 
-	// Keep legacy boolean flags untouched here — other code paths migrated to
-	// respect `cardInteractionState` and `processCardStateInput()` as authority.
 	clearHighlights();
 	calculateTargetHighlights();
 }
@@ -22270,6 +22274,20 @@ void ofApp::processCommandQueue() {
 			continue;
 		}
 
+		// CRITICAL FIX: Skip execution but UPDATE SEQUENCE for optimistic commands!
+		if (skippedOptimisticCommands.find(key) != skippedOptimisticCommands.end()) {
+			ofLogNotice("Lockstep") << "Skipping execution of optimistic InputCommand (already applied locally): id=" << cmd.commandId;
+			skippedOptimisticCommands.erase(key);
+			executedCommandKeys.insert(key); // Mark as executed for future duplicates
+
+			if (cmd.commandId < 0x7FFFFFFF) {
+				if (cmd.commandId > lastProcessedCommandId) {
+					lastProcessedCommandId = cmd.commandId;
+				}
+			}
+			continue;
+		}
+
 		bool prevExecuting = isExecutingLockstepCommand;
 		isExecutingLockstepCommand = true;
 
@@ -23207,7 +23225,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			queueEffect(menu);
 
 			// Close the interaction state so the menu disappears while we wait for visuals
-			resetCardInteraction();
+			resetCardInteraction(false); // <--- CHANGED HERE
 
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 
@@ -23339,7 +23357,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 
 			opponentInteraction.open = false;
-			resetCardInteraction(); // Clear UI states
+			resetCardInteraction(false); // <--- CHANGED HERE
 			break;
 		}
 
@@ -23423,7 +23441,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		isExecutingLockstepCommand = false;
 
 		// Cleanly close the modal menu overlay on all peers once execution resolves
-		resetCardInteraction();
+		resetCardInteraction(false); // <--- CHANGED HERE
 
 		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
@@ -26252,7 +26270,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		} else {
 			// All choices complete!
 			opponentInteraction.open = false;
-			resetCardInteraction();
+			resetCardInteraction(false); // <--- CHANGED HERE
 
 			if (turnTimerPaused && opponentDecisionTimerActive) {
 				turnTimerPaused = false;
@@ -27834,7 +27852,7 @@ void ofApp::applyCardOutcomeEffects() {
 	// outcome has been applied. This prevents a "ghost" interact state
 	// when cards that resolve instantly (drag-to-play) remove themselves
 	// from the hand during command processing.
-	resetCardInteraction();
+	resetCardInteraction(false); // <--- CHANGED HERE
 
 	if (g_pendingShellSpikes > 0) {
 		tryTriggerShellSpike(); // FIX: Let both peers enter targeting mode to pass Checksum!
@@ -27876,8 +27894,18 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
 			const Player & decider = players[opponentDecisionPlayerIndex];
 			int deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
-			isLocalDecider = (deciderOwner == myLocalPlayerID);
+			isLocalDecider = (!isMultiplayer) || (deciderOwner == myLocalPlayerID);
+		} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			isLocalDecider = (!isMultiplayer) || (activeOwner == myLocalPlayerID);
 		}
+
+		// <--- ADD THIS FIX HERE --->
+		// Reject clicks if the menu is waiting for the opponent!
+		if (isMultiplayer && !isLocalDecider) return;
+
+		if (button != OF_MOUSE_BUTTON_LEFT) return;
+		// <------------------------>
 
 		if (isMultiplayer && (isCurrentPlayerLocal() || isLocalDecider)) {
 			static int lastMenuHoverChoice = 0;
@@ -33493,6 +33521,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	provisionalSnapshots.clear();
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear(); // FIX: Allow reconnected players to accept all future command IDs!
+	skippedOptimisticCommands.clear();
 
 	// Clear all transient dice visuals when applying a full snapshot
 	// Only remove any lingering AP visuals — keep unrelated dice (e.g., summoned HP)
@@ -35139,7 +35168,7 @@ void ofApp::applyDispelEffect(int statusID) {
 
 	// Keep Shell Spike targeting prompt alive if it was opened.
 	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
-		resetCardInteraction();
+		resetCardInteraction(false); // <--- CHANGED HERE
 	}
 }
 
@@ -36524,6 +36553,12 @@ void ofApp::cleanupGame() {
 	clientSentReady = false;
 
 	g_opponentDecisionQueue.clear(); // Clear the decision queue!
+	commandQueue.clear();
+	provisionalCommands.clear();
+	provisionalSnapshots.clear();
+	queuedCommandKeys.clear();
+	executedCommandKeys.clear();
+	skippedOptimisticCommands.clear();
 
 	g_isSpectator = false; // Safely reset spectator flag when match ends
 
@@ -39028,7 +39063,11 @@ void ofApp::processNetworkPackets() {
 							uint64_t fakeKey = (uint64_t(cmd->playerID) << 32) | uint64_t(0xFFFFFFFF - cmd->clientActionID);
 							executedCommandKeys.erase(fakeKey);
 
-							continue; // We already executed this locally, do not queue it again!
+							// CRITICAL FIX: Mark the real key as an optimistic skip so the queue advances the counter
+							uint64_t realKey = (uint64_t(cmd->playerID) << 32) | uint64_t(cmd->commandId);
+							skippedOptimisticCommands.insert(realKey);
+
+							// DO NOT continue! Let it fall through to queueInputCommand(*cmd)
 						}
 					}
 					// It's the opponent's command, or a command we didn't predict. Execute it.
