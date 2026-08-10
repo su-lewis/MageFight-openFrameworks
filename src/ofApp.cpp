@@ -20274,7 +20274,7 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 			// magicBlastTargetPlayerIndex is set by the resolver when applicable
 			int optPlayer = -1;
 			if (interactingCardType == CARD_MAGIC_BLAST)
-				optPlayer = magicBlastTargetPlayerIndex;
+				optPlayer = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 			else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)
 				optPlayer = ghostRelocateTargetIndex;
 			else if (interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE)
@@ -22258,9 +22258,23 @@ void ofApp::processCommandQueue() {
 
 		int cmdType = cmd.commandType;
 
-		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE) {
-			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
+		bool isUnitDying = false;
+		for (const auto & pair : s_playerDeathDelayMap) {
+			if (pair.second > 0) {
+				isUnitDying = true;
+				break;
+			}
+		}
+
+		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || isUnitDying) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT) {
 				break; // PAUSE THE QUEUE
+			}
+			if (cmdType == CMD_PSEUDO_ACTION) {
+				std::string actionName = cmd.stringData;
+				if (actionName != "Forfeit" && actionName != "Desync" && actionName != "ToggleUnlimitedAP" && actionName != "ToggleUnlimitedTime") {
+					break; // PAUSE THE QUEUE
+				}
 			}
 		}
 
@@ -25585,7 +25599,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				wEnd.data.damage.fixedDamage = 1;
 				queueEffect(wEnd);
 				resetCardInteraction();
-				if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_FINISHED);
+				if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_OUTCOME);
 				opComplete = true;
 				break;
 			}
