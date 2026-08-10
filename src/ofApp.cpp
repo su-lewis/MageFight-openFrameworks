@@ -5357,7 +5357,7 @@ void ofApp::update() {
 	}
 
 	// --- ELO CALCULATION (ZERO-SUM REVISED) ---
-	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2) {
+	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2 && currentState != STATE_DESYNC) {
 		// Try fetching ELO one last time if it was uninitialized
 		if (myElo <= 0) {
 			myElo = steamManager.getLocalElo();
@@ -5503,7 +5503,7 @@ void ofApp::update() {
 		}
 
 		// --- DISCORD GAME HISTORY WEBHOOK ---
-		if (steamManager.isHost() && !g_isSpectator && myLocalPlayerID != 2) {
+		if (steamManager.isHost() && !g_isSpectator && myLocalPlayerID != 2 && currentState != STATE_DESYNC) {
 			std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
 
 			std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
@@ -9677,6 +9677,22 @@ void ofApp::updateGameLogic() {
 	// In headless mode, the timer is disabled, so we skip all of this!
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
+			// CRITICAL FIX: Only allow the Turn Timer to tick if the lockstep command queue is actively processing!
+			// If the queue is paused (e.g. waiting for a unit to die or a spell to finish), the timer must freeze
+			// so the Client doesn't prematurely auto-end the Host's turn!
+			bool isQueuePaused = isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE;
+			for (const auto & pair : s_playerDeathDelayMap) {
+				if (pair.second > 0) {
+					isQueuePaused = true;
+					break;
+				}
+			}
+
+			if (isQueuePaused) {
+				// Push the turn start frame forward so the elapsed time doesn't grow while paused
+				turnStartFrame++;
+			}
+
 			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 
 			// FIX: Pure lockstep timeout — BOTH peers execute the timeout transition natively on frame N!
@@ -22266,7 +22282,15 @@ void ofApp::processCommandQueue() {
 			}
 		}
 
+		// CRITICAL FIX: Do NOT pause the queue for CMD_END_TURN just because a unit is dying.
+		// If a player clicks End Turn, we must process it immediately so the Turn Timer resets and syncs the peers!
 		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || isUnitDying) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT) {
+				break; // PAUSE THE QUEUE
+			}
+			if (cmdType == CMD_END_TURN && (isProcessingEffect || cardPlayState != CARD_PLAY_STATE_IDLE)) {
+				break; // Only pause END_TURN if a spell is actively resolving
+			}
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT) {
 				break; // PAUSE THE QUEUE
 			}
@@ -38842,6 +38866,13 @@ void ofApp::processNetworkPackets() {
 							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
 							ofLogNotice("NetTrace") << "Host: re-sent ACK for clientActionID=" << ack.ackSeq;
+
+							// CRITICAL FIX: If the host dropped this, the client's optimistic execution queue will hang!
+							// We must manually advance the client's expected ID.
+							if (isHost()) {
+								uint64_t fakeKey = (uint64_t(ip->playerID) << 32) | uint64_t(0xFFFFFFFF - clientActionID);
+								skippedOptimisticCommands.erase(fakeKey);
+							}
 							continue;
 						}
 						lastReceivedSeqByPlayer[sender] = clientActionID;
