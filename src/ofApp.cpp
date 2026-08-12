@@ -15620,6 +15620,35 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
+			// --- 🚨 CHECK FOR ACTIVE BAN 🚨 ---
+			if (SteamUserStats()) {
+				int32_t expiryTime = 0;
+				SteamUserStats()->GetStat("ban_expiry_time", &expiryTime);
+				int32_t currentTime = (int32_t)std::time(nullptr);
+
+				if (currentTime < expiryTime) {
+					// Calculate remaining time
+					int secondsLeft = expiryTime - currentTime;
+					std::string timeString;
+
+					if (secondsLeft > 86400) {
+						timeString = std::to_string(secondsLeft / 86400) + " days";
+					} else if (secondsLeft > 3600) {
+						timeString = std::to_string(secondsLeft / 3600) + " hours";
+					} else {
+						timeString = std::to_string(secondsLeft / 60) + " minutes";
+					}
+
+					std::string errorText = "You are suspended from Online Versus for " + timeString + ".";
+					queueFloatingTextVisual(glm::vec3(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 0), errorText, ofColor::red);
+
+					// Re-trigger the button hover sound/effect but abort
+					playHandFeedbackSfx(0.78f, 0.10f); // Error sound
+					return; // Block them
+				}
+			}
+			// --- END BAN CHECK ---
+
 			isVsAI = false;
 			isAIvsAI = false;
 			currentState = STATE_MULTIPLAYER_MENU;
@@ -18631,10 +18660,74 @@ void ofApp::keyPressed(int key) {
 	// triggering global hotkeys while typing.
 	if (isChatOpen && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
 		if (key == OF_KEY_RETURN) {
-			// If text was typed, send it
 			if (!chatInput.empty() && !isChatMinimized) {
-				// Prepare payload
-				std::string payload = chatInput;
+
+				// --- 1. SPAM FILTER (Rate Limiting) ---
+				static float lastMessageSentTime = 0.0f;
+				if (ofGetElapsedTimef() - lastMessageSentTime < 2.0f) {
+					// Give them a local warning that fades away
+					ChatMessage spamWarning;
+					spamWarning.playerName = "[SYSTEM]";
+					spamWarning.message = "You are sending messages too fast. Please wait.";
+					spamWarning.timestamp = ofGetElapsedTimef();
+					chatHistory.push_back(spamWarning);
+
+					chatInput = "";
+					isChatOpen = false;
+					isChatMinimized = true;
+					return;
+				}
+
+				// --- 2. SYMBOL STRIPPER & WHITESPACE CHECK ---
+				std::string cleanedMessage = "";
+				bool hasActualLetters = false;
+				for (char c : chatInput) {
+					// Only allow standard printable keyboard characters (blocks glitch text/unicode spam)
+					if (c >= 32 && c <= 126) {
+						cleanedMessage += c;
+						if (c != ' ') hasActualLetters = true; // Check if it's just pure spaces
+					}
+				}
+
+				if (!hasActualLetters) {
+					chatInput = "";
+					isChatOpen = false;
+					isChatMinimized = true;
+					return; // Ignore empty/invisible messages
+				}
+
+				// --- 3. SLUR CHECK ---
+				if (containsSlur(cleanedMessage)) {
+					applyChatPenalty();
+
+					ChatMessage errorMsg;
+					errorMsg.playerName = "[SYSTEM]";
+					errorMsg.message = "Message blocked. You have been suspended from Online Versus for inappropriate language.";
+					errorMsg.timestamp = ofGetElapsedTimef();
+					chatHistory.push_back(errorMsg);
+
+					if (isMultiplayer && steamManager.isHost() == false || (steamManager.isHost() && myLocalPlayerID != 2)) {
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.commandId = 0;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_PSEUDO_ACTION;
+						strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
+						sendInputCommand(cmd, true);
+					}
+
+					chatInput = "";
+					isChatOpen = false;
+					isChatMinimized = true;
+					return;
+				}
+
+				// --- ALL CHECKS PASSED, SEND MESSAGE ---
+				lastMessageSentTime = ofGetElapsedTimef(); // Update spam timer
+
+				// Prepare payload (Now using the cleanedMessage)
+				std::string payload = cleanedMessage;
 				if (isMultiplayer && myLocalPlayerID == 2) {
 					std::string myName = steamManager.getLocalPlayerName();
 					if (myName.empty()) myName = "Spectator";
@@ -41168,4 +41261,94 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 
 	s_glowCache[cardIndex] = hasTarget;
 	return hasTarget;
+}
+
+// Applies the CS2-style escalating ban
+void applyChatPenalty() {
+	if (!SteamUserStats()) return;
+
+	int32_t strikes = 0;
+	SteamUserStats()->GetStat("chat_strikes", &strikes);
+	strikes++; // Increment offense count
+
+	int penaltySeconds = 0;
+	std::string penaltyText = "";
+
+	// Expanded 7-Step Escalation Ladder
+	switch (strikes) {
+	case 1:
+		penaltySeconds = 30 * 60; // 30 Mins
+		penaltyText = "30 Minutes";
+		break;
+	case 2:
+		penaltySeconds = 2 * 3600; // 2 Hours
+		penaltyText = "2 Hours";
+		break;
+	case 3:
+		penaltySeconds = 12 * 3600; // 12 Hours
+		penaltyText = "12 Hours";
+		break;
+	case 4:
+		penaltySeconds = 24 * 3600; // 1 Day
+		penaltyText = "24 Hours";
+		break;
+	case 5:
+		penaltySeconds = 3 * 24 * 3600; // 3 Days
+		penaltyText = "3 Days";
+		break;
+	case 6:
+		penaltySeconds = 7 * 24 * 3600; // 1 Week
+		penaltyText = "7 Days";
+		break;
+	default:
+		penaltySeconds = 30 * 24 * 3600; // 30 Days (Caps here)
+		penaltyText = "30 Days";
+		break;
+	}
+
+	int32_t expiryTime = (int32_t)std::time(nullptr) + penaltySeconds;
+
+	SteamUserStats()->SetStat("chat_strikes", strikes);
+	SteamUserStats()->SetStat("ban_expiry_time", expiryTime);
+	SteamUserStats()->StoreStats();
+
+	ofLogNotice("Ban") << "Player issued strike " << strikes << ". Banned from Online for " << penaltyText;
+}
+
+bool containsSlur(const std::string & input) {
+	// Hardcoded list compiled directly into the binary.
+	// Add your actual words here. MUST BE ALL LOWERCASE!
+	static const std::vector<std::string> bannedWords = {
+		"faggot",
+		"retard",
+		"nigger",
+		"tard",
+		"negro",
+		"coon",
+		"kike",
+		"spastic",
+		"cocksucker",
+		"troon"
+
+	};
+
+	if (input.empty()) return false;
+
+	// Convert the player's input to lowercase and strip all spaces and punctuation.
+	// This stops bypasses like "s l u r" or "s-l-u-r"
+	std::string strippedInput = "";
+	for (char c : input) {
+		if (std::isalnum(c)) { // Only keep letters and numbers
+			strippedInput += (char)std::tolower(c);
+		}
+	}
+
+	// Check if any banned word exists inside the stripped string
+	for (const auto & word : bannedWords) {
+		if (strippedInput.find(word) != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
 }
