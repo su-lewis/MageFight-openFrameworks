@@ -69,7 +69,7 @@ static int s_startingXP = 0;
 static int s_xpGained = 0;
 static bool s_hasCachedGameOverVisuals = false;
 static const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
-static const int MENU_MAGIC_HAND_RELOCATE = 11;
+static const int MENU_MAGIC_HAND_RELOCATE = 999;
 
 static int magicHandRelocateTargetIndex = -1;
 static std::vector<glm::ivec2> magicHandRelocateChoices;
@@ -430,7 +430,7 @@ static std::vector<ActionHistoryEntry> g_actionHistory;
 static int s_hoveredHistoryIndex = -1; // App-level tracker for 3D visual rendering
 
 // Menu type for ghost relocation (when ghost materializes inside a wall)
-static const int MENU_GHOST_RELOCATE = 5;
+static const int MENU_GHOST_RELOCATE = 997;
 
 // Global menu alpha multiplier for fade animations
 static float g_menuAlphaMult = 1.0f;
@@ -21703,9 +21703,11 @@ void ofApp::drawActiveCardInteractionUI() {
 			Player * targetPlayer = getPlayer(actualTargetIdx);
 			if (targetPlayer) {
 				int dmgAmount = 5;
-				if (interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
-					int bd = players[currentPlayerIndex].hand[interactingCardIndex].baseDamage;
-					if (bd > 0) dmgAmount = bd;
+				for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
+					if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
+						dmgAmount = it->baseDamage;
+						break;
+					}
 				}
 
 				string prompt = isLocalDecider ? ("Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":") : "Waiting for player to choose...";
@@ -22282,17 +22284,25 @@ void ofApp::processCommandQueue() {
 			}
 		}
 
+		bool isStateBlocking = (cardPlayState != CARD_PLAY_STATE_IDLE);
+
+		// If we are waiting for a menu choice, we MUST allow CMD_MENU_CHOICE and CMD_RENEWED_INSPIRATION to pass!
+		if (cardPlayState == CARD_PLAY_STATE_MENU && (cmdType == CMD_MENU_CHOICE || cmdType == CMD_RENEWED_INSPIRATION)) {
+			isStateBlocking = false;
+		}
+		// If we are waiting for a target, we MUST allow CMD_PLAY_CARD and CMD_MENU_CHOICE (for pseudo-actions) to pass!
+		if (cardPlayState == CARD_PLAY_STATE_TARGETING && (cmdType == CMD_PLAY_CARD || cmdType == CMD_MENU_CHOICE || cmdType == CMD_PSEUDO_ACTION)) {
+			isStateBlocking = false;
+		}
+
 		// CRITICAL FIX: Do NOT pause the queue for CMD_END_TURN just because a unit is dying.
 		// If a player clicks End Turn, we must process it immediately so the Turn Timer resets and syncs the peers!
-		if (isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE || isUnitDying) {
+		if (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying) {
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT) {
 				break; // PAUSE THE QUEUE
 			}
-			if (cmdType == CMD_END_TURN && (isProcessingEffect || cardPlayState != CARD_PLAY_STATE_IDLE)) {
+			if (cmdType == CMD_END_TURN && (isProcessingEffect || isStateBlocking)) {
 				break; // Only pause END_TURN if a spell is actively resolving
-			}
-			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_END_TURN || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT) {
-				break; // PAUSE THE QUEUE
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
@@ -23148,7 +23158,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
 
 		// Allow menu types that are not tied to a specific card index
-		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST && menuType != CARD_BLOCKING_BOON) {
+		if (menuType != MENU_GHOST_RELOCATE && menuType != MENU_MAGIC_HAND_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST && menuType != CARD_BLOCKING_BOON) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
 
@@ -23230,9 +23240,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (safeTarget == -1) safeTarget = targetIndex; // Fallback if safe fetch fails
 
 			int dmgAmount = 5;
-			if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
-				int bd = players[currentPlayerIndex].hand[cardIndex].baseDamage;
-				if (bd > 0) dmgAmount = bd;
+			for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
+				if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
+					dmgAmount = it->baseDamage;
+					break;
+				}
 			}
 
 			if (choice == 1) { // damage
@@ -35392,9 +35404,11 @@ void ofApp::drawOpponentMenu() {
 			drawHoverGlow(btn2);
 	} else if (opponentInteraction.type == 4) {
 		int dmgAmount = 5;
-		if (opponentInteraction.cardIndex >= 0 && opponentInteraction.cardIndex < (int)players[currentPlayerIndex].hand.size()) {
-			int bd = players[currentPlayerIndex].hand[opponentInteraction.cardIndex].baseDamage;
-			if (bd > 0) dmgAmount = bd;
+		for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
+			if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
+				dmgAmount = it->baseDamage;
+				break;
+			}
 		}
 
 		string desc = "Waiting for player to choose... (" + ofToString(magicBlastChoicesRemaining) + " left)";
@@ -41047,30 +41061,6 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 	Player & p = players[playerIndex];
 	if (cardIndex < 0 || cardIndex >= (int)p.hand.size()) return false;
 
-	// FIX: Permanent Caching!
-	// The glow state of cards only ever changes when your AP changes, your turn ends, or the game state shifts.
-	// We no longer tie this to `simulationFrame` because that increments 60 times a second and ruins the cache!
-	static int s_cacheTurn = -1;
-	static int s_cacheAP = -1;
-	static int s_cachePlayerIdx = -1;
-	static int s_cacheInteractState = -1;
-	static std::map<int, bool> s_glowCache;
-
-	// Invalidate cache only when a deliberate gameplay action occurs
-	if (s_cacheTurn != globalTurnCounter || s_cacheAP != currentAP || s_cachePlayerIdx != playerIndex || s_cacheInteractState != (int)cardInteractionState) {
-
-		s_glowCache.clear();
-		s_cacheTurn = globalTurnCounter;
-		s_cacheAP = currentAP;
-		s_cachePlayerIdx = playerIndex;
-		s_cacheInteractState = (int)cardInteractionState;
-	}
-
-	auto cacheIt = s_glowCache.find(cardIndex);
-	if (cacheIt != s_glowCache.end()) {
-		return cacheIt->second; // Return instantly, 0 lag!
-	}
-
 	const Card & candidate = p.hand[cardIndex];
 
 	if (candidate.type == CARD_SHOOT_ARROW && p.deck.empty()) return false;
@@ -41092,7 +41082,37 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 
 	if (candidate.type == CARD_TELEPORT) return true;
 
-	// For targeted cards, verify at least one targetable tile exists on the board right now
+	// FIX: Use a robust hash of the board and player states so the cache updates exactly when needed!
+	static uint64_t s_cacheHash = 0;
+	static std::map<int, bool> s_glowCache;
+
+	uint64_t currentHash = (uint64_t)currentAP ^ ((uint64_t)globalTurnCounter << 16) ^ ((uint64_t)playerIndex << 24);
+	for (const auto & unit : players) {
+		currentHash ^= ((uint64_t)unit.playerID) ^ ((uint64_t)unit.x << 8) ^ ((uint64_t)unit.y << 16) ^ ((uint64_t)unit.health << 24);
+	}
+
+	if (s_cacheHash != currentHash) {
+		s_glowCache.clear();
+		s_cacheHash = currentHash;
+	}
+
+	auto cacheIt = s_glowCache.find(cardIndex);
+	if (cacheIt != s_glowCache.end()) {
+		return cacheIt->second;
+	}
+
+	// Save transient targeting states to bypass UI overrides in calculateTargetHighlights
+	int tempDragged = draggedCardIndex;
+	int tempSelected = selectedCardIndex;
+	int tempInteract = (int)cardInteractionState;
+	int tempInteractIdx = interactingCardIndex;
+	std::vector<std::pair<glm::ivec2, glm::ivec2>> tempPierce = activeCombinedPierceTargets;
+
+	draggedCardIndex = -1;
+	selectedCardIndex = -1;
+	cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+	interactingCardIndex = -1;
+
 	struct SavedTileState {
 		bool isTargetPreview;
 		bool isTargetable;
@@ -41139,6 +41159,13 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 		}
 	}
 
-	s_glowCache[cardIndex] = hasTarget; // Save the answer for the next frame
+	// Restore transient states
+	draggedCardIndex = tempDragged;
+	selectedCardIndex = tempSelected;
+	cardInteractionState = (CardInteractionState)tempInteract;
+	interactingCardIndex = tempInteractIdx;
+	activeCombinedPierceTargets = tempPierce;
+
+	s_glowCache[cardIndex] = hasTarget;
 	return hasTarget;
 }
