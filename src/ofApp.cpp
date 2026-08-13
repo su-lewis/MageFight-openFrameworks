@@ -400,32 +400,6 @@ std::vector<glm::ivec2> activeYellowPreviewTiles;
 // Combined 2x1 target areas for stab (visual-only)
 std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
 
-struct ActionHistoryEntry {
-	std::string cardName;
-	Card card;
-	int playerID;
-	int rangeRoll = -1;
-	int damageRoll = -1;
-	int utilityRoll = -1;
-	std::string menuChoice = "";
-	std::vector<std::string> destroyedCardNames;
-
-	// Movement tracking parameters
-	bool isMovement = false;
-	int fromX = -1;
-	int fromY = -1;
-	int toX = -1;
-	int toY = -1;
-	std::vector<glm::vec2> movementPath;
-	int actorPlayerID = -1; // Use stable playerID instead of transient actorIndex
-
-	// Spell coordinate parameters
-	int casterX = -1;
-	int casterY = -1;
-	int targetX = -1;
-	int targetY = -1;
-	bool hasTracers = false;
-};
 static std::vector<ActionHistoryEntry> g_actionHistory;
 static int s_hoveredHistoryIndex = -1; // App-level tracker for 3D visual rendering
 
@@ -524,11 +498,6 @@ static void SafeDrawText(const ofTrueTypeFont & font, const std::string & text, 
 // FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
 static std::map<int, int> g_lastDamagerMap;
 
-struct DefenseRecord {
-	int statType;
-	int amount;
-	int expirationCycle;
-};
 static std::map<int, std::vector<DefenseRecord>> g_playerDefenses;
 
 static int g_pendingShellSpikes = 0;
@@ -621,11 +590,6 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	float customSpaceW = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f) * drawScale;
 
-	struct Token {
-		std::string text;
-		bool bold;
-		float w;
-	};
 	std::vector<Token> tokens;
 	bool currentBold = false;
 	std::string currentWord = "";
@@ -656,10 +620,6 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 	}
 	flushWord();
 
-	struct Line {
-		std::vector<Token> toks;
-		float width = 0;
-	};
 	std::vector<Line> lines;
 	Line currentLine;
 	for (auto & t : tokens) {
@@ -856,18 +816,6 @@ static int gCardAlphaMaskWidth = 0;
 static int gCardAlphaMaskHeight = 0;
 static std::vector<ofVec2f> gCardEdgeOutlineNormalized;
 
-struct UILayoutSpacing {
-	float edgeInset = 0.0f; // outer edge inset for gameplay HUD anchoring
-	float stackYOffset = 0.0f; // downward visual nudge for deck/discard stack
-	float stackVerticalGap = 0.0f; // vertical spacing between discard/deck cards
-	float minionEntryGapUnscaled = 12.0f; // logical row gap before per-resolution scale
-	float minionIconGap = 0.0f; // spacing between minion deck/discard icons
-	float timerBarHeight = 0.0f; // reserved top band for turn timer
-	float chatInset = 0.0f; // default chat inset from top/left edge
-	float healthBarSideGap = 0.0f; // gap between deck and health bar
-	float healthBarInwardNudge = 0.0f; // extra nudge to avoid overlap
-};
-
 static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) {
 	UILayoutSpacing ui;
 	ui.edgeInset = 20.0f * scale;
@@ -896,16 +844,6 @@ static inline float getHandCardVisualBoost(float screenH) {
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
 	return std::max(0.0f, ui.edgeInset - ui.stackYOffset);
 }
-
-struct HandLayout {
-	float cardW = kCardPixelWidth * kHandCardVisualScale;
-	float cardH = kCardPixelHeight * kHandCardVisualScale;
-	float spacing = 0.0f;
-	float totalWidth = 0.0f;
-	float startX = 0.0f;
-	float restY = 0.0f;
-	ofRectangle handAreaRect;
-};
 
 static ofRectangle computeHandAreaRect(float screenW, float screenH) {
 	float scale = getUIScaleFromHeight(screenH);
@@ -1041,43 +979,6 @@ static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet,
 	const float safeSrcH = std::max(1.0f, srcH - insetTop - insetBottom);
 	spriteSheet.drawSubsection(dstX, dstY, dstW, dstH, safeSrcX, safeSrcY, safeSrcW, safeSrcH);
 }
-
-struct CardTemplateRecord {
-	std::string name;
-	int index = -1; // numeric index parsed from markdown heading (e.g., '## 4. Bash')
-	std::string apCost;
-	std::string damageType;
-	std::string targeting;
-	std::string classLabel;
-	std::string effectText;
-	std::string picture;
-	std::string summonAP;
-	std::string summonHP;
-};
-
-struct CardTemplateLayout {
-	ofRectangle pictureRect = ofRectangle(80, 96, 896, 704);
-	ofRectangle nameRect = ofRectangle(192, 740, 672, 144);
-	ofRectangle costRect = ofRectangle(32, 32, 128, 128);
-	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
-	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
-	ofRectangle summonAPRect = ofRectangle(384, 1328, 136, 80);
-	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
-
-	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
-	ofRectangle effectRect = ofRectangle(96, 928, 864, 384); // Restored strictly to original visual bounds
-	float nameScale = 13.75f;
-	float nameMinScale = 1.0f;
-	float nameCurveDropPx = 12.0f;
-	float nameMiddleClampXMin = 416.0f;
-	float nameMiddleClampXMax = 656.0f;
-	float nameMiddleBottomMaxY = 864.0f;
-	float costScale = 3.0f;
-	float labelScale = 1.0f;
-	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
-	float effectMinScale = 1.0f; // floor for very long text
-	float effectLineSpacing = 0.75f; // Keep tight line spacing so text can still scale up within bounds
-};
 
 static std::string trimCopy(const std::string & in) {
 	size_t start = 0;
@@ -10809,11 +10710,6 @@ void ofApp::drawGame() {
 		ofCamera & activeCam = getActiveCamera();
 		activeCam.begin();
 
-		struct PreviewLabel {
-			glm::vec2 screenPos;
-			std::string text;
-			ofColor color;
-		};
 		std::vector<PreviewLabel> previewLabels;
 
 		auto computePreviewChanceForUnit = [&](const Card & card, const Player & unit) -> float {
@@ -36101,12 +35997,6 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		}
 	}
 
-	// --- INTEGER MATH GRID (Multiply by 1000) ---
-	struct TileFaceInt {
-		long long x, y;
-		int nx, ny;
-	};
-
 	TileFaceInt tFaces[4] = {
 		{ tx * 1000LL + 500LL, ty * 1000LL, 0, -1 }, // North
 		{ tx * 1000LL + 500LL, ty * 1000LL + 1000LL, 0, 1 }, // South
@@ -40022,12 +39912,6 @@ void ofApp::harnessAutoAdvanceTurns(int turns) {
 			if (curOwnerIdx < 0) break;
 			Player & curOwner = players[curOwnerIdx];
 
-			struct CandidatePlay {
-				int cardIndex;
-				int tx;
-				int ty;
-				double score;
-			};
 			std::vector<CandidatePlay> candidatesPlays;
 
 			// Consider each card and candidate target; validate using calculateTargetHighlights
@@ -41310,15 +41194,6 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 	cardInteractionState = CARD_INTERACTION_STATE_IDLE;
 	interactingCardIndex = -1;
 
-	struct SavedTileState {
-		bool isTargetPreview;
-		bool isTargetable;
-		bool hasTooltipInfo;
-		int minRollRequired;
-		float hitChance;
-		bool isAoeCenter;
-		int aoeRadiusFeet;
-	};
 	SavedTileState savedBoard[BOARD_WIDTH][BOARD_HEIGHT];
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {

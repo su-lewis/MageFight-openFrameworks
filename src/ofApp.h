@@ -255,6 +255,135 @@ enum CursorState {
 // =================================================================================================
 //                                          STRUCTS
 // =================================================================================================
+struct ActionHistoryEntry {
+	std::string cardName;
+	Card card;
+	int playerID;
+	int rangeRoll = -1;
+	int damageRoll = -1;
+	int utilityRoll = -1;
+	std::string menuChoice = "";
+	std::vector<std::string> destroyedCardNames;
+
+	// Movement tracking parameters
+	bool isMovement = false;
+	int fromX = -1;
+	int fromY = -1;
+	int toX = -1;
+	int toY = -1;
+	std::vector<glm::vec2> movementPath;
+	int actorPlayerID = -1; // Use stable playerID instead of transient actorIndex
+
+	// Spell coordinate parameters
+	int casterX = -1;
+	int casterY = -1;
+	int targetX = -1;
+	int targetY = -1;
+	bool hasTracers = false;
+};
+
+struct DefenseRecord {
+	int statType;
+	int amount;
+	int expirationCycle;
+};
+
+struct Token {
+	std::string text;
+	bool bold;
+	float w;
+};
+struct Line {
+	std::vector<Token> toks;
+	float width = 0;
+};
+
+struct UILayoutSpacing {
+	float edgeInset = 0.0f; // outer edge inset for gameplay HUD anchoring
+	float stackYOffset = 0.0f; // downward visual nudge for deck/discard stack
+	float stackVerticalGap = 0.0f; // vertical spacing between discard/deck cards
+	float minionEntryGapUnscaled = 12.0f; // logical row gap before per-resolution scale
+	float minionIconGap = 0.0f; // spacing between minion deck/discard icons
+	float timerBarHeight = 0.0f; // reserved top band for turn timer
+	float chatInset = 0.0f; // default chat inset from top/left edge
+	float healthBarSideGap = 0.0f; // gap between deck and health bar
+	float healthBarInwardNudge = 0.0f; // extra nudge to avoid overlap
+};
+
+struct HandLayout {
+	float cardW = kCardPixelWidth * kHandCardVisualScale;
+	float cardH = kCardPixelHeight * kHandCardVisualScale;
+	float spacing = 0.0f;
+	float totalWidth = 0.0f;
+	float startX = 0.0f;
+	float restY = 0.0f;
+	ofRectangle handAreaRect;
+};
+
+struct CardTemplateRecord {
+	std::string name;
+	int index = -1; // numeric index parsed from markdown heading (e.g., '## 4. Bash')
+	std::string apCost;
+	std::string damageType;
+	std::string targeting;
+	std::string classLabel;
+	std::string effectText;
+	std::string picture;
+	std::string summonAP;
+	std::string summonHP;
+};
+
+struct CardTemplateLayout {
+	ofRectangle pictureRect = ofRectangle(80, 96, 896, 704);
+	ofRectangle nameRect = ofRectangle(192, 740, 672, 144);
+	ofRectangle costRect = ofRectangle(32, 32, 128, 128);
+	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
+	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
+	ofRectangle summonAPRect = ofRectangle(384, 1328, 136, 80);
+	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
+
+	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
+	ofRectangle effectRect = ofRectangle(96, 928, 864, 384); // Restored strictly to original visual bounds
+	float nameScale = 13.75f;
+	float nameMinScale = 1.0f;
+	float nameCurveDropPx = 12.0f;
+	float nameMiddleClampXMin = 416.0f;
+	float nameMiddleClampXMax = 656.0f;
+	float nameMiddleBottomMaxY = 864.0f;
+	float costScale = 3.0f;
+	float labelScale = 1.0f;
+	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
+	float effectMinScale = 1.0f; // floor for very long text
+	float effectLineSpacing = 0.75f; // Keep tight line spacing so text can still scale up within bounds
+};
+
+struct PreviewLabel {
+	glm::vec2 screenPos;
+	std::string text;
+	ofColor color;
+};
+
+// --- INTEGER MATH GRID (Multiply by 1000) ---
+struct TileFaceInt {
+	long long x, y;
+	int nx, ny;
+};
+
+struct CandidatePlay {
+	int cardIndex;
+	int tx;
+	int ty;
+	double score;
+};
+struct SavedTileState {
+	bool isTargetPreview;
+	bool isTargetable;
+	bool hasTooltipInfo;
+	int minRollRequired;
+	float hitChance;
+	bool isAoeCenter;
+	int aoeRadiusFeet;
+};
 
 struct TargetInfo {
 	bool isTargetable = false;
