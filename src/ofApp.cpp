@@ -2614,6 +2614,94 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 }
 } // namespace
 
+bool containsSlur(const std::string & input) {
+	// Hardcoded list compiled directly into the binary.
+	// Add your actual words here. MUST BE ALL LOWERCASE!
+	static const std::vector<std::string> bannedWords = {
+		"faggot",
+		"retard",
+		"nigger",
+		"negro",
+		"kike",
+		"spastic",
+		"cocksucker",
+		"troon"
+
+	};
+
+	if (input.empty()) return false;
+
+	// Convert the player's input to lowercase and strip all spaces and punctuation.
+	// This stops bypasses like "s l u r" or "s-l-u-r"
+	std::string strippedInput = "";
+	for (char c : input) {
+		if (std::isalnum(c)) { // Only keep letters and numbers
+			strippedInput += (char)std::tolower(c);
+		}
+	}
+
+	// Check if any banned word exists inside the stripped string
+	for (const auto & word : bannedWords) {
+		if (strippedInput.find(word) != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// Applies the CS2-style escalating ban
+void applyChatPenalty() {
+	if (!SteamUserStats()) return;
+
+	int32_t strikes = 0;
+	SteamUserStats()->GetStat("chat_strikes", &strikes);
+	strikes++; // Increment offense count
+
+	int penaltySeconds = 0;
+	std::string penaltyText = "";
+
+	// Expanded 7-Step Escalation Ladder
+	switch (strikes) {
+	case 1:
+		penaltySeconds = 30 * 60; // 30 Mins
+		penaltyText = "30 Minutes";
+		break;
+	case 2:
+		penaltySeconds = 2 * 3600; // 2 Hours
+		penaltyText = "2 Hours";
+		break;
+	case 3:
+		penaltySeconds = 12 * 3600; // 12 Hours
+		penaltyText = "12 Hours";
+		break;
+	case 4:
+		penaltySeconds = 24 * 3600; // 1 Day
+		penaltyText = "24 Hours";
+		break;
+	case 5:
+		penaltySeconds = 3 * 24 * 3600; // 3 Days
+		penaltyText = "3 Days";
+		break;
+	case 6:
+		penaltySeconds = 7 * 24 * 3600; // 1 Week
+		penaltyText = "7 Days";
+		break;
+	default:
+		penaltySeconds = 30 * 24 * 3600; // 30 Days (Caps here)
+		penaltyText = "30 Days";
+		break;
+	}
+
+	int32_t expiryTime = (int32_t)std::time(nullptr) + penaltySeconds;
+
+	SteamUserStats()->SetStat("chat_strikes", strikes);
+	SteamUserStats()->SetStat("ban_expiry_time", expiryTime);
+	SteamUserStats()->StoreStats();
+
+	ofLogNotice("Ban") << "Player issued strike " << strikes << ". Banned from Online for " << penaltyText;
+}
+
 // Unused currently but may be used for save file cleanup
 [[maybe_unused]] static void pruneOldStampedSaves(int keep = 5) {
 	try {
@@ -41261,92 +41349,4 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 
 	s_glowCache[cardIndex] = hasTarget;
 	return hasTarget;
-}
-
-// Applies the CS2-style escalating ban
-void applyChatPenalty() {
-	if (!SteamUserStats()) return;
-
-	int32_t strikes = 0;
-	SteamUserStats()->GetStat("chat_strikes", &strikes);
-	strikes++; // Increment offense count
-
-	int penaltySeconds = 0;
-	std::string penaltyText = "";
-
-	// Expanded 7-Step Escalation Ladder
-	switch (strikes) {
-	case 1:
-		penaltySeconds = 30 * 60; // 30 Mins
-		penaltyText = "30 Minutes";
-		break;
-	case 2:
-		penaltySeconds = 2 * 3600; // 2 Hours
-		penaltyText = "2 Hours";
-		break;
-	case 3:
-		penaltySeconds = 12 * 3600; // 12 Hours
-		penaltyText = "12 Hours";
-		break;
-	case 4:
-		penaltySeconds = 24 * 3600; // 1 Day
-		penaltyText = "24 Hours";
-		break;
-	case 5:
-		penaltySeconds = 3 * 24 * 3600; // 3 Days
-		penaltyText = "3 Days";
-		break;
-	case 6:
-		penaltySeconds = 7 * 24 * 3600; // 1 Week
-		penaltyText = "7 Days";
-		break;
-	default:
-		penaltySeconds = 30 * 24 * 3600; // 30 Days (Caps here)
-		penaltyText = "30 Days";
-		break;
-	}
-
-	int32_t expiryTime = (int32_t)std::time(nullptr) + penaltySeconds;
-
-	SteamUserStats()->SetStat("chat_strikes", strikes);
-	SteamUserStats()->SetStat("ban_expiry_time", expiryTime);
-	SteamUserStats()->StoreStats();
-
-	ofLogNotice("Ban") << "Player issued strike " << strikes << ". Banned from Online for " << penaltyText;
-}
-
-bool containsSlur(const std::string & input) {
-	// Hardcoded list compiled directly into the binary.
-	// Add your actual words here. MUST BE ALL LOWERCASE!
-	static const std::vector<std::string> bannedWords = {
-		"faggot",
-		"retard",
-		"nigger",
-		"negro",
-		"kike",
-		"spastic",
-		"cocksucker",
-		"troon"
-
-	};
-
-	if (input.empty()) return false;
-
-	// Convert the player's input to lowercase and strip all spaces and punctuation.
-	// This stops bypasses like "s l u r" or "s-l-u-r"
-	std::string strippedInput = "";
-	for (char c : input) {
-		if (std::isalnum(c)) { // Only keep letters and numbers
-			strippedInput += (char)std::tolower(c);
-		}
-	}
-
-	// Check if any banned word exists inside the stripped string
-	for (const auto & word : bannedWords) {
-		if (strippedInput.find(word) != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
 }
