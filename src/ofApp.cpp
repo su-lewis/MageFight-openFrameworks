@@ -22476,14 +22476,19 @@ void ofApp::processCommandQueue() {
 			isStateBlocking = false;
 		}
 
+		// CRITICAL FIX: Force the command queue to pause while units are physically walking!
+		// This guarantees that in-game Key Draft commands (from the Host) are safely held
+		// in the Client's queue until the Client's visual animation actually reaches the Key tile.
+		bool animatingBlocksQueue = isPlayerAnimating && !(currentState == STATE_DRAFTING && isInGameDraft);
+
 		// CRITICAL FIX: Do NOT pause the queue for CMD_END_TURN just because a unit is dying.
 		// If a player clicks End Turn, we must process it immediately so the Turn Timer resets and syncs the peers!
-		if (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying) {
-			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT) {
+		if (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION) {
 				break; // PAUSE THE QUEUE
 			}
-			if (cmdType == CMD_END_TURN && (isProcessingEffect || isStateBlocking)) {
-				break; // Only pause END_TURN if a spell is actively resolving
+			if (cmdType == CMD_END_TURN && (isProcessingEffect || isStateBlocking || animatingBlocksQueue)) {
+				break; // Only pause END_TURN if a spell or animation is actively resolving
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
@@ -22905,6 +22910,17 @@ void ofApp::simulationTick() {
 						pending.targetIndex = -1;
 					else if (pending.targetIndex > idx)
 						pending.targetIndex -= 1;
+				}
+
+				// Shift animating player index
+				if (isPlayerAnimating) {
+					if (animatingPlayerIndex == idx) {
+						isPlayerAnimating = false;
+						animatingPlayerIndex = -1;
+						animationPath.clear();
+					} else if (animatingPlayerIndex > idx) {
+						animatingPlayerIndex -= 1;
+					}
 				}
 
 				// CRITICAL FIX: Shift pending card outcome targets to prevent game logic freeze

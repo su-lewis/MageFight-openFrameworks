@@ -28,7 +28,7 @@ float lum(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
 }
 
-// Safely downsamples while preserving dark 1px outlines (like UI borders)
+// Safely downsamples while preserving dark 1px outlines AND bright 1px UI highlights
 vec3 getFatPixel(vec2 center) {
     vec2 texelNative = 1.0 / uResolution;
     
@@ -46,13 +46,24 @@ vec3 getFatPixel(vec2 center) {
     float minL = min(min(l0, l1), min(l2, l3));
     float maxL = max(max(l0, l1), max(l2, l3));
     
-    // If there is high contrast (an outline), always keep the dark line pixel
-    // This stops 1-pixel native vertical/horizontal lines from vanishing!
+    // If there is high contrast (an outline), always keep the "odd one out" pixel
     if (maxL - minL > 0.15) {
-        if (minL == l0) return c0;
-        if (minL == l1) return c1;
-        if (minL == l2) return c2;
-        return c3;
+        float avgL = (l0 + l1 + l2 + l3) / 4.0;
+        
+        // If the average is closer to the max, it's a dark line on a bright background
+        if (maxL - avgL < avgL - minL) {
+            if (minL == l0) return c0;
+            if (minL == l1) return c1;
+            if (minL == l2) return c2;
+            return c3;
+        } 
+        // If the average is closer to the min, it's a bright line on a dark background (like UI deck highlights)
+        else {
+            if (maxL == l0) return c0;
+            if (maxL == l1) return c1;
+            if (maxL == l2) return c2;
+            return c3;
+        }
     }
     
     // Otherwise, point sample to keep the flat pixel art blockiness
@@ -107,9 +118,8 @@ void main() {
     vec3 finalCol;
     
     // --- UI OVERWRITE FIX ---
-    // If the pixel is ALREADY part of a dark UI outline, protect it!
-    // Without this, the edge detector mixes black lines with 50% opacity and turns them gray.
-    if (lum(q) < 0.15) {
+    // Protect dark UI outlines AND bright UI highlights from being grayed out by the edge detector
+    if (lum(q) < 0.15 || lum(q) > 0.8) {
         finalCol = q;
     } else {
         finalCol = mix(q, edgeColor, edgeFactor * 0.50);
