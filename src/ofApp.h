@@ -255,32 +255,10 @@ enum CursorState {
 // =================================================================================================
 //                                          STRUCTS
 // =================================================================================================
-struct ActionHistoryEntry {
-	std::string cardName;
-	Card card;
-	int playerID;
-	int rangeRoll = -1;
-	int damageRoll = -1;
-	int utilityRoll = -1;
-	std::string menuChoice = "";
-	std::vector<std::string> destroyedCardNames;
 
-	// Movement tracking parameters
-	bool isMovement = false;
-	int fromX = -1;
-	int fromY = -1;
-	int toX = -1;
-	int toY = -1;
-	std::vector<glm::vec2> movementPath;
-	int actorPlayerID = -1; // Use stable playerID instead of transient actorIndex
-
-	// Spell coordinate parameters
-	int casterX = -1;
-	int casterY = -1;
-	int targetX = -1;
-	int targetY = -1;
-	bool hasTracers = false;
-};
+inline constexpr float kCardPixelWidth = 409.0f;
+inline constexpr float kCardPixelHeight = 585.0f;
+inline constexpr float kHandCardVisualScale = 0.55f;
 
 struct DefenseRecord {
 	int statType;
@@ -478,6 +456,33 @@ struct Card {
 	bool isAnimating = false; // True while a visual-only animation is running for this card
 	bool isCopied = false;
 	int cardClass = 1;
+};
+
+struct ActionHistoryEntry {
+	std::string cardName;
+	Card card;
+	int playerID;
+	int rangeRoll = -1;
+	int damageRoll = -1;
+	int utilityRoll = -1;
+	std::string menuChoice = "";
+	std::vector<std::string> destroyedCardNames;
+
+	// Movement tracking parameters
+	bool isMovement = false;
+	int fromX = -1;
+	int fromY = -1;
+	int toX = -1;
+	int toY = -1;
+	std::vector<glm::vec2> movementPath;
+	int actorPlayerID = -1; // Use stable playerID instead of transient actorIndex
+
+	// Spell coordinate parameters
+	int casterX = -1;
+	int casterY = -1;
+	int targetX = -1;
+	int targetY = -1;
+	bool hasTracers = false;
 };
 
 // ===================================================================================================
@@ -701,11 +706,6 @@ struct EffectSequence {
 	int blackboard[16] = { 0 }; // Shared state between effects
 	bool isComplete = false;
 };
-
-// Visual-only active previews (do not affect gameplay state)
-extern std::vector<glm::ivec2> activeYellowPreviewTiles;
-// Active combined target areas for linear pierce (Stab) highlighting.
-extern std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
 
 // Visual-only event queue (decouples visuals from deterministic simulation)
 enum VisualEventType {
@@ -1045,6 +1045,9 @@ struct Particle {
 //                                      MAIN APPLICATION CLASS
 // =================================================================================================
 
+struct ActionHistoryEntry;
+struct DefenseRecord;
+
 class ofApp : public ofBaseApp {
 
 public:
@@ -1062,6 +1065,31 @@ public:
 		// Instruction text to show while targeting
 		std::string instruction;
 	};
+
+	// --- MOVED FROM ofApp.cpp ---
+	std::map<int, long long> s_pendingRemoteChecksums;
+	std::map<int, long long> s_pendingLocalChecksums;
+	std::map<int, int> s_playerDeathDelayMap;
+	std::vector<std::string> s_fullMatchLog;
+	std::deque<int> g_opponentDecisionQueue;
+	std::set<uint64_t> skippedOptimisticCommands;
+	int s_winStreak = 0;
+	float s_gameOverScreenStartTime = 0.0f;
+	int s_startingLevel = 1;
+	int s_startingXP = 0;
+	int s_xpGained = 0;
+	bool s_hasCachedGameOverVisuals = false;
+	int magicHandRelocateTargetIndex = -1;
+	std::vector<glm::ivec2> magicHandRelocateChoices;
+	std::vector<glm::ivec2> activeYellowPreviewTiles;
+	std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
+	std::vector<ActionHistoryEntry> g_actionHistory;
+	int s_hoveredHistoryIndex = -1;
+	float g_menuAlphaMult = 1.0f;
+	uint32_t s_opponentRiMask = 0;
+	int g_windowModeState = 1;
+	ofxAssimpModelLoader staffModel;
+	aiNode * cachedPlayerHandNode = nullptr;
 
 	// --- AUDIO SLIDER DRAG STATE ---
 	bool draggingAudioMaster = false;
@@ -2545,9 +2573,6 @@ private:
 	// --- Magic Hand Relocate State ---
 	const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
 	const int MENU_MAGIC_HAND_RELOCATE = 11;
-
-	int magicHandRelocateTargetIndex = -1;
-	std::vector<glm::ivec2> magicHandRelocateChoices;
 
 	// --- Amnesia State ---
 

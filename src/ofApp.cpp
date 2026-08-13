@@ -44,43 +44,10 @@
 	} while (0)
 // ------------------------------------------------
 
-static std::map<int, long long> s_pendingRemoteChecksums;
-static std::map<int, long long> s_pendingLocalChecksums;
-
-// --- DEATH DELAY TRACKING ---
-static std::map<int, int> s_playerDeathDelayMap;
-
-// --- NEW: FULL MATCH LOG TRACKING ---
-static std::vector<std::string> s_fullMatchLog;
-
-// --- NEW: OPPONENT DECISION QUEUE ---
-static std::deque<int> g_opponentDecisionQueue;
-
-// --- OPTIMISTIC UI LOCKSTEP FIX ---
-static std::set<uint64_t> skippedOptimisticCommands;
-
-// --- WIN STREAK TRACKING ---
-static int s_winStreak = 0;
-
-// --- GAME OVER ANIMATION TRACKERS ---
-static float s_gameOverScreenStartTime = 0.0f;
-static int s_startingLevel = 1;
-static int s_startingXP = 0;
-static int s_xpGained = 0;
-static bool s_hasCachedGameOverVisuals = false;
 static const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
 static const int MENU_MAGIC_HAND_RELOCATE = 999;
 
-static int magicHandRelocateTargetIndex = -1;
-static std::vector<glm::ivec2> magicHandRelocateChoices;
-
 #include <assimp/scene.h>
-
-// --- WEAPON SOCKET HELPERS ---
-static ofxAssimpModelLoader staffModel;
-
-// Cache the hand node pointer to eliminate recursive string lookups during drawing
-static aiNode * cachedPlayerHandNode = nullptr;
 
 // Converts Assimp row-major matrix to GLM column-major format
 static glm::mat4 convertAssimpMatrix(const aiMatrix4x4 & from) {
@@ -394,48 +361,64 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 	}).detach();
 }
 
-// Visual-only active previews (do not affect gameplay state)
-
-std::vector<glm::ivec2> activeYellowPreviewTiles;
-// Combined 2x1 target areas for stab (visual-only)
-std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
-
-static std::vector<ActionHistoryEntry> g_actionHistory;
-static int s_hoveredHistoryIndex = -1; // App-level tracker for 3D visual rendering
-
 // Menu type for ghost relocation (when ghost materializes inside a wall)
 static const int MENU_GHOST_RELOCATE = 997;
 
-// Global menu alpha multiplier for fade animations
-static float g_menuAlphaMult = 1.0f;
-static uint32_t s_opponentRiMask = 0; // Tracks which cards the opponent selected
+// Tracks the playerID of whoever most recently damaged a unit (for Kill Credits)
+static std::map<int, int> g_lastDamagerMap;
+static std::map<int, std::vector<DefenseRecord>> g_playerDefenses;
+static int g_pendingShellSpikes = 0;
+static bool g_activePlayerDiedThisTurn = false;
+static float g_mpLobbyScroll = 0.0f;
+static float g_mpLeaderboardScroll = 0.0f;
+static ofSoundPlayer g_gameMusic;
+static float savedGameMusicVolume = 0.0f;
+static ofSoundPlayer s_sfxD6Roll;
+static ofSoundPlayer s_sfxCoinflip;
+static ofSoundPlayer s_sfxPotion;
+static ofSoundPlayer s_sfxHeal;
+static ofSoundPlayer s_sfxFireball;
+static ofSoundPlayer s_sfxHoverButton;
+static ofSoundPlayer s_sfxTurnStart;
+static std::string g_hoveredButtonId = "";
+bool g_isHostingLobby = false;
+bool g_isConnectingToLobby = false;
+static float g_lastLobbyRefreshTime = 0.0f;
+static float g_lastLeaderboardRefreshTime = 0.0f;
+static float g_desyncStartTime = 0.0f;
+static bool isFastForwarding = false;
+static ofRectangle replayProgressBarRect;
+static uint32_t replayMaxFrame = 100;
 
+static float g_uniformEffectScale = 1.0f;
+static float g_effectLineSpacing = 0.82f;
+static ofRectangle g_effectTextRect(96, 928, 864, 384);
+static float g_templateWidth = 1056.0f;
+static float g_templateHeight = 1448.0f;
+static ofImage g_cardTextSpriteSheet;
+static float g_uniformAPCostScale = 1.0f;
+static ofRectangle g_costRect(32, 32, 128, 128);
+static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
+static std::vector<unsigned char> gCardAlphaMask;
+static int gCardAlphaMaskWidth = 0;
+static int gCardAlphaMaskHeight = 0;
+static std::vector<ofVec2f> gCardEdgeOutlineNormalized;
 static float g_p0_apBoxAlpha = 0.0f;
 static float g_p1_apBoxAlpha = 0.0f;
 static std::string g_p0_apText_cache = "0 AP";
 static std::string g_p1_apText_cache = "0 AP";
-
 static int g_p0_minionScrollIndex = 0;
 static int g_p1_minionScrollIndex = 0;
-
-// --- DRAW SYSTEM VARIABLES ---
-static int g_drawOfferPlayerID = -1; // -1 = None, 0 = Player 1 offered, 1 = Player 2 offered
+static int g_drawOfferPlayerID = -1;
 static ofRectangle g_pauseMenuDrawButton;
 static ofRectangle g_pauseMenuDrawYesButton;
 static ofRectangle g_pauseMenuDrawNoButton;
-
-// Window Mode State: 0=Windowed, 1=Fullscreen, 2=Borderless
-static int g_windowModeState = 1;
-
-// --- FULLSCREEN FILTER VARIABLES ---
 static ofFbo g_uiPostFbo;
-
 static bool g_renderText = true;
 static bool g_renderGeometryMask = true;
 static bool g_isSecondPass = false;
 static bool g_isFboPass = false;
 static bool g_suppressText = false;
-
 static ofFbo g_textFbo;
 
 // Helper functions to safely enforce Eraser mode during Pass 2
@@ -493,45 +476,7 @@ static void SafeDrawText(const ofTrueTypeFont & font, const std::string & text, 
 	TEXT_PASS_END()
 }
 
-// Tracks the playerID of whoever most recently damaged a unit (for Kill Credits)
-
-// FIX: Must be an ordered map so snapshot string generation is 100% deterministic!
-static std::map<int, int> g_lastDamagerMap;
-
-static std::map<int, std::vector<DefenseRecord>> g_playerDefenses;
-
-static int g_pendingShellSpikes = 0;
-static bool g_activePlayerDiedThisTurn = false;
-
-static float g_mpLobbyScroll = 0.0f;
-static float g_mpLeaderboardScroll = 0.0f;
-
-static ofSoundPlayer g_gameMusic;
-static float savedGameMusicVolume = 0.0f;
-
-// --- NEW SFX PLAYERS ---
-static ofSoundPlayer s_sfxD6Roll;
-static ofSoundPlayer s_sfxCoinflip;
-static ofSoundPlayer s_sfxPotion;
-static ofSoundPlayer s_sfxHeal;
-static ofSoundPlayer s_sfxFireball;
-static ofSoundPlayer s_sfxHoverButton;
-static ofSoundPlayer s_sfxTurnStart;
-
-static std::string g_hoveredButtonId = "";
-
-bool g_isHostingLobby = false;
-bool g_isConnectingToLobby = false;
-
-static float g_lastLobbyRefreshTime = 0.0f;
-static float g_lastLeaderboardRefreshTime = 0.0f;
-static float g_desyncStartTime = 0.0f;
-
 extern bool g_isSpectator;
-
-static bool isFastForwarding = false;
-static ofRectangle replayProgressBarRect;
-static uint32_t replayMaxFrame = 100;
 
 // Path constants
 
@@ -572,12 +517,6 @@ void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
 }
 
 namespace {
-
-static float g_uniformEffectScale = 1.0f;
-static float g_effectLineSpacing = 0.82f;
-static ofRectangle g_effectTextRect(96, 928, 864, 384);
-static float g_templateWidth = 1056.0f;
-static float g_templateHeight = 1448.0f;
 
 static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
 	if (!g_renderText || g_suppressText || text.empty()) return;
@@ -680,11 +619,6 @@ static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, floa
 // Forward declarations for text drawing used by drawCardFaceDynamic
 static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
 
-static ofImage g_cardTextSpriteSheet; // Stores the crisp text overlay!
-
-static float g_uniformAPCostScale = 1.0f;
-static ofRectangle g_costRect(32, 32, 128, 128);
-
 static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner) {
 	ofPushStyle();
 	ofSetColor(255, 255, 255, 255);
@@ -786,10 +720,7 @@ static int64_t readSaveTimestampFromFile(const std::filesystem::path & path) {
 	return -1;
 }
 
-constexpr float kCardPixelWidth = 409.0f;
-constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
-constexpr float kHandCardVisualScale = 0.55f;
 const float pileCardScale = 0.45f;
 constexpr float kHandMinSpacing = -80.0f;
 constexpr float kHandMaxSpacing = 34.0f;
@@ -809,12 +740,6 @@ constexpr float kHandPlayZoneSnapScale = 1.08f;
 constexpr float kHandDragStartThresholdPx = 7.0f;
 constexpr float kHandIntentMinHoldSec = 0.045f;
 constexpr float kHandIntentMinUpwardDragPx = 42.0f;
-
-static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
-static std::vector<unsigned char> gCardAlphaMask;
-static int gCardAlphaMaskWidth = 0;
-static int gCardAlphaMaskHeight = 0;
-static std::vector<ofVec2f> gCardEdgeOutlineNormalized;
 
 static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) {
 	UILayoutSpacing ui;
