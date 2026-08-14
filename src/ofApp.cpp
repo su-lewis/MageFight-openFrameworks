@@ -5309,6 +5309,32 @@ void ofApp::update() {
 		recalculateUI(ofGetWidth(), ofGetHeight());
 	}
 
+	// --- MENU PANNING & DYNAMIC HITBOX SLIDING ---
+	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA) {
+		if (isWaitingForMenuTransition) {
+			// Determine the boundaries of the screen we are currently looking at
+			int currentScreen = std::round(targetMenuPanX / (30 * menuTileSize));
+			int leftEdge = currentScreen * 30 - 1;
+			int rightEdge = currentScreen * 30 + 13;
+
+			if (pendingMenuPanX == targetMenuPanX) {
+				// Safety catch for returning to the exact same screen
+				isWaitingForMenuTransition = false;
+				currentState = pendingMenuState;
+			} else if (mainMenuCirclePos.x <= leftEdge || mainMenuCirclePos.x >= rightEdge || mainMenuCirclePath.empty()) {
+				// The Circle has reached the tunnel edge! Release the camera!
+				isWaitingForMenuTransition = false;
+				targetMenuPanX = pendingMenuPanX;
+				currentState = pendingMenuState;
+			}
+		}
+
+		float dt = ofGetLastFrameTime();
+		currentMenuPanX = ofLerp(currentMenuPanX, targetMenuPanX, 6.0f * dt);
+		// Always update rects so buttons slide perfectly with the background
+		updateMenuRects();
+	}
+
 	steamManager.update();
 
 	// --- STEP 3: POLL ELO AS SOON AS STEAM CLOUD STATS ARE READY ---
@@ -6169,76 +6195,54 @@ void ofApp::draw() {
 		bool drawSettings = false;
 
 		switch (currentState) {
-		case STATE_MAIN_MENU:
-			drawMainMenu();
+		case STATE_GAMEPLAY:
+		case STATE_DESYNC:
+		case STATE_INITIATIVE_ROLL:
+		case STATE_DRAFTING:
+		case STATE_PAUSED:
+		case STATE_SAVE_BROWSER:
+			drawGame();
+			if (currentState == STATE_INITIATIVE_ROLL || pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
+			if (currentState == STATE_DRAFTING || pausedFromState == STATE_DRAFTING) drawDraftScreen();
+			if (currentState == STATE_PAUSED) drawPause = true;
+			if (currentState == STATE_SAVE_BROWSER) drawSaveBrowser();
 			break;
-		case STATE_MULTIPLAYER_MENU:
-			drawMultiplayerMenu();
-			break;
+
 		case STATE_SETTINGS:
-			switch (stateBeforeSettings) {
-			case STATE_PAUSED:
+			if (stateBeforeSettings != STATE_MAIN_MENU) {
 				drawGame();
-				if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
-				if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
-				drawPause = true;
-				break;
-			case STATE_GAMEPLAY:
-				drawGame();
-				break;
-			case STATE_INITIATIVE_ROLL:
-				drawGame();
-				drawInitiativeRoll();
-				break;
-			case STATE_DRAFTING:
-				drawGame();
-				drawDraftScreen();
-				break;
-			case STATE_DESYNC:
-				drawGame();
-				break;
-			default:
-				break;
-			}
-			if (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_PAUSED || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_DESYNC) {
+				if (stateBeforeSettings == STATE_INITIATIVE_ROLL || pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
+				if (stateBeforeSettings == STATE_DRAFTING || pausedFromState == STATE_DRAFTING) drawDraftScreen();
+				if (stateBeforeSettings == STATE_PAUSED) drawPause = true;
+
 				ofPushStyle();
 				ofSetColor(0, 0, 0, 170);
 				ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 				safePopStyle();
+			} else {
+				// We reached settings from the Main Menu, draw the unified 2D backdrop!
+				draw2DMenuBackground();
+				drawMainMenu(); // Draw the buttons off-screen
 			}
 			drawSettings = true;
 			break;
-		case STATE_GAMEPLAY:
-			drawGame();
-			break;
-		case STATE_DESYNC:
-			drawGame();
-			break;
-		case STATE_SAVE_BROWSER:
-			drawSaveBrowser();
-			break;
+
+		case STATE_MAIN_MENU:
+		case STATE_MULTIPLAYER_MENU:
 		case STATE_SINGLEPLAYER_MENU:
-			drawSingleplayerMenu();
-			break;
-		case STATE_PAUSED:
-			drawGame();
-			if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
-			if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
-			drawPause = true;
-			break;
-		case STATE_INITIATIVE_ROLL:
-			drawGame();
-			drawInitiativeRoll();
-			break;
-		case STATE_DRAFTING:
-			drawGame();
-			drawDraftScreen();
-			break;
 		case STATE_ENCYCLOPEDIA:
-			drawEncyclopediaState();
-			break;
-		default:
+			// The Ultimate Unified Pan-and-Scroll 2D View!
+			draw2DMenuBackground();
+
+			// Draw the physical screens (they handle their own off-screen culling via the pan matrix)
 			drawMainMenu();
+			drawMultiplayerMenu();
+			drawSingleplayerMenu();
+
+			// Encyclopedia is a centered overlay, ONLY draw it when active!
+			if (currentState == STATE_ENCYCLOPEDIA) {
+				drawEncyclopediaState();
+			}
 			break;
 		}
 
@@ -7304,28 +7308,273 @@ void ofApp::draw() {
 }
 
 //--------------------------------------------------------------
-void ofApp::drawMainMenu() {
+void ofApp::triggerMenuTransition(bool fromLeft) {
+	mainMenuCirclePath.clear();
+	if (fromLeft) {
+		mainMenuCirclePos = { -2.0f, 5.0f };
+		mainMenuCirclePath.push_back({ 6.0f, 5.0f });
+	} else {
+		mainMenuCirclePos = { BOARD_WIDTH + 1.0f, 5.0f };
+		mainMenuCirclePath.push_back({ 6.0f, 5.0f });
+	}
+}
+
+std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 endPos) {
+	std::map<std::pair<int, int>, glm::vec2> parent;
+	std::set<std::pair<int, int>> visited;
+	std::queue<glm::vec2> q;
+
+	q.push(startPos);
+	visited.insert({ (int)startPos.x, (int)startPos.y });
+	parent[{ (int)startPos.x, (int)startPos.y }] = { -999, -999 };
+
+	bool found = false;
+	while (!q.empty()) {
+		glm::vec2 curr = q.front();
+		q.pop();
+		if (curr.x == endPos.x && curr.y == endPos.y) {
+			found = true;
+			break;
+		}
+
+		std::vector<glm::vec2> neighbors = {
+			{ curr.x + 1, curr.y }, { curr.x - 1, curr.y }, { curr.x, curr.y + 1 }, { curr.x, curr.y - 1 }
+		};
+
+		for (glm::vec2 n : neighbors) {
+			int nx = n.x;
+			int ny = n.y;
+
+			// Restrict infinite search space
+			if (nx < startPos.x - 50 || nx > startPos.x + 50) continue;
+
+			// Use the 30-tile stride logic
+			int modX = (nx % 30 + 30) % 30;
+			bool isBoardY = (ny >= 0 && ny < BOARD_HEIGHT);
+			bool isBoardTile = (modX >= 0 && modX < BOARD_WIDTH && isBoardY);
+
+			bool isWall = false;
+			if (isBoardTile) {
+				isWall = board[modX][ny].hasWall;
+			} else {
+				isWall = (ny != 5); // Tunnel at y=5 is safe, everything else is wall
+			}
+
+			if (!isWall && visited.find({ nx, ny }) == visited.end()) {
+				visited.insert({ nx, ny });
+				parent[{ nx, ny }] = curr;
+				q.push({ nx, ny });
+			}
+		}
+	}
+
+	std::vector<glm::vec2> path;
+	if (found) {
+		glm::vec2 curr = endPos;
+		while (curr.x != -999) {
+			path.push_back(curr);
+			curr = parent[{ (int)curr.x, (int)curr.y }];
+		}
+		std::reverse(path.begin(), path.end());
+		if (!path.empty() && path[0] == startPos) path.erase(path.begin()); // Remove start
+	}
+	return path;
+}
+
+void ofApp::navigateToMenu(int screenIndex, GameState newState) {
+	targetMenuScreen = screenIndex;
+	menuTileSize = std::ceil(std::max(ofGetWidth() / 15.0f, ofGetHeight() / 11.0f));
+
+	// Pathfind the circle seamlessly across the infinite screens to the new center
+	int targetCircleX = 6 + (screenIndex * 30);
+	glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
+	mainMenuCirclePath = getInfiniteMazePath(startPos, { targetCircleX, 6 });
+
+	// Queue the camera and state transitions to happen WHEN the circle hits the edge!
+	pendingMenuPanX = screenIndex * 30 * menuTileSize;
+	pendingMenuState = newState;
+	isWaitingForMenuTransition = true;
+}
+
+void ofApp::updateMenuRects() {
+	float w = ofGetWidth();
+	float h = ofGetHeight();
+	float uiScale = std::clamp(settingsUIScale * std::min(w / 1920.0f, getUIScaleFromHeight(h)), 0.75f, 1.25f);
+
+	// FIX: Use 15/11 so the 13x9 board fits perfectly on screen without seeing the adjacent menus!
+	menuTileSize = std::ceil(std::max(w / 15.0f, h / 11.0f));
+	baseMenuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
+	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
+
+	// FIX: Space screens 30 tiles apart (massive tunnel) so they never overlap on ultrawides!
+	auto getScreenX = [&](int screen) {
+		return baseMenuStartX - currentMenuPanX + (screen * 30 * menuTileSize);
+	};
+	auto getScreenCX = [&](int screen) {
+		return getScreenX(screen) + (BOARD_WIDTH * menuTileSize) / 2.0f;
+	};
+
+	// --- Screen 0: Main Menu ---
+	float mX = getScreenX(0);
+	float btnW = menuTileSize * 3;
+	float btnH = menuTileSize;
+
+	// Top Row
+	mainMenuOnlineButton.set(mX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+	mainMenuSingleplayerButton.set(mX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+
+	// Middle Row
+	mainMenuVsAIButton.set(mX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+	mainMenuEncyclopediaButton.set(mX + 8 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+
+	// Bottom Row
+	mainMenuSettingsButton.set(mX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+	mainMenuQuitButton.set(mX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+
+	// --- Screen -1: Online ---
+	float oX = getScreenCX(-1);
+	// We want the panels to be slightly less than half the screen width
+	float colW = std::min(600.0f * uiScale, ofGetWidth() * 0.45f);
+	float gap = 20.0f * uiScale;
+	float leftColX = oX - colW - gap;
+	float rightColX = oX + gap;
+	float bottomBtnY = ofGetHeight() * 0.85f;
+	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.0f - 5.0f * uiScale, 60.0f * uiScale);
+	mpHostButton.set(leftColX + colW / 2.0f + 5.0f * uiScale, bottomBtnY, colW / 2.0f - 5.0f * uiScale, 60.0f * uiScale);
+	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
+
+	// --- Screen 1: Singleplayer ---
+	float sX = getScreenCX(1);
+	float spBtnW = 400.0f * uiScale;
+	float spBtnH = 80.0f * uiScale;
+	float spStartY = h / 2.0f - (spBtnH * 1.5f);
+	float spGap = 20.0f * uiScale;
+	singleplayerNewGameButton.set(sX - spBtnW / 2, spStartY, spBtnW, spBtnH);
+	singleplayerContinueButton.set(sX - spBtnW / 2, spStartY + spBtnH + spGap, spBtnW, spBtnH);
+	singleplayerLoadButton.set(sX - spBtnW / 2, spStartY + (spBtnH + spGap) * 2, spBtnW, spBtnH);
+	singleplayerReplayButton.set(sX - spBtnW / 2, spStartY + (spBtnH + spGap) * 3, spBtnW, spBtnH);
+	singleplayerBackButton.set(sX - spBtnW / 2, spStartY + (spBtnH + spGap) * 4, spBtnW, spBtnH);
+
+	// --- Screen 2: Encyclopedia (Overlay) ---
+	float eX_center = ofGetWidth() / 2.0f;
+	float tabW = 240 * uiScale;
+	float tabH = 50 * uiScale;
+	float spacing = 20 * uiScale;
+	encyTabCards.set(eX_center - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
+	encyTabMinions.set(eX_center - tabW * 0.5f, 140 * uiScale, tabW, tabH);
+	encyTabRules.set(eX_center + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
+	encyBtnBack.set(eX_center - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
+
+	// --- Screen -2: Settings (Overlay) ---
+	float setX = ofGetWidth() / 2.0f;
+	float setBtnW = 420.0f * uiScale;
+	settingsBackButton.set(setX - setBtnW / 2.0f, ofGetHeight() * 0.8, setBtnW, 72.0f * uiScale);
+
+	float setTabsY = ofGetHeight() * 0.22f;
+	float sTabW = 180.0f * uiScale;
+	float sTabSpacing = 12.0f * uiScale;
+	float sTabsTotal = 4 * sTabW + 3 * sTabSpacing;
+	float sTabStartX = setX - sTabsTotal / 2.0f;
+	settingsTabVideoRect.set(sTabStartX, setTabsY, sTabW, 48.0f * uiScale);
+	settingsTabAudioRect.set(sTabStartX + (sTabW + sTabSpacing) * 1, setTabsY, sTabW, 48.0f * uiScale);
+	settingsTabGameRect.set(sTabStartX + (sTabW + sTabSpacing) * 2, setTabsY, sTabW, 48.0f * uiScale);
+	settingsTabControlsRect.set(sTabStartX + (sTabW + sTabSpacing) * 3, setTabsY, sTabW, 48.0f * uiScale);
+
+	float sliderW = 520.0f * uiScale;
+	settingsAudioMasterSlider.set(setX - sliderW / 2, setTabsY + 48 * uiScale + 90 * uiScale, sliderW, 28 * uiScale);
+	settingsAudioVolumeSlider.set(setX - sliderW / 2, settingsAudioMasterSlider.y + 60 * uiScale, sliderW, 28 * uiScale);
+	settingsAudioSfxSlider.set(setX - sliderW / 2, settingsAudioVolumeSlider.y + 60 * uiScale, sliderW, 28 * uiScale);
+	settingsFramerateSlider.set(setX - 160 * uiScale, setTabsY + 48 * uiScale + 130 * uiScale, 320 * uiScale, 32 * uiScale);
+	settingsFullscreenButton.set(setX - 125 * uiScale, settingsFramerateSlider.y + 100 * uiScale, 250 * uiScale, 50 * uiScale);
+}
+
+void ofApp::drawMenuPlaqueButton(const ofRectangle & rect, const std::string & text, bool isHovered, bool isOnline) {
+	bool disabled = (isOnline && !steamManager.isConnected());
+
+	// Drop Shadow
+	ofSetColor(0, 0, 0, 160);
+	ofDrawRectRounded(rect.x + 4, rect.y + 6, rect.width, rect.height, 8);
+
+	// Button Base (Stone / Dark Slate feel)
+	ofColor baseColor = disabled ? ofColor(30, 30, 35, 255) : (isHovered ? ofColor(55, 60, 75, 255) : ofColor(35, 38, 48, 255));
+	ofSetColor(baseColor);
+	ofDrawRectRounded(rect, 8);
+
+	// Outer Thick Border (Gold / Bronze)
+	ofNoFill();
+	ofSetLineWidth(4.0f);
+	ofColor outerBorder = disabled ? ofColor(70, 70, 70) : (isHovered ? ofColor(255, 220, 50) : ofColor(180, 140, 60));
+	ofSetColor(outerBorder);
+	ofDrawRectRounded(rect, 8);
+
+	// Inner Thin Trim
+	ofSetLineWidth(2.0f);
+	ofColor innerBorder = disabled ? ofColor(50, 50, 50) : (isHovered ? ofColor(255, 255, 150) : ofColor(120, 90, 40));
+	ofSetColor(innerBorder);
+	ofDrawRectRounded(rect.x + 4, rect.y + 4, rect.width - 8, rect.height - 8, 4);
+	ofFill();
+
+	// Text (Parchment White)
+	ofColor textColor = disabled ? ofColor(100) : (isHovered ? ofColor::white : ofColor(240, 230, 210));
+	std::string displayText = disabled ? "Steam Offline" : text;
+
+	// Button press indent effect on hover
+	float textY = rect.getCenter().y + (isHovered ? -2.0f : 0.0f);
+
+	// Auto-scale text to fit
+	float scale = 1.2f;
+	ofRectangle bounds = uiFont.getStringBoundingBox(displayText, 0, 0);
+	if (bounds.width * scale > rect.width - 20) {
+		scale = (rect.width - 20) / bounds.width;
+	}
+
+	drawPixelTextCentered(uiFont, displayText, rect.getCenter().x, textY, scale, textColor, 2, ofColor::black);
+}
+
+void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
+	// Drop Shadow
+	ofSetColor(0, 0, 0, 160);
+	ofDrawRectRounded(rect.x + 8, rect.y + 12, rect.width, rect.height, 12);
+
+	// Base
+	ofSetColor(30, 32, 40, 245);
+	ofDrawRectRounded(rect, 12);
+
+	// Outer Border
+	ofNoFill();
+	ofSetLineWidth(4.0f);
+	ofSetColor(120, 100, 60);
+	ofDrawRectRounded(rect, 12);
+
+	// Inner Trim
+	ofSetLineWidth(2.0f);
+	ofSetColor(80, 70, 50);
+	ofDrawRectRounded(rect.x + 4, rect.y + 4, rect.width - 8, rect.height - 8, 8);
+	ofFill();
+}
+
+void ofApp::draw2DMenuBackground() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
 
-	// Calculate infinite grid bounds so we don't have black borders
-	int startX = std::floor(-menuStartX / menuTileSize);
-	int endX = std::ceil((ofGetWidth() - menuStartX) / menuTileSize);
-	int startY = std::floor(-menuStartY / menuTileSize);
-	int endY = std::ceil((ofGetHeight() - menuStartY) / menuTileSize);
+	float panOffset = baseMenuStartX - currentMenuPanX;
 
-	// 1. Interactive Magic Circle Logic (GUARDED TO RUN ONCE PER FRAME!)
+	int startX = std::floor(-panOffset / menuTileSize) - 1;
+	int endX = std::ceil((ofGetWidth() - panOffset) / menuTileSize) + 1;
+	int startY = std::floor(-menuStartY / menuTileSize) - 1;
+	int endY = std::ceil((ofGetHeight() - menuStartY) / menuTileSize) + 1;
+
+	// 1. Interactive Magic Circle Logic
 	if (!g_isSecondPass && !mainMenuCirclePath.empty()) {
 		glm::vec2 target = mainMenuCirclePath.front();
 		glm::vec2 dir = target - mainMenuCirclePos;
 		float dist = glm::length(dir);
 
-		// If distance is huge, it means we wrapped around the tunnel. Teleport instantly!
 		if (dist > 1.5f) {
 			mainMenuCirclePos = target;
 			mainMenuCirclePath.erase(mainMenuCirclePath.begin());
 		} else {
-			float speed = 12.0f * ofGetLastFrameTime(); // 12 Tiles per second
+			float speed = 12.0f * ofGetLastFrameTime();
 			if (dist <= speed) {
 				mainMenuCirclePos = target;
 				mainMenuCirclePath.erase(mainMenuCirclePath.begin());
@@ -7338,39 +7587,37 @@ void ofApp::drawMainMenu() {
 	// 2. Draw the 2D Board Background
 	for (int x = startX; x <= endX; x++) {
 		for (int y = startY; y <= endY; y++) {
-			// Snap to integer pixels to prevent tiny hairline gaps between tiles
-			float tx = std::round(menuStartX + x * menuTileSize);
+			float tx = std::round(panOffset + x * menuTileSize);
 			float ty = std::round(menuStartY + y * menuTileSize);
-			float nextTx = std::round(menuStartX + (x + 1) * menuTileSize);
+			float nextTx = std::round(panOffset + (x + 1) * menuTileSize);
 			float nextTy = std::round(menuStartY + (y + 1) * menuTileSize);
 
-			// +1.0f guarantees microscopic MSAA pixel gaps are overlapped
 			float drawW = (nextTx - tx) + 1.0f;
 			float drawH = (nextTy - ty) + 1.0f;
 
-			bool isBoardTile = (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT);
-			bool isTunnel = (y == 5); // Row 5 is the infinite wrap-around tunnel
-			bool isWall = false;
+			// Map absolute infinite coordinates using a 30 tile stride!
+			int modX = (x % 30 + 30) % 30;
+			bool isBoardY = (y >= 0 && y < BOARD_HEIGHT);
+			bool isBoardTile = (modX >= 0 && modX < BOARD_WIDTH && isBoardY);
 
+			bool isWall = false;
 			if (isBoardTile) {
-				isWall = board[x][y].hasWall;
+				isWall = board[modX][y].hasWall;
 			} else {
-				// Everything outside the board is a wall, except the tunnel path
-				if (!isTunnel) isWall = true;
+				isWall = (y != 5); // Tunnel at y=5 is safe, everything else is wall
 			}
 
 			if (isWall) {
-				// Check if there is a wall directly "above" this one to determine Dark texture usage
 				bool wallAbove = false;
 				if (isBoardTile) {
-					wallAbove = (y > 0) ? board[x][y - 1].hasWall : true;
+					wallAbove = (y > 0) ? board[modX][y - 1].hasWall : true;
 				} else {
-					wallAbove = (y - 1 != 5); // Tunnel is at row 5
+					wallAbove = (y - 1 != 5);
 				}
 
-				// Edges of the board itself should ALSO be drawn dark!
-				bool isBorderWall = (!isBoardTile || x <= 0 || x >= BOARD_WIDTH - 1 || y <= 0 || y >= BOARD_HEIGHT - 1);
-				int brightness = isBorderWall ? 40 : 255;
+				// Dim walls outside the 13x9 board, AND dim the outermost ring of the 13x9 board
+				bool isBorderWall = (isBoardTile && (modX == 0 || modX == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1));
+				int brightness = (isBoardTile && !isBorderWall) ? 255 : 40;
 
 				if (wallAbove && wallDarkTexture.isAllocated()) {
 					ofSetColor(brightness);
@@ -7383,14 +7630,12 @@ void ofApp::drawMainMenu() {
 					ofDrawRectangle(tx, ty, drawW, drawH);
 				}
 			} else {
-				// Draw Floor
-				unsigned int seed = (x * 73856093) ^ (y * 19349663);
+				unsigned int seed = (modX * 73856093) ^ (y * 19349663);
 				if (!floorTextures.empty()) {
 					std::mt19937 tileRng(seed);
 					std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
 					int texIndex = texDist(tileRng);
 
-					// Ensure the tunnel floor is fully bright too!
 					ofSetColor(230);
 					floorTextures[texIndex].draw(tx, ty, drawW, drawH);
 				} else {
@@ -7399,7 +7644,6 @@ void ofApp::drawMainMenu() {
 				}
 			}
 
-			// Draw a subtle grid line over everything
 			ofNoFill();
 			ofSetColor(0, 0, 0, 70);
 			ofDrawRectangle(tx, ty, drawW, drawH);
@@ -7407,10 +7651,10 @@ void ofApp::drawMainMenu() {
 		}
 	}
 
-	// 3. Draw Target Highlight on the destination tile
+	// 3. Draw Target Highlight
 	if (!mainMenuCirclePath.empty()) {
 		glm::vec2 finalTarget = mainMenuCirclePath.back();
-		float ttx = menuStartX + finalTarget.x * menuTileSize;
+		float ttx = panOffset + finalTarget.x * menuTileSize;
 		float tty = menuStartY + finalTarget.y * menuTileSize;
 		ofSetColor(0, 255, 255, 60);
 		ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
@@ -7421,7 +7665,7 @@ void ofApp::drawMainMenu() {
 		ofFill();
 	}
 
-	float circleX = menuStartX + mainMenuCirclePos.x * menuTileSize + menuTileSize * 0.5f;
+	float circleX = panOffset + mainMenuCirclePos.x * menuTileSize + menuTileSize * 0.5f;
 	float circleY = menuStartY + mainMenuCirclePos.y * menuTileSize + menuTileSize * 0.5f;
 	float radius = menuTileSize * 0.35f;
 
@@ -7435,90 +7679,54 @@ void ofApp::drawMainMenu() {
 	ofSetLineWidth(3.0f);
 	ofDrawCircle(circleX, circleY, radius * 0.6f * (1.0f + 0.15f * sin(ofGetElapsedTimef() * 4.0f)));
 	ofFill();
+}
 
-	// 3. Draw Title (Top Center)
+void ofApp::drawMainMenu() {
+	draw2DMenuBackground();
+
 	string title = "MAGE FIGHT";
 	float titleScale = 2.0f;
-	// Secure the title so it never flies off the top of the screen
 	float titleY = std::max(ofGetHeight() * 0.12f, menuStartY - menuTileSize * 0.8f);
-	drawPixelTextCentered(titleFont, title, ofGetWidth() / 2.0f, titleY, titleScale, ofColor::gold, 4, ofColor::black);
 
-	// 4. Draw Buttons as Fantasy Plaques
-	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered, bool isOnline = false) {
-		if (isHovered || rect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "mm_" + text;
+	// Slide the title text so it stays above the main board while panning!
+	float titleX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize) / 2.0f;
+	drawPixelTextCentered(titleFont, title, titleX, titleY, titleScale, ofColor::gold, 4, ofColor::black);
 
-		bool disabled = (isOnline && !steamManager.isConnected());
-
-		// Drop Shadow
-		ofSetColor(0, 0, 0, 160);
-		ofDrawRectRounded(rect.x + 4, rect.y + 6, rect.width, rect.height, 8);
-
-		// Button Base (Stone / Dark Slate feel)
-		ofColor baseColor = disabled ? ofColor(30, 30, 35, 255) : (isHovered ? ofColor(55, 60, 75, 255) : ofColor(35, 38, 48, 255));
-		ofSetColor(baseColor);
-		ofDrawRectRounded(rect, 8);
-
-		// Outer Thick Border (Gold / Bronze)
-		ofNoFill();
-		ofSetLineWidth(4.0f);
-		ofColor outerBorder = disabled ? ofColor(70, 70, 70) : (isHovered ? ofColor(255, 220, 50) : ofColor(180, 140, 60));
-		ofSetColor(outerBorder);
-		ofDrawRectRounded(rect, 8);
-
-		// Inner Thin Trim
-		ofSetLineWidth(2.0f);
-		ofColor innerBorder = disabled ? ofColor(50, 50, 50) : (isHovered ? ofColor(255, 255, 150) : ofColor(120, 90, 40));
-		ofSetColor(innerBorder);
-		ofDrawRectRounded(rect.x + 4, rect.y + 4, rect.width - 8, rect.height - 8, 4);
-		ofFill();
-
-		// Text (Parchment White)
-		ofColor textColor = disabled ? ofColor(100) : (isHovered ? ofColor::white : ofColor(240, 230, 210));
-		string displayText = disabled ? "Steam Offline" : text;
-
-		// Button press indent effect on hover
-		float textY = rect.getCenter().y + (isHovered ? -2.0f : 0.0f);
-		drawPixelTextCentered(uiFont, displayText, rect.getCenter().x, textY, 1.2f, textColor, 2, ofColor::black);
-	};
-
-	drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 2, true);
-	drawButton(mainMenuVsAIButton, "Singleplayer", mainMenuHoveredIndex == 1);
-	drawButton(mainMenuLocalPvPButton, "Local PvP", mainMenuHoveredIndex == 0);
-	drawButton(mainMenuEncyclopediaButton, "Encyclopedia", mainMenuHoveredIndex == 5);
-	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 3);
-	drawButton(mainMenuQuitButton, "Quit", mainMenuHoveredIndex == 4);
+	drawMenuPlaqueButton(mainMenuOnlineButton, "Online Versus", mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), true);
+	drawMenuPlaqueButton(mainMenuSingleplayerButton, "Singleplayer", mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuVsAIButton, "Vs AI (Quickstart)", mainMenuVsAIButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuEncyclopediaButton, "Encyclopedia", mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuSettingsButton, "Settings", mainMenuSettingsButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuQuitButton, "Quit", mainMenuQuitButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
 
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
-	ofDisableLighting();
-	safeEnableAlphaBlending();
-
-	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-	float centerX = ofGetWidth() / 2.0f;
-
-	// --- Draw Background Panel (Only when paused/in-game) ---
-	if (stateBeforeSettings != STATE_MAIN_MENU && stateBeforeSettings != STATE_SINGLEPLAYER_MENU) {
-		float panelW = 900.0f * uiScale;
-		float panelH = ofGetHeight() * 0.85f;
-		float panelY = ofGetHeight() * 0.075f;
-		ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
-
-		ofPushStyle();
-		ofSetColor(25, 25, 30, 255);
-		ofDrawRectRounded(panelRect, 16.0f);
-		ofNoFill();
-		ofSetLineWidth(2.0f);
-		ofSetColor(80, 80, 90, 255);
-		ofDrawRectRounded(panelRect, 16.0f);
-		safePopStyle();
+	// Same overlay logic as Encyclopedia
+	if (stateBeforeSettings == STATE_MAIN_MENU) {
+		draw2DMenuBackground();
+		drawMainMenu();
+		ofSetColor(0, 0, 0, 240); // Darker overlay blocks out the board entirely
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 	}
 
-	// Draw Title
-	ofSetColor(ofColor::white);
-	string title = "Settings";
-	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.15f);
+	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float setX = ofGetWidth() / 2.0f;
+	float centerX = setX;
+
+	// If accessed from gameplay/pause, center it immediately on screen
+	if (stateBeforeSettings != STATE_MAIN_MENU) {
+		centerX = ofGetWidth() / 2.0f;
+	}
+
+	float panelW = 900.0f * uiScale;
+	float panelH = ofGetHeight() * 0.85f;
+	float panelY = ofGetHeight() * 0.075f;
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	drawMenuPlaquePanel(panelRect);
+
+	drawPixelTextCentered(titleFont, "SETTINGS", centerX, panelY + 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
 
 	// --- Settings UI Positions & Tabs ---
 	float tabsY = ofGetHeight() * 0.22f;
@@ -7539,13 +7747,13 @@ void ofApp::drawSettingsMenu() {
 
 	// Draw tabs
 	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
-		if (r.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_tab_" + label;
-		// Dark themed tabs with white text
-		ofSetColor(active ? ofColor(100) : ofColor(40));
+		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
+		if (hovered) g_hoveredButtonId = "set_tab_" + label;
+
+		ofSetColor(active ? ofColor(80, 100, 140) : (hovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
 		ofDrawRectRounded(r, 8);
-		ofSetColor(ofColor::white);
-		ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
-		SafeDrawText(uiFont, label, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
+		ofSetColor(active ? ofColor::white : ofColor(200));
+		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, active ? ofColor::white : ofColor(200));
 	};
 
 	drawTab(settingsTabVideoRect, "Video", currentSettingsTab == SETTINGS_TAB_VIDEO);
@@ -7775,59 +7983,20 @@ void ofApp::drawSettingsMenu() {
 	}
 
 	// --- Draw Back Button (common) ---
-	// Use the same standard menu button size as other menus
 	float menuBtnW = 420.0f * uiScale;
 	float menuBtnH = 72.0f * uiScale;
 	settingsBackButton.set(centerX - menuBtnW / 2.0f, ofGetHeight() * 0.8, menuBtnW, menuBtnH);
-	if (settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()) || settingsHoveredIndex == 0) g_hoveredButtonId = "set_back";
-	// Dark background with white text
-	ofSetColor(settingsHoveredIndex == 0 ? ofColor(80) : ofColor(40));
-	ofFill();
-	ofDrawRectRounded(settingsBackButton, 15);
-	ofSetColor(ofColor::white);
-	ofNoFill();
-	ofSetLineWidth(2);
-	ofDrawRectRounded(settingsBackButton, 15);
-	ofFill();
-	ofRectangle backBox = uiFont.getStringBoundingBox("Back", 0, 0);
-	SafeDrawText(uiFont, "Back", settingsBackButton.getCenter().x - backBox.getWidth() / 2, settingsBackButton.getCenter().y + backBox.getHeight() / 2);
+	bool backHovered = settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()) || settingsHoveredIndex == 0;
+	drawMenuPlaqueButton(settingsBackButton, "Back", backHovered);
 }
 
 void ofApp::drawSingleplayerMenu() {
-	ofDisableLighting();
-	safeEnableAlphaBlending();
-
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-	float centerX = ofGetWidth() / 2.0f;
+	float sX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize);
+	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
-	ofSetColor(ofColor::white);
-	string title = "Singleplayer";
-	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-
-	// Position title above the first button
 	float titleY = singleplayerNewGameButton.y - 40.0f * uiScale;
-	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, titleY);
-
-	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
-		if (r.inside(ofGetMouseX(), ofGetMouseY())) {
-			ofSetColor(ofColor::lightGray);
-			g_hoveredButtonId = "sp_" + txt;
-		} else {
-			ofSetColor(ofColor::white);
-		}
-		ofDrawRectRounded(r, 12);
-
-		ofPath p;
-		p.rectRounded(r, 12);
-		p.setFilled(false);
-		p.setStrokeWidth(2.0f);
-		p.setStrokeColor(ofColor::black);
-		p.draw();
-
-		ofSetColor(ofColor::black);
-		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
-		SafeDrawText(uiFont, txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
-	};
+	drawPixelTextCentered(titleFont, "SINGLEPLAYER", centerX, titleY, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
 
 	std::string contText = "Continue";
 	try {
@@ -7845,16 +8014,13 @@ void ofApp::drawSingleplayerMenu() {
 		}
 	} catch (...) { }
 
-	drawBtn(singleplayerNewGameButton, "New Game");
-	drawBtn(singleplayerContinueButton, contText);
-	drawBtn(singleplayerLoadButton, "Load");
-	drawBtn(singleplayerReplayButton, "Watch Last Replay");
-	drawBtn(singleplayerBackButton, "Back");
+	drawMenuPlaqueButton(singleplayerNewGameButton, "New Game", singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerContinueButton, contText, singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerLoadButton, "Load", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerReplayButton, "Watch Last Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerBackButton, "Back", singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
-	string hint = "Customisation coming soon";
-	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
-	ofSetColor(200);
-	SafeDrawText(uiFont, hint, centerX - hb.getWidth() / 2.0f, singleplayerBackButton.getBottom() + 36);
+	drawPixelTextCentered(uiFont, "Customisation coming soon", centerX, singleplayerBackButton.getBottom() + 36, 1.0f, ofColor(200));
 }
 
 void ofApp::drawSaveBrowser() {
@@ -8018,22 +8184,17 @@ void ofApp::drawSaveBrowser() {
 }
 
 void ofApp::drawMultiplayerMenu() {
-	ofDisableLighting();
-	safeEnableAlphaBlending();
-
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-	float centerX = ofGetWidth() / 2.0f;
+	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize); // FIX: Must use the 30-tile stride!
+	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
-	// Title
-	ofSetColor(ofColor::white);
-	string title = "Online Versus";
-	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.1f);
+	drawPixelTextCentered(titleFont, "ONLINE VERSUS", centerX, ofGetHeight() * 0.1f, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
 
-	// Layout Dimensions (Full screen split in two)
-	float colW = ofGetWidth() * 0.4f;
-	float leftColX = ofGetWidth() * 0.05f;
-	float rightColX = ofGetWidth() * 0.55f;
+	// Layout Dimensions (Relative to sliding center)
+	float colW = std::min(600.0f * uiScale, ofGetWidth() * 0.45f);
+	float gap = 20.0f * uiScale;
+	float leftColX = centerX - colW - gap;
+	float rightColX = centerX + gap;
 	float listY = ofGetHeight() * 0.2f;
 	float bottomBtnY = ofGetHeight() * 0.85f;
 	float listHeight = bottomBtnY - listY - 20.0f * uiScale;
@@ -8052,36 +8213,30 @@ void ofApp::drawMultiplayerMenu() {
 	g_mpLobbyScroll = std::clamp(g_mpLobbyScroll, 0.0f, maxLobbyScroll);
 
 	// Setup Scissor to clip scrolling lobbies
+	ofRectangle leftPanelRect(leftColX - 10, listY - 10, colW + 20, listHeight + 20);
+	drawMenuPlaquePanel(leftPanelRect);
+
 	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	glScissor((int)leftColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (lobbies.empty()) {
-		ofSetColor(150);
-		SafeDrawText(uiFont, "No open matches found.", leftColX + 10, listY + 30);
+		drawPixelTextCentered(uiFont, "No open matches found.", leftColX + colW / 2, listY + listHeight / 2, 1.0f, ofColor(150));
 	} else {
 		float currentY = listY - g_mpLobbyScroll;
 		for (size_t i = 0; i < lobbies.size(); ++i) {
 			ofRectangle lRect(leftColX, currentY, colW, btnH);
 
-			// Only render and map clickable rects that are within the visible list box
 			if (lRect.getBottom() > listY && lRect.getTop() < listY + listHeight) {
 				mpLobbyButtons.push_back(lRect);
-				if (lRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
+				bool isHovered = lRect.inside(ofGetMouseX(), ofGetMouseY());
+				if (isHovered) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
 
-				bool inProgress = (lobbies[i].numPlayers >= 2); // 2 is the actual playing capacity
-
-				ofSetColor(lRect.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(60, 60, 80) : ofColor(40, 40, 50));
-				ofDrawRectRounded(lRect, 8.0f);
-
-				ofSetColor(ofColor::white);
+				bool inProgress = (lobbies[i].numPlayers >= 2);
 				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/10)";
-				if (inProgress)
-					lobbyText += " [SPECTATE]";
-				else
-					lobbyText += " [JOIN]";
-				SafeDrawText(uiFont, lobbyText, lRect.x + 15, lRect.y + 40 * uiScale);
+				lobbyText += inProgress ? " [SPECTATE]" : " [JOIN]";
+
+				drawMenuPlaqueButton(lRect, lobbyText, isHovered);
 			} else {
-				// Push empty rect so the loop index matches the lobby click selection array!
 				mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
 			}
 
@@ -8094,21 +8249,8 @@ void ofApp::drawMultiplayerMenu() {
 	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
 	mpHostButton.set(leftColX + colW / 2.0f + 10, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
 
-	auto drawBtn = [&](const ofRectangle & r, const std::string & txt) {
-		if (r.inside(ofGetMouseX(), ofGetMouseY())) {
-			ofSetColor(ofColor::lightGray);
-			g_hoveredButtonId = "mp_" + txt;
-		} else {
-			ofSetColor(ofColor::white);
-		}
-		ofDrawRectRounded(r, 12);
-		ofSetColor(ofColor::black);
-		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
-		SafeDrawText(uiFont, txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2 - 2);
-	};
-
-	drawBtn(mpRefreshButton, "Refresh List");
-	drawBtn(mpHostButton, "Host Match");
+	drawMenuPlaqueButton(mpRefreshButton, "Refresh List", mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mpHostButton, "Host Match", mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
 
 	// --- RIGHT COLUMN: LEADERBOARD ---
 	ofSetColor(ofColor::cyan);
@@ -8121,31 +8263,36 @@ void ofApp::drawMultiplayerMenu() {
 	float maxLbScroll = std::max(0.0f, totalLbHeight - listHeight);
 	g_mpLeaderboardScroll = std::clamp(g_mpLeaderboardScroll, 0.0f, maxLbScroll);
 
+	ofRectangle rightPanelRect(rightColX - 10, listY - 10, colW + 20, listHeight + 20);
+	drawMenuPlaquePanel(rightPanelRect);
+
 	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	glScissor((int)rightColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (leaderboard.empty()) {
-		ofSetColor(150);
-		SafeDrawText(uiFont, "Loading rankings...", rightColX + 10, listY + 30);
+		drawPixelTextCentered(uiFont, "Loading rankings...", rightColX + colW / 2, listY + listHeight / 2, 1.0f, ofColor(150));
 	} else {
 		float lbY = listY - g_mpLeaderboardScroll;
 		for (const auto & entry : leaderboard) {
 			ofRectangle lbRect(rightColX, lbY, colW, btnH);
 			if (lbRect.getBottom() > listY && lbRect.getTop() < listY + listHeight) {
-				ofSetColor(40, 40, 50);
-				ofDrawRectRounded(lbRect, 8.0f);
+
+				// Re-use the plaque logic for leaderboard rows, but static
+				ofSetColor(30, 30, 35, 255);
+				ofDrawRectRounded(lbRect, 8);
+				ofNoFill();
+				ofSetLineWidth(2.0f);
+				ofSetColor(100, 100, 100);
+				ofDrawRectRounded(lbRect, 8);
+				ofFill();
 
 				// Rank Number
-				ofSetColor(ofColor::gold);
-				SafeDrawText(uiFont, "#" + std::to_string(entry.rank), rightColX + 15, lbY + 40 * uiScale);
+				drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), rightColX + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
 
-				// Cache the level locally so we don't query Steamworks IPC every frame
 				static int32_t cachedAccountLevel = -1;
 				if (cachedAccountLevel == -1 && steamManager.isConnected() && SteamUserStats()) {
 					int32_t lvl = 1;
-					if (SteamUserStats()->GetStat("account_level", &lvl)) {
-						cachedAccountLevel = lvl;
-					}
+					if (SteamUserStats()->GetStat("account_level", &lvl)) cachedAccountLevel = lvl;
 				}
 
 				int accountLevel = 0;
@@ -8154,29 +8301,25 @@ void ofApp::drawMultiplayerMenu() {
 				}
 
 				auto rank = getMageRank(entry.score);
-				ofSetColor(ofColor::white);
-				SafeDrawText(uiFont, entry.name, rightColX + 90 * uiScale, lbY + 40 * uiScale);
 
-				// Render Level Badge if available
+				float nameX = rightColX + 90 * uiScale;
+				drawPixelTextBaseline(uiFont, entry.name, nameX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
+
 				if (accountLevel > 0) {
-					std::string lvlStr = "Lvl " + std::to_string(accountLevel);
 					ofRectangle nameBox = uiFont.getStringBoundingBox(entry.name, 0, 0);
-					ofSetColor(0, 180, 255);
-					SafeDrawText(uiFont, lvlStr, rightColX + 105 * uiScale + nameBox.width, lbY + 40 * uiScale);
+					drawPixelTextBaseline(uiFont, "Lvl " + std::to_string(accountLevel), nameX + nameBox.width + 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor(0, 180, 255));
 				}
 
-				// Score Display
+				// Score & Rank Badge
 				std::string scoreStr = std::to_string(entry.score);
 				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
 				float scoreX = rightColX + colW - sb.width - 20;
-				ofSetColor(ofColor::white);
-				SafeDrawText(uiFont, scoreStr, scoreX, lbY + 40 * uiScale);
 
-				// Rank Badge
+				drawPixelTextBaseline(uiFont, scoreStr, scoreX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
+
 				std::string rankStr = "[" + rank.first + "]";
 				ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
-				ofSetColor(rank.second);
-				SafeDrawText(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbY + 40 * uiScale);
+				drawPixelTextBaseline(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, rank.second);
 			}
 			lbY += btnH + 5.0f * uiScale;
 		}
@@ -8185,7 +8328,7 @@ void ofApp::drawMultiplayerMenu() {
 
 	// Back Button
 	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
-	drawBtn(mpBackButton, "Back to Menu");
+	drawMenuPlaqueButton(mpBackButton, "Back to Menu", mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
 	if (g_isHostingLobby || g_isConnectingToLobby) {
 		ofSetColor(0, 0, 0, 220);
@@ -15870,169 +16013,123 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	if (currentState == STATE_ENCYCLOPEDIA && button == OF_MOUSE_BUTTON_LEFT) {
-		if (encyTabCards.inside(x, y))
-			encyclopediaMainTab = 0;
-		else if (encyTabMinions.inside(x, y))
-			encyclopediaMainTab = 1;
-		else if (encyTabRules.inside(x, y))
-			encyclopediaMainTab = 2;
-		else if (encyBtnBack.inside(x, y))
-			currentState = STATE_MAIN_MENU;
-		return;
-	}
+	// ==============================================================================
+	// MAIN MENU NAVIGATION SYSTEM
+	// ==============================================================================
+	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA) {
 
-	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
+		bool clickedUI = false;
 
-		// If clicking a tile, move the magic circle!
-		if (!mainMenuLocalPvPButton.inside(x, y) && !mainMenuVsAIButton.inside(x, y) && !mainMenuOnlineButton.inside(x, y) && !mainMenuSettingsButton.inside(x, y) && !mainMenuQuitButton.inside(x, y) && !mainMenuEncyclopediaButton.inside(x, y)) {
-			int tx = std::floor((x - menuStartX) / menuTileSize);
-			int ty = std::floor((y - menuStartY) / menuTileSize);
-
-			bool targetIsWall = true;
-			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-				targetIsWall = board[tx][ty].hasWall;
-			} else if (ty == 5) {
-				targetIsWall = false; // Tunnel is always open!
-			}
-
-			if (!targetIsWall) {
-				glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
-
-				// Determine visible screen bounds for the infinite tunnel dynamically
-				int minVisibleX = std::floor(-menuStartX / menuTileSize);
-				int maxVisibleX = std::ceil((ofGetWidth() - menuStartX) / menuTileSize);
-
-				std::map<std::pair<int, int>, glm::vec2> parent;
-				std::set<std::pair<int, int>> visited;
-				std::queue<glm::vec2> q;
-
-				q.push(startPos);
-				visited.insert({ startPos.x, startPos.y });
-				parent[{ startPos.x, startPos.y }] = { -999, -999 };
-
-				bool found = false;
-				while (!q.empty()) {
-					glm::vec2 curr = q.front();
-					q.pop();
-					if (curr.x == tx && curr.y == ty) {
-						found = true;
-						break;
-					}
-
-					std::vector<glm::vec2> neighbors = {
-						{ curr.x + 1, curr.y }, { curr.x - 1, curr.y }, { curr.x, curr.y + 1 }, { curr.x, curr.y - 1 }
-					};
-
-					// ADD PAC-MAN TELEPORT EDGES!
-					if (curr.y == 5) {
-						if (curr.x == minVisibleX) neighbors.push_back({ maxVisibleX, 5 });
-						if (curr.x == maxVisibleX) neighbors.push_back({ minVisibleX, 5 });
-					}
-
-					for (glm::vec2 n : neighbors) {
-						int nx = n.x;
-						int ny = n.y;
-
-						// Restrict the infinite BFS so it doesn't search the entire screen space and lag
-						if (nx < minVisibleX - 1 || nx > maxVisibleX + 1) continue;
-
-						bool isWall = true;
-						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-							isWall = board[nx][ny].hasWall;
-						} else if (ny == 5) {
-							isWall = false; // Outer tunnel is safe
-						}
-
-						if (!isWall && visited.find({ nx, ny }) == visited.end()) {
-							visited.insert({ nx, ny });
-							parent[{ nx, ny }] = curr;
-							q.push({ nx, ny });
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			if (currentState == STATE_MAIN_MENU) {
+				if (mainMenuSingleplayerButton.inside(x, y)) {
+					clickedUI = true;
+					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
+					isVsAI = false;
+					return;
+				} else if (mainMenuLocalPvPButton.inside(x, y)) {
+					clickedUI = true;
+					isVsAI = false;
+					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
+					return; /* Legacy fallback */
+				} else if (mainMenuVsAIButton.inside(x, y)) {
+					clickedUI = true;
+					isVsAI = true;
+					isMultiplayer = false;
+					myLocalPlayerID = 0;
+					setupGame();
+					return;
+				} else if (mainMenuEncyclopediaButton.inside(x, y)) {
+					clickedUI = true;
+					currentState = STATE_ENCYCLOPEDIA;
+					return;
+				} else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
+					clickedUI = true;
+					if (SteamUserStats()) {
+						int32_t expiryTime = 0;
+						SteamUserStats()->GetStat("ban_expiry_time", &expiryTime);
+						if ((int32_t)std::time(nullptr) < expiryTime) {
+							queueFloatingTextVisual(glm::vec3(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 0), "You are banned.", ofColor::red);
+							playHandFeedbackSfx(0.78f, 0.10f);
+							return;
 						}
 					}
+					isVsAI = false;
+					isAIvsAI = false;
+					steamManager.refreshLobbies();
+					steamManager.fetchLeaderboard();
+					navigateToMenu(-1, STATE_MULTIPLAYER_MENU);
+					return;
+				} else if (mainMenuSettingsButton.inside(x, y)) {
+					clickedUI = true;
+					stateBeforeSettings = STATE_MAIN_MENU;
+					currentState = STATE_SETTINGS;
+					return;
+				} else if (mainMenuQuitButton.inside(x, y)) {
+					ofExit();
+					return;
 				}
-
-				if (found) {
-					std::vector<glm::vec2> path;
-					glm::vec2 curr = { (float)tx, (float)ty };
-					while (curr.x != -999) {
-						path.push_back(curr);
-						curr = parent[{ curr.x, curr.y }];
-					}
-					std::reverse(path.begin(), path.end());
-
-					if (!path.empty() && path[0] == startPos) {
-						path.erase(path.begin()); // Remove starting tile
-					}
-					mainMenuCirclePath = path;
+			} else if (currentState == STATE_MULTIPLAYER_MENU) {
+				if (mpBackButton.inside(x, y)) {
+					clickedUI = true;
+					navigateToMenu(0, STATE_MAIN_MENU);
+					return;
 				}
-			}
-		}
-
-		if (mainMenuLocalPvPButton.inside(x, y)) {
-			isVsAI = false;
-			currentState = STATE_SINGLEPLAYER_MENU;
-			return;
-		}
-		if (mainMenuVsAIButton.inside(x, y)) {
-			isVsAI = true;
-			isMultiplayer = false;
-			myLocalPlayerID = 0; // The human is Player 1
-			setupGame();
-			// setupGame() -> startInitiativePhase() cleanly sets STATE_INITIATIVE_ROLL
-			return;
-		}
-		if (mainMenuEncyclopediaButton.inside(x, y)) {
-			currentState = STATE_ENCYCLOPEDIA;
-			return;
-		}
-		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
-			// --- 🚨 CHECK FOR ACTIVE BAN 🚨 ---
-			if (SteamUserStats()) {
-				int32_t expiryTime = 0;
-				SteamUserStats()->GetStat("ban_expiry_time", &expiryTime);
-				int32_t currentTime = (int32_t)std::time(nullptr);
-
-				if (currentTime < expiryTime) {
-					// Calculate remaining time
-					int secondsLeft = expiryTime - currentTime;
-					std::string timeString;
-
-					if (secondsLeft > 86400) {
-						timeString = std::to_string(secondsLeft / 86400) + " days";
-					} else if (secondsLeft > 3600) {
-						timeString = std::to_string(secondsLeft / 3600) + " hours";
-					} else {
-						timeString = std::to_string(secondsLeft / 60) + " minutes";
-					}
-
-					std::string errorText = "You are suspended from Online Versus for " + timeString + ".";
-					queueFloatingTextVisual(glm::vec3(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 0), errorText, ofColor::red);
-
-					// Re-trigger the button hover sound/effect but abort
-					playHandFeedbackSfx(0.78f, 0.10f); // Error sound
-					return; // Block them
+				// Refresh & Host buttons handled later...
+			} else if (currentState == STATE_SINGLEPLAYER_MENU) {
+				if (singleplayerBackButton.inside(x, y)) {
+					clickedUI = true;
+					navigateToMenu(0, STATE_MAIN_MENU);
+					return;
+				}
+				// Load / Replay buttons handled later...
+			} else if (currentState == STATE_ENCYCLOPEDIA) {
+				if (encyBtnBack.inside(x, y)) {
+					clickedUI = true;
+					currentState = STATE_MAIN_MENU;
+					return;
+				} else if (encyTabCards.inside(x, y)) {
+					clickedUI = true;
+					encyclopediaMainTab = 0;
+					return;
+				} else if (encyTabMinions.inside(x, y)) {
+					clickedUI = true;
+					encyclopediaMainTab = 1;
+					return;
+				} else if (encyTabRules.inside(x, y)) {
+					clickedUI = true;
+					encyclopediaMainTab = 2;
+					return;
+				}
+			} else if (currentState == STATE_SETTINGS) {
+				if (settingsBackButton.inside(x, y)) {
+					clickedUI = true;
+					currentState = stateBeforeSettings;
+					return;
 				}
 			}
-			// --- END BAN CHECK ---
 
-			isVsAI = false;
-			isAIvsAI = false;
-			currentState = STATE_MULTIPLAYER_MENU;
-			steamManager.refreshLobbies();
-			steamManager.fetchLeaderboard();
-			g_lastLobbyRefreshTime = ofGetElapsedTimef();
-			g_lastLeaderboardRefreshTime = ofGetElapsedTimef();
-			return;
-		}
-		if (mainMenuSettingsButton.inside(x, y)) {
-			stateBeforeSettings = STATE_MAIN_MENU;
-			currentState = STATE_SETTINGS;
-			return;
-		}
-		if (mainMenuQuitButton.inside(x, y)) {
-			ofExit();
-			return;
+			// If we DID NOT click a UI button, let the user move the circle!
+			if (!clickedUI) {
+				// ONLY allow clicking the board if we are on a physical screen (NO OVERLAYS!)
+				if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU) {
+					float panOffset = baseMenuStartX - currentMenuPanX;
+					int tx = std::floor((x - panOffset) / menuTileSize);
+					int ty = std::floor((y - menuStartY) / menuTileSize);
+
+					bool targetIsWall = true;
+					if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+						targetIsWall = board[tx][ty].hasWall;
+					} else if (ty == 5) {
+						targetIsWall = false; // Tunnel is always open!
+					}
+
+					if (!targetIsWall) {
+						glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
+						mainMenuCirclePath = getInfiniteMazePath(startPos, { (float)tx, (float)ty });
+					}
+				}
+			}
 		}
 	}
 
@@ -16053,7 +16150,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentSettingsTab = SETTINGS_TAB_CONTROLS;
 			return;
 		}
+
 		if (settingsBackButton.inside(x, y)) {
+			if (stateBeforeSettings == STATE_MAIN_MENU) triggerMenuTransition(false); // From Right
 			currentState = stateBeforeSettings;
 			return;
 		}
@@ -16256,10 +16355,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = STATE_GAMEPLAY;
 			return;
 		}
-		if (singleplayerBackButton.inside(x, y)) {
-			currentState = STATE_MAIN_MENU;
-			return;
-		}
 	}
 
 	// --- ONLINE VERSUS MENU CLICKS ---
@@ -16284,10 +16379,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 
-		if (mpBackButton.inside(x, y)) {
-			currentState = STATE_MAIN_MENU;
-			return;
-		}
 		if (mpRefreshButton.inside(x, y)) {
 			steamManager.refreshLobbies();
 			steamManager.fetchLeaderboard();
@@ -18962,7 +19053,6 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		int totalRows = (allCards.size() + 9) / 10;
 		float totalContentHeight = totalRows * rowStep;
 		float contentHeight = ofGetHeight() - 230 * uiScale - 30 * uiScale; // Match the pushed-down layout
-
 		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 
 		encyclopediaMainScroll -= scrollY * rowStep;
@@ -38035,24 +38125,20 @@ void ofApp::cancelMagicHand() {
 }
 
 void ofApp::drawEncyclopediaState() {
-	ofDisableLighting();
-	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(20, 20, 25, 255);
+	// Draw the exact same moving background so it looks like an overlay
+	draw2DMenuBackground();
+	drawMainMenu(); // Draw the buttons underneath the overlay
+
+	ofSetColor(0, 0, 0, 240); // Darker overlay blocks out the board entirely
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 	float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
-	float cx = ofGetWidth() / 2.0f;
+	float eX_center = ofGetWidth() / 2.0f;
+	float cx = eX_center;
 
 	drawPixelTextCentered(titleFont, "ENCYCLOPEDIA", cx, 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
 
 	// Tabs
-	float tabW = 240 * uiScale;
-	float tabH = 50 * uiScale;
-	float spacing = 20 * uiScale;
-	encyTabCards.set(cx - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
-	encyTabMinions.set(cx - tabW * 0.5f, 140 * uiScale, tabW, tabH);
-	encyTabRules.set(cx + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
-
 	auto drawTab = [&](ofRectangle r, string label, int index) {
 		bool active = (encyclopediaMainTab == index);
 		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
@@ -38068,20 +38154,19 @@ void ofApp::drawEncyclopediaState() {
 	drawTab(encyTabRules, "HOW TO PLAY", 2);
 
 	// Back Button
-	encyBtnBack.set(20 * uiScale, 20 * uiScale, 120 * uiScale, 50 * uiScale);
 	bool backHover = encyBtnBack.inside(ofGetMouseX(), ofGetMouseY());
-	if (backHover) g_hoveredButtonId = "ency_back";
-	ofSetColor(backHover ? ofColor(150, 50, 50) : ofColor(100, 40, 40));
-	ofDrawRectRounded(encyBtnBack, 8);
-	drawPixelTextCentered(uiFont, "Back", encyBtnBack.getCenter().x, encyBtnBack.getCenter().y, 1.0f * uiScale, ofColor::white);
+	drawMenuPlaqueButton(encyBtnBack, "Back", backHover);
 
 	float contentY = 230 * uiScale; // Safely clears the tabs
 	float contentBottom = ofGetHeight() - 30 * uiScale;
-	float contentH = contentBottom - contentY;
+
+	float panelWidth = ofGetWidth() * 0.9f;
+	// Anchor the background panel to the sliding center (cx)
+	ofRectangle panelRect(cx - panelWidth / 2.0f, contentY - 20 * uiScale, panelWidth, contentBottom - contentY + 40 * uiScale);
+	drawMenuPlaquePanel(panelRect);
 
 	if (encyclopediaMainTab == 0) {
 		// CARDS TAB
-		float panelWidth = ofGetWidth() * 0.9f;
 		const int cols = 10;
 		const float padX = 8.0f * uiScale;
 		const float padY = 10.0f * uiScale;
@@ -38091,10 +38176,15 @@ void ofApp::drawEncyclopediaState() {
 		float cardH = cardW * 1.4f;
 		float rowStep = cardH + padY + nameBand;
 		float gridWidth = cols * cardW + (cols - 1) * padX;
-		float startX = (ofGetWidth() - gridWidth) / 2.0f;
+
+		// Anchor the cards to the sliding center (cx)
+		float startX = cx - gridWidth / 2.0f;
 
 		ofPushStyle();
 		if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
+
+		// Ensure Scissor box tracks the sliding viewport too!
+		float contentH = contentBottom - contentY;
 		glScissor((int)startX, (int)(ofGetHeight() - contentBottom), (int)gridWidth, (int)contentH);
 
 		for (int pass = 0; pass < 2; pass++) {

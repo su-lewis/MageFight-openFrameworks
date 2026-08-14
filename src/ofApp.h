@@ -2673,6 +2673,7 @@ private:
 	ofRectangle mainMenuOnlineButton;
 	ofRectangle mainMenuSettingsButton;
 	ofRectangle mainMenuQuitButton;
+	ofRectangle mainMenuSingleplayerButton;
 	int mainMenuHoveredIndex = -1;
 
 	// Main Menu Mini-Game
@@ -2681,6 +2682,24 @@ private:
 	float menuTileSize = 0;
 	float menuStartX = 0;
 	float menuStartY = 0;
+	float baseMenuStartX = 0; // Used to anchor the infinite panning math
+
+	// Menu Styling Helpers
+	void draw2DMenuBackground();
+	void drawMenuPlaqueButton(const ofRectangle & rect, const std::string & text, bool isHovered, bool isOnline = false);
+	void drawMenuPlaquePanel(const ofRectangle & rect);
+	void triggerMenuTransition(bool fromLeft); // <--- Fixed missing declaration
+
+	// Infinite Screen Panning
+	float currentMenuPanX = 0.0f;
+	float targetMenuPanX = 0.0f;
+	bool isWaitingForMenuTransition = false;
+	float pendingMenuPanX = 0.0f;
+	GameState pendingMenuState = STATE_MAIN_MENU;
+	int targetMenuScreen = 0; // 0=Main, -1=Online, 1=Single, 2=Ency, -2=Settings
+	void navigateToMenu(int screenIndex, GameState newState);
+	void updateMenuRects(); // Dynamically slides hitboxes during transitions
+	std::vector<glm::vec2> getInfiniteMazePath(glm::vec2 start, glm::vec2 end);
 
 	// Encyclopedia State
 	ofRectangle mainMenuEncyclopediaButton;
