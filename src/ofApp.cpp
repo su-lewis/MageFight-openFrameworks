@@ -4821,6 +4821,39 @@ void ofApp::setup() {
 		modelFbo.allocate(fboSettings);
 	} // <-- Close the !headless asset loading block here!
 
+	// Initialize default walls for the main menu 2D background
+	for (int x = 0; x < BOARD_WIDTH; ++x) {
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			board[x][y] = Tile();
+		}
+	}
+	board[2][2].hasWall = true;
+	board[2][1].hasWall = true;
+	board[3][1].hasWall = true;
+	board[4][1].hasWall = true;
+	board[10][2].hasWall = true;
+	board[10][1].hasWall = true;
+	board[9][1].hasWall = true;
+	board[8][1].hasWall = true;
+	board[2][6].hasWall = true;
+	board[2][7].hasWall = true;
+	board[3][7].hasWall = true;
+	board[4][7].hasWall = true;
+	board[10][6].hasWall = true;
+	board[10][7].hasWall = true;
+	board[9][7].hasWall = true;
+	board[8][7].hasWall = true;
+	board[1][4].hasWall = true;
+	board[2][4].hasWall = true;
+	board[3][4].hasWall = true;
+	board[11][4].hasWall = true;
+	board[10][4].hasWall = true;
+	board[9][4].hasWall = true;
+	board[6][3].hasWall = true;
+	board[5][4].hasWall = true;
+	board[6][5].hasWall = true;
+	board[7][4].hasWall = true;
+
 	// --- FINAL APPLY SETTINGS ---
 	applySettings();
 
@@ -7156,50 +7189,158 @@ void ofApp::drawMainMenu() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
 
-	// Draw Title
-	string title = "Mage Fight";
-	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	float titleX = round(ofGetWidth() / 2.0f - titleBox.getWidth() / 2.0f);
-	float titleY = round(ofGetHeight() * 0.25f);
-	SafeDrawText(titleFont, title, titleX, titleY);
+	// Calculate infinite grid bounds so we don't have black borders
+	int startX = std::floor(-menuStartX / menuTileSize);
+	int endX = std::ceil((ofGetWidth() - menuStartX) / menuTileSize);
+	int startY = std::floor(-menuStartY / menuTileSize);
+	int endY = std::ceil((ofGetHeight() - menuStartY) / menuTileSize);
 
-	// --- DRAW BUTTONS ---
-	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
-		if (isHovered || rect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "mm_" + text;
-		ofSetColor(isHovered ? ofColor::lightGray : ofColor::white);
-		ofFill();
-		ofDrawRectRounded(rect, 15);
+	// 1. Draw the 2D Board Background
+	for (int x = startX; x <= endX; x++) {
+		for (int y = startY; y <= endY; y++) {
+			float tx = menuStartX + x * menuTileSize;
+			float ty = menuStartY + y * menuTileSize;
 
-		ofPath p;
-		p.rectRounded(rect, 15);
-		p.setFilled(false);
-		p.setStrokeWidth(2.0f);
-		p.setStrokeColor(ofColor::black);
-		p.draw();
+			// +1.0f guarantees microscopic MSAA pixel gaps are overlapped
+			float drawW = menuTileSize + 1.0f;
+			float drawH = menuTileSize + 1.0f;
 
-		ofSetColor(ofColor::black); // Text color
-		ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
-		float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
-		float ty = std::round(rect.getCenter().y - (tb.y + tb.height * 0.5f));
-		SafeDrawText(uiFont, text, tx, ty);
-	};
+			// Draw floor
+			unsigned int seed = (x * 73856093) ^ (y * 19349663);
+			if (!floorTextures.empty()) {
+				// Match 3D board RNG sequence perfectly so the tiles align
+				std::mt19937 tileRng(seed);
+				std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
+				int texIndex = texDist(tileRng);
 
-	drawButton(mainMenuLocalPvPButton, "Local PvP", mainMenuHoveredIndex == 0);
-	drawButton(mainMenuVsAIButton, "Singleplayer (Vs AI)", mainMenuHoveredIndex == 1);
+				// Dim tiles that are outside the core board so the arena pops
+				if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+					ofSetColor(230);
+				} else {
+					ofSetColor(100);
+				}
+				floorTextures[texIndex].draw(tx, ty, drawW, drawH);
+			} else {
+				ofSetColor(80);
+				ofDrawRectangle(tx, ty, drawW, drawH);
+			}
 
-	if (!steamManager.isConnected()) {
-		ofSetColor(100); // Grayed out if Steam is not running
-		ofDrawRectRounded(mainMenuOnlineButton, 15);
-		ofSetColor(ofColor::black);
-		ofRectangle tb = uiFont.getStringBoundingBox("Steam Offline", 0, 0);
-		SafeDrawText(uiFont, "Steam Offline", mainMenuOnlineButton.getCenter().x - tb.width / 2, mainMenuOnlineButton.getCenter().y + tb.height / 2);
-	} else {
-		drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 2);
+			// Draw wall (only for actual board tiles)
+			if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+				if (board[x][y].hasWall) {
+					if (wallTexture.isAllocated()) {
+						ofSetColor(255); // Full brightness
+						wallTexture.draw(tx, ty, drawW, drawH);
+					} else {
+						ofSetColor(120);
+						ofDrawRectangle(tx, ty, drawW, drawH);
+					}
+				}
+			}
+
+			// Draw a subtle grid line
+			ofNoFill();
+			ofSetColor(0, 0, 0, 70);
+			ofDrawRectangle(tx, ty, drawW, drawH);
+			ofFill();
+		}
 	}
 
+	// 2. Draw Interactive Magic Circle
+	if (!mainMenuCirclePath.empty()) {
+		glm::vec2 target = mainMenuCirclePath.front();
+		glm::vec2 dir = target - mainMenuCirclePos;
+		float dist = glm::length(dir);
+		float speed = 12.0f * ofGetLastFrameTime(); // 12 Tiles per second
+		if (dist <= speed) {
+			mainMenuCirclePos = target;
+			mainMenuCirclePath.erase(mainMenuCirclePath.begin());
+		} else {
+			mainMenuCirclePos += glm::normalize(dir) * speed;
+		}
+
+		// Draw Target Highlight on the destination tile
+		if (!mainMenuCirclePath.empty()) {
+			glm::vec2 finalTarget = mainMenuCirclePath.back();
+			float ttx = menuStartX + finalTarget.x * menuTileSize;
+			float tty = menuStartY + finalTarget.y * menuTileSize;
+			ofSetColor(0, 255, 255, 60);
+			ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
+			ofNoFill();
+			ofSetLineWidth(3.0f);
+			ofSetColor(0, 255, 255, 200);
+			ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
+			ofFill();
+		}
+	}
+
+	float circleX = menuStartX + mainMenuCirclePos.x * menuTileSize + menuTileSize * 0.5f;
+	float circleY = menuStartY + mainMenuCirclePos.y * menuTileSize + menuTileSize * 0.5f;
+	float radius = menuTileSize * 0.35f;
+
+	// Draw the glowing circle
+	ofSetColor(0, 200, 255, 100);
+	ofDrawCircle(circleX, circleY, radius * 1.2f);
+	ofSetColor(50, 220, 255, 255);
+	ofDrawCircle(circleX, circleY, radius);
+	ofSetColor(255, 255, 255, 255);
+	ofNoFill();
+	ofSetLineWidth(3.0f);
+	ofDrawCircle(circleX, circleY, radius * 0.6f * (1.0f + 0.15f * sin(ofGetElapsedTimef() * 4.0f)));
+	ofFill();
+
+	// 3. Draw Title (Top Center)
+	string title = "MAGE FIGHT";
+	float titleScale = 2.0f;
+	// Secure the title so it never flies off the top of the screen
+	float titleY = std::max(ofGetHeight() * 0.12f, menuStartY - menuTileSize * 0.8f);
+	drawPixelTextCentered(titleFont, title, ofGetWidth() / 2.0f, titleY, titleScale, ofColor::gold, 4, ofColor::black);
+
+	// 4. Draw Buttons as Fantasy Plaques
+	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered, bool isOnline = false) {
+		if (isHovered || rect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "mm_" + text;
+
+		bool disabled = (isOnline && !steamManager.isConnected());
+
+		// Drop Shadow
+		ofSetColor(0, 0, 0, 160);
+		ofDrawRectRounded(rect.x + 4, rect.y + 6, rect.width, rect.height, 8);
+
+		// Button Base (Stone / Dark Slate feel)
+		ofColor baseColor = disabled ? ofColor(30, 30, 35, 255) : (isHovered ? ofColor(55, 60, 75, 255) : ofColor(35, 38, 48, 255));
+		ofSetColor(baseColor);
+		ofDrawRectRounded(rect, 8);
+
+		// Outer Thick Border (Gold / Bronze)
+		ofNoFill();
+		ofSetLineWidth(4.0f);
+		ofColor outerBorder = disabled ? ofColor(70, 70, 70) : (isHovered ? ofColor(255, 220, 50) : ofColor(180, 140, 60));
+		ofSetColor(outerBorder);
+		ofDrawRectRounded(rect, 8);
+
+		// Inner Thin Trim
+		ofSetLineWidth(2.0f);
+		ofColor innerBorder = disabled ? ofColor(50, 50, 50) : (isHovered ? ofColor(255, 255, 150) : ofColor(120, 90, 40));
+		ofSetColor(innerBorder);
+		ofDrawRectRounded(rect.x + 4, rect.y + 4, rect.width - 8, rect.height - 8, 4);
+		ofFill();
+
+		// Text (Parchment White)
+		ofColor textColor = disabled ? ofColor(100) : (isHovered ? ofColor::white : ofColor(240, 230, 210));
+		string displayText = disabled ? "Steam Offline" : text;
+
+		// Button press indent effect on hover
+		float textY = rect.getCenter().y + (isHovered ? -2.0f : 0.0f);
+		drawPixelTextCentered(uiFont, displayText, rect.getCenter().x, textY, 1.2f, textColor, 2, ofColor::black);
+	};
+
+	drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 2, true);
+	drawButton(mainMenuVsAIButton, "Singleplayer (Vs AI)", mainMenuHoveredIndex == 1);
+	drawButton(mainMenuLocalPvPButton, "Local PvP", mainMenuHoveredIndex == 0);
 	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 3);
 	drawButton(mainMenuQuitButton, "Quit", mainMenuHoveredIndex == 4);
 }
+
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
 	ofDisableLighting();
@@ -8027,18 +8168,26 @@ void ofApp::recalculateUI(int w, int h) {
 	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.75f, 1.25f);
 
 	// 2. Recalculate Main Menu Buttons
+	// Use ceil and max to guarantee the tiles scale up enough to hide borders, leaving room for the title!
+	menuTileSize = std::ceil(std::max(w / 15.0f, h / 12.0f));
+
+	// Keep the grid perfectly mathematically centered
+	menuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
+	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
+
+	// Main Menu (3x1 Tiles each)
+	mainMenuOnlineButton.set(menuStartX + 5 * menuTileSize, menuStartY + 2 * menuTileSize, menuTileSize * 3, menuTileSize);
+	mainMenuVsAIButton.set(menuStartX + 5 * menuTileSize, menuStartY + 4 * menuTileSize, menuTileSize * 3, menuTileSize);
+	mainMenuLocalPvPButton.set(menuStartX + 5 * menuTileSize, menuStartY + 6 * menuTileSize, menuTileSize * 3, menuTileSize);
+	mainMenuSettingsButton.set(menuStartX + 1 * menuTileSize, menuStartY + 7 * menuTileSize, menuTileSize * 3, menuTileSize);
+	mainMenuQuitButton.set(menuStartX + 9 * menuTileSize, menuStartY + 7 * menuTileSize, menuTileSize * 3, menuTileSize);
+
+	// Sub-menu generic parameters
 	float btnWidth = 400.0f * uiScale;
 	float btnHeight = 80.0f * uiScale;
 	float centerX = w / 2.0f;
 	float startY = h / 2.0f - (btnHeight * 1.5f);
 	float btnGap = 20.0f * uiScale;
-
-	// Main Menu
-	mainMenuLocalPvPButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	mainMenuVsAIButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 1, btnWidth, btnHeight);
-	mainMenuOnlineButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
-	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
-	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 4, btnWidth, btnHeight);
 
 	// Singleplayer Menu
 	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
@@ -15515,6 +15664,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
+
+		// If clicking a tile, move the magic circle!
+		if (!mainMenuLocalPvPButton.inside(x, y) && !mainMenuVsAIButton.inside(x, y) && !mainMenuOnlineButton.inside(x, y) && !mainMenuSettingsButton.inside(x, y) && !mainMenuQuitButton.inside(x, y)) {
+			int tx = std::floor((x - menuStartX) / menuTileSize);
+			int ty = std::floor((y - menuStartY) / menuTileSize);
+			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+				if (!board[tx][ty].hasWall) {
+					glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
+					std::vector<glm::vec2> path = findShortestPath(startPos, { (float)tx, (float)ty });
+					if (!path.empty()) {
+						mainMenuCirclePath = path;
+					}
+				}
+			}
+		}
+
 		if (mainMenuLocalPvPButton.inside(x, y)) {
 			isVsAI = false;
 			currentState = STATE_SINGLEPLAYER_MENU;
@@ -32502,8 +32667,10 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 	board[(int)start.x][(int)start.y].visited = true;
 
 	// Ghost Check
-	Player & p = players[currentPlayerIndex];
-	bool isGhost = p.inGhostForm;
+	bool isGhost = false;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		isGhost = players[currentPlayerIndex].inGhostForm;
+	}
 
 	bool found = false;
 	while (!q.empty()) {
@@ -36639,6 +36806,34 @@ void ofApp::cleanupGame() {
 	hostWaitingForClientsReadyStartTime = 0.0f; // <--- This caused the "Endless Dice" bug!
 	isInGameDraft = false;
 	initialDraftComplete = false;
+
+	// Restore default walls for the main menu background
+	board[2][2].hasWall = true;
+	board[2][1].hasWall = true;
+	board[3][1].hasWall = true;
+	board[4][1].hasWall = true;
+	board[10][2].hasWall = true;
+	board[10][1].hasWall = true;
+	board[9][1].hasWall = true;
+	board[8][1].hasWall = true;
+	board[2][6].hasWall = true;
+	board[2][7].hasWall = true;
+	board[3][7].hasWall = true;
+	board[4][7].hasWall = true;
+	board[10][6].hasWall = true;
+	board[10][7].hasWall = true;
+	board[9][7].hasWall = true;
+	board[8][7].hasWall = true;
+	board[1][4].hasWall = true;
+	board[2][4].hasWall = true;
+	board[3][4].hasWall = true;
+	board[11][4].hasWall = true;
+	board[10][4].hasWall = true;
+	board[9][4].hasWall = true;
+	board[6][3].hasWall = true;
+	board[5][4].hasWall = true;
+	board[6][5].hasWall = true;
+	board[7][4].hasWall = true;
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }

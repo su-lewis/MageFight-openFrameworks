@@ -2666,13 +2666,20 @@ private:
 	// `currentCardOutcome.namedDiceResults["status_onfire"]` and
 	// `currentCardOutcome.namedDiceResults["status_poison"]` respectively.
 
-	// Menu buttons
+	// Main Menu
 	ofRectangle mainMenuLocalPvPButton;
 	ofRectangle mainMenuVsAIButton;
 	ofRectangle mainMenuOnlineButton;
 	ofRectangle mainMenuSettingsButton;
 	ofRectangle mainMenuQuitButton;
 	int mainMenuHoveredIndex = -1;
+
+	// Main Menu Mini-Game
+	glm::vec2 mainMenuCirclePos = { 6.0f, 8.0f }; // Start at the bottom of the screen, below the buttons
+	std::vector<glm::vec2> mainMenuCirclePath;
+	float menuTileSize = 0;
+	float menuStartX = 0;
+	float menuStartY = 0;
 
 	// Multiplayer Menu UI
 	ofRectangle mpRefreshButton;
