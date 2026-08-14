@@ -91,7 +91,8 @@ jobs:
     - name: Setup Project Directory
       run: |
         mkdir -p openFrameworks/apps/myApps/MageFight
-        rsync -a --delete my_game_repo/ openFrameworks/apps/myApps/MageFight/
+        # --- APPLIED RSYNC FIX HERE ---
+        rsync -a --no-perms --exclude='.git' --delete my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
     - name: Build MageFight
       run: |
