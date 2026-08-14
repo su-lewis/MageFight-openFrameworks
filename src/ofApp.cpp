@@ -4144,12 +4144,8 @@ void ofApp::setup() {
 		nullSettings.numInputChannels = 0;
 		ofSoundStreamSetup(nullSettings);
 	} else {
-		// CRITICAL FIX: Request 2 output channels (Stereo) so the OS doesn't mute the right ear.
-		// We enforce "mono" by explicitly setting pan = 0.0f on our sound players!
-		ofSoundStreamSettings soundSettings;
-		soundSettings.numOutputChannels = 2;
-		soundSettings.numInputChannels = 0;
-		ofSoundStreamSetup(soundSettings);
+		// FMOD automatically handles stereo mapping. Calling ofSoundStreamSetup() here
+		// actually breaks the audio context on Linux/Proton and forces mono files to the left ear!
 	}
 	// Ensure saves directory exists
 	try {
@@ -4919,13 +4915,13 @@ void ofApp::setup() {
 	// Initialize default walls for the main menu 2D background using a Pac-Man maze layout
 	const char * maze[BOARD_HEIGHT] = {
 		"WWWWWWWWWWWWW",
-		"W...........W",
-		"W.WW.WWW.WW.W",
-		"W.W.......W.W",
-		"....WWWWW....",
-		"W.W.......W.W",
-		"W.WW.WWW.WW.W",
-		"WWWW.....WWWW",
+		"W.WWW.W.WWW.W",
+		"W.....W.....W",
+		"W.WWW...WWW.W",
+		"W.WWW.W.WWW.W",
+		"......W......",
+		"W.WWW...WWW.W",
+		"W.WWW.W.WWW.W",
 		"WWWWWWWWWWWWW"
 	};
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
@@ -4935,7 +4931,7 @@ void ofApp::setup() {
 		}
 	}
 
-	mainMenuCirclePos = { 6.0f, 7.0f }; // Start on a valid floor tile at the bottom!
+	mainMenuCirclePos = { 6.0f, 6.0f }; // Start in the open safe space
 
 	// --- FINAL APPLY SETTINGS ---
 	applySettings();
@@ -5258,6 +5254,29 @@ void ofApp::updateStateMachine() {
 }
 
 void ofApp::update() {
+	// --- AUDIO FADES ---
+	// Bulletproof fix: ALWAYS fade out the dragging sound if we aren't dragging a card!
+	if (draggedCardIndex == -1 && draggingHandTargetVolume > 0.0f) {
+		draggingHandTargetVolume = 0.0f;
+		draggingHandFadeSpeed = 24.0f; // Fast fade out
+	}
+
+	if (draggingHandLoop.isLoaded()) {
+		float currentVol = draggingHandLoop.getVolume();
+		if (currentVol != draggingHandTargetVolume) {
+			float dt = ofGetLastFrameTime();
+			if (currentVol < draggingHandTargetVolume) {
+				currentVol = std::min(draggingHandTargetVolume, currentVol + draggingHandFadeSpeed * dt);
+			} else {
+				currentVol = std::max(draggingHandTargetVolume, currentVol - draggingHandFadeSpeed * dt);
+			}
+			draggingHandLoop.setVolume(currentVol);
+			if (currentVol <= 0.01f && draggingHandTargetVolume == 0.0f) {
+				draggingHandLoop.stop();
+			}
+		}
+	}
+
 	// --- SAFE ASYNC LEAVERBUSTER ---
 	static bool leaverBusterChecked = false;
 	static float lastEloCheckTime = 0.0f;
@@ -6214,6 +6233,9 @@ void ofApp::draw() {
 		case STATE_DRAFTING:
 			drawGame();
 			drawDraftScreen();
+			break;
+		case STATE_ENCYCLOPEDIA:
+			drawEncyclopediaState();
 			break;
 		default:
 			drawMainMenu();
@@ -7263,6 +7285,20 @@ void ofApp::draw() {
 
 	// Hover sound resolution safely at the end
 	if (!g_isSecondPass) {
+		static std::string lastHoveredButtonId = "";
+		if (g_hoveredButtonId != lastHoveredButtonId) {
+			if (!g_hoveredButtonId.empty()) {
+				// Use the first footstep sound heavily pitched down to create a soft, organic wooden "tock"
+				// instead of the annoying digital button hover sound!
+				if (!footstepSounds.empty() && footstepSounds[0].isLoaded()) {
+					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.2f, 0.0f, 1.0f);
+					footstepSounds[0].setVolume(sfxVol);
+					footstepSounds[0].setSpeed(0.4f); // Pitch way down to make it a deep UI 'thud'
+					footstepSounds[0].play();
+				}
+			}
+			lastHoveredButtonId = g_hoveredButtonId;
+		}
 		g_hoveredButtonId = "";
 	}
 }
@@ -7313,15 +7349,14 @@ void ofApp::drawMainMenu() {
 			float drawH = (nextTy - ty) + 1.0f;
 
 			bool isBoardTile = (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT);
-			// The tunnel ONLY exists strictly on the left and right of row 4.
-			bool isTunnel = (y == 4 && !isBoardTile);
+			bool isTunnel = (y == 5); // Row 5 is the infinite wrap-around tunnel
 			bool isWall = false;
 
 			if (isBoardTile) {
 				isWall = board[x][y].hasWall;
 			} else {
-				// Everything outside the board is a wall, except the tunnel extensions
-				isWall = !isTunnel;
+				// Everything outside the board is a wall, except the tunnel path
+				if (!isTunnel) isWall = true;
 			}
 
 			if (isWall) {
@@ -7330,11 +7365,11 @@ void ofApp::drawMainMenu() {
 				if (isBoardTile) {
 					wallAbove = (y > 0) ? board[x][y - 1].hasWall : true;
 				} else {
-					wallAbove = (y - 1 != 4); // Everything above outside the board is a wall, except if it's the tunnel
+					wallAbove = (y - 1 != 5); // Tunnel is at row 5
 				}
 
-				// The outer boundary ring of the 13x9 board is ALSO treated as deep dark
-				bool isBorderWall = (!isBoardTile || x == 0 || x == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1);
+				// Edges of the board itself should ALSO be drawn dark!
+				bool isBorderWall = (!isBoardTile || x <= 0 || x >= BOARD_WIDTH - 1 || y <= 0 || y >= BOARD_HEIGHT - 1);
 				int brightness = isBorderWall ? 40 : 255;
 
 				if (wallAbove && wallDarkTexture.isAllocated()) {
@@ -7447,8 +7482,9 @@ void ofApp::drawMainMenu() {
 	};
 
 	drawButton(mainMenuOnlineButton, "Online Versus", mainMenuHoveredIndex == 2, true);
-	drawButton(mainMenuVsAIButton, "Singleplayer (Vs AI)", mainMenuHoveredIndex == 1);
+	drawButton(mainMenuVsAIButton, "Singleplayer", mainMenuHoveredIndex == 1);
 	drawButton(mainMenuLocalPvPButton, "Local PvP", mainMenuHoveredIndex == 0);
+	drawButton(mainMenuEncyclopediaButton, "Encyclopedia", mainMenuHoveredIndex == 5);
 	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 3);
 	drawButton(mainMenuQuitButton, "Quit", mainMenuHoveredIndex == 4);
 }
@@ -8280,19 +8316,26 @@ void ofApp::recalculateUI(int w, int h) {
 	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.75f, 1.25f);
 
 	// 2. Recalculate Main Menu Buttons
-	// Use ceil and max with a larger divisor to make the tiles slightly smaller, revealing more of the arena
 	menuTileSize = std::ceil(std::max(w / 19.0f, h / 14.0f));
 
-	// Keep the grid perfectly mathematically centered
 	menuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
 	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
 
-	// Main Menu (3x1 Tiles each)
-	mainMenuOnlineButton.set(menuStartX + 5 * menuTileSize, menuStartY + 2 * menuTileSize, menuTileSize * 3, menuTileSize);
-	mainMenuVsAIButton.set(menuStartX + 5 * menuTileSize, menuStartY + 4 * menuTileSize, menuTileSize * 3, menuTileSize);
-	mainMenuLocalPvPButton.set(menuStartX + 5 * menuTileSize, menuStartY + 6 * menuTileSize, menuTileSize * 3, menuTileSize);
-	mainMenuSettingsButton.set(menuStartX + 1 * menuTileSize, menuStartY + 7 * menuTileSize, menuTileSize * 3, menuTileSize);
-	mainMenuQuitButton.set(menuStartX + 9 * menuTileSize, menuStartY + 7 * menuTileSize, menuTileSize * 3, menuTileSize);
+	// Main Menu (3x1 Tiles each to perfectly cap the solid walls)
+	float btnW = menuTileSize * 3;
+	float btnH = menuTileSize;
+
+	// Top Row
+	mainMenuOnlineButton.set(menuStartX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+	mainMenuVsAIButton.set(menuStartX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+
+	// Middle Row
+	mainMenuLocalPvPButton.set(menuStartX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+	mainMenuEncyclopediaButton.set(menuStartX + 8 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+
+	// Bottom Row
+	mainMenuSettingsButton.set(menuStartX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+	mainMenuQuitButton.set(menuStartX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 
 	// Sub-menu generic parameters
 	float btnWidth = 400.0f * uiScale;
@@ -8852,10 +8895,9 @@ void ofApp::updateGame() {
 static void playOnBoardSound(ofCamera & cam, ofSoundPlayer & sound, glm::vec3 worldPos, float volume, float speed) {
 	if (!sound.isLoaded()) return;
 
-	// FIX: Force pan to 0.0f to guarantee true centered Mono audio in both ears!
-	sound.setPan(0.0f);
-	sound.setVolume(std::clamp(volume, 0.0f, 1.0f));
-	sound.setSpeed(speed);
+	// Dim the footsteps to sit in the background, and stretch them for a heavier, thud-like retro feel
+	sound.setVolume(std::clamp(volume * 0.5f, 0.0f, 1.0f));
+	sound.setSpeed(speed * 0.85f);
 	sound.play();
 }
 
@@ -14881,10 +14923,11 @@ cursor_check_done:;
 
 						// --- USE NEW HOVER SOUND ---
 						if (cardHoverSound.isLoaded()) {
-							float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+							float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.3f, 0.0f, 1.0f);
 							cardHoverSound.setVolume(vol);
-							// Add a tiny bit of random pitch for variety
-							std::uniform_real_distribution<float> pitchDist(0.95f, 1.05f);
+							cardHoverSound.setPan(0.0f);
+							// Lower the pitch range for a softer, airy swish
+							std::uniform_real_distribution<float> pitchDist(0.70f, 0.85f);
 							cardHoverSound.setSpeed(pitchDist(visualRNG));
 							cardHoverSound.play();
 						} else {
@@ -15475,6 +15518,58 @@ cursor_check_done:;
 			mainMenuHoveredIndex = 3;
 		else if (mainMenuQuitButton.inside(x, y))
 			mainMenuHoveredIndex = 4;
+		else if (mainMenuEncyclopediaButton.inside(x, y))
+			mainMenuHoveredIndex = 5;
+		break;
+	}
+	case STATE_ENCYCLOPEDIA: {
+		encyclopediaMainHoveredIndex = -1;
+
+		if (encyclopediaMainTab == 0) {
+			float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+			float panelWidth = ofGetWidth() * 0.9f;
+			float contentY = 230 * uiScale; // Pushed down to clear tabs
+			float contentBottom = ofGetHeight() - 30 * uiScale;
+
+			const int cols = 10;
+			const float padX = 8.0f * uiScale;
+			const float padY = 10.0f * uiScale;
+			const float nameBand = 16.0f * uiScale;
+
+			float cardW = std::max(12.0f, (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols);
+			float cardH = cardW * 1.4f;
+			float rowStep = cardH + padY + nameBand;
+			float gridWidth = cols * cardW + (cols - 1) * padX;
+			float startX = (ofGetWidth() - gridWidth) / 2.0f;
+
+			int row = 0, col = 0;
+			for (size_t i = 0; i < allCards.size(); i++) {
+				float drawX = startX + col * (cardW + padX);
+				float drawY = contentY + row * rowStep - encyclopediaMainScroll;
+
+				if (drawY + cardH > contentY && drawY < contentBottom) {
+					ofRectangle cardRect(drawX, drawY, cardW, cardH);
+					if (cardRect.inside(x, y)) {
+						encyclopediaMainHoveredIndex = i;
+						break;
+					}
+				}
+				col++;
+				if (col >= cols) {
+					col = 0;
+					row++;
+				}
+			}
+		}
+
+		if (encyclopediaMainHoveredIndex != -1) {
+			if (!encyclopediaMainHoverScaled && ofGetElapsedTimef() - encyclopediaMainHoverStartTime > 0.3f) {
+				encyclopediaMainHoverScaled = true;
+			}
+		} else {
+			encyclopediaMainHoverStartTime = ofGetElapsedTimef();
+			encyclopediaMainHoverScaled = false;
+		}
 		break;
 	}
 	case STATE_SETTINGS: {
@@ -15775,24 +15870,39 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
+	if (currentState == STATE_ENCYCLOPEDIA && button == OF_MOUSE_BUTTON_LEFT) {
+		if (encyTabCards.inside(x, y))
+			encyclopediaMainTab = 0;
+		else if (encyTabMinions.inside(x, y))
+			encyclopediaMainTab = 1;
+		else if (encyTabRules.inside(x, y))
+			encyclopediaMainTab = 2;
+		else if (encyBtnBack.inside(x, y))
+			currentState = STATE_MAIN_MENU;
+		return;
+	}
+
 	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
 
 		// If clicking a tile, move the magic circle!
-		if (!mainMenuLocalPvPButton.inside(x, y) && !mainMenuVsAIButton.inside(x, y) && !mainMenuOnlineButton.inside(x, y) && !mainMenuSettingsButton.inside(x, y) && !mainMenuQuitButton.inside(x, y)) {
+		if (!mainMenuLocalPvPButton.inside(x, y) && !mainMenuVsAIButton.inside(x, y) && !mainMenuOnlineButton.inside(x, y) && !mainMenuSettingsButton.inside(x, y) && !mainMenuQuitButton.inside(x, y) && !mainMenuEncyclopediaButton.inside(x, y)) {
 			int tx = std::floor((x - menuStartX) / menuTileSize);
 			int ty = std::floor((y - menuStartY) / menuTileSize);
 
 			bool targetIsWall = true;
 			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
 				targetIsWall = board[tx][ty].hasWall;
-			} else if (ty == 4) {
+			} else if (ty == 5) {
 				targetIsWall = false; // Tunnel is always open!
 			}
 
 			if (!targetIsWall) {
 				glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
 
-				// Custom Map-based BFS that supports infinite horizontal coordinates for the tunnel
+				// Determine visible screen bounds for the infinite tunnel dynamically
+				int minVisibleX = std::floor(-menuStartX / menuTileSize);
+				int maxVisibleX = std::ceil((ofGetWidth() - menuStartX) / menuTileSize);
+
 				std::map<std::pair<int, int>, glm::vec2> parent;
 				std::set<std::pair<int, int>> visited;
 				std::queue<glm::vec2> q;
@@ -15802,10 +15912,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 				parent[{ startPos.x, startPos.y }] = { -999, -999 };
 
 				bool found = false;
-				// Determine visible screen bounds for the infinite tunnel dynamically
-				int minVisibleX = std::floor(-menuStartX / menuTileSize);
-				int maxVisibleX = std::ceil((ofGetWidth() - menuStartX) / menuTileSize);
-
 				while (!q.empty()) {
 					glm::vec2 curr = q.front();
 					q.pop();
@@ -15819,10 +15925,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					};
 
 					// ADD PAC-MAN TELEPORT EDGES!
-					// Allow teleporting from the absolute visual edge of the screen to the other side
-					if (curr.y == 4) {
-						if (curr.x == minVisibleX) neighbors.push_back({ maxVisibleX, 4 });
-						if (curr.x == maxVisibleX) neighbors.push_back({ minVisibleX, 4 });
+					if (curr.y == 5) {
+						if (curr.x == minVisibleX) neighbors.push_back({ maxVisibleX, 5 });
+						if (curr.x == maxVisibleX) neighbors.push_back({ minVisibleX, 5 });
 					}
 
 					for (glm::vec2 n : neighbors) {
@@ -15830,13 +15935,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int ny = n.y;
 
 						// Restrict the infinite BFS so it doesn't search the entire screen space and lag
-						// We only allow it to search within the visible boundaries of the screen!
 						if (nx < minVisibleX - 1 || nx > maxVisibleX + 1) continue;
 
 						bool isWall = true;
 						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 							isWall = board[nx][ny].hasWall;
-						} else if (ny == 4) {
+						} else if (ny == 5) {
 							isWall = false; // Outer tunnel is safe
 						}
 
@@ -15876,6 +15980,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			myLocalPlayerID = 0; // The human is Player 1
 			setupGame();
 			// setupGame() -> startInitiativePhase() cleanly sets STATE_INITIATIVE_ROLL
+			return;
+		}
+		if (mainMenuEncyclopediaButton.inside(x, y)) {
+			currentState = STATE_ENCYCLOPEDIA;
 			return;
 		}
 		if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
@@ -18847,6 +18955,21 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	}
 
 	// Handle encyclopedia scrolling
+	if (currentState == STATE_ENCYCLOPEDIA) {
+		float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+		float rowStep = ((((ofGetWidth() * 0.9f) - 2.0f * 8.0f * uiScale - 9 * 8.0f * uiScale) / 10.0f) * 1.4f) + 26.0f * uiScale;
+
+		int totalRows = (allCards.size() + 9) / 10;
+		float totalContentHeight = totalRows * rowStep;
+		float contentHeight = ofGetHeight() - 230 * uiScale - 30 * uiScale; // Match the pushed-down layout
+
+		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+
+		encyclopediaMainScroll -= scrollY * rowStep;
+		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+		return;
+	}
+
 	if (isCardEncyclopediaOpen && encyclopediaRect.inside(x, y)) {
 		const float encyScrollAspect = 1.4f;
 		const int cols = 10;
@@ -19327,6 +19450,13 @@ void ofApp::keyPressed(int key) {
 	if (isCardEncyclopediaOpen) {
 		if (key == OF_KEY_ESC) {
 			isCardEncyclopediaOpen = false;
+		}
+		return;
+	}
+
+	if (currentState == STATE_ENCYCLOPEDIA) {
+		if (key == OF_KEY_ESC) {
+			currentState = STATE_MAIN_MENU;
 		}
 		return;
 	}
@@ -20187,8 +20317,10 @@ void ofApp::continueNewTurn() {
 	static int s_lastTurnSoundPlayedCycle = -1;
 	if (!headless && currentTurnOwnerID == myLocalPlayerID && s_lastTurnSoundPlayedCycle != globalTurnCounter) {
 		if (s_sfxTurnStart.isLoaded()) {
-			float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+			// Soften the aggressive bell chime
+			float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.45f, 0.0f, 1.0f);
 			s_sfxTurnStart.setVolume(vol);
+			s_sfxTurnStart.setSpeed(0.85f);
 			s_sfxTurnStart.play();
 		}
 		s_lastTurnSoundPlayedCycle = globalTurnCounter;
@@ -27210,8 +27342,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 				// --- PLAY HEAL SOUND ---
 				if (s_sfxHeal.isLoaded()) {
-					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+					// Lower volume and pitch to make the chime softer
+					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.45f, 0.0f, 1.0f);
 					s_sfxHeal.setVolume(sfxVol);
+					s_sfxHeal.setSpeed(0.80f);
 					s_sfxHeal.play();
 				}
 
@@ -27980,12 +28114,14 @@ void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
 		activeDiceRolls.push_back(newRoll);
 
 		// --- PLAY DICE/COIN SOUND ---
-		float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+		float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.45f, 0.0f, 1.0f);
 		if (sides == 2 && s_sfxCoinflip.isLoaded()) {
 			s_sfxCoinflip.setVolume(sfxVol);
+			s_sfxCoinflip.setSpeed(0.80f); // Mellow metallic clink
 			s_sfxCoinflip.play();
 		} else if (sides > 2 && s_sfxD6Roll.isLoaded()) {
-			s_sfxD6Roll.setVolume(sfxVol);
+			s_sfxD6Roll.setVolume(sfxVol * 0.7f); // Rattles are very sharp, dampen further
+			s_sfxD6Roll.setSpeed(0.75f); // Deeper, wood/bone-like rattle
 			s_sfxD6Roll.play();
 		}
 	}
@@ -31256,16 +31392,19 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentCardOutcome.apPaid = true;
 
 		// --- PLAY CARD SPECIFIC SFX ---
-		float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.8f, 0.0f, 1.0f);
+		// Lowered base volume from 0.8 to 0.45
+		float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.45f, 0.0f, 1.0f);
 		if (playedCard.type == CARD_CONSUME_HEALTH_POTION || playedCard.type == CARD_CONSUME_HEALTH_FLAGON) {
 			if (s_sfxPotion.isLoaded()) {
 				s_sfxPotion.setVolume(sfxVol);
+				s_sfxPotion.setSpeed(0.85f); // Deeper glug sound
 				s_sfxPotion.play();
 			}
 		}
 		if (playedCard.type == CARD_FIREBALL) {
 			if (s_sfxFireball.isLoaded()) {
-				s_sfxFireball.setVolume(sfxVol);
+				s_sfxFireball.setVolume(sfxVol * 0.8f); // Fireball is naturally loud
+				s_sfxFireball.setSpeed(0.70f); // Turn the harsh crackle into a deep retro boom
 				s_sfxFireball.play();
 			}
 		}
@@ -36995,13 +37134,13 @@ void ofApp::cleanupGame() {
 	// Restore default walls for the main menu background using a Pac-Man maze layout
 	const char * maze[BOARD_HEIGHT] = {
 		"WWWWWWWWWWWWW",
-		"W...........W",
-		"W.WW.WWW.WW.W",
-		"W.W.......W.W",
-		"....WWWWW....",
-		"W.W.......W.W",
-		"W.WW.WWW.WW.W",
-		"WWWW.....WWWW",
+		"W.WWW.W.WWW.W",
+		"W.....W.....W",
+		"W.WWW...WWW.W",
+		"W.WWW.W.WWW.W",
+		"......W......",
+		"W.WWW...WWW.W",
+		"W.WWW.W.WWW.W",
 		"WWWWWWWWWWWWW"
 	};
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
@@ -37011,7 +37150,7 @@ void ofApp::cleanupGame() {
 		}
 	}
 
-	mainMenuCirclePos = { 6.0f, 7.0f }; // Reset circle position
+	mainMenuCirclePos = { 6.0f, 6.0f }; // Reset circle position
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
@@ -37893,6 +38032,187 @@ void ofApp::drawMinionManagerUI() {
 void ofApp::cancelMagicHand() {
 	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	interactingCardIndex = -1;
+}
+
+void ofApp::drawEncyclopediaState() {
+	ofDisableLighting();
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+	ofSetColor(20, 20, 25, 255);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+	float cx = ofGetWidth() / 2.0f;
+
+	drawPixelTextCentered(titleFont, "ENCYCLOPEDIA", cx, 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+
+	// Tabs
+	float tabW = 240 * uiScale;
+	float tabH = 50 * uiScale;
+	float spacing = 20 * uiScale;
+	encyTabCards.set(cx - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
+	encyTabMinions.set(cx - tabW * 0.5f, 140 * uiScale, tabW, tabH);
+	encyTabRules.set(cx + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
+
+	auto drawTab = [&](ofRectangle r, string label, int index) {
+		bool active = (encyclopediaMainTab == index);
+		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
+		if (hovered) g_hoveredButtonId = "ency_tab_" + ofToString(index);
+		ofSetColor(active ? ofColor(80, 100, 140) : (hovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
+		ofDrawRectRounded(r, 8);
+		ofSetColor(active ? ofColor::white : ofColor(200));
+		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, active ? ofColor::white : ofColor(200));
+	};
+
+	drawTab(encyTabCards, "ALL CARDS", 0);
+	drawTab(encyTabMinions, "MINIONS", 1);
+	drawTab(encyTabRules, "HOW TO PLAY", 2);
+
+	// Back Button
+	encyBtnBack.set(20 * uiScale, 20 * uiScale, 120 * uiScale, 50 * uiScale);
+	bool backHover = encyBtnBack.inside(ofGetMouseX(), ofGetMouseY());
+	if (backHover) g_hoveredButtonId = "ency_back";
+	ofSetColor(backHover ? ofColor(150, 50, 50) : ofColor(100, 40, 40));
+	ofDrawRectRounded(encyBtnBack, 8);
+	drawPixelTextCentered(uiFont, "Back", encyBtnBack.getCenter().x, encyBtnBack.getCenter().y, 1.0f * uiScale, ofColor::white);
+
+	float contentY = 230 * uiScale; // Safely clears the tabs
+	float contentBottom = ofGetHeight() - 30 * uiScale;
+	float contentH = contentBottom - contentY;
+
+	if (encyclopediaMainTab == 0) {
+		// CARDS TAB
+		float panelWidth = ofGetWidth() * 0.9f;
+		const int cols = 10;
+		const float padX = 8.0f * uiScale;
+		const float padY = 10.0f * uiScale;
+		const float nameBand = 16.0f * uiScale;
+
+		float cardW = std::max(12.0f, (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols);
+		float cardH = cardW * 1.4f;
+		float rowStep = cardH + padY + nameBand;
+		float gridWidth = cols * cardW + (cols - 1) * padX;
+		float startX = (ofGetWidth() - gridWidth) / 2.0f;
+
+		ofPushStyle();
+		if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
+		glScissor((int)startX, (int)(ofGetHeight() - contentBottom), (int)gridWidth, (int)contentH);
+
+		for (int pass = 0; pass < 2; pass++) {
+			int row = 0, col = 0;
+			for (size_t i = 0; i < allCards.size(); i++) {
+				bool isHovered = (encyclopediaMainHoverScaled && (int)i == encyclopediaMainHoveredIndex);
+				if ((pass == 0 && isHovered) || (pass == 1 && !isHovered)) {
+					col++;
+					if (col >= cols) {
+						col = 0;
+						row++;
+					}
+					continue;
+				}
+
+				float drawX = startX + col * (cardW + padX);
+				float drawY = contentY + row * rowStep - encyclopediaMainScroll;
+
+				if (drawY + cardH > contentY && drawY < contentBottom) {
+					float thisCardW = isHovered ? cardW * 1.8f : cardW;
+					float thisCardH = isHovered ? cardH * 1.8f : cardH;
+					float finalX = isHovered ? drawX - (thisCardW - cardW) / 2.0f : drawX;
+					float finalY = isHovered ? drawY - (thisCardH - cardH) / 2.0f : drawY;
+
+					if (isHovered) {
+						ofSetColor(255, 255, 100, 190);
+						ofSetLineWidth(5.0f);
+						drawCardOutlineOutside(finalX, finalY, thisCardW, thisCardH, 5.0f, 1.0f);
+					}
+
+					ofSetColor(255);
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, allCards[i], finalX, finalY, thisCardW, thisCardH, nullptr);
+
+					ofSetColor(200);
+					string shortName = allCards[i].name;
+					if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
+					ofRectangle nameBounds = uiFont.getStringBoundingBox(shortName, 0, 0);
+					SafeDrawText(uiFont, shortName, drawX + (cardW - nameBounds.width) * 0.5f, drawY + cardH + 16.0f * uiScale);
+				}
+				col++;
+				if (col >= cols) {
+					col = 0;
+					row++;
+				}
+			}
+		}
+
+		if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+		safePopStyle();
+
+	} else if (encyclopediaMainTab == 1) {
+		// MINIONS TAB
+		float startX = cx - 400 * uiScale;
+		float y = contentY;
+		ofSetColor(255);
+
+		auto drawMinionInfo = [&](string name, string stats, string effect) {
+			ofSetColor(ofColor::gold);
+			SafeDrawText(uiFont, name, startX, y);
+			ofSetColor(150, 255, 150);
+			SafeDrawText(uiFont, stats, startX + 200 * uiScale, y);
+			ofSetColor(200);
+			SafeDrawText(uiFont, effect, startX + 450 * uiScale, y);
+			y += 40 * uiScale;
+		};
+
+		drawMinionInfo("SKELETON", "AP: 1d6 | HP: 1d6+Luck", "Weak to Holy");
+		drawMinionInfo("GOLEM", "AP: 1d6 | HP: 1d10+Luck", "Adapts to previous spell element");
+		drawMinionInfo("WOLF", "AP: 1d10 | HP: 4", "Can attack immediately if coins allow");
+		drawMinionInfo("HELLHOUND", "AP: 2d6 | HP: 2d6+2xLuck", "Weak to Holy");
+		drawMinionInfo("DEMON", "AP: 4d4 | HP: 3d10+3xLuck", "Weak to Holy");
+		drawMinionInfo("KOBOLD", "AP: 1d4 | HP: 1", "Pack tactics");
+		drawMinionInfo("KOBOLD KING", "AP: 1d6 | HP: 1 + Pack", "HP scales with living Kobolds");
+		drawMinionInfo("ASSISTANT", "AP: Coin (1-2) | HP: 1", "Rerolls AP for summoner once per turn");
+		drawMinionInfo("FAERIE", "AP: 1d4 | HP: 5", "Has Deck. Auto-resurrects adjacent allies");
+		drawMinionInfo("WALL", "AP: 1d4 | HP: 5", "Blocks attacks and movement");
+		drawMinionInfo("MAGIC WALL", "AP: 1d6 | HP: 7", "Magic dmg x2, Phys dmg /2 in aura");
+
+	} else if (encyclopediaMainTab == 2) {
+		// HOW TO PLAY TAB
+		float tX = cx - 350 * uiScale;
+		float tY = contentY;
+
+		ofSetColor(255);
+		SafeDrawText(titleFont, "Turn Structure", tX, tY);
+		tY += 30 * uiScale;
+		ofSetColor(200);
+		SafeDrawText(uiFont, "- Start of Turn: You draw 2 cards (Demons draw 3).", tX, tY);
+		tY += 25 * uiScale;
+		SafeDrawText(uiFont, "- AP Roll: You roll dice to determine Action Points (AP). Standard units roll 1d6.", tX, tY);
+		tY += 25 * uiScale;
+		SafeDrawText(uiFont, "- Action Phase: Spend AP to play cards or move (1 AP per tile).", tX, tY);
+		tY += 25 * uiScale;
+
+		tY += 20 * uiScale;
+		ofSetColor(255);
+		SafeDrawText(titleFont, "Damage & Defenses", tX, tY);
+		tY += 30 * uiScale;
+		ofSetColor(200);
+		SafeDrawText(uiFont, "- Physical: Absorbed by Block, Fortification, and Ward.", tX, tY);
+		tY += 25 * uiScale;
+		SafeDrawText(uiFont, "- Piercing: Halves damage against subsequent targets in a line.", tX, tY);
+		tY += 25 * uiScale;
+		SafeDrawText(uiFont, "- Magic/Fire/Electric/Poison: Bypasses Block. Absorbed by Barrier and Ward.", tX, tY);
+		tY += 25 * uiScale;
+		SafeDrawText(uiFont, "- Holy: Deals 2x damage to Undead and Demons. Absorbed by Holy Block.", tX, tY);
+		tY += 25 * uiScale;
+
+		tY += 20 * uiScale;
+		ofSetColor(255);
+		SafeDrawText(titleFont, "Keywords", tX, tY);
+		tY += 30 * uiScale;
+		ofSetColor(200);
+		SafeDrawText(uiFont, "- Luck: Adds a flat bonus to almost every dice roll you make.", tX, tY);
+		tY += 25 * uiScale;
+		SafeDrawText(uiFont, "- Flurry: Doubles the effect and damage of all Hand-to-Hand attacks.", tX, tY);
+		tY += 25 * uiScale;
+	}
 }
 
 // resolveMagicHandPull and resolveMagicHandPush have been inlined at their call sites

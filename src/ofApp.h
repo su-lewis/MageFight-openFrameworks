@@ -54,6 +54,7 @@ enum GameState {
 	STATE_DRAFTING, // <--- New
 	STATE_SINGLEPLAYER_MENU,
 	STATE_SAVE_BROWSER,
+	STATE_ENCYCLOPEDIA,
 	STATE_DESYNC // Desync detected; abort match
 };
 
@@ -2675,11 +2676,22 @@ private:
 	int mainMenuHoveredIndex = -1;
 
 	// Main Menu Mini-Game
-	glm::vec2 mainMenuCirclePos = { 6.0f, 8.0f }; // Start at the bottom of the screen, below the buttons
+	glm::vec2 mainMenuCirclePos = { 6.0f, 6.0f };
 	std::vector<glm::vec2> mainMenuCirclePath;
 	float menuTileSize = 0;
 	float menuStartX = 0;
 	float menuStartY = 0;
+
+	// Encyclopedia State
+	ofRectangle mainMenuEncyclopediaButton;
+	int encyclopediaMainTab = 0; // 0=Cards, 1=Minions, 2=How to Play
+	float encyclopediaMainScroll = 0.0f;
+	ofRectangle encyTabCards, encyTabMinions, encyTabRules, encyBtnBack;
+	int encyclopediaMainHoveredIndex = -1;
+	float encyclopediaMainHoverStartTime = 0.0f;
+	bool encyclopediaMainHoverScaled = false;
+
+	void drawEncyclopediaState();
 
 	// Multiplayer Menu UI
 	ofRectangle mpRefreshButton;
