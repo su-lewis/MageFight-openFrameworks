@@ -1288,11 +1288,6 @@ private:
 	// -------------------------------------------------------------------------
 	//                              GAMEPLAY LOGIC
 	// -------------------------------------------------------------------------
-	void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, float dstY, float dstW, float dstH, float srcX, float srcY, float srcW, float srcH);
-	void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
-	void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner);
-	template <typename T>
-	void robust_deterministic_shuffle(std::vector<T> & vec, std::mt19937 & rng);
 	void drawCard(bool sendPacket = true);
 	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
 
@@ -2577,7 +2572,7 @@ private:
 
 	// --- Magic Hand Relocate State ---
 	const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
-	const int MENU_MAGIC_HAND_RELOCATE = 11;
+	const int MENU_MAGIC_HAND_RELOCATE = 999;
 
 	// --- Amnesia State ---
 
