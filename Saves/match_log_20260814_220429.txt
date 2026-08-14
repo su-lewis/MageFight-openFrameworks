@@ -1,0 +1,119 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-08-14 22:04:29
+End Reason: Victory
+Seed: 55433527
+Turns: 14
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[22:02:02] --- MATCH STARTED ---
+[22:02:18] Turn 0: Player 2's turn
+[22:02:18] Autosaved turn-start (autosave.json)
+[22:02:23] Player 2 moved to (8,3)
+[22:02:25] Turn 1: Player 1's turn
+[22:02:25] Autosaved turn-start (autosave.json)
+[22:02:28] Player 1 moved to (0,4)
+[22:02:30] Turn 1: Player 2's turn
+[22:02:30] Autosaved turn-start (autosave.json)
+[22:02:32] Player 2 moved to (8,4)
+[22:02:34] Player 2 played Hand Block
+[22:02:42] Player 2 moved to (8,5)
+[22:02:43] Turn 2: Player 1's turn
+[22:02:43] Autosaved turn-start (autosave.json)
+[22:02:47] Player 1 moved to (1,5)
+[22:02:51] Turn 2: Player 2's turn
+[22:02:51] Autosaved turn-start (autosave.json)
+[22:02:54] Player 2 played Necromancer's Blessing
+[22:02:55] Player 2 moved to (7,6)
+[22:02:56] Turn 3: Player 1's turn
+[22:02:56] Autosaved turn-start (autosave.json)
+[22:02:59] Player 1 moved to (3,8)
+[22:03:00] Turn 3: Player 2's turn
+[22:03:00] Autosaved turn-start (autosave.json)
+[22:03:03] Player 2 moved to (6,7)
+[22:03:06] Player 2 moved to (5,8)
+[22:03:07] Turn 4: Player 1's turn
+[22:03:07] Autosaved turn-start (autosave.json)
+[22:03:10] Player 1 moved to (4,8)
+[22:03:14] Player 1 moved to (2,8)
+[22:03:14] Turn 4: Player 2's turn
+[22:03:14] Autosaved turn-start (autosave.json)
+[22:03:16] Player 2 moved to (3,8)
+[22:03:17] Turn 5: Player 1's turn
+[22:03:17] Autosaved turn-start (autosave.json)
+[22:03:19] Player 1 played Bash
+[22:03:21] Player 1 moved to (1,8)
+[22:03:21] Turn 5: Player 2's turn
+[22:03:21] Autosaved turn-start (autosave.json)
+[22:03:24] Player 2 moved to (2,8)
+[22:03:24] Player 2 played Punch
+[22:03:25] Turn 6: Player 1's turn
+[22:03:25] Autosaved turn-start (autosave.json)
+[22:03:28] Turn 6: Player 2's turn
+[22:03:28] Autosaved turn-start (autosave.json)
+[22:03:30] Player 2 played Punch
+[22:03:31] Turn 7: Player 1's turn
+[22:03:31] Autosaved turn-start (autosave.json)
+[22:03:34] Player 1 played Spark of Genius
+[22:03:34] Player 1 drew 4 card(s)
+[22:03:36] Turn 7: Player 2's turn
+[22:03:36] Autosaved turn-start (autosave.json)
+[22:03:38] Player 2 played Hand Block
+[22:03:39] Turn 8: Player 1's turn
+[22:03:39] Autosaved turn-start (autosave.json)
+[22:03:41] Player 1 played Bash
+[22:03:44] Turn 8: Player 2's turn
+[22:03:44] Autosaved turn-start (autosave.json)
+[22:03:47] Player 2 played Lesser Heal
+[22:03:48] Turn 9: Player 1's turn
+[22:03:48] Autosaved turn-start (autosave.json)
+[22:03:50] Player 1 played Bash
+[22:03:52] Turn 9: Player 2's turn
+[22:03:52] Autosaved turn-start (autosave.json)
+[22:03:55] Player 2 played Punch
+[22:03:55] Turn 10: Player 1's turn
+[22:03:55] Autosaved turn-start (autosave.json)
+[22:03:58] Player 1 played Spark of Genius
+[22:03:58] Player 1 drew 2 card(s)
+[22:04:04] Player 1 played Shield Bash
+[22:04:05] Turn 10: Player 2's turn
+[22:04:05] Autosaved turn-start (autosave.json)
+[22:04:07] Player 2 played Punch
+[22:04:08] Turn 11: Player 1's turn
+[22:04:08] Autosaved turn-start (autosave.json)
+[22:04:12] Turn 11: Player 2's turn
+[22:04:12] Autosaved turn-start (autosave.json)
+[22:04:14] Player 2 played Hand Block
+[22:04:15] Player 2 played Necromancer's Blessing
+[22:04:15] Turn 12: Player 1's turn
+[22:04:15] Autosaved turn-start (autosave.json)
+[22:04:17] Player 1 played Shield Bash
+[22:04:18] Turn 12: Player 2's turn
+[22:04:18] Autosaved turn-start (autosave.json)
+[22:04:20] Player 2 played Hand Block
+[22:04:20] Turn 13: Player 1's turn
+[22:04:20] Autosaved turn-start (autosave.json)
+[22:04:22] Turn 13: Player 2's turn
+[22:04:22] Autosaved turn-start (autosave.json)
+[22:04:25] Player 2 played Hand Block
+[22:04:26] Player 2 played Punch
+[22:04:26] Turn 14: Player 1's turn
+[22:04:26] Autosaved turn-start (autosave.json)
+[22:04:28] Player 1 played Bash
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 6
+  Cards Played: 21
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 2
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 2
+=====================

@@ -467,6 +467,18 @@ static bool g_activePlayerDiedThisTurn = false;
 static float g_mpLobbyScroll = 0.0f;
 static float g_mpLeaderboardScroll = 0.0f;
 static ofSoundPlayer g_gameMusic;
+static std::vector<std::string> s_ambienceTracks = {
+	"Sounds/Music/Ambience1.ogg",
+	"Sounds/Music/Ambience2.mp3",
+	"Sounds/Music/Ambience3.mp3",
+	"Sounds/Music/Ambience4.mp3",
+	"Sounds/Music/Ambience5.mp3",
+	"Sounds/Music/Ambience6.mp3",
+	"Sounds/Music/Ambience7.mp3",
+	"Sounds/Music/Ambience8.mp3",
+	"Sounds/Music/Ambience9.mp3"
+};
+static std::vector<int> s_ambiencePlaylist;
 static float savedGameMusicVolume = 0.0f;
 static ofSoundPlayer s_sfxD6Roll;
 static ofSoundPlayer s_sfxCoinflip;
@@ -4243,18 +4255,14 @@ void ofApp::setup() {
 		}
 
 		// Load main menu music (data path: bin/data/Sounds/Music/...)
-		mainMenuMusic.load("Sounds/Music/MainMenu.ogg");
+		mainMenuMusic.load("Sounds/Music/MainMenu.mp3");
 		mainMenuMusic.setLoop(true);
-		mainMenuMusic.setVolume(0.6f);
+		mainMenuMusic.setVolume(1.0f);
 		mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
 		ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
 
-		// Load game music
-		g_gameMusic.load("Sounds/Music/DungeonAmbience.ogg");
-		g_gameMusic.setLoop(true);
-		g_gameMusic.setVolume(0.6f);
-		g_gameMusic.setMultiPlay(false);
-		ofLogNotice("Audio") << "Game music loaded: " << (g_gameMusic.isLoaded() ? "yes" : "no");
+		// Game music is now a dynamic playlist handled in update()
+		ofLogNotice("Audio") << "Game music playlist initialized with 9 tracks.";
 
 		// --- LOAD NEW SFX ---
 		s_sfxD6Roll.load("Sounds/SFX/DiceCoin/D6Roll.ogg");
@@ -5775,14 +5783,33 @@ void ofApp::update() {
 				if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
 					if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
 				}
-				if (g_gameMusic.isLoaded()) {
-					if (!g_gameMusic.isPlaying()) {
-						g_gameMusic.play();
+
+				// --- DYNAMIC AMBIENCE PLAYLIST ---
+				if (!g_gameMusic.isPlaying()) {
+					// If playlist is empty, refill it with all 9 tracks and shuffle!
+					if (s_ambiencePlaylist.empty()) {
+						for (size_t i = 0; i < s_ambienceTracks.size(); i++) {
+							s_ambiencePlaylist.push_back(i);
+						}
+						std::random_device rd;
+						std::mt19937 g(rd());
+						std::shuffle(s_ambiencePlaylist.begin(), s_ambiencePlaylist.end(), g);
 					}
+
+					// Pop the next random track off the back
+					int nextTrack = s_ambiencePlaylist.back();
+					s_ambiencePlaylist.pop_back();
+
+					g_gameMusic.load(s_ambienceTracks[nextTrack]);
+					g_gameMusic.setLoop(false); // MUST be false so it ends and naturally triggers the next track!
+					g_gameMusic.setMultiPlay(false);
+					g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+					g_gameMusic.play();
+
+					ofLogNotice("Audio") << "Now playing ambience track: " << s_ambienceTracks[nextTrack];
 				}
 			}
 		}
-
 		// Reset transient UI hover/pile state when changing major states
 		// Skip clearing hover/pile state for in-game drafts so pile hover and
 		// pile-view remain available while the draft modal is shown.
@@ -7531,14 +7558,17 @@ void ofApp::drawMenuPlaqueButton(const ofRectangle & rect, const std::string & t
 	// Button press indent effect on hover
 	float textY = rect.getCenter().y + (isHovered ? -2.0f : 0.0f);
 
-	// Auto-scale text to fit
-	float scale = 1.2f;
+	// Auto-scale text to fit (Increased base scale for much larger button text)
+	float scale = 1.8f;
 	ofRectangle bounds = uiFont.getStringBoundingBox(displayText, 0, 0);
-	if (bounds.width * scale > rect.width - 20) {
-		scale = (rect.width - 20) / bounds.width;
+
+	// Add a bit more padding so the larger text doesn't touch the gold borders
+	if (bounds.width * scale > rect.width - 40.0f) {
+		scale = (rect.width - 40.0f) / bounds.width;
 	}
 
-	drawPixelTextCentered(uiFont, displayText, rect.getCenter().x, textY, scale, textColor, 2, ofColor::black);
+	// Use a thicker outline (3 instead of 2) to match the larger text
+	drawPixelTextCentered(uiFont, displayText, rect.getCenter().x, textY, scale, textColor, 3, ofColor::black);
 }
 
 void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
@@ -8022,7 +8052,6 @@ void ofApp::drawSingleplayerMenu() {
 	drawMenuPlaqueButton(mainMenuLocalPvPButton, "Local PvP", mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(singleplayerBackButton, "Back", singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
-
 void ofApp::drawCustomisationState() {
 	draw2DMenuBackground();
 	drawMainMenu();
@@ -8033,6 +8062,12 @@ void ofApp::drawCustomisationState() {
 	float cx = ofGetWidth() / 2.0f;
 
 	drawPixelTextCentered(titleFont, "CUSTOMISATION", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(uiFont, "Coming Soon...", cx, ofGetHeight() / 2.0f, 1.0f * uiScale, ofColor::white);
+
+	// Explicitly assign the hitbox here so it perfectly matches the Encyclopedia back button
+	customisationBtnBack.set(cx - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
+	bool backHover = customisationBtnBack.inside(ofGetMouseX(), ofGetMouseY());
+	drawMenuPlaqueButton(customisationBtnBack, "Back", backHover);
 }
 
 void ofApp::drawSaveBrowser() {
@@ -37133,6 +37168,14 @@ void ofApp::cleanupGame() {
 	chatInput.clear();
 	lastChatInteractionTime = -999.0f;
 
+	// --- FIX: Reset Menu Sliders & Panning so UI buttons don't break when quitting! ---
+	currentMenuPanX = 0.0f;
+	targetMenuPanX = 0.0f;
+	targetMenuScreen = 0;
+	isWaitingForMenuTransition = false;
+	pendingMenuState = STATE_MAIN_MENU;
+	updateMenuRects(); // Snap hitboxes back to center immediately
+
 	// --- FIX: Reset all Lobby and Connection flags to prevent getting stuck ---
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
@@ -37141,7 +37184,7 @@ void ofApp::cleanupGame() {
 	isInGameDraft = false;
 	initialDraftComplete = false;
 
-	// Restore default walls for the main menu background using a Pac-Man maze layout
+	// Restore default walls for the main menu background
 	const char * maze[BOARD_HEIGHT] = {
 		"WWWWWWWWWWWWW",
 		"W.WWW.W.WWW.W",
@@ -38090,14 +38133,13 @@ void ofApp::drawEncyclopediaState() {
 		const int cols = 10;
 		const float padX = 8.0f * uiScale;
 		const float padY = 10.0f * uiScale;
-		const float nameBand = 16.0f * uiScale;
+		const float nameBand = 24.0f * uiScale;
 
 		float cardW = std::max(12.0f, (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols);
 		float cardH = cardW * 1.4f;
 		float rowStep = cardH + padY + nameBand;
 		float gridWidth = cols * cardW + (cols - 1) * padX;
 
-		// Anchor the cards to the sliding center (cx)
 		float startX = cx - gridWidth / 2.0f;
 
 		ofPushStyle();
@@ -38107,121 +38149,132 @@ void ofApp::drawEncyclopediaState() {
 		int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
 		glScissor((int)startX, scY, (int)gridWidth, (int)contentH);
 
-		for (int pass = 0; pass < 2; pass++) {
-			int row = 0, col = 0;
-			for (size_t i = 0; i < allCards.size(); i++) {
-				bool isHovered = (encyclopediaMainHoverScaled && (int)i == encyclopediaMainHoveredIndex);
-				if ((pass == 0 && isHovered) || (pass == 1 && !isHovered)) {
-					col++;
-					if (col >= cols) {
-						col = 0;
-						row++;
-					}
-					continue;
-				}
+		int hoveredDrawIndex = -1;
+		float hDrawX = 0, hDrawY = 0;
+		Card hCard;
 
-				float drawX = startX + col * (cardW + padX);
-				float drawY = contentY + row * rowStep - encyclopediaMainScroll;
+		int row = 0, col = 0;
+		for (size_t i = 0; i < allCards.size(); i++) {
+			bool isHovered = (encyclopediaMainHoverScaled && (int)i == encyclopediaMainHoveredIndex);
 
+			float drawX = startX + col * (cardW + padX);
+			float drawY = contentY + row * rowStep - encyclopediaMainScroll;
+
+			if (isHovered) {
+				hoveredDrawIndex = i;
+				hDrawX = drawX;
+				hDrawY = drawY;
+				hCard = allCards[i];
+			} else {
+				// Only draw normal cards if they are within the scissor box
 				if (drawY + cardH > contentY && drawY < contentBottom) {
-					float thisCardW = isHovered ? cardW * 1.8f : cardW;
-					float thisCardH = isHovered ? cardH * 1.8f : cardH;
-					float finalX = isHovered ? drawX - (thisCardW - cardW) / 2.0f : drawX;
-					float finalY = isHovered ? drawY - (thisCardH - cardH) / 2.0f : drawY;
-
-					if (isHovered) {
-						ofSetColor(255, 255, 100, 190);
-						ofSetLineWidth(5.0f);
-						drawCardOutlineOutside(finalX, finalY, thisCardW, thisCardH, 5.0f, 1.0f);
-					}
-
 					ofSetColor(255);
-					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, allCards[i], finalX, finalY, thisCardW, thisCardH, nullptr);
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, allCards[i], drawX, drawY, cardW, cardH, nullptr);
 
-					ofSetColor(200);
 					string shortName = allCards[i].name;
 					if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
-					ofRectangle nameBounds = uiFont.getStringBoundingBox(shortName, 0, 0);
-					SafeDrawText(uiFont, shortName, drawX + (cardW - nameBounds.width) * 0.5f, drawY + cardH + 16.0f * uiScale);
+
+					// Nice Mage Fight themed text under the cards
+					drawPixelTextCentered(uiFont, shortName, drawX + cardW * 0.5f, drawY + cardH + 18.0f * uiScale, 1.0f * uiScale, ofColor(255, 255, 230), 2, ofColor(150, 100, 0));
 				}
-				col++;
-				if (col >= cols) {
-					col = 0;
-					row++;
-				}
+			}
+			col++;
+			if (col >= cols) {
+				col = 0;
+				row++;
 			}
 		}
 
 		glDisable(GL_SCISSOR_TEST);
 		safePopStyle();
 
+		// Draw the hovered card OUTSIDE the scissor test, so it pops hugely out of the frame!
+		if (hoveredDrawIndex != -1) {
+			float scaleUp = 2.5f; // HUGE!
+			float thisCardW = cardW * scaleUp;
+			float thisCardH = cardH * scaleUp;
+			float finalX = hDrawX - (thisCardW - cardW) / 2.0f;
+			float finalY = hDrawY - (thisCardH - cardH) / 2.0f;
+
+			// Keep the huge card on screen if you hover over the top or bottom edges
+			if (finalY < 10) finalY = 10;
+			if (finalY + thisCardH > ofGetHeight() - 10) finalY = ofGetHeight() - thisCardH - 10;
+
+			ofPushStyle();
+			ofSetColor(255, 255, 100, 210);
+			ofSetLineWidth(6.0f);
+			drawCardOutlineOutside(finalX, finalY, thisCardW, thisCardH, 6.0f, 2.0f);
+
+			ofSetColor(255);
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, hCard, finalX, finalY, thisCardW, thisCardH, nullptr);
+
+			string fullName = hCard.name;
+			drawPixelTextCentered(titleFont, fullName, finalX + thisCardW * 0.5f, finalY + thisCardH + 30.0f * uiScale, 1.2f * uiScale, ofColor::white, 3, ofColor(200, 120, 0));
+			safePopStyle();
+		}
+
 	} else if (encyclopediaMainTab == 1) {
 		// MINIONS TAB
-		float startX = cx - 400 * uiScale;
-		float y = contentY;
-		ofSetColor(255);
+		float startX = cx - panelWidth * 0.45f;
+		float col1X = startX + 20 * uiScale;
+		float col2X = cx + 20 * uiScale;
+		float colW = panelWidth * 0.45f - 40 * uiScale;
 
-		auto drawMinionInfo = [&](string name, string stats, string effect) {
-			ofSetColor(ofColor::gold);
-			SafeDrawText(uiFont, name, startX, y);
-			ofSetColor(150, 255, 150);
-			SafeDrawText(uiFont, stats, startX + 200 * uiScale, y);
-			ofSetColor(200);
-			SafeDrawText(uiFont, effect, startX + 450 * uiScale, y);
-			y += 40 * uiScale;
+		auto drawMinionInfo = [&](string name, string stats, string effect, float & currentY, float currentX) {
+			drawPixelTextBaseline(titleFont, name, currentX, currentY, 0.9f * uiScale, ofColor::gold, 2, ofColor::black);
+			currentY += 26 * uiScale;
+			drawPixelTextBaseline(uiFont, stats, currentX, currentY, 1.0f * uiScale, ofColor(150, 255, 150));
+			currentY += 24 * uiScale;
+
+			auto lines = wrapTextScaled(uiFont, effect, colW, 1.0f * uiScale);
+			for (auto & l : lines) {
+				drawPixelTextBaseline(uiFont, l, currentX, currentY, 1.0f * uiScale, ofColor(220));
+				currentY += 22 * uiScale;
+			}
+			currentY += 20 * uiScale;
 		};
 
-		drawMinionInfo("SKELETON", "AP: 1d6 | HP: 1d6+Luck", "Weak to Holy");
-		drawMinionInfo("GOLEM", "AP: 1d6 | HP: 1d10+Luck", "Adapts to previous spell element");
-		drawMinionInfo("WOLF", "AP: 1d10 | HP: 4", "Can attack immediately if coins allow");
-		drawMinionInfo("HELLHOUND", "AP: 2d6 | HP: 2d6+2xLuck", "Weak to Holy");
-		drawMinionInfo("DEMON", "AP: 4d4 | HP: 3d10+3xLuck", "Weak to Holy");
-		drawMinionInfo("KOBOLD", "AP: 1d4 | HP: 1", "Pack tactics");
-		drawMinionInfo("KOBOLD KING", "AP: 1d6 | HP: 1 + Pack", "HP scales with living Kobolds");
-		drawMinionInfo("ASSISTANT", "AP: Coin (1-2) | HP: 1", "Rerolls AP for summoner once per turn");
-		drawMinionInfo("FAERIE", "AP: 1d4 | HP: 5", "Has Deck. Auto-resurrects adjacent allies");
-		drawMinionInfo("WALL", "AP: 1d4 | HP: 5", "Blocks attacks and movement");
-		drawMinionInfo("MAGIC WALL", "AP: 1d6 | HP: 7", "Magic dmg x2, Phys dmg /2 in aura");
+		float y1 = contentY + 20 * uiScale;
+		float y2 = contentY + 20 * uiScale;
+
+		drawMinionInfo("SKELETON", "AP: 1d6 | HP: 1d6+Luck", "Weak to Holy", y1, col1X);
+		drawMinionInfo("GOLEM", "AP: 1d6 | HP: 1d10+Luck", "Adapts to previous spell element", y1, col1X);
+		drawMinionInfo("WOLF", "AP: 1d10 | HP: 4", "Can attack immediately if coins allow", y1, col1X);
+		drawMinionInfo("HELLHOUND", "AP: 2d6 | HP: 2d6+2xLuck", "Weak to Holy", y1, col1X);
+		drawMinionInfo("DEMON", "AP: 4d4 | HP: 3d10+3xLuck", "Weak to Holy", y1, col1X);
+		drawMinionInfo("KOBOLD", "AP: 1d4 | HP: 1", "Pack tactics", y1, col1X);
+
+		drawMinionInfo("KOBOLD KING", "AP: 1d6 | HP: 1 + Pack", "HP scales with living Kobolds", y2, col2X);
+		drawMinionInfo("ASSISTANT", "AP: Coin (1-2) | HP: 1", "Rerolls AP for summoner once per turn", y2, col2X);
+		drawMinionInfo("FAERIE", "AP: 1d4 | HP: 5", "Has Deck. Auto-resurrects adjacent allies", y2, col2X);
+		drawMinionInfo("WALL", "AP: 1d4 | HP: 5", "Blocks attacks and movement", y2, col2X);
+		drawMinionInfo("MAGIC WALL", "AP: 1d6 | HP: 7", "Magic dmg x2, Phys dmg /2 in aura", y2, col2X);
 
 	} else if (encyclopediaMainTab == 2) {
 		// HOW TO PLAY TAB
-		float tX = cx - 350 * uiScale;
-		float tY = contentY;
+		float tX = cx - panelWidth * 0.45f + 40 * uiScale;
+		float tY = contentY + 20 * uiScale;
+		float colW = panelWidth * 0.9f - 80 * uiScale;
 
-		ofSetColor(255);
-		SafeDrawText(titleFont, "Turn Structure", tX, tY);
-		tY += 30 * uiScale;
-		ofSetColor(200);
-		SafeDrawText(uiFont, "- Start of Turn: You draw 2 cards (Demons draw 3).", tX, tY);
-		tY += 25 * uiScale;
-		SafeDrawText(uiFont, "- AP Roll: You roll dice to determine Action Points (AP). Standard units roll 1d6.", tX, tY);
-		tY += 25 * uiScale;
-		SafeDrawText(uiFont, "- Action Phase: Spend AP to play cards or move (1 AP per tile).", tX, tY);
-		tY += 25 * uiScale;
+		auto drawRuleSection = [&](string title, std::vector<string> points) {
+			drawPixelTextBaseline(titleFont, title, tX, tY, 1.2f * uiScale, ofColor::gold, 2, ofColor::black);
+			tY += 35 * uiScale;
+			for (const auto & pt : points) {
+				auto lines = wrapTextScaled(uiFont, pt, colW, 1.0f * uiScale);
+				for (const auto & l : lines) {
+					drawPixelTextBaseline(uiFont, l, tX + 20 * uiScale, tY, 1.0f * uiScale, ofColor(220));
+					tY += 24 * uiScale;
+				}
+				tY += 8 * uiScale;
+			}
+			tY += 20 * uiScale;
+		};
 
-		tY += 20 * uiScale;
-		ofSetColor(255);
-		SafeDrawText(titleFont, "Damage & Defenses", tX, tY);
-		tY += 30 * uiScale;
-		ofSetColor(200);
-		SafeDrawText(uiFont, "- Physical: Absorbed by Block, Fortification, and Ward.", tX, tY);
-		tY += 25 * uiScale;
-		SafeDrawText(uiFont, "- Piercing: Halves damage against subsequent targets in a line.", tX, tY);
-		tY += 25 * uiScale;
-		SafeDrawText(uiFont, "- Magic/Fire/Electric/Poison: Bypasses Block. Absorbed by Barrier and Ward.", tX, tY);
-		tY += 25 * uiScale;
-		SafeDrawText(uiFont, "- Holy: Deals 2x damage to Undead and Demons. Absorbed by Holy Block.", tX, tY);
-		tY += 25 * uiScale;
+		drawRuleSection("Turn Structure", { "- Start of Turn: You draw 2 cards (Demons draw 3).", "- AP Roll: You roll dice to determine Action Points (AP). Standard units roll 1d6.", "- Action Phase: Spend AP to play cards or move (1 AP per tile)." });
 
-		tY += 20 * uiScale;
-		ofSetColor(255);
-		SafeDrawText(titleFont, "Keywords", tX, tY);
-		tY += 30 * uiScale;
-		ofSetColor(200);
-		SafeDrawText(uiFont, "- Luck: Adds a flat bonus to almost every dice roll you make.", tX, tY);
-		tY += 25 * uiScale;
-		SafeDrawText(uiFont, "- Flurry: Doubles the effect and damage of all Hand-to-Hand attacks.", tX, tY);
-		tY += 25 * uiScale;
+		drawRuleSection("Damage & Defenses", { "- Physical: Absorbed by Block, Fortification, and Ward.", "- Piercing: Halves damage against subsequent targets in a line.", "- Magic/Fire/Electric/Poison: Bypasses Block. Absorbed by Barrier and Ward.", "- Holy: Deals 2x damage to Undead and Demons. Absorbed by Holy Block." });
+
+		drawRuleSection("Keywords", { "- Luck: Adds a flat bonus to almost every dice roll you make.", "- Flurry: Doubles the effect and damage of all Hand-to-Hand attacks." });
 	}
 }
 
@@ -38644,21 +38697,18 @@ void ofApp::drawInitiativeRoll() {
 }
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
-	ofPushStyle();
-	// Isolate UI drawing state so other render paths aren't affected.
-	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
-	ofDisableLighting();
-	ofDisableDepthTest();
-	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(255, 255, 255, 255);
-	// Dim the world behind draft cards (modal overlay)
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
 	if (draftOptions.empty()) {
+		// If we are actively transitioning to gameplay, skip drawing the overlay entirely!
+		if (draftEndScheduled) return;
+
+		// We still need the overlay if we are genuinely waiting for network packets or async generation
 		ofPushStyle();
+		ofDisableLighting();
+		ofDisableDepthTest();
 		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 		ofSetColor(0, 0, 0, 180);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
 		float boxW = std::min(540.0f, ofGetWidth() * 0.72f);
 		float boxH = 96.0f;
 		float boxX = ofGetWidth() * 0.5f - boxW * 0.5f;
@@ -38671,24 +38721,21 @@ void ofApp::drawDraftScreen() {
 		float ty = std::round(ofGetHeight() * 0.5f);
 		SafeDrawText(titleFont, msg, tx, ty);
 
-		// Immediate diagnostic dump to help trace empty-draft root cause
-		ofLogNotice("DraftDebug") << "drawDraftScreen: EMPTY overlay - state=" << currentState
-								  << " draftPlayerIndex=" << draftPlayerIndex
-								  << " draftStage=" << draftStage
-								  << " currentDraftClassTier=" << currentDraftClassTier
-								  << " lastDraftOptionsPlayer=" << lastDraftOptionsPlayer
-								  << " isInGameDraft=" << (isInGameDraft ? 1 : 0)
-								  << " waitingForDraftOptionsStartTime=" << waitingForDraftOptionsStartTime
-								  << " draftGenerationCounter=" << draftGenerationCounter
-								  << " class1Cards=" << class1Cards.size()
-								  << " class2Cards=" << class2Cards.size()
-								  << " class3Cards=" << class3Cards.size();
-		safeDisableBlendMode();
-		safePopStyle();
 		safeDisableBlendMode();
 		safePopStyle();
 		return;
 	}
+
+	ofPushStyle();
+	// Isolate UI drawing state so other render paths aren't affected.
+	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
+	ofDisableLighting();
+	ofDisableDepthTest();
+	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+	ofSetColor(255, 255, 255, 255);
+	// Dim the world behind draft cards (modal overlay)
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 	// 1. Construct Specific Instruction Text
 	string pName = "";
