@@ -50,12 +50,13 @@ enum GameState {
 	STATE_GAMEPLAY,
 	STATE_WAITING_FOR_RECONNECT,
 	STATE_PAUSED,
-	STATE_INITIATIVE_ROLL, // <--- New
-	STATE_DRAFTING, // <--- New
+	STATE_INITIATIVE_ROLL,
+	STATE_DRAFTING,
 	STATE_SINGLEPLAYER_MENU,
 	STATE_SAVE_BROWSER,
 	STATE_ENCYCLOPEDIA,
-	STATE_DESYNC // Desync detected; abort match
+	STATE_CUSTOMISATION, // <--- New
+	STATE_DESYNC
 };
 
 enum PlayerActionState {
@@ -1811,13 +1812,6 @@ private:
 	ofRectangle saveGameButtonRect;
 	ofRectangle loadGameButtonRect;
 
-	// Singleplayer menu UI
-	ofRectangle singleplayerContinueButton;
-	ofRectangle singleplayerLoadButton;
-	ofRectangle singleplayerNewGameButton;
-	ofRectangle singleplayerReplayButton; // <--- ADDED
-	ofRectangle singleplayerBackButton;
-
 	// Game Over UI
 	ofRectangle gameOverReturnBtn;
 	ofRectangle gameOverReplayBtn;
@@ -2668,12 +2662,22 @@ private:
 	// `currentCardOutcome.namedDiceResults["status_poison"]` respectively.
 
 	// Main Menu
-	ofRectangle mainMenuLocalPvPButton;
-	ofRectangle mainMenuVsAIButton;
 	ofRectangle mainMenuOnlineButton;
+	ofRectangle mainMenuSingleplayerButton;
+	ofRectangle mainMenuCustomisationButton;
+	ofRectangle mainMenuEncyclopediaButton;
 	ofRectangle mainMenuSettingsButton;
 	ofRectangle mainMenuQuitButton;
-	ofRectangle mainMenuSingleplayerButton;
+
+	// Singleplayer Menu
+	ofRectangle singleplayerNewGameButton;
+	ofRectangle singleplayerContinueButton;
+	ofRectangle singleplayerLoadButton;
+	ofRectangle singleplayerReplayButton;
+	ofRectangle singleplayerBackButton;
+	ofRectangle mainMenuLocalPvPButton;
+	ofRectangle mainMenuVsAIButton;
+
 	int mainMenuHoveredIndex = -1;
 
 	// Main Menu Mini-Game
@@ -2702,7 +2706,6 @@ private:
 	std::vector<glm::vec2> getInfiniteMazePath(glm::vec2 start, glm::vec2 end);
 
 	// Encyclopedia State
-	ofRectangle mainMenuEncyclopediaButton;
 	int encyclopediaMainTab = 0; // 0=Cards, 1=Minions, 2=How to Play
 	float encyclopediaMainScroll = 0.0f;
 	ofRectangle encyTabCards, encyTabMinions, encyTabRules, encyBtnBack;
@@ -2712,7 +2715,13 @@ private:
 
 	void drawEncyclopediaState();
 
+	// Customisation State
+	ofRectangle customisationBtnBack;
+	void drawCustomisationState();
+
 	// Multiplayer Menu UI
+	ofRectangle mpLobbiesPanelRect;
+	ofRectangle mpLeaderboardPanelRect;
 	ofRectangle mpRefreshButton;
 	ofRectangle mpHostButton;
 	ofRectangle mpBackButton;

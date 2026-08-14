@@ -5757,7 +5757,7 @@ void ofApp::update() {
 
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
-		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SAVE_BROWSER || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_MULTIPLAYER_MENU || stateBeforeSettings == STATE_SAVE_BROWSER)));
+		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SAVE_BROWSER || currentState == STATE_ENCYCLOPEDIA || currentState == STATE_CUSTOMISATION || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_MULTIPLAYER_MENU || stateBeforeSettings == STATE_SAVE_BROWSER || stateBeforeSettings == STATE_ENCYCLOPEDIA || stateBeforeSettings == STATE_CUSTOMISATION)));
 
 		if (!headless) {
 			if (isMenuContext) {
@@ -6231,6 +6231,7 @@ void ofApp::draw() {
 		case STATE_MULTIPLAYER_MENU:
 		case STATE_SINGLEPLAYER_MENU:
 		case STATE_ENCYCLOPEDIA:
+		case STATE_CUSTOMISATION:
 			// The Ultimate Unified Pan-and-Scroll 2D View!
 			draw2DMenuBackground();
 
@@ -6239,9 +6240,11 @@ void ofApp::draw() {
 			drawMultiplayerMenu();
 			drawSingleplayerMenu();
 
-			// Encyclopedia is a centered overlay, ONLY draw it when active!
+			// Overlays
 			if (currentState == STATE_ENCYCLOPEDIA) {
 				drawEncyclopediaState();
+			} else if (currentState == STATE_CUSTOMISATION) {
+				drawCustomisationState();
 			}
 			break;
 		}
@@ -7345,8 +7348,9 @@ std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 
 			int nx = n.x;
 			int ny = n.y;
 
-			// Restrict infinite search space
-			if (nx < startPos.x - 50 || nx > startPos.x + 50) continue;
+			// Restrict the infinite BFS so it doesn't search the entire screen space and lag
+			// Cap it specifically to the exact bounds of our defined rooms (-30 to +42)
+			if (nx < -30 || nx > 42) continue;
 
 			// Use the 30-tile stride logic
 			int modX = (nx % 30 + 30) % 30;
@@ -7424,7 +7428,7 @@ void ofApp::updateMenuRects() {
 	mainMenuSingleplayerButton.set(mX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
 
 	// Middle Row
-	mainMenuVsAIButton.set(mX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+	mainMenuCustomisationButton.set(mX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
 	mainMenuEncyclopediaButton.set(mX + 8 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
 
 	// Bottom Row
@@ -7432,38 +7436,44 @@ void ofApp::updateMenuRects() {
 	mainMenuQuitButton.set(mX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 
 	// --- Screen -1: Online ---
-	float oX = getScreenCX(-1);
-	// We want the panels to be slightly less than half the screen width
-	float colW = std::min(600.0f * uiScale, ofGetWidth() * 0.45f);
-	float gap = 20.0f * uiScale;
-	float leftColX = oX - colW - gap;
-	float rightColX = oX + gap;
-	float bottomBtnY = ofGetHeight() * 0.85f;
-	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.0f - 5.0f * uiScale, 60.0f * uiScale);
-	mpHostButton.set(leftColX + colW / 2.0f + 5.0f * uiScale, bottomBtnY, colW / 2.0f - 5.0f * uiScale, 60.0f * uiScale);
-	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
+	float oX = getScreenX(-1);
+
+	// Lock the Panels to the physical wall tiles (3x4 tiles)
+	mpLobbiesPanelRect.set(oX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, menuTileSize * 3, menuTileSize * 4);
+	mpLeaderboardPanelRect.set(oX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, menuTileSize * 3, menuTileSize * 4);
+
+	// Lock the Action Buttons to the bottom wall tiles
+	mpRefreshButton.set(oX + 2 * menuTileSize, menuStartY + 6 * menuTileSize, btnW, btnH);
+	mpHostButton.set(oX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+	mpBackButton.set(oX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 
 	// --- Screen 1: Singleplayer ---
-	float sX = getScreenCX(1);
-	float spBtnW = 400.0f * uiScale;
-	float spBtnH = 80.0f * uiScale;
-	float spStartY = h / 2.0f - (spBtnH * 1.5f);
-	float spGap = 20.0f * uiScale;
-	singleplayerNewGameButton.set(sX - spBtnW / 2, spStartY, spBtnW, spBtnH);
-	singleplayerContinueButton.set(sX - spBtnW / 2, spStartY + spBtnH + spGap, spBtnW, spBtnH);
-	singleplayerLoadButton.set(sX - spBtnW / 2, spStartY + (spBtnH + spGap) * 2, spBtnW, spBtnH);
-	singleplayerReplayButton.set(sX - spBtnW / 2, spStartY + (spBtnH + spGap) * 3, spBtnW, spBtnH);
-	singleplayerBackButton.set(sX - spBtnW / 2, spStartY + (spBtnH + spGap) * 4, spBtnW, spBtnH);
+	float sX = getScreenX(1);
+
+	// Top Row
+	singleplayerNewGameButton.set(sX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+	singleplayerContinueButton.set(sX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+
+	// Middle Row
+	singleplayerLoadButton.set(sX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+	singleplayerReplayButton.set(sX + 8 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+
+	// Bottom Row
+	mainMenuLocalPvPButton.set(sX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH); // Moved here!
+	singleplayerBackButton.set(sX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 
 	// --- Screen 2: Encyclopedia (Overlay) ---
-	float eX_center = ofGetWidth() / 2.0f;
+	float cX_center = ofGetWidth() / 2.0f;
 	float tabW = 240 * uiScale;
 	float tabH = 50 * uiScale;
 	float spacing = 20 * uiScale;
-	encyTabCards.set(eX_center - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
-	encyTabMinions.set(eX_center - tabW * 0.5f, 140 * uiScale, tabW, tabH);
-	encyTabRules.set(eX_center + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
-	encyBtnBack.set(eX_center - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
+	encyTabCards.set(cX_center - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
+	encyTabMinions.set(cX_center - tabW * 0.5f, 140 * uiScale, tabW, tabH);
+	encyTabRules.set(cX_center + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
+	encyBtnBack.set(cX_center - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
+
+	// --- Screen 3: Customisation (Overlay) ---
+	customisationBtnBack.set(cX_center - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
 
 	// --- Screen -2: Settings (Overlay) ---
 	float setX = ofGetWidth() / 2.0f;
@@ -7604,7 +7614,12 @@ void ofApp::draw2DMenuBackground() {
 			if (isBoardTile) {
 				isWall = board[modX][y].hasWall;
 			} else {
-				isWall = (y != 5); // Tunnel at y=5 is safe, everything else is wall
+				// Tunnel at y=5 is safe, BUT cap the extreme left and right ends!
+				if (y == 5 && x >= -30 && x <= 42) {
+					isWall = false;
+				} else {
+					isWall = true;
+				}
 			}
 
 			if (isWall) {
@@ -7684,9 +7699,11 @@ void ofApp::draw2DMenuBackground() {
 void ofApp::drawMainMenu() {
 	draw2DMenuBackground();
 
+	// 3. Draw Title (Top Center)
 	string title = "MAGE FIGHT";
-	float titleScale = 2.0f;
-	float titleY = std::max(ofGetHeight() * 0.12f, menuStartY - menuTileSize * 0.8f);
+	float titleScale = 1.5f; // Shrunk so it doesn't overlap the buttons
+	// Secure the title so it never flies off the top of the screen
+	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
 
 	// Slide the title text so it stays above the main board while panning!
 	float titleX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize) / 2.0f;
@@ -7694,7 +7711,7 @@ void ofApp::drawMainMenu() {
 
 	drawMenuPlaqueButton(mainMenuOnlineButton, "Online Versus", mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), true);
 	drawMenuPlaqueButton(mainMenuSingleplayerButton, "Singleplayer", mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuVsAIButton, "Vs AI (Quickstart)", mainMenuVsAIButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuCustomisationButton, "Customisation", mainMenuCustomisationButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuEncyclopediaButton, "Encyclopedia", mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuSettingsButton, "Settings", mainMenuSettingsButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuQuitButton, "Quit", mainMenuQuitButton.inside(ofGetMouseX(), ofGetMouseY()));
@@ -7992,35 +8009,30 @@ void ofApp::drawSettingsMenu() {
 
 void ofApp::drawSingleplayerMenu() {
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-	float sX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize);
+	float sX = baseMenuStartX - currentMenuPanX + (30 * menuTileSize);
 	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
-	float titleY = singleplayerNewGameButton.y - 40.0f * uiScale;
-	drawPixelTextCentered(titleFont, "SINGLEPLAYER", centerX, titleY, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
+	drawPixelTextCentered(titleFont, "SINGLEPLAYER", centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
-	std::string contText = "Continue";
-	try {
-		namespace fs = std::filesystem;
-		fs::path p = getSavesDirPath() / fs::path("autosave.json");
-		if (fs::exists(p)) {
-			int64_t savedAt = readSaveTimestampFromFile(p);
-			if (savedAt < 0) savedAt = (int64_t)std::time(nullptr);
-			std::time_t tt = (std::time_t)savedAt;
-			char buf[64];
-			std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
-			contText += " (";
-			contText += buf;
-			contText += ")";
-		}
-	} catch (...) { }
-
-	drawMenuPlaqueButton(singleplayerNewGameButton, "New Game", singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerContinueButton, contText, singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerLoadButton, "Load", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerNewGameButton, "New vs AI", singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerContinueButton, "Continue vs AI", singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerLoadButton, "Load Game", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(singleplayerReplayButton, "Watch Last Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuLocalPvPButton, "Local PvP", mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(singleplayerBackButton, "Back", singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
+}
 
-	drawPixelTextCentered(uiFont, "Customisation coming soon", centerX, singleplayerBackButton.getBottom() + 36, 1.0f, ofColor(200));
+void ofApp::drawCustomisationState() {
+	draw2DMenuBackground();
+	drawMainMenu();
+	ofSetColor(0, 0, 0, 240);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+	float cx = ofGetWidth() / 2.0f;
+
+	drawPixelTextCentered(titleFont, "CUSTOMISATION", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
 }
 
 void ofApp::drawSaveBrowser() {
@@ -8185,48 +8197,31 @@ void ofApp::drawSaveBrowser() {
 
 void ofApp::drawMultiplayerMenu() {
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
-	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize); // FIX: Must use the 30-tile stride!
+	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize);
 	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
-	drawPixelTextCentered(titleFont, "ONLINE VERSUS", centerX, ofGetHeight() * 0.1f, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
+	drawPixelTextCentered(titleFont, "ONLINE VERSUS", centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
-	// Layout Dimensions (Relative to sliding center)
-	float colW = std::min(600.0f * uiScale, ofGetWidth() * 0.45f);
-	float gap = 20.0f * uiScale;
-	float leftColX = centerX - colW - gap;
-	float rightColX = centerX + gap;
-	float listY = ofGetHeight() * 0.2f;
-	float bottomBtnY = ofGetHeight() * 0.85f;
-	float listHeight = bottomBtnY - listY - 20.0f * uiScale;
+	// --- LOBBIES PANEL (Left) ---
+	drawMenuPlaquePanel(mpLobbiesPanelRect);
 
-	// --- LEFT COLUMN: LOBBY LIST ---
-	ofSetColor(ofColor::gold);
-	SafeDrawText(uiFont, "Available Matches", leftColX, listY - 20.0f * uiScale);
+	glEnable(GL_SCISSOR_TEST);
+	int scY = g_isFboPass ? (mpLobbiesPanelRect.y + 4) : (ofGetHeight() - (mpLobbiesPanelRect.getBottom() - 4));
+	glScissor(mpLobbiesPanelRect.x + 4, scY, mpLobbiesPanelRect.width - 8, mpLobbiesPanelRect.height - 8);
 
 	auto lobbies = steamManager.getLobbyList();
 	mpLobbyButtons.clear();
-	float btnH = 60.0f * uiScale;
-
-	// Calculate max scroll for lobbies
-	float totalLobbyHeight = lobbies.size() * (btnH + 10.0f * uiScale);
-	float maxLobbyScroll = std::max(0.0f, totalLobbyHeight - listHeight);
-	g_mpLobbyScroll = std::clamp(g_mpLobbyScroll, 0.0f, maxLobbyScroll);
-
-	// Setup Scissor to clip scrolling lobbies
-	ofRectangle leftPanelRect(leftColX - 10, listY - 10, colW + 20, listHeight + 20);
-	drawMenuPlaquePanel(leftPanelRect);
-
-	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
-	glScissor((int)leftColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
 
 	if (lobbies.empty()) {
-		drawPixelTextCentered(uiFont, "No open matches found.", leftColX + colW / 2, listY + listHeight / 2, 1.0f, ofColor(150));
+		drawPixelTextCentered(uiFont, "No open matches found.", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y, 1.0f, ofColor(150));
 	} else {
-		float currentY = listY - g_mpLobbyScroll;
+		float currentY = mpLobbiesPanelRect.y + 10 - g_mpLobbyScroll;
+		float itemH = 60.0f * uiScale;
 		for (size_t i = 0; i < lobbies.size(); ++i) {
-			ofRectangle lRect(leftColX, currentY, colW, btnH);
+			ofRectangle lRect(mpLobbiesPanelRect.x + 10, currentY, mpLobbiesPanelRect.width - 20, itemH);
 
-			if (lRect.getBottom() > listY && lRect.getTop() < listY + listHeight) {
+			if (lRect.getBottom() > mpLobbiesPanelRect.y && lRect.getTop() < mpLobbiesPanelRect.getBottom()) {
 				mpLobbyButtons.push_back(lRect);
 				bool isHovered = lRect.inside(ofGetMouseX(), ofGetMouseY());
 				if (isHovered) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
@@ -8240,44 +8235,28 @@ void ofApp::drawMultiplayerMenu() {
 				mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
 			}
 
-			currentY += btnH + 10.0f * uiScale;
+			currentY += itemH + 10.0f * uiScale;
 		}
 	}
-	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_SCISSOR_TEST);
 
-	// Action Buttons under Lobbies
-	mpRefreshButton.set(leftColX, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
-	mpHostButton.set(leftColX + colW / 2.0f + 10, bottomBtnY, colW / 2.1f, 60.0f * uiScale);
+	// --- LEADERBOARD PANEL (Right) ---
+	drawMenuPlaquePanel(mpLeaderboardPanelRect);
 
-	drawMenuPlaqueButton(mpRefreshButton, "Refresh List", mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mpHostButton, "Host Match", mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
-
-	// --- RIGHT COLUMN: LEADERBOARD ---
-	ofSetColor(ofColor::cyan);
-	SafeDrawText(uiFont, "Global Rankings (Rating)", rightColX, listY - 20.0f * uiScale);
+	glEnable(GL_SCISSOR_TEST);
+	int lbScY = g_isFboPass ? (mpLeaderboardPanelRect.y + 4) : (ofGetHeight() - (mpLeaderboardPanelRect.getBottom() - 4));
+	glScissor(mpLeaderboardPanelRect.x + 4, lbScY, mpLeaderboardPanelRect.width - 8, mpLeaderboardPanelRect.height - 8);
 
 	auto leaderboard = steamManager.getLeaderboardEntries();
-
-	// Calculate max scroll for leaderboard
-	float totalLbHeight = leaderboard.size() * (btnH + 5.0f * uiScale);
-	float maxLbScroll = std::max(0.0f, totalLbHeight - listHeight);
-	g_mpLeaderboardScroll = std::clamp(g_mpLeaderboardScroll, 0.0f, maxLbScroll);
-
-	ofRectangle rightPanelRect(rightColX - 10, listY - 10, colW + 20, listHeight + 20);
-	drawMenuPlaquePanel(rightPanelRect);
-
-	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
-	glScissor((int)rightColX, (int)(ofGetHeight() - (listY + listHeight)), (int)colW, (int)listHeight);
-
 	if (leaderboard.empty()) {
-		drawPixelTextCentered(uiFont, "Loading rankings...", rightColX + colW / 2, listY + listHeight / 2, 1.0f, ofColor(150));
+		drawPixelTextCentered(uiFont, "Loading rankings...", mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f, ofColor(150));
 	} else {
-		float lbY = listY - g_mpLeaderboardScroll;
+		float lbY = mpLeaderboardPanelRect.y + 10 - g_mpLeaderboardScroll;
+		float itemH = 50.0f * uiScale;
 		for (const auto & entry : leaderboard) {
-			ofRectangle lbRect(rightColX, lbY, colW, btnH);
-			if (lbRect.getBottom() > listY && lbRect.getTop() < listY + listHeight) {
+			ofRectangle lbRect(mpLeaderboardPanelRect.x + 10, lbY, mpLeaderboardPanelRect.width - 20, itemH);
+			if (lbRect.getBottom() > mpLeaderboardPanelRect.y && lbRect.getTop() < mpLeaderboardPanelRect.getBottom()) {
 
-				// Re-use the plaque logic for leaderboard rows, but static
 				ofSetColor(30, 30, 35, 255);
 				ofDrawRectRounded(lbRect, 8);
 				ofNoFill();
@@ -8286,34 +8265,17 @@ void ofApp::drawMultiplayerMenu() {
 				ofDrawRectRounded(lbRect, 8);
 				ofFill();
 
-				// Rank Number
-				drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), rightColX + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
+				drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), lbRect.x + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
 
-				static int32_t cachedAccountLevel = -1;
-				if (cachedAccountLevel == -1 && steamManager.isConnected() && SteamUserStats()) {
-					int32_t lvl = 1;
-					if (SteamUserStats()->GetStat("account_level", &lvl)) cachedAccountLevel = lvl;
-				}
-
-				int accountLevel = 0;
-				if (entry.name == steamManager.getLocalPlayerName() && cachedAccountLevel != -1) {
-					accountLevel = cachedAccountLevel;
-				}
-
+				int accountLevel = 0; // Steam API rate-limit avoidance kept here
 				auto rank = getMageRank(entry.score);
 
-				float nameX = rightColX + 90 * uiScale;
+				float nameX = lbRect.x + 80 * uiScale;
 				drawPixelTextBaseline(uiFont, entry.name, nameX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
 
-				if (accountLevel > 0) {
-					ofRectangle nameBox = uiFont.getStringBoundingBox(entry.name, 0, 0);
-					drawPixelTextBaseline(uiFont, "Lvl " + std::to_string(accountLevel), nameX + nameBox.width + 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor(0, 180, 255));
-				}
-
-				// Score & Rank Badge
 				std::string scoreStr = std::to_string(entry.score);
 				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
-				float scoreX = rightColX + colW - sb.width - 20;
+				float scoreX = lbRect.getRight() - sb.width - 20;
 
 				drawPixelTextBaseline(uiFont, scoreStr, scoreX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
 
@@ -8321,13 +8283,14 @@ void ofApp::drawMultiplayerMenu() {
 				ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
 				drawPixelTextBaseline(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, rank.second);
 			}
-			lbY += btnH + 5.0f * uiScale;
+			lbY += itemH + 5.0f * uiScale;
 		}
 	}
-	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_SCISSOR_TEST);
 
-	// Back Button
-	mpBackButton.set(rightColX, bottomBtnY, colW, 60.0f * uiScale);
+	// Action Buttons
+	drawMenuPlaqueButton(mpRefreshButton, "Refresh List", mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mpHostButton, "Host Match", mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mpBackButton, "Back to Menu", mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
 	if (g_isHostingLobby || g_isConnectingToLobby) {
@@ -14832,10 +14795,10 @@ void ofApp::mouseMoved(int x, int y) {
 		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSaveButton.inside(x, y) || pauseMenuLoadButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y) || g_pauseMenuDrawButton.inside(x, y) || g_pauseMenuDrawYesButton.inside(x, y) || g_pauseMenuDrawNoButton.inside(x, y);
 	}
 	if (currentState == STATE_MAIN_MENU) {
-		overMainMenuButton = mainMenuLocalPvPButton.inside(x, y) || mainMenuVsAIButton.inside(x, y) || mainMenuOnlineButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
+		overMainMenuButton = mainMenuOnlineButton.inside(x, y) || mainMenuSingleplayerButton.inside(x, y) || mainMenuCustomisationButton.inside(x, y) || mainMenuEncyclopediaButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SINGLEPLAYER_MENU) {
-		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerLoadButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y);
+		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerLoadButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y) || mainMenuLocalPvPButton.inside(x, y) || mainMenuVsAIButton.inside(x, y);
 	}
 	if (currentState == STATE_SETTINGS) {
 		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y);
@@ -15651,9 +15614,9 @@ cursor_check_done:;
 	}
 	case STATE_MAIN_MENU: {
 		mainMenuHoveredIndex = -1;
-		if (mainMenuLocalPvPButton.inside(x, y))
+		if (mainMenuSingleplayerButton.inside(x, y))
 			mainMenuHoveredIndex = 0;
-		else if (mainMenuVsAIButton.inside(x, y))
+		else if (mainMenuCustomisationButton.inside(x, y))
 			mainMenuHoveredIndex = 1;
 		else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected())
 			mainMenuHoveredIndex = 2;
@@ -15663,6 +15626,10 @@ cursor_check_done:;
 			mainMenuHoveredIndex = 4;
 		else if (mainMenuEncyclopediaButton.inside(x, y))
 			mainMenuHoveredIndex = 5;
+		break;
+	}
+	case STATE_CUSTOMISATION: {
+		// Used to clear the warning!
 		break;
 	}
 	case STATE_ENCYCLOPEDIA: {
@@ -16016,7 +15983,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// ==============================================================================
 	// MAIN MENU NAVIGATION SYSTEM
 	// ==============================================================================
-	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA) {
+	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA || currentState == STATE_CUSTOMISATION) {
 
 		bool clickedUI = false;
 
@@ -16025,24 +15992,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (mainMenuSingleplayerButton.inside(x, y)) {
 					clickedUI = true;
 					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
-					isVsAI = false;
-					return;
-				} else if (mainMenuLocalPvPButton.inside(x, y)) {
+				} else if (mainMenuCustomisationButton.inside(x, y)) {
 					clickedUI = true;
-					isVsAI = false;
-					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
-					return; /* Legacy fallback */
-				} else if (mainMenuVsAIButton.inside(x, y)) {
-					clickedUI = true;
-					isVsAI = true;
-					isMultiplayer = false;
-					myLocalPlayerID = 0;
-					setupGame();
-					return;
+					currentState = STATE_CUSTOMISATION;
 				} else if (mainMenuEncyclopediaButton.inside(x, y)) {
 					clickedUI = true;
 					currentState = STATE_ENCYCLOPEDIA;
-					return;
 				} else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
 					clickedUI = true;
 					if (SteamUserStats()) {
@@ -16059,12 +16014,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 					steamManager.refreshLobbies();
 					steamManager.fetchLeaderboard();
 					navigateToMenu(-1, STATE_MULTIPLAYER_MENU);
-					return;
 				} else if (mainMenuSettingsButton.inside(x, y)) {
 					clickedUI = true;
 					stateBeforeSettings = STATE_MAIN_MENU;
 					currentState = STATE_SETTINGS;
-					return;
 				} else if (mainMenuQuitButton.inside(x, y)) {
 					ofExit();
 					return;
@@ -16073,39 +16026,88 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (mpBackButton.inside(x, y)) {
 					clickedUI = true;
 					navigateToMenu(0, STATE_MAIN_MENU);
-					return;
+				} else if (mpRefreshButton.inside(x, y)) {
+					clickedUI = true;
+					steamManager.refreshLobbies();
+					steamManager.fetchLeaderboard();
+				} else if (mpHostButton.inside(x, y)) {
+					clickedUI = true;
+					g_isSpectator = false;
+					steamManager.createLobby();
+					g_isHostingLobby = true;
+				} else {
+					// Handle Lobby Clicks!
+					auto lobbies = steamManager.getLobbyList();
+					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
+						if (mpLobbyButtons[i].inside(x, y)) {
+							clickedUI = true;
+							bool inProgress = (lobbies[i].numPlayers >= 2);
+							g_isSpectator = inProgress;
+							steamManager.joinLobbyByID(lobbies[i].lobbyID);
+							g_isConnectingToLobby = true;
+							return;
+						}
+					}
 				}
-				// Refresh & Host buttons handled later...
 			} else if (currentState == STATE_SINGLEPLAYER_MENU) {
 				if (singleplayerBackButton.inside(x, y)) {
 					clickedUI = true;
 					navigateToMenu(0, STATE_MAIN_MENU);
-					return;
+				} else if (mainMenuLocalPvPButton.inside(x, y)) {
+					clickedUI = true;
+					isVsAI = false;
+					isMultiplayer = false;
+					myLocalPlayerID = 0;
+					isLoadingGame = true;
+				} else if (singleplayerNewGameButton.inside(x, y)) {
+					clickedUI = true;
+					isVsAI = true;
+					isMultiplayer = false;
+					myLocalPlayerID = 0;
+					isLoadingGame = true;
+				} else if (singleplayerContinueButton.inside(x, y)) {
+					clickedUI = true;
+					if (loadGameStateFromFile("autosave.json")) {
+						isMultiplayer = false;
+						currentState = STATE_GAMEPLAY;
+						buildLevelMesh();
+						buildFloorMesh();
+						invalidateTargetCache();
+						clearHighlights();
+						calculateTargetHighlights();
+					}
+				} else if (singleplayerLoadButton.inside(x, y)) {
+					clickedUI = true;
+					saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
+					currentState = STATE_SAVE_BROWSER;
+				} else if (singleplayerReplayButton.inside(x, y)) {
+					clickedUI = true;
+					loadReplay("last_match_replay.json");
+					currentState = STATE_GAMEPLAY;
 				}
-				// Load / Replay buttons handled later...
 			} else if (currentState == STATE_ENCYCLOPEDIA) {
 				if (encyBtnBack.inside(x, y)) {
 					clickedUI = true;
 					currentState = STATE_MAIN_MENU;
-					return;
 				} else if (encyTabCards.inside(x, y)) {
 					clickedUI = true;
 					encyclopediaMainTab = 0;
-					return;
 				} else if (encyTabMinions.inside(x, y)) {
 					clickedUI = true;
 					encyclopediaMainTab = 1;
-					return;
 				} else if (encyTabRules.inside(x, y)) {
 					clickedUI = true;
 					encyclopediaMainTab = 2;
-					return;
+				}
+			} else if (currentState == STATE_CUSTOMISATION) {
+				if (customisationBtnBack.inside(x, y)) {
+					clickedUI = true;
+					currentState = STATE_MAIN_MENU;
 				}
 			} else if (currentState == STATE_SETTINGS) {
 				if (settingsBackButton.inside(x, y)) {
 					clickedUI = true;
 					currentState = stateBeforeSettings;
-					return;
 				}
 			}
 
@@ -16117,11 +16119,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 					int tx = std::floor((x - panOffset) / menuTileSize);
 					int ty = std::floor((y - menuStartY) / menuTileSize);
 
+					int modX = (tx % 30 + 30) % 30; // Properly wrap the coordinates for the infinite board
 					bool targetIsWall = true;
-					if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-						targetIsWall = board[tx][ty].hasWall;
-					} else if (ty == 5) {
-						targetIsWall = false; // Tunnel is always open!
+
+					if (modX >= 0 && modX < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+						targetIsWall = board[modX][ty].hasWall;
+					} else if (ty == 5 && tx >= -30 && tx <= 42) {
+						targetIsWall = false; // Tunnel is open, up to the dead ends!
 					}
 
 					if (!targetIsWall) {
@@ -16130,6 +16134,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 			}
+
+			if (clickedUI) return; // Consume the click so sliders don't accidentally fire
 		}
 	}
 
@@ -16318,109 +16324,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// Singleplayer menu button clicks
-	if (currentState == STATE_SINGLEPLAYER_MENU && button == OF_MOUSE_BUTTON_LEFT) {
-		if (singleplayerContinueButton.inside(x, y)) {
-			bool ok = loadGameStateFromFile("autosave.json");
-			if (ok) {
-				isMultiplayer = false;
-				currentState = STATE_GAMEPLAY;
-				buildLevelMesh();
-				buildFloorMesh();
-				invalidateTargetCache();
-				clearHighlights();
-				calculateTargetHighlights();
-				addGameLog("Loaded autosave and resumed singleplayer.");
-				// Removed requestStartNewTurn() so we don't accidentally end the loaded turn!
-			} else {
-				addGameLog("No autosave to continue.");
-			}
-			return;
-		}
-
-		if (singleplayerLoadButton.inside(x, y)) {
-			// Open Save Browser; remember to return to singleplayer menu if cancelled
-			saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
-			currentState = STATE_SAVE_BROWSER;
-			return;
-		}
-		if (singleplayerNewGameButton.inside(x, y)) {
-			isMultiplayer = false;
-			isLoadingGame = true; // setupGame will be called by update loop
-			isReplayMode = false;
-			return;
-		}
-		if (singleplayerReplayButton.inside(x, y)) {
-			loadReplay("last_match_replay.json");
-			currentState = STATE_GAMEPLAY;
-			return;
-		}
-	}
-
-	// --- ONLINE VERSUS MENU CLICKS ---
+	// Cancel Hosting/Connecting button (Overrides standard Multiplayer Menu clicks!)
 	if (currentState == STATE_MULTIPLAYER_MENU && button == OF_MOUSE_BUTTON_LEFT) {
 		if (g_isHostingLobby || g_isConnectingToLobby) {
 			ofRectangle cancelBtn(ofGetWidth() / 2.0f - 100.0f, ofGetHeight() / 2.0f + 80.0f, 200.0f, 50.0f);
 			if (cancelBtn.inside(x, y)) {
-
-				// --- DISCORD CANCEL MATCHMAKING WEBHOOK ---
 				if (g_isHostingLobby) {
 					std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
 					std::string playerName = steamManager.getLocalPlayerName();
 					if (playerName.empty()) playerName = "A Mage";
 					sendDiscordWebhook(webhookURL, "❌ **" + playerName + "** has stopped hosting a match.");
 				}
-				// ------------------------------------------
 
 				steamManager.leaveLobby();
 				g_isHostingLobby = false;
 				g_isConnectingToLobby = false;
 			}
-			return;
-		}
-
-		if (mpRefreshButton.inside(x, y)) {
-			steamManager.refreshLobbies();
-			steamManager.fetchLeaderboard();
-			g_lastLobbyRefreshTime = ofGetElapsedTimef();
-			g_lastLeaderboardRefreshTime = ofGetElapsedTimef();
-			return;
-		}
-		if (mpHostButton.inside(x, y)) {
-			g_isSpectator = false; // Force clear to guarantee they host as a real player
-			steamManager.createLobby();
-			addGameLog("Created Lobby. Waiting for opponent...");
-			g_isHostingLobby = true;
-
-			// --- DISCORD WEBHOOK PING ---
-			std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
-			std::string playerName = steamManager.getLocalPlayerName();
-			if (playerName.empty()) playerName = "A Mage";
-			sendDiscordWebhook(webhookURL, "@here 🧙‍♂️ **" + playerName + "** challenges you to a duel! Accept now!");
-			// ----------------------------
-
-			return;
-		}
-		// Check lobby clicks
-		auto lobbies = steamManager.getLobbyList();
-		for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
-			if (mpLobbyButtons[i].inside(x, y)) {
-				bool inProgress = (lobbies[i].numPlayers >= 2);
-				if (inProgress) {
-					g_isSpectator = true;
-					addGameLog("Joining match in progress as spectator...");
-				} else {
-					g_isSpectator = false;
-					if (lobbies[i].numPlayers >= lobbies[i].maxPlayers) {
-						addGameLog("Lobby appears full, but attempting to reclaim disconnected spot...");
-					}
-					addGameLog("Joining lobby...");
-				}
-
-				steamManager.joinLobbyByID(lobbies[i].lobbyID);
-				g_isConnectingToLobby = true;
-				return;
-			}
+			return; // Consume click
 		}
 	}
 
@@ -38136,7 +38056,7 @@ void ofApp::drawEncyclopediaState() {
 	float eX_center = ofGetWidth() / 2.0f;
 	float cx = eX_center;
 
-	drawPixelTextCentered(titleFont, "ENCYCLOPEDIA", cx, 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(titleFont, "ENCYCLOPEDIA", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
 
 	// Tabs
 	auto drawTab = [&](ofRectangle r, string label, int index) {
@@ -38181,11 +38101,11 @@ void ofApp::drawEncyclopediaState() {
 		float startX = cx - gridWidth / 2.0f;
 
 		ofPushStyle();
-		if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
+		glEnable(GL_SCISSOR_TEST);
 
-		// Ensure Scissor box tracks the sliding viewport too!
 		float contentH = contentBottom - contentY;
-		glScissor((int)startX, (int)(ofGetHeight() - contentBottom), (int)gridWidth, (int)contentH);
+		int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
+		glScissor((int)startX, scY, (int)gridWidth, (int)contentH);
 
 		for (int pass = 0; pass < 2; pass++) {
 			int row = 0, col = 0;
@@ -38232,7 +38152,7 @@ void ofApp::drawEncyclopediaState() {
 			}
 		}
 
-		if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+		glDisable(GL_SCISSOR_TEST);
 		safePopStyle();
 
 	} else if (encyclopediaMainTab == 1) {
