@@ -167,6 +167,83 @@ static int runHiddenWindowsCommand(const std::string & cmd) {
 	}
 	return -1;
 }
+
+// 100% Bulletproof Native Windows HTTP Request (Bypasses Proton/Wine SSL issues without curl)
+typedef LPVOID HINTERNET;
+typedef WORD INTERNET_PORT;
+	#define INTERNET_OPEN_TYPE_PRECONFIG 0
+	#define INTERNET_DEFAULT_HTTPS_PORT 443
+	#define INTERNET_SERVICE_HTTP 3
+	#define INTERNET_FLAG_SECURE 0x00800000
+	#define INTERNET_FLAG_RELOAD 0x80000000
+	#define INTERNET_FLAG_NO_CACHE_WRITE 0x04000000
+	#define INTERNET_FLAG_IGNORE_CERT_CN_INVALID 0x00001000
+	#define INTERNET_FLAG_IGNORE_CERT_DATE_INVALID 0x00002000
+
+static bool SendWindowsHttpRequest(const std::string & url, const std::string & headers, const std::string & body) {
+	HMODULE hWinInet = LoadLibraryA("wininet.dll");
+	if (!hWinInet) return false;
+
+	typedef HINTERNET(WINAPI * InternetOpenA_t)(LPCSTR, DWORD, LPCSTR, LPCSTR, DWORD);
+	typedef HINTERNET(WINAPI * InternetConnectA_t)(HINTERNET, LPCSTR, INTERNET_PORT, LPCSTR, LPCSTR, DWORD, DWORD, DWORD_PTR);
+	typedef HINTERNET(WINAPI * HttpOpenRequestA_t)(HINTERNET, LPCSTR, LPCSTR, LPCSTR, LPCSTR, LPCSTR *, DWORD, DWORD_PTR);
+	typedef BOOL(WINAPI * HttpSendRequestA_t)(HINTERNET, LPCSTR, DWORD, LPVOID, DWORD);
+	typedef BOOL(WINAPI * InternetCloseHandle_t)(HINTERNET);
+
+	auto pInternetOpenA = (InternetOpenA_t)GetProcAddress(hWinInet, "InternetOpenA");
+	auto pInternetConnectA = (InternetConnectA_t)GetProcAddress(hWinInet, "InternetConnectA");
+	auto pHttpOpenRequestA = (HttpOpenRequestA_t)GetProcAddress(hWinInet, "HttpOpenRequestA");
+	auto pHttpSendRequestA = (HttpSendRequestA_t)GetProcAddress(hWinInet, "HttpSendRequestA");
+	auto pInternetCloseHandle = (InternetCloseHandle_t)GetProcAddress(hWinInet, "InternetCloseHandle");
+
+	if (!pInternetOpenA || !pInternetConnectA || !pHttpOpenRequestA || !pHttpSendRequestA || !pInternetCloseHandle) {
+		FreeLibrary(hWinInet);
+		return false;
+	}
+
+	std::string host = "discord.com";
+	std::string path = url;
+	size_t hostPos = url.find("://");
+	if (hostPos != std::string::npos) {
+		size_t pathPos = url.find("/", hostPos + 3);
+		if (pathPos != std::string::npos) {
+			host = url.substr(hostPos + 3, pathPos - (hostPos + 3));
+			path = url.substr(pathPos);
+		}
+	}
+
+	HINTERNET hInternet = pInternetOpenA("MageFight/1.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+	if (!hInternet) {
+		FreeLibrary(hWinInet);
+		return false;
+	}
+
+	HINTERNET hConnect = pInternetConnectA(hInternet, host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 1);
+	if (!hConnect) {
+		pInternetCloseHandle(hInternet);
+		FreeLibrary(hWinInet);
+		return false;
+	}
+
+	DWORD flags = INTERNET_FLAG_SECURE | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_IGNORE_CERT_CN_INVALID | INTERNET_FLAG_IGNORE_CERT_DATE_INVALID;
+
+	HINTERNET hRequest = pHttpOpenRequestA(hConnect, "POST", path.c_str(), NULL, NULL, NULL, flags, 1);
+	if (!hRequest) {
+		pInternetCloseHandle(hConnect);
+		pInternetCloseHandle(hInternet);
+		FreeLibrary(hWinInet);
+		return false;
+	}
+
+	BOOL res = pHttpSendRequestA(hRequest, headers.c_str(), headers.length(), (LPVOID)body.c_str(), body.length());
+
+	pInternetCloseHandle(hRequest);
+	pInternetCloseHandle(hConnect);
+	pInternetCloseHandle(hInternet);
+	FreeLibrary(hWinInet);
+
+	return res == TRUE;
+}
 #endif
 
 static void sendDiscordWebhook(const std::string & url, const std::string & content) {
@@ -188,6 +265,15 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		}
 
 		std::string jsonStr = "{\"content\": \"" + safeContent + "\"}";
+
+#ifdef _WIN32
+		// On Windows (and Proton), use Native WinINet API to bypass OpenSSL/Schannel certificate missing root errors
+		std::string headers = "Content-Type: application/json\r\nUser-Agent: DiscordBot (MageFight, 1.0)\r\n";
+		if (SendWindowsHttpRequest(url, headers, jsonStr)) {
+			return; // Natively sent!
+		}
+		ofLogWarning("Discord") << "WinINet Webhook failed. Falling back to native OF loader...";
+#endif
 
 		ofHttpRequest request;
 		request.url = url;
@@ -293,6 +379,15 @@ static void sendDiscordFileWebhook(const std::string & url, const std::string & 
 		}
 
 		body += "--" + boundary + "--\r\n";
+
+#ifdef _WIN32
+		// On Windows (and Proton), use Native WinINet API to bypass OpenSSL/Schannel certificate missing root errors
+		std::string headers = "Content-Type: multipart/form-data; boundary=" + boundary + "\r\nUser-Agent: DiscordBot (MageFight, 1.0)\r\n";
+		if (SendWindowsHttpRequest(url, headers, body)) {
+			return; // Natively sent!
+		}
+		ofLogWarning("Discord") << "WinINet File Webhook failed. Falling back to native OF loader...";
+#endif
 
 		ofHttpRequest request;
 		request.url = url;
@@ -4821,38 +4916,26 @@ void ofApp::setup() {
 		modelFbo.allocate(fboSettings);
 	} // <-- Close the !headless asset loading block here!
 
-	// Initialize default walls for the main menu 2D background
-	for (int x = 0; x < BOARD_WIDTH; ++x) {
-		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+	// Initialize default walls for the main menu 2D background using a Pac-Man maze layout
+	const char * maze[BOARD_HEIGHT] = {
+		"WWWWWWWWWWWWW",
+		"W...........W",
+		"W.WW.WWW.WW.W",
+		"W.W.......W.W",
+		"....WWWWW....",
+		"W.W.......W.W",
+		"W.WW.WWW.WW.W",
+		"WWWW.....WWWW",
+		"WWWWWWWWWWWWW"
+	};
+	for (int y = 0; y < BOARD_HEIGHT; ++y) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
 			board[x][y] = Tile();
+			board[x][y].hasWall = (maze[y][x] == 'W');
 		}
 	}
-	board[2][2].hasWall = true;
-	board[2][1].hasWall = true;
-	board[3][1].hasWall = true;
-	board[4][1].hasWall = true;
-	board[10][2].hasWall = true;
-	board[10][1].hasWall = true;
-	board[9][1].hasWall = true;
-	board[8][1].hasWall = true;
-	board[2][6].hasWall = true;
-	board[2][7].hasWall = true;
-	board[3][7].hasWall = true;
-	board[4][7].hasWall = true;
-	board[10][6].hasWall = true;
-	board[10][7].hasWall = true;
-	board[9][7].hasWall = true;
-	board[8][7].hasWall = true;
-	board[1][4].hasWall = true;
-	board[2][4].hasWall = true;
-	board[3][4].hasWall = true;
-	board[11][4].hasWall = true;
-	board[10][4].hasWall = true;
-	board[9][4].hasWall = true;
-	board[6][3].hasWall = true;
-	board[5][4].hasWall = true;
-	board[6][5].hasWall = true;
-	board[7][4].hasWall = true;
+
+	mainMenuCirclePos = { 6.0f, 7.0f }; // Start on a valid floor tile at the bottom!
 
 	// --- FINAL APPLY SETTINGS ---
 	applySettings();
@@ -7195,50 +7278,93 @@ void ofApp::drawMainMenu() {
 	int startY = std::floor(-menuStartY / menuTileSize);
 	int endY = std::ceil((ofGetHeight() - menuStartY) / menuTileSize);
 
-	// 1. Draw the 2D Board Background
+	// 1. Interactive Magic Circle Logic (GUARDED TO RUN ONCE PER FRAME!)
+	if (!g_isSecondPass && !mainMenuCirclePath.empty()) {
+		glm::vec2 target = mainMenuCirclePath.front();
+		glm::vec2 dir = target - mainMenuCirclePos;
+		float dist = glm::length(dir);
+
+		// If distance is huge, it means we wrapped around the tunnel. Teleport instantly!
+		if (dist > 1.5f) {
+			mainMenuCirclePos = target;
+			mainMenuCirclePath.erase(mainMenuCirclePath.begin());
+		} else {
+			float speed = 12.0f * ofGetLastFrameTime(); // 12 Tiles per second
+			if (dist <= speed) {
+				mainMenuCirclePos = target;
+				mainMenuCirclePath.erase(mainMenuCirclePath.begin());
+			} else {
+				mainMenuCirclePos += glm::normalize(dir) * speed;
+			}
+		}
+	}
+
+	// 2. Draw the 2D Board Background
 	for (int x = startX; x <= endX; x++) {
 		for (int y = startY; y <= endY; y++) {
-			float tx = menuStartX + x * menuTileSize;
-			float ty = menuStartY + y * menuTileSize;
+			// Snap to integer pixels to prevent tiny hairline gaps between tiles
+			float tx = std::round(menuStartX + x * menuTileSize);
+			float ty = std::round(menuStartY + y * menuTileSize);
+			float nextTx = std::round(menuStartX + (x + 1) * menuTileSize);
+			float nextTy = std::round(menuStartY + (y + 1) * menuTileSize);
 
 			// +1.0f guarantees microscopic MSAA pixel gaps are overlapped
-			float drawW = menuTileSize + 1.0f;
-			float drawH = menuTileSize + 1.0f;
+			float drawW = (nextTx - tx) + 1.0f;
+			float drawH = (nextTy - ty) + 1.0f;
 
-			// Draw floor
-			unsigned int seed = (x * 73856093) ^ (y * 19349663);
-			if (!floorTextures.empty()) {
-				// Match 3D board RNG sequence perfectly so the tiles align
-				std::mt19937 tileRng(seed);
-				std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
-				int texIndex = texDist(tileRng);
+			bool isBoardTile = (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT);
+			// The tunnel ONLY exists strictly on the left and right of row 4.
+			bool isTunnel = (y == 4 && !isBoardTile);
+			bool isWall = false;
 
-				// Dim tiles that are outside the core board so the arena pops
-				if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-					ofSetColor(230);
-				} else {
-					ofSetColor(100);
-				}
-				floorTextures[texIndex].draw(tx, ty, drawW, drawH);
+			if (isBoardTile) {
+				isWall = board[x][y].hasWall;
 			} else {
-				ofSetColor(80);
-				ofDrawRectangle(tx, ty, drawW, drawH);
+				// Everything outside the board is a wall, except the tunnel extensions
+				isWall = !isTunnel;
 			}
 
-			// Draw wall (only for actual board tiles)
-			if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-				if (board[x][y].hasWall) {
-					if (wallTexture.isAllocated()) {
-						ofSetColor(255); // Full brightness
-						wallTexture.draw(tx, ty, drawW, drawH);
-					} else {
-						ofSetColor(120);
-						ofDrawRectangle(tx, ty, drawW, drawH);
-					}
+			if (isWall) {
+				// Check if there is a wall directly "above" this one to determine Dark texture usage
+				bool wallAbove = false;
+				if (isBoardTile) {
+					wallAbove = (y > 0) ? board[x][y - 1].hasWall : true;
+				} else {
+					wallAbove = (y - 1 != 4); // Everything above outside the board is a wall, except if it's the tunnel
+				}
+
+				// The outer boundary ring of the 13x9 board is ALSO treated as deep dark
+				bool isBorderWall = (!isBoardTile || x == 0 || x == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1);
+				int brightness = isBorderWall ? 40 : 255;
+
+				if (wallAbove && wallDarkTexture.isAllocated()) {
+					ofSetColor(brightness);
+					wallDarkTexture.draw(tx, ty, drawW, drawH);
+				} else if (wallTexture.isAllocated()) {
+					ofSetColor(brightness);
+					wallTexture.draw(tx, ty, drawW, drawH);
+				} else {
+					ofSetColor(wallAbove ? brightness / 2 : brightness);
+					ofDrawRectangle(tx, ty, drawW, drawH);
+				}
+			} else {
+				// Draw Floor
+				unsigned int seed = (x * 73856093) ^ (y * 19349663);
+				if (!floorTextures.empty()) {
+					std::mt19937 tileRng(seed);
+					std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
+					int texIndex = texDist(tileRng);
+
+					// Ensure the tunnel floor is fully bright too!
+					ofSetColor(230);
+					floorTextures[texIndex].draw(tx, ty, drawW, drawH);
+				} else {
+					ofSetColor(80);
+					ofDrawRectangle(tx, ty, drawW, drawH);
 				}
 			}
 
-			// Draw a subtle grid line
+			// Draw a subtle grid line over everything
 			ofNoFill();
 			ofSetColor(0, 0, 0, 70);
 			ofDrawRectangle(tx, ty, drawW, drawH);
@@ -7246,39 +7372,25 @@ void ofApp::drawMainMenu() {
 		}
 	}
 
-	// 2. Draw Interactive Magic Circle
+	// 3. Draw Target Highlight on the destination tile
 	if (!mainMenuCirclePath.empty()) {
-		glm::vec2 target = mainMenuCirclePath.front();
-		glm::vec2 dir = target - mainMenuCirclePos;
-		float dist = glm::length(dir);
-		float speed = 12.0f * ofGetLastFrameTime(); // 12 Tiles per second
-		if (dist <= speed) {
-			mainMenuCirclePos = target;
-			mainMenuCirclePath.erase(mainMenuCirclePath.begin());
-		} else {
-			mainMenuCirclePos += glm::normalize(dir) * speed;
-		}
-
-		// Draw Target Highlight on the destination tile
-		if (!mainMenuCirclePath.empty()) {
-			glm::vec2 finalTarget = mainMenuCirclePath.back();
-			float ttx = menuStartX + finalTarget.x * menuTileSize;
-			float tty = menuStartY + finalTarget.y * menuTileSize;
-			ofSetColor(0, 255, 255, 60);
-			ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
-			ofNoFill();
-			ofSetLineWidth(3.0f);
-			ofSetColor(0, 255, 255, 200);
-			ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
-			ofFill();
-		}
+		glm::vec2 finalTarget = mainMenuCirclePath.back();
+		float ttx = menuStartX + finalTarget.x * menuTileSize;
+		float tty = menuStartY + finalTarget.y * menuTileSize;
+		ofSetColor(0, 255, 255, 60);
+		ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
+		ofNoFill();
+		ofSetLineWidth(3.0f);
+		ofSetColor(0, 255, 255, 200);
+		ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
+		ofFill();
 	}
 
 	float circleX = menuStartX + mainMenuCirclePos.x * menuTileSize + menuTileSize * 0.5f;
 	float circleY = menuStartY + mainMenuCirclePos.y * menuTileSize + menuTileSize * 0.5f;
 	float radius = menuTileSize * 0.35f;
 
-	// Draw the glowing circle
+	// 4. Draw the glowing circle
 	ofSetColor(0, 200, 255, 100);
 	ofDrawCircle(circleX, circleY, radius * 1.2f);
 	ofSetColor(50, 220, 255, 255);
@@ -8168,8 +8280,8 @@ void ofApp::recalculateUI(int w, int h) {
 	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.75f, 1.25f);
 
 	// 2. Recalculate Main Menu Buttons
-	// Use ceil and max to guarantee the tiles scale up enough to hide borders, leaving room for the title!
-	menuTileSize = std::ceil(std::max(w / 15.0f, h / 12.0f));
+	// Use ceil and max with a larger divisor to make the tiles slightly smaller, revealing more of the arena
+	menuTileSize = std::ceil(std::max(w / 19.0f, h / 14.0f));
 
 	// Keep the grid perfectly mathematically centered
 	menuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
@@ -15669,13 +15781,86 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (!mainMenuLocalPvPButton.inside(x, y) && !mainMenuVsAIButton.inside(x, y) && !mainMenuOnlineButton.inside(x, y) && !mainMenuSettingsButton.inside(x, y) && !mainMenuQuitButton.inside(x, y)) {
 			int tx = std::floor((x - menuStartX) / menuTileSize);
 			int ty = std::floor((y - menuStartY) / menuTileSize);
+
+			bool targetIsWall = true;
 			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-				if (!board[tx][ty].hasWall) {
-					glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
-					std::vector<glm::vec2> path = findShortestPath(startPos, { (float)tx, (float)ty });
-					if (!path.empty()) {
-						mainMenuCirclePath = path;
+				targetIsWall = board[tx][ty].hasWall;
+			} else if (ty == 4) {
+				targetIsWall = false; // Tunnel is always open!
+			}
+
+			if (!targetIsWall) {
+				glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
+
+				// Custom Map-based BFS that supports infinite horizontal coordinates for the tunnel
+				std::map<std::pair<int, int>, glm::vec2> parent;
+				std::set<std::pair<int, int>> visited;
+				std::queue<glm::vec2> q;
+
+				q.push(startPos);
+				visited.insert({ startPos.x, startPos.y });
+				parent[{ startPos.x, startPos.y }] = { -999, -999 };
+
+				bool found = false;
+				// Determine visible screen bounds for the infinite tunnel dynamically
+				int minVisibleX = std::floor(-menuStartX / menuTileSize);
+				int maxVisibleX = std::ceil((ofGetWidth() - menuStartX) / menuTileSize);
+
+				while (!q.empty()) {
+					glm::vec2 curr = q.front();
+					q.pop();
+					if (curr.x == tx && curr.y == ty) {
+						found = true;
+						break;
 					}
+
+					std::vector<glm::vec2> neighbors = {
+						{ curr.x + 1, curr.y }, { curr.x - 1, curr.y }, { curr.x, curr.y + 1 }, { curr.x, curr.y - 1 }
+					};
+
+					// ADD PAC-MAN TELEPORT EDGES!
+					// Allow teleporting from the absolute visual edge of the screen to the other side
+					if (curr.y == 4) {
+						if (curr.x == minVisibleX) neighbors.push_back({ maxVisibleX, 4 });
+						if (curr.x == maxVisibleX) neighbors.push_back({ minVisibleX, 4 });
+					}
+
+					for (glm::vec2 n : neighbors) {
+						int nx = n.x;
+						int ny = n.y;
+
+						// Restrict the infinite BFS so it doesn't search the entire screen space and lag
+						// We only allow it to search within the visible boundaries of the screen!
+						if (nx < minVisibleX - 1 || nx > maxVisibleX + 1) continue;
+
+						bool isWall = true;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							isWall = board[nx][ny].hasWall;
+						} else if (ny == 4) {
+							isWall = false; // Outer tunnel is safe
+						}
+
+						if (!isWall && visited.find({ nx, ny }) == visited.end()) {
+							visited.insert({ nx, ny });
+							parent[{ nx, ny }] = curr;
+							q.push({ nx, ny });
+						}
+					}
+				}
+
+				if (found) {
+					std::vector<glm::vec2> path;
+					glm::vec2 curr = { (float)tx, (float)ty };
+					while (curr.x != -999) {
+						path.push_back(curr);
+						curr = parent[{ curr.x, curr.y }];
+					}
+					std::reverse(path.begin(), path.end());
+
+					if (!path.empty() && path[0] == startPos) {
+						path.erase(path.begin()); // Remove starting tile
+					}
+					mainMenuCirclePath = path;
 				}
 			}
 		}
@@ -36807,33 +36992,26 @@ void ofApp::cleanupGame() {
 	isInGameDraft = false;
 	initialDraftComplete = false;
 
-	// Restore default walls for the main menu background
-	board[2][2].hasWall = true;
-	board[2][1].hasWall = true;
-	board[3][1].hasWall = true;
-	board[4][1].hasWall = true;
-	board[10][2].hasWall = true;
-	board[10][1].hasWall = true;
-	board[9][1].hasWall = true;
-	board[8][1].hasWall = true;
-	board[2][6].hasWall = true;
-	board[2][7].hasWall = true;
-	board[3][7].hasWall = true;
-	board[4][7].hasWall = true;
-	board[10][6].hasWall = true;
-	board[10][7].hasWall = true;
-	board[9][7].hasWall = true;
-	board[8][7].hasWall = true;
-	board[1][4].hasWall = true;
-	board[2][4].hasWall = true;
-	board[3][4].hasWall = true;
-	board[11][4].hasWall = true;
-	board[10][4].hasWall = true;
-	board[9][4].hasWall = true;
-	board[6][3].hasWall = true;
-	board[5][4].hasWall = true;
-	board[6][5].hasWall = true;
-	board[7][4].hasWall = true;
+	// Restore default walls for the main menu background using a Pac-Man maze layout
+	const char * maze[BOARD_HEIGHT] = {
+		"WWWWWWWWWWWWW",
+		"W...........W",
+		"W.WW.WWW.WW.W",
+		"W.W.......W.W",
+		"....WWWWW....",
+		"W.W.......W.W",
+		"W.WW.WWW.WW.W",
+		"WWWW.....WWWW",
+		"WWWWWWWWWWWWW"
+	};
+	for (int y = 0; y < BOARD_HEIGHT; ++y) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			board[x][y] = Tile();
+			board[x][y].hasWall = (maze[y][x] == 'W');
+		}
+	}
+
+	mainMenuCirclePos = { 6.0f, 7.0f }; // Reset circle position
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
