@@ -19952,6 +19952,15 @@ void ofApp::startNewTurn() {
 			// Safely advance to the correct next unit
 			currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 			if (currentPlayerIndex == 0) globalTurnCounter++;
+
+			// FIX: Clear stale UI mappings immediately so render calls between ticks
+			// do not read invalid pre-sort indices
+			activeMinionUIs.clear();
+		}
+
+		// Double-check bounds before referencing startingPlayer
+		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
+			currentPlayerIndex = 0;
 		}
 
 		Player & startingPlayer = players[currentPlayerIndex];
@@ -20280,17 +20289,12 @@ void ofApp::continueNewTurn() {
 	recalcTempLuck();
 
 	// Reset assistant abilities for the active player's assistants (and the player themselves if they are an assistant)
+	// FIX: Apply the status reset synchronously in-place so no stale indices sit in the EffectOp queue across turns
 	for (size_t i = 0; i < players.size(); ++i) {
 		if (players[i].isAssistant && (players[i].directSummonerID == startingPlayer.playerID || (int)i == currentPlayerIndex)) {
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = (int)i;
-			rm.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
+			players[i].assistantRerollUsedThisTurn = false;
 		}
 	}
-	if (!isProcessingEffect) beginEffectSequence();
 	// AP for assistants will be handled in the AP roll logic below.
 
 	// --- 0. SUMMONING SICKNESS CHECK .
@@ -37681,7 +37685,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 }
 //--------------------------------------------------------------
 void ofApp::drawMinionManagerUI() {
-	if (activeMinionUIs.empty()) return;
+	if (activeMinionUIs.empty() || players.empty()) return;
 
 	float scale = getUIScaleFromHeight(ofGetHeight());
 	float sfX = (float)ofGetViewportWidth() / ofGetWidth();
@@ -37689,6 +37693,10 @@ void ofApp::drawMinionManagerUI() {
 
 	for (size_t i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
+
+		// FIX: Guard against shifted or out-of-bounds indices after std::sort/spawn
+		if (ui.playerIndex < 0 || ui.playerIndex >= (int)players.size()) continue;
+
 		Player & minion = players[ui.playerIndex];
 
 		bool isLeft = ui.bounds.x < ofGetWidth() / 2.0f;
@@ -37920,24 +37928,26 @@ void ofApp::drawMinionManagerUI() {
 				pbrShader.setUniform3f("uViewPos", 0.0f, 0.0f, 0.0f);
 				pbrShader.setUniform1i("useNormalTex", 0);
 
-				for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
-					glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
-					glm::mat4 finalModelMat = baseModelMat * meshMat;
-					pbrShader.setUniformMatrix4f("uModel", finalModelMat);
+				if (currentModel && currentModel->getMeshCount() > 0) {
+					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+						glm::mat4 meshMat = glm::mat4(currentModel->getMeshHelper(mi).matrix);
+						glm::mat4 finalModelMat = baseModelMat * meshMat;
+						pbrShader.setUniformMatrix4f("uModel", finalModelMat);
 
-					glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalModelMat));
-					pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalModelMat));
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
 
-					if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
-						pbrShader.setUniformTexture("albedoTex", *minion.minionTexture, 0);
-						pbrShader.setUniform1i("useAlbedoTex", 1);
-					} else if (currentModel->getMeshHelper(mi).hasTexture()) {
-						pbrShader.setUniformTexture("albedoTex", currentModel->getMeshHelper(mi).getTextureRef(), 0);
-						pbrShader.setUniform1i("useAlbedoTex", 1);
-					} else {
-						pbrShader.setUniform1i("useAlbedoTex", 0);
+						if (minion.isGolem && minion.minionTexture && minion.minionTexture->isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", *minion.minionTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else if (currentModel->getMeshHelper(mi).hasTexture() && currentModel->getMeshHelper(mi).getTextureRef().isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", currentModel->getMeshHelper(mi).getTextureRef(), 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else {
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						}
+						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
-					currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 				}
 				pbrShader.end();
 			} else {
