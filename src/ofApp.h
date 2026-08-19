@@ -999,6 +999,8 @@ public:
 	int aiPendingMoveX = -1;
 	int aiPendingMoveY = -1;
 	bool aiDraftStaged = false;
+	int aiLastAttemptedCardIdx = -1;
+	int aiLastAP = -1;
 
 	// Tactical AI Helper Functions
 	int getCardEstimatedDamage(const Card & c, const Player & caster, const Player & target);

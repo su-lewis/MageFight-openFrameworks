@@ -1,0 +1,622 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-08-19 13:50:32
+End Reason: Victory
+Seed: 3976909416
+Turns: 31
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[13:40:07] --- MATCH STARTED ---
+[13:40:24] Turn 0: Player 2's turn
+[13:40:24] Autosaved turn-start (autosave.json)
+[13:40:25] Player 2 moved to (12,1)
+[13:40:26] Player 2 moved to (12,2)
+[13:40:27] Player 2 moved to (12,3)
+[13:40:28] Player 2 moved to (11,3)
+[13:40:30] Player 2 moved to (10,3)
+[13:40:31] Turn 1: Player 1's turn
+[13:40:31] Autosaved turn-start (autosave.json)
+[13:40:34] Player 1 moved to (1,5)
+[13:40:37] Player 1 moved to (3,5)
+[13:40:37] Turn 1: Player 2's turn
+[13:40:37] Autosaved turn-start (autosave.json)
+[13:40:40] Player 2 moved to (9,3)
+[13:40:40] Player 2 moved to (8,3)
+[13:40:41] Player 2 moved to (8,4)
+[13:40:44] Player 2 moved to (8,5)
+[13:40:45] Player 2 moved to (8,6)
+[13:40:45] Player 2 moved to (7,6)
+[13:40:46] Turn 2: Player 1's turn
+[13:40:46] Autosaved turn-start (autosave.json)
+[13:40:49] Player 1 moved to (4,4)
+[13:41:09] Player 1 moved to (3,3)
+[13:41:10] Turn 2: Player 2's turn
+[13:41:10] Autosaved turn-start (autosave.json)
+[13:41:12] Player 2 moved to (7,7)
+[13:41:13] Player 2 moved to (6,7)
+[13:41:15] Player 2 moved to (6,8)
+[13:41:16] Player 2 moved to (7,8)
+[13:41:17] Turn 3: Player 1's turn
+[13:41:17] Autosaved turn-start (autosave.json)
+[13:41:18] Player 1 moved to (2,3)
+[13:41:22] Turn 3: Player 2's turn
+[13:41:22] Autosaved turn-start (autosave.json)
+[13:41:24] Player 2 played Fortify
+[13:41:24] Player 2 played Fortify
+[13:41:25] Player 2 played Fortify
+[13:41:26] Player 2 played Fortify
+[13:41:26] Player 2 played Fortify
+[13:41:27] Player 2 played Fortify
+[13:41:27] Player 2 played Fortify
+[13:41:28] Player 2 played Fortify
+[13:41:29] Player 2 played Fortify
+[13:41:29] Player 2 played Fortify
+[13:41:30] Player 2 played Fortify
+[13:41:30] Player 2 played Fortify
+[13:41:31] Player 2 played Fortify
+[13:41:32] Player 2 played Fortify
+[13:41:32] Player 2 played Fortify
+[13:41:33] Player 2 played Fortify
+[13:41:33] Player 2 played Fortify
+[13:41:34] Player 2 played Fortify
+[13:41:35] Player 2 played Fortify
+[13:41:35] Player 2 played Fortify
+[13:41:36] Player 2 played Fortify
+[13:41:36] Player 2 played Fortify
+[13:41:37] Player 2 played Fortify
+[13:41:38] Player 2 played Fortify
+[13:41:38] Player 2 played Fortify
+[13:41:39] Player 2 played Fortify
+[13:41:39] Player 2 played Fortify
+[13:41:40] Player 2 played Fortify
+[13:41:41] Player 2 played Fortify
+[13:41:41] Player 2 played Fortify
+[13:41:42] Player 2 played Fortify
+[13:41:42] Player 2 played Fortify
+[13:41:43] Player 2 played Fortify
+[13:41:44] Player 2 played Fortify
+[13:41:44] Player 2 played Fortify
+[13:41:45] Player 2 played Fortify
+[13:41:45] Player 2 played Fortify
+[13:41:46] Player 2 played Fortify
+[13:41:47] Player 2 played Fortify
+[13:41:47] Player 2 played Fortify
+[13:41:48] Player 2 played Fortify
+[13:41:48] Player 2 played Fortify
+[13:41:49] Player 2 played Fortify
+[13:41:50] Player 2 played Fortify
+[13:41:50] Player 2 played Fortify
+[13:41:51] Player 2 played Fortify
+[13:41:51] Player 2 played Fortify
+[13:41:52] Player 2 played Fortify
+[13:41:53] Player 2 played Fortify
+[13:41:53] Player 2 played Fortify
+[13:41:54] Player 2 played Fortify
+[13:41:54] Player 2 played Fortify
+[13:41:55] Player 2 played Fortify
+[13:41:56] Player 2 played Fortify
+[13:41:56] Player 2 played Fortify
+[13:41:57] Player 2 played Fortify
+[13:41:57] Player 2 played Fortify
+[13:41:58] Player 2 played Fortify
+[13:41:59] Player 2 played Fortify
+[13:41:59] Player 2 played Fortify
+[13:42:00] Player 2 played Fortify
+[13:42:00] Player 2 played Fortify
+[13:42:01] Player 2 played Fortify
+[13:42:02] Player 2 played Fortify
+[13:42:02] Player 2 played Fortify
+[13:42:03] Player 2 played Fortify
+[13:42:03] Player 2 played Fortify
+[13:42:04] Player 2 played Fortify
+[13:42:05] Player 2 played Fortify
+[13:42:05] Player 2 played Fortify
+[13:42:06] Player 2 played Fortify
+[13:42:06] Player 2 played Fortify
+[13:42:07] Player 2 played Fortify
+[13:42:08] Player 2 played Fortify
+[13:42:08] Player 2 played Fortify
+[13:42:09] Player 2 played Fortify
+[13:42:09] Player 2 played Fortify
+[13:42:10] Player 2 played Fortify
+[13:42:11] Player 2 played Fortify
+[13:42:11] Player 2 played Fortify
+[13:42:12] Player 2 played Fortify
+[13:42:12] Player 2 played Fortify
+[13:42:13] Player 2 played Fortify
+[13:42:14] Player 2 played Fortify
+[13:42:14] Player 2 played Fortify
+[13:42:15] Player 2 played Fortify
+[13:42:15] Player 2 played Fortify
+[13:42:16] Player 2 played Fortify
+[13:42:17] Player 2 played Fortify
+[13:42:17] Player 2 played Fortify
+[13:42:18] Player 2 played Fortify
+[13:42:18] Player 2 played Fortify
+[13:42:19] Player 2 played Fortify
+[13:42:20] Player 2 played Fortify
+[13:42:20] Player 2 played Fortify
+[13:42:21] Player 2 played Fortify
+[13:42:21] Player 2 played Fortify
+[13:42:22] Player 2 played Fortify
+[13:42:23] Player 2 played Fortify
+[13:42:23] Player 2 played Fortify
+[13:42:24] Player 2 played Fortify
+[13:42:24] Player 2 played Fortify
+[13:42:25] Player 2 played Fortify
+[13:42:26] Player 2 played Fortify
+[13:42:26] Player 2 played Fortify
+[13:42:27] Player 2 played Fortify
+[13:42:27] Player 2 played Fortify
+[13:42:28] Player 2 played Fortify
+[13:42:29] Player 2 played Fortify
+[13:42:29] Player 2 played Fortify
+[13:42:30] Player 2 played Fortify
+[13:42:30] Player 2 played Fortify
+[13:42:31] Player 2 played Fortify
+[13:42:32] Player 2 played Fortify
+[13:42:32] Player 2 played Fortify
+[13:42:33] Player 2 played Fortify
+[13:42:34] Player 2 played Fortify
+[13:42:34] Player 2 played Fortify
+[13:42:35] Player 2 played Fortify
+[13:42:35] Player 2 played Fortify
+[13:42:36] Player 2 played Fortify
+[13:42:37] Player 2 played Fortify
+[13:42:37] Player 2 played Fortify
+[13:42:38] Player 2 played Fortify
+[13:42:38] Player 2 played Fortify
+[13:42:39] Player 2 played Fortify
+[13:42:40] Player 2 played Fortify
+[13:42:40] Player 2 played Fortify
+[13:42:41] Player 2 played Fortify
+[13:42:41] Player 2 played Fortify
+[13:42:42] Player 2 played Fortify
+[13:42:43] Player 2 played Fortify
+[13:42:43] Player 2 played Fortify
+[13:42:44] Player 2 played Fortify
+[13:42:45] Player 2 played Fortify
+[13:42:45] Player 2 played Fortify
+[13:42:46] Player 2 played Fortify
+[13:42:46] Player 2 played Fortify
+[13:42:47] Player 2 played Fortify
+[13:42:47] Turn 4: Player 1's turn
+[13:42:47] Autosaved turn-start (autosave.json)
+[13:43:01] Player 1 moved to (5,3)
+[13:43:05] Turn 4: Player 2's turn
+[13:43:05] Autosaved turn-start (autosave.json)
+[13:43:07] Player 2 played Fortify
+[13:43:07] Player 2 played Fortify
+[13:43:08] Player 2 played Fortify
+[13:43:09] Player 2 played Fortify
+[13:43:09] Player 2 played Fortify
+[13:43:10] Player 2 played Fortify
+[13:43:10] Player 2 played Fortify
+[13:43:11] Player 2 played Fortify
+[13:43:12] Player 2 played Fortify
+[13:43:12] Player 2 played Fortify
+[13:43:13] Player 2 played Fortify
+[13:43:13] Player 2 played Fortify
+[13:43:14] Player 2 played Fortify
+[13:43:15] Player 2 played Fortify
+[13:43:15] Player 2 played Fortify
+[13:43:16] Player 2 played Fortify
+[13:43:16] Player 2 played Fortify
+[13:43:17] Player 2 played Fortify
+[13:43:18] Player 2 played Fortify
+[13:43:18] Player 2 played Fortify
+[13:43:19] Player 2 played Fortify
+[13:43:19] Player 2 played Fortify
+[13:43:20] Player 2 played Fortify
+[13:43:21] Player 2 played Fortify
+[13:43:21] Player 2 played Fortify
+[13:43:22] Player 2 played Fortify
+[13:43:22] Player 2 played Fortify
+[13:43:23] Player 2 played Fortify
+[13:43:24] Player 2 played Fortify
+[13:43:24] Turn 5: Player 1's turn
+[13:43:24] Autosaved turn-start (autosave.json)
+[13:43:27] Player 1 moved to (6,4)
+[13:43:30] Player 1 moved to (4,3)
+[13:43:31] Turn 5: Player 2's turn
+[13:43:31] Autosaved turn-start (autosave.json)
+[13:43:32] Player 2 moved to (8,8)
+[13:43:35] Player 2 moved to (9,8)
+[13:43:35] Player 2 moved to (10,8)
+[13:43:36] Player 2 moved to (11,8)
+[13:43:37] Player 2 moved to (12,8)
+[13:43:40] Player 2 moved to (12,7)
+[13:43:40] Player 2 moved to (12,6)
+[13:43:41] Turn 6: Player 1's turn
+[13:43:41] Autosaved turn-start (autosave.json)
+[13:43:44] Player 1 moved to (3,3)
+[13:43:44] Turn 6: Player 2's turn
+[13:43:44] Autosaved turn-start (autosave.json)
+[13:43:46] Player 2 moved to (12,5)
+[13:43:47] Player 2 moved to (12,4)
+[13:43:49] Player 2 moved to (12,3)
+[13:43:50] Player 2 moved to (11,3)
+[13:43:51] Player 2 moved to (10,3)
+[13:43:52] Player 2 moved to (9,3)
+[13:43:53] Player 2 moved to (9,2)
+[13:43:53] Turn 7: Player 1's turn
+[13:43:53] Autosaved turn-start (autosave.json)
+[13:43:57] Player 1 moved to (6,1)
+[13:44:00] Player 1 moved to (6,0)
+[13:44:01] Turn 7: Player 2's turn
+[13:44:01] Autosaved turn-start (autosave.json)
+[13:44:03] Player 2 played Train
+[13:44:03] Player 2 played Train
+[13:44:04] Player 2 played Train
+[13:44:05] Player 2 played Train
+[13:44:05] Player 2 played Train
+[13:44:06] Player 2 played Train
+[13:44:06] Player 2 played Train
+[13:44:07] Player 2 played Train
+[13:44:08] Player 2 played Train
+[13:44:08] Player 2 played Train
+[13:44:09] Player 2 played Train
+[13:44:09] Player 2 played Train
+[13:44:10] Player 2 played Train
+[13:44:10] Turn 8: Player 1's turn
+[13:44:10] Autosaved turn-start (autosave.json)
+[13:44:14] Player 1 moved to (8,0)
+[13:44:18] Turn 8: Player 2's turn
+[13:44:18] Autosaved turn-start (autosave.json)
+[13:44:19] Player 2 played Hasten
+[13:44:20] Player 2 moved to (8,2)
+[13:44:21] Player 2 moved to (7,2)
+[13:44:21] Turn 9: Player 1's turn
+[13:44:21] Autosaved turn-start (autosave.json)
+[13:44:24] Player 1 played Form of Tortoise
+[13:44:25] Player 1 moved to (7,0)
+[13:44:25] Turn 9: Player 2's turn
+[13:44:25] Autosaved turn-start (autosave.json)
+[13:44:27] Player 2 played Hasten
+[13:44:28] Player 2 moved to (7,1)
+[13:44:28] Turn 10: Player 1's turn
+[13:44:28] Autosaved turn-start (autosave.json)
+[13:44:33] Player 1 played Hand Block
+[13:44:35] Player 1 moved to (5,0)
+[13:44:36] Turn 10: Player 2's turn
+[13:44:36] Autosaved turn-start (autosave.json)
+[13:44:38] Player 2 played Consume Health Potion
+[13:44:39] Player 2 moved to (7,2)
+[13:44:39] Turn 11: Player 1's turn
+[13:44:39] Autosaved turn-start (autosave.json)
+[13:44:44] Player 1 moved to (4,0)
+[13:44:47] Player 1 moved to (2,0)
+[13:44:47] Turn 11: Player 2's turn
+[13:44:47] Autosaved turn-start (autosave.json)
+[13:44:49] Player 2 moved to (6,2)
+[13:44:50] Player 2 moved to (6,3)
+[13:44:51] Turn 12: Player 1's turn
+[13:44:51] Autosaved turn-start (autosave.json)
+[13:44:54] Turn 12: Player 2's turn
+[13:44:54] Autosaved turn-start (autosave.json)
+[13:44:56] Player 2 moved to (5,3)
+[13:44:57] Turn 13: Player 1's turn
+[13:44:57] Autosaved turn-start (autosave.json)
+[13:45:01] Player 1 moved to (0,0)
+[13:45:03] Turn 13: Player 2's turn
+[13:45:03] Autosaved turn-start (autosave.json)
+[13:45:05] Player 2 played Heal
+[13:45:06] Turn 14: Player 1's turn
+[13:45:06] Autosaved turn-start (autosave.json)
+[13:45:09] Player 1 played Hasten
+[13:45:10] Player 1 moved to (0,3)
+[13:45:11] Turn 14: Player 2's turn
+[13:45:11] Autosaved turn-start (autosave.json)
+[13:45:13] Player 2 played Fortify
+[13:45:14] Player 2 played Fortify
+[13:45:14] Player 2 played Fortify
+[13:45:15] Player 2 played Fortify
+[13:45:15] Player 2 played Fortify
+[13:45:16] Player 2 played Fortify
+[13:45:17] Player 2 played Fortify
+[13:45:17] Turn 15: Player 1's turn
+[13:45:17] Autosaved turn-start (autosave.json)
+[13:45:21] Player 1 played Hand Block
+[13:45:21] Player 1 moved to (0,4)
+[13:45:24] Player 1 moved to (1,3)
+[13:45:27] Player 1 moved to (0,3)
+[13:45:28] Turn 15: Player 2's turn
+[13:45:28] Autosaved turn-start (autosave.json)
+[13:45:29] Player 2 moved to (4,3)
+[13:45:30] Player 2 moved to (4,4)
+[13:45:31] Player 2 moved to (4,5)
+[13:45:32] Player 2 moved to (4,6)
+[13:45:33] Turn 16: Player 1's turn
+[13:45:33] Autosaved turn-start (autosave.json)
+[13:45:37] Player 1 moved to (1,8)
+[13:45:38] Turn 16: Player 2's turn
+[13:45:38] Autosaved turn-start (autosave.json)
+[13:45:40] Player 2 played Train
+[13:45:41] Player 2 played Train
+[13:45:42] Player 2 played Train
+[13:45:42] Player 2 played Train
+[13:45:43] Player 2 played Train
+[13:45:43] Player 2 played Train
+[13:45:44] Player 2 played Train
+[13:45:45] Player 2 played Train
+[13:45:45] Player 2 played Train
+[13:45:46] Player 2 played Train
+[13:45:46] Turn 17: Player 1's turn
+[13:45:46] Autosaved turn-start (autosave.json)
+[13:45:50] Player 1 moved to (4,8)
+[13:45:53] Turn 17: Player 2's turn
+[13:45:53] Autosaved turn-start (autosave.json)
+[13:45:54] Player 2 played Hasten
+[13:45:55] Player 2 moved to (5,6)
+[13:45:56] Player 2 moved to (6,6)
+[13:45:57] Player 2 moved to (7,6)
+[13:45:57] Player 2 moved to (7,5)
+[13:45:58] Turn 18: Player 1's turn
+[13:45:58] Autosaved turn-start (autosave.json)
+[13:46:03] Player 1 moved to (6,8)
+[13:46:04] Turn 18: Player 2's turn
+[13:46:04] Autosaved turn-start (autosave.json)
+[13:46:06] Player 2 played Consume Health Potion
+[13:46:06] Player 2 moved to (8,5)
+[13:46:07] Player 2 moved to (9,5)
+[13:46:08] Player 2 moved to (10,5)
+[13:46:09] Player 2 moved to (11,5)
+[13:46:11] Turn 19: Player 1's turn
+[13:46:11] Autosaved turn-start (autosave.json)
+[13:46:14] Player 1 played Hasten
+[13:46:14] Turn 19: Player 2's turn
+[13:46:14] Autosaved turn-start (autosave.json)
+[13:46:16] Player 2 played Summon Hellhound
+[13:46:18] Turn 20: Player 1's turn
+[13:46:18] Autosaved turn-start (autosave.json)
+[13:46:22] Player 1 played Hasten
+[13:46:23] Player 1 played Hand Block
+[13:46:25] Player 1 moved to (4,8)
+[13:46:25] Turn 20: Player 2's turn
+[13:46:25] Autosaved turn-start (autosave.json)
+[13:46:26] Player 2 moved to (9,5)
+[13:46:27] Player 2 moved to (9,6)
+[13:46:28] Player 2 moved to (8,6)
+[13:46:29] Player 2 moved to (8,5)
+[13:46:30] Player 2 moved to (8,4)
+[13:46:30] Player 2 moved to (8,3)
+[13:46:31] Player 2 moved to (8,2)
+[13:46:33] Turn 20: Player 2's turn
+[13:46:33] Autosaved turn-start (autosave.json)
+[13:46:35] Player 2 played Consume Health Potion
+[13:46:35] Turn 21: Player 1's turn
+[13:46:35] Autosaved turn-start (autosave.json)
+[13:46:40] Player 1 played Time Vortex
+[13:46:42] Player 1 played Hand Block
+[13:46:43] Turn 21: Player 1's turn
+[13:46:43] Autosaved turn-start (autosave.json)
+[13:46:46] Player 1 played Hasten
+[13:46:46] Player 1 played Hand Block
+[13:46:47] Player 1 moved to (8,8)
+[13:46:48] Turn 21: Player 2's turn
+[13:46:48] Autosaved turn-start (autosave.json)
+[13:46:49] Player 2 moved to (9,2)
+[13:46:50] Player 2 moved to (9,3)
+[13:46:51] Player 2 moved to (10,3)
+[13:46:52] Player 2 moved to (11,3)
+[13:46:53] Player 2 moved to (11,2)
+[13:46:53] Player 2 moved to (11,1)
+[13:46:54] Player 2 moved to (11,0)
+[13:46:55] Player 2 moved to (12,0)
+[13:46:56] Player 2 moved to (12,1)
+[13:46:57] Turn 21: Player 2's turn
+[13:46:57] Autosaved turn-start (autosave.json)
+[13:46:59] Player 2 played Summon Hellhound
+[13:47:01] Turn 22: Player 1's turn
+[13:47:01] Autosaved turn-start (autosave.json)
+[13:47:10] Turn 22: Player 2's turn
+[13:47:10] Autosaved turn-start (autosave.json)
+[13:47:11] Player 2 moved to (12,0)
+[13:47:12] Player 2 moved to (11,0)
+[13:47:13] Player 2 moved to (11,1)
+[13:47:13] Player 2 moved to (12,1)
+[13:47:15] Turn 22: Player 2's turn
+[13:47:15] Autosaved turn-start (autosave.json)
+[13:47:17] Turn 22: Player 2's turn
+[13:47:17] Autosaved turn-start (autosave.json)
+[13:47:19] Turn 23: Player 1's turn
+[13:47:19] Autosaved turn-start (autosave.json)
+[13:47:21] Player 1 played Hasten
+[13:47:22] Player 1 moved to (9,8)
+[13:47:22] Turn 23: Player 2's turn
+[13:47:22] Autosaved turn-start (autosave.json)
+[13:47:23] Player 2 moved to (12,0)
+[13:47:24] Player 2 moved to (11,0)
+[13:47:25] Player 2 moved to (11,1)
+[13:47:26] Player 2 moved to (12,1)
+[13:47:27] Player 2 moved to (12,0)
+[13:47:27] Player 2 moved to (11,0)
+[13:47:28] Player 2 moved to (11,1)
+[13:47:30] Turn 23: Player 2's turn
+[13:47:30] Autosaved turn-start (autosave.json)
+[13:47:32] Player 2 played Dark Shield
+[13:47:32] Turn 23: Player 2's turn
+[13:47:32] Autosaved turn-start (autosave.json)
+[13:47:34] Player 2 played Consume Health Potion
+[13:47:35] Turn 24: Player 1's turn
+[13:47:35] Autosaved turn-start (autosave.json)
+[13:47:41] Player 1 moved to (11,7)
+[13:47:46] Turn 24: Player 2's turn
+[13:47:46] Autosaved turn-start (autosave.json)
+[13:47:47] Player 2 moved to (11,0)
+[13:47:48] Player 2 moved to (10,0)
+[13:47:49] Player 2 moved to (9,0)
+[13:47:49] Player 2 moved to (8,0)
+[13:47:50] Player 2 moved to (7,0)
+[13:47:51] Player 2 moved to (6,0)
+[13:47:52] Player 2 moved to (5,0)
+[13:47:53] Player 2 moved to (4,0)
+[13:47:54] Player 2 moved to (3,0)
+[13:47:54] Player 2 moved to (2,0)
+[13:47:56] Turn 24: Player 2's turn
+[13:47:56] Autosaved turn-start (autosave.json)
+[13:47:58] Player 2 played Dark Shield
+[13:47:58] Turn 24: Player 2's turn
+[13:47:58] Autosaved turn-start (autosave.json)
+[13:48:00] Player 2 played Heal
+[13:48:02] Player 2 played Hasten
+[13:48:02] Turn 25: Player 1's turn
+[13:48:02] Autosaved turn-start (autosave.json)
+[13:48:08] Player 1 moved to (11,6)
+[13:48:10] Player 1 played Rock Crush
+[13:48:12] Turn 25: Player 2's turn
+[13:48:12] Autosaved turn-start (autosave.json)
+[13:48:13] Player 2 moved to (1,0)
+[13:48:14] Player 2 moved to (0,0)
+[13:48:15] Player 2 moved to (0,1)
+[13:48:16] Player 2 moved to (0,2)
+[13:48:17] Player 2 moved to (0,3)
+[13:48:18] Player 2 moved to (0,4)
+[13:48:19] Turn 25: Player 2's turn
+[13:48:19] Autosaved turn-start (autosave.json)
+[13:48:21] Turn 25: Player 2's turn
+[13:48:21] Autosaved turn-start (autosave.json)
+[13:48:23] Player 2 played Train
+[13:48:24] Player 2 played Train
+[13:48:24] Player 2 played Train
+[13:48:25] Player 2 played Train
+[13:48:25] Player 2 played Train
+[13:48:26] Player 2 played Train
+[13:48:27] Player 2 played Train
+[13:48:27] Player 2 played Train
+[13:48:28] Player 2 played Train
+[13:48:28] Turn 26: Player 1's turn
+[13:48:28] Autosaved turn-start (autosave.json)
+[13:48:30] Player 1 played Hand Block
+[13:48:33] Player 1 moved to (12,5)
+[13:48:33] Turn 26: Player 2's turn
+[13:48:33] Autosaved turn-start (autosave.json)
+[13:48:35] Player 2 moved to (0,3)
+[13:48:36] Player 2 moved to (0,2)
+[13:48:36] Player 2 moved to (0,1)
+[13:48:38] Turn 26: Player 2's turn
+[13:48:38] Autosaved turn-start (autosave.json)
+[13:48:40] Player 2 played Dark Shield
+[13:48:40] Player 2 played Dark Shield
+[13:48:41] Turn 26: Player 2's turn
+[13:48:41] Autosaved turn-start (autosave.json)
+[13:48:42] Player 2 moved to (11,6)
+[13:48:43] Player 2 moved to (12,6)
+[13:48:44] Player 2 moved to (12,7)
+[13:48:45] Player 2 moved to (12,8)
+[13:48:46] Player 2 moved to (11,8)
+[13:48:46] Player 2 moved to (10,8)
+[13:48:47] Player 2 moved to (9,8)
+[13:48:49] Turn 27: Player 1's turn
+[13:48:49] Autosaved turn-start (autosave.json)
+[13:48:54] Player 1 moved to (12,7)
+[13:48:54] Turn 27: Player 2's turn
+[13:48:54] Autosaved turn-start (autosave.json)
+[13:48:56] Player 2 moved to (0,0)
+[13:48:57] Player 2 moved to (1,0)
+[13:48:58] Player 2 moved to (1,1)
+[13:48:58] Player 2 moved to (0,1)
+[13:48:59] Player 2 moved to (0,0)
+[13:49:00] Player 2 moved to (1,0)
+[13:49:01] Player 2 moved to (1,1)
+[13:49:02] Player 2 moved to (0,1)
+[13:49:02] Player 2 moved to (0,0)
+[13:49:04] Turn 27: Player 2's turn
+[13:49:04] Autosaved turn-start (autosave.json)
+[13:49:06] Turn 27: Player 2's turn
+[13:49:06] Autosaved turn-start (autosave.json)
+[13:49:07] Player 2 moved to (8,8)
+[13:49:08] Player 2 moved to (7,8)
+[13:49:09] Player 2 moved to (6,8)
+[13:49:10] Player 2 moved to (5,8)
+[13:49:10] Player 2 moved to (4,8)
+[13:49:12] Turn 28: Player 1's turn
+[13:49:12] Autosaved turn-start (autosave.json)
+[13:49:16] Player 1 played Hasten
+[13:49:17] Player 1 moved to (9,8)
+[13:49:18] Turn 28: Player 2's turn
+[13:49:18] Autosaved turn-start (autosave.json)
+[13:49:19] Player 2 moved to (0,1)
+[13:49:20] Player 2 moved to (0,2)
+[13:49:21] Player 2 moved to (0,3)
+[13:49:21] Player 2 moved to (0,4)
+[13:49:22] Player 2 moved to (0,5)
+[13:49:23] Player 2 moved to (0,6)
+[13:49:24] Player 2 moved to (0,7)
+[13:49:25] Player 2 moved to (0,8)
+[13:49:26] Turn 28: Player 2's turn
+[13:49:26] Autosaved turn-start (autosave.json)
+[13:49:28] Turn 28: Player 2's turn
+[13:49:28] Autosaved turn-start (autosave.json)
+[13:49:29] Player 2 moved to (3,8)
+[13:49:30] Player 2 moved to (2,8)
+[13:49:31] Player 2 moved to (1,8)
+[13:49:32] Player 2 moved to (1,7)
+[13:49:33] Player 2 moved to (1,6)
+[13:49:34] Turn 29: Player 1's turn
+[13:49:34] Autosaved turn-start (autosave.json)
+[13:49:37] Player 1 played Hasten
+[13:49:38] Player 1 moved to (7,8)
+[13:49:39] Turn 29: Player 2's turn
+[13:49:39] Autosaved turn-start (autosave.json)
+[13:49:40] Player 2 moved to (0,7)
+[13:49:41] Player 2 moved to (0,6)
+[13:49:42] Player 2 moved to (0,5)
+[13:49:43] Turn 29: Player 2's turn
+[13:49:43] Autosaved turn-start (autosave.json)
+[13:49:45] Turn 29: Player 2's turn
+[13:49:45] Autosaved turn-start (autosave.json)
+[13:49:46] Player 2 moved to (1,5)
+[13:49:47] Player 2 moved to (2,5)
+[13:49:48] Player 2 moved to (3,5)
+[13:49:49] Player 2 moved to (3,6)
+[13:49:50] Player 2 moved to (4,6)
+[13:49:51] Turn 30: Player 1's turn
+[13:49:51] Autosaved turn-start (autosave.json)
+[13:49:57] Player 1 played Time Vortex
+[13:49:58] Player 1 played Hand Block
+[13:50:00] Turn 30: Player 1's turn
+[13:50:00] Autosaved turn-start (autosave.json)
+[13:50:04] Player 1 moved to (5,6)
+[13:50:06] Player 1 played Flame Hit
+[13:50:07] Turn 30: Player 1's turn
+[13:50:07] Autosaved turn-start (autosave.json)
+[13:50:13] Turn 30: Player 1's turn
+[13:50:13] Autosaved turn-start (autosave.json)
+[13:50:17] Player 1 played Shock
+[13:50:18] Turn 30: Player 2's turn
+[13:50:18] Autosaved turn-start (autosave.json)
+[13:50:19] Player 2 moved to (0,4)
+[13:50:20] Player 2 moved to (0,3)
+[13:50:21] Player 2 moved to (0,2)
+[13:50:22] Player 2 moved to (0,1)
+[13:50:23] Player 2 moved to (0,0)
+[13:50:23] Player 2 moved to (1,0)
+[13:50:24] Player 2 moved to (1,1)
+[13:50:25] Player 2 moved to (0,1)
+[13:50:26] Player 2 moved to (0,0)
+[13:50:27] Player 2 moved to (1,0)
+[13:50:28] Turn 30: Player 2's turn
+[13:50:28] Autosaved turn-start (autosave.json)
+[13:50:30] Player 2 played Dark Shield
+[13:50:31] Turn 30: Player 2's turn
+[13:50:31] Autosaved turn-start (autosave.json)
+[13:50:31] Turn 31: Player 1's turn
+[13:50:31] Autosaved turn-start (autosave.json)
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 3
+  Cards Played: 20
+  Minions Spawned: 0
+  Total Healing: 5
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 224
+  Minions Spawned: 2
+  Total Healing: 10
+=====================
