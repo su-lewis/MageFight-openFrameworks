@@ -1000,10 +1000,15 @@ public:
 	int aiPendingMoveY = -1;
 	bool aiDraftStaged = false;
 
+	// Tactical AI Helper Functions
+	int getCardEstimatedDamage(const Card & c, const Player & caster, const Player & target);
+	float getEnemyThreatScore(int enemyPlayerIdx);
+	glm::ivec2 getBestKeyTarget(const Player & actor);
 	void updateAI();
 	void thinkRuleBasedAI();
 	void thinkDeepLearningAI();
 	float evaluateDraftCardScore(const Card & card, int classTier, int draftingPlayerIdx);
+	glm::ivec2 aiLastMovedFromTile = glm::ivec2(-1, -1);
 	// ZMQ / RL Helpers
 	std::vector<float> extractGameStateForAI();
 	int getAIActionFromModel(const std::vector<float> & state, float reward, bool done);
