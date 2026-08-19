@@ -1,0 +1,93 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-08-19 10:29:23
+End Reason: Victory
+Seed: 884466119
+Turns: 8
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[10:26:48] --- MATCH STARTED ---
+[10:27:04] Turn 1: Player 1's turn
+[10:27:04] Autosaved turn-start (autosave.json)
+[10:27:13] Player 1 moved to (0,6)
+[10:27:13] Turn 1: Player 2's turn
+[10:27:13] Autosaved turn-start (autosave.json)
+[10:27:15] Player 2 played Summon Faerie
+[10:27:16] Turn 2: Player 1's turn
+[10:27:16] Autosaved turn-start (autosave.json)
+[10:27:19] Player 1 moved to (2,5)
+[10:27:21] Turn 2: Player 2's turn
+[10:27:21] Autosaved turn-start (autosave.json)
+[10:27:23] Turn 2: Player 2's turn
+[10:27:23] Autosaved turn-start (autosave.json)
+[10:27:25] Turn 3: Player 1's turn
+[10:27:25] Autosaved turn-start (autosave.json)
+[10:27:29] Player 1 moved to (4,5)
+[10:27:30] Turn 3: Player 2's turn
+[10:27:30] Autosaved turn-start (autosave.json)
+[10:27:32] Turn 3: Player 2's turn
+[10:27:32] Autosaved turn-start (autosave.json)
+[10:27:34] Player 2 played Hand Block
+[10:27:34] Turn 4: Player 1's turn
+[10:27:34] Autosaved turn-start (autosave.json)
+[10:27:42] Player 1 moved to (4,4)
+[10:28:05] Player 1 moved to (5,2)
+[10:28:05] Turn 4: Player 2's turn
+[10:28:05] Autosaved turn-start (autosave.json)
+[10:28:07] Turn 4: Player 2's turn
+[10:28:07] Autosaved turn-start (autosave.json)
+[10:28:09] Player 2 played Hand Block
+[10:28:10] Player 2 played Hand Block
+[10:28:11] Turn 5: Player 1's turn
+[10:28:11] Autosaved turn-start (autosave.json)
+[10:28:14] Player 1 moved to (7,3)
+[10:28:15] Turn 5: Player 2's turn
+[10:28:15] Autosaved turn-start (autosave.json)
+[10:28:17] Turn 5: Player 2's turn
+[10:28:17] Autosaved turn-start (autosave.json)
+[10:28:19] Player 2 played Summon Faerie
+[10:28:19] Turn 6: Player 1's turn
+[10:28:19] Autosaved turn-start (autosave.json)
+[10:28:25] Player 1 moved to (8,4)
+[10:28:28] Player 1 moved to (8,3)
+[10:28:29] Turn 6: Player 2's turn
+[10:28:29] Autosaved turn-start (autosave.json)
+[10:28:31] Turn 6: Player 2's turn
+[10:28:31] Autosaved turn-start (autosave.json)
+[10:28:33] Turn 6: Player 2's turn
+[10:28:33] Autosaved turn-start (autosave.json)
+[10:28:35] Turn 7: Player 1's turn
+[10:28:35] Autosaved turn-start (autosave.json)
+[10:28:38] Player 1 moved to (11,3)
+[10:28:41] Player 1 played Magic Bolt
+[10:28:55] Turn 7: Player 2's turn
+[10:28:55] Autosaved turn-start (autosave.json)
+[10:28:57] Turn 7: Player 2's turn
+[10:28:57] Autosaved turn-start (autosave.json)
+[10:28:59] Player 2 played Summon Faerie
+[10:29:00] Player 2 played Hand Block
+[10:29:01] Turn 8: Player 1's turn
+[10:29:01] Autosaved turn-start (autosave.json)
+[10:29:04] Player 1 moved to (11,1)
+[10:29:13] Player 1 played Slash
+[10:29:15] Player 1 played Slash
+[10:29:17] Player 1 played Slash
+[10:29:21] Player 1 moved to (12,1)
+[10:29:22] Player 1 played Shock
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 18
+  Cards Played: 5
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 7
+  Minions Spawned: 3
+  Total Healing: 0
+=====================

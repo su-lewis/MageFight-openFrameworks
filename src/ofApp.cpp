@@ -17739,22 +17739,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// In mousePressed, we DO want to block left clicks so you can't play cards while dice spin
 		if (isPlayerAnimating || isDiceSpinning) return;
 
-		// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
-		if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			const Player & currActive = players[currentPlayerIndex];
-			int controlledPlayerID = currActive.isMinion ? currActive.ownerID : currActive.playerID;
-
-			bool isOpponentDeciding = (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0);
-			int deciderOwner = -1;
-			if (isOpponentDeciding) {
-				const Player & decider = players[opponentDecisionPlayerIndex];
-				deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
-			}
-
-			if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
-				// Not our turn - ignore all gameplay clicks (allow hover via mouseMoved)
-				return;
-			}
+		// TURN & DRAFT VALIDATION: Lock out all interaction if it's the AI's turn or AI's draft
+		if (!isMyTurn()) {
+			return;
 		}
 
 		// 3d. Deck Clicking (Drawing Cards)
@@ -18283,6 +18270,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
+	if (!isMyTurn()) return;
 	// Keep hover/cursor state up-to-date while a mouse button is held.
 	mouseMoved(x, y);
 
@@ -18572,6 +18560,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button) {
+	if (!isMyTurn()) return;
 	// --- SETTINGS MENU SLIDER DRAG END ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
 		bool settingsChanged = false;
@@ -19753,6 +19742,10 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	// Reset AI staging flags
+	aiActionStage = 0;
+	aiStageTimer = 0.0f;
+	aiDraftStaged = false;
 	if (isMultiplayer) {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "--- START NEW TURN --- Unit: " + std::to_string(currentPlayerIndex) + " | Starting Checksum: " + std::to_string(calculateChecksum()));
 	}
@@ -22730,14 +22723,12 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 // Send an input command: optionally apply locally (optimistic) and send over network
 bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	if (cmd.commandType == CMD_END_TURN) {
-		cmd.params[0] = currentPlayerIndex; // Tag the command so duplicates can be ignored
+		cmd.params[0] = currentPlayerIndex;
 	}
 	cmd.type = PKT_INPUT_COMMAND;
+	cmd.turnNumber = globalTurnCounter; // <--- FIX: Guarantee the turn number is always stamped!
 
-	// In AI vs AI, we don't need to override the playerID here.
-	// The `executeAIAction` function is now responsible for setting the correct `cmd.playerID`
-	// based on the active player for that specific command.
-	if (!isAIvsAI) {
+	if (isMultiplayer && !isAIvsAI) {
 		cmd.playerID = myLocalPlayerID;
 	}
 
@@ -24101,8 +24092,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (pick1 >= 0) picks.push_back(pick1);
 		if (pick2 >= 0) picks.push_back(pick2);
 
-		// Always spawn visual drafting flight-paths for the AI in singleplayer vs AI mode!
-		if (cmd.playerID != (uint32_t)myLocalPlayerID || (isVsAI && cmd.playerID == 1)) {
+		// Always spawn visual drafting flight-paths for the AI whenever the drafting player is Player 1 / AI!
+		bool isAiDrafting = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && (players[cmdDraftPlayerIdx].playerID == 1 || players[cmdDraftPlayerIdx].ownerID == 1));
+
+		if (cmd.playerID != (uint32_t)myLocalPlayerID || isAiDrafting) {
 
 			// Schedule visual shuffle and animations consistent with click-path timing
 			float cardAnimDuration = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f;
@@ -33207,21 +33200,17 @@ bool ofApp::isMyTurn() const {
 bool ofApp::isCurrentPlayerLocal() const {
 	if (myLocalPlayerID == 2) return false; // Spectators cannot act locally
 	if (isAIvsAI) {
-		// FIX: The AI should only act when the game is in the gameplay or drafting state!
 		if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) {
 			return false;
 		}
-		return true; // Both sides are locally controlled by the Python script
+		return true;
 	}
 
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	const Player & p = players[currentPlayerIndex];
 	int activeID = p.isMinion ? p.ownerID : p.playerID;
 
-	if (isVsAI) {
-		return activeID == 0; // Only local if it's the human's unit
-	}
-	// In Local PvP allow local control of whichever player is active.
+	// In Singleplayer (both Local PvP and Vs AI), the local machine runs both turns!
 	if (!isMultiplayer) return true;
 	return activeID == myLocalPlayerID;
 }
@@ -38304,6 +38293,12 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	currentDraftClassTier = classTier;
 	currentDraftOptionPoolIndices = { -1, -1, -1 };
 
+	// Reset AI draft staging so the AI waits to show the yellow outline on new cards
+	aiDraftStaged = false;
+	aiStageTimer = 0.0f;
+	draftAcceptLocked = false;
+	draftAcceptApplied = false;
+
 	// Guard: if we're already actively drafting the same class tier for the
 	// same player and options are present, avoid regenerating (prevents
 	// accidental re-entry/oscillation between players when visuals overlap).
@@ -39030,11 +39025,8 @@ void ofApp::drawDraftScreen() {
 
 	bool canAccept = ((int)selectedDraftIndices.size() == required);
 
-	// Only show the Accept button to the drafting player (or in singleplayer)
-	bool showAccept = true;
-	if (isMultiplayer) {
-		if (!players.empty() && !isLocalDraftingPlayer(draftPlayerIndex)) showAccept = false;
-	}
+	// ONLY show the Accept button if it is the local human player's draft
+	bool showAccept = isLocalDraftingPlayer(draftPlayerIndex);
 	// Hide accept if we've already applied it locally (it should vanish)
 
 	if (draftAcceptApplied) showAccept = false;
@@ -39567,18 +39559,23 @@ int ofApp::getLocalPlayerIndex() const {
 }
 
 bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
-	if (!isMultiplayer) return true;
-	if (g_isSpectator || myLocalPlayerID == 2) return false;
-	int localIdx = getLocalPlayerIndex();
-	// Accept if either the slot index matches or the playerID at the slot matches local ID.
-	if (localIdx >= 0 && localIdx == draftIndex) return true;
-	if (draftIndex >= 0 && draftIndex < (int)players.size()) {
-		const Player & draftActor = players[draftIndex];
-		if (draftActor.playerID == myLocalPlayerID) return true;
-		// In-game key drafts can target minions: ownership should gate local control.
-		if (draftActor.isMinion && draftActor.ownerID == myLocalPlayerID) return true;
+	if (draftIndex < 0 || draftIndex >= (int)players.size()) return false;
+	int draftOwnerID = players[draftIndex].isMinion ? players[draftIndex].ownerID : players[draftIndex].playerID;
+
+	// In AI vs AI, neither side is human
+	if (isAIvsAI) return false;
+
+	// In Human vs AI, only Player 0 is the local human
+	if (isVsAI) {
+		return (draftOwnerID == 0);
 	}
-	return false;
+
+	// In local 2-player PvP pass-and-play, both are human
+	if (!isMultiplayer) return true;
+
+	// In Multiplayer
+	if (g_isSpectator || myLocalPlayerID == 2) return false;
+	return (draftOwnerID == myLocalPlayerID);
 }
 
 // --------------------------------------------------------------
@@ -40937,55 +40934,27 @@ std::string ofApp::getDeckStateString(const Player & p) {
 // ==============================================================================
 // DEEP REINFORCEMENT LEARNING AI AGENT SCAFFOLDING
 // ==============================================================================
-void ofApp::updateAI() {
-	if (!isVsAI && !isAIvsAI) return;
-
-	// FIX: In a Human vs AI match, prevent the AI from acting when it is the Human's turn!
-	if (isVsAI && !isAIvsAI && isMyTurn()) return;
-
-	// CRITICAL FIX: If we are in AI vs AI mode, ensure we actually wait for the C++
-	// state machine to settle on a valid player before asking the Python script!
-	if (isAIvsAI && (players.empty() || currentPlayerIndex < 0)) return;
-
-	if (endTurnLocked || g_isGameOver || currentState == STATE_DESYNC) return;
-
-	// CRITICAL FIX: Strictly forbid the AI from acting during the Initiative Roll,
-	// Menus, or Pauses. It can only act during pure Gameplay or Drafting!
-	if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) return;
-
+void ofApp::thinkDeepLearningAI() {
 	bool isGameBusy = false;
 
-	// FIX: Prevent the AI from thinking/spamming if it already has commands waiting to execute!
 	if (!commandQueue.empty() || isExecutingLockstepCommand) isGameBusy = true;
-
-	// ADD THIS: Prevent ZMQ decisions during the draft card intro scale-up in visual mode
 	if (currentState == STATE_DRAFTING && !headless && !draftDisplayInteractiveEnabled) isGameBusy = true;
-
-	// Allow the AI to draft even if a walking animation hasn't finished its final frame
 	if (isProcessingEffect || isEarthquakeActive) isGameBusy = true;
 	if (currentState != STATE_DRAFTING && isPlayerAnimating) isGameBusy = true;
 	for (const auto & roll : activeDiceRolls) {
 		if (!roll.isFinishedVisual) isGameBusy = true;
 	}
 
-	// CRITICAL FIX: Allow AI to act when it needs to click a target or place a unit!
 	if (cardPlayState != CARD_PLAY_STATE_IDLE && cardInteractionState != CARD_INTERACTION_STATE_MENU && cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
 		isGameBusy = true;
 	}
 
 	if (currentState == STATE_DRAFTING && draftOptions.empty()) isGameBusy = true;
 	if (draftNextScheduled || draftEndScheduled || draftAcceptLocked) isGameBusy = true;
-
-	// Prevent AI from spamming commands before the turn officially begins
 	if (turnStartDeferred) isGameBusy = true;
 
 	if (isGameBusy) return;
 
-	// --- AI DRAFT HANDLER ---
-	// The AI now handles drafting via its standard action loop. This block has been disabled.
-	// ------------------------
-
-	// If watching the AI play normally (not headless), add a tiny delay
 	if (!headless) {
 		aiThinkTimer -= ofGetLastFrameTime();
 		if (aiThinkTimer > 0.0f) return;
@@ -40998,10 +40967,955 @@ void ofApp::updateAI() {
 
 	int actionIndex = getAIActionFromModel(stateVector, rewardToSend, false);
 
-	// Only execute if we actually received an action from Python
 	if (actionIndex != -1) {
 		executeAIAction(actionIndex);
 	}
+}
+
+void ofApp::updateAI() {
+	// Block if dice, visuals, or turn-starts are pending
+	if (!visualEvents.empty() || turnStartDeferred || pendingStartNewTurnRequests > 0) return;
+	if (!isVsAI && !isAIvsAI) return;
+	if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+	if (endTurnLocked || g_isGameOver || currentState == STATE_DESYNC) return;
+	if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) return;
+
+	// In Singleplayer Vs AI, strictly ensure the AI only controls its own turn & draft
+	if (isVsAI && !isAIvsAI) {
+		if (currentState == STATE_DRAFTING) {
+			int draftOwner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
+			if (draftOwner != 1) return; // Never touch Human's draft!
+		} else {
+			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			if (activeOwner != 1) return; // Never touch Human's turn!
+		}
+	}
+
+	// Block if dice or visual animations are running
+	if (!visualEvents.empty()) return;
+	for (const auto & roll : activeDiceRolls) {
+		if (!roll.isFinishedVisual) return;
+	}
+	if (isPlayerAnimating || isProcessingEffect || isEarthquakeActive) return;
+	if (turnStartDeferred) return;
+	if (!commandQueue.empty() || isExecutingLockstepCommand) return;
+
+	// During gameplay, pace actions by 0.6s so every move/card is clearly visible
+	if (currentState == STATE_GAMEPLAY && !headless) {
+		aiThinkTimer -= ofGetLastFrameTime();
+		if (aiThinkTimer > 0.0f) return;
+		aiThinkTimer = 0.6f;
+	}
+
+	if (currentAIMode == AI_MODE_RULE_BASED) {
+		thinkRuleBasedAI();
+	} else {
+		thinkDeepLearningAI();
+	}
+}
+
+void ofApp::thinkRuleBasedAI() {
+	if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+
+	int activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+	int enemyID = (activeID == 1) ? 0 : 1;
+	Player & me = players[currentPlayerIndex];
+
+	float dt = ofGetLastFrameTime();
+
+	// =========================================================================
+	// 1. DRAFTING (1.8s Yellow Outline Preview -> Fly into Deck)
+	// =========================================================================
+	if (currentState == STATE_DRAFTING) {
+		if (isLocalDraftingPlayer(draftPlayerIndex)) return;
+		if (draftOptions.empty() || draftAcceptLocked || draftNextScheduled || draftEndScheduled) return;
+
+		int picksNeeded = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+
+		// Step 1: Select cards and light them up yellow
+		if (!aiDraftStaged) {
+			selectedDraftIndices.clear();
+
+			struct ScoredDraftPick {
+				int poolIdx;
+				float score;
+			};
+			std::vector<ScoredDraftPick> scoredPicks;
+
+			for (size_t i = 0; i < draftOptions.size() && i < currentDraftOptionPoolIndices.size(); ++i) {
+				int pIdx = currentDraftOptionPoolIndices[i];
+				if (pIdx < 0) continue;
+				float s = evaluateDraftCardScore(draftOptions[i], currentDraftClassTier, draftPlayerIndex);
+				scoredPicks.push_back({ pIdx, s });
+			}
+
+			std::sort(scoredPicks.begin(), scoredPicks.end(), [](const ScoredDraftPick & a, const ScoredDraftPick & b) {
+				return a.score > b.score;
+			});
+
+			for (int i = 0; i < picksNeeded && i < (int)scoredPicks.size(); ++i) {
+				selectedDraftIndices.push_back(scoredPicks[i].poolIdx);
+			}
+
+			aiDraftStaged = true;
+			aiStageTimer = headless ? 0.0f : 1.8f;
+			return;
+		}
+
+		// Step 2: Wait with yellow outline visible
+		if (aiStageTimer > 0.0f) {
+			aiStageTimer -= dt;
+			return;
+		}
+
+		// Step 3: Accept the draft pick
+		draftAcceptLocked = true;
+
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = activeID;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_ACCEPT_DRAFT;
+		cmd.params[0] = draftPlayerIndex;
+		cmd.params[1] = currentDraftClassTier;
+		cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+		cmd.params[3] = selectedDraftIndices.size() > 0 ? selectedDraftIndices[0] : -1;
+		cmd.params[4] = selectedDraftIndices.size() > 1 ? selectedDraftIndices[1] : -1;
+		cmd.params[5] = -1;
+		sendInputCommand(cmd, true);
+
+		aiDraftStaged = false;
+		return;
+	}
+	aiDraftStaged = false;
+
+	// =========================================================================
+	// 2. MENUS & FORCED MODALS
+	// =========================================================================
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+		int choice = 1;
+		if (interactingCardType == CARD_BURST_OF_LIGHT) {
+			choice = (me.health < me.maxHealth) ? 2 : 1;
+		} else if (interactingCardType == CARD_DISPEL) {
+			choice = 1;
+		} else if (interactingCardType == CARD_TRAIN) {
+			choice = 1;
+		}
+
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = activeID;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = interactingCardType;
+		cmd.params[1] = interactionTargetIndex != -1 ? interactionTargetIndex : currentPlayerIndex;
+		cmd.params[2] = choice;
+		cmd.params[3] = interactingCardIndex;
+		sendInputCommand(cmd, true);
+		return;
+	}
+
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+		int bestX = -1, bestY = -1;
+		float bestScore = -999.0f;
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			for (int x = 0; x < BOARD_WIDTH; ++x) {
+				if (!board[x][y].isTargetable) continue;
+				float score = 1.0f;
+				for (const auto & p : players) {
+					if (p.x == x && p.y == y && p.health > 0) {
+						int owner = p.isMinion ? p.ownerID : p.playerID;
+						if (owner == enemyID) score += 10.0f;
+					}
+				}
+				if (score > bestScore) {
+					bestScore = score;
+					bestX = x;
+					bestY = y;
+				}
+			}
+		}
+		if (bestX != -1) {
+			handleCardTargetClick(bestX, bestY);
+		} else {
+			cancelAllTargeting();
+		}
+		return;
+	}
+
+	// =========================================================================
+	// 3. FREE ACTIONS (Draw & Assistant Rerolls)
+	// =========================================================================
+	if (!me.hasDrawnThisTurn && (!me.deck.empty() || !me.discardPile.empty())) {
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = activeID;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_DRAW_CARDS;
+		cmd.params[0] = currentPlayerIndex;
+		cmd.params[1] = me.isDemon ? 3 : 2;
+		sendInputCommand(cmd, true);
+		return;
+	}
+
+	if (currentAP == 0) {
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == me.playerID && !players[i].assistantRerollUsedThisTurn) {
+				if (abs(players[i].x - me.x) + abs(players[i].y - me.y) <= 1) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = activeID;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = (int)i;
+					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
+					return;
+				}
+			}
+		}
+	}
+
+	// =========================================================================
+	// 4. TACTICAL EVALUATION (Cards & Movement)
+	// =========================================================================
+	struct ScoredAction {
+		enum { PLAY,
+			MOVE } type;
+		int cardIdx;
+		int tx, ty;
+		float score;
+	};
+	std::vector<ScoredAction> candidates;
+
+	int nearestEnemyDist = 999;
+	int enemyTargetX = -1, enemyTargetY = -1;
+	for (const auto & p : players) {
+		int owner = p.isMinion ? p.ownerID : p.playerID;
+		if (owner == enemyID && p.health > 0) {
+			int d = abs(p.x - me.x) + abs(p.y - me.y);
+			if (d < nearestEnemyDist) {
+				nearestEnemyDist = d;
+				enemyTargetX = p.x;
+				enemyTargetY = p.y;
+			}
+		}
+	}
+
+	int savedState = (int)cardInteractionState;
+	int savedIdx = interactingCardIndex;
+
+	// Evaluate Card Plays
+	for (int i = 0; i < (int)me.hand.size(); ++i) {
+		const Card & card = me.hand[i];
+		int cost = getEffectiveCardCostForPlayer(me, card);
+		if (currentAP < cost) continue;
+
+		interactingCardIndex = i;
+		calculateTargetHighlights(i);
+
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			for (int x = 0; x < BOARD_WIDTH; ++x) {
+				if (!board[x][y].isTargetable) continue;
+
+				float score = 0.0f;
+				if (card.baseDamage > 0 || card.damageDiceNum > 0) {
+					int estimatedDmg = card.baseDamage + (card.damageDiceNum * (card.damageDiceSides + 1) / 2);
+					for (const auto & p : players) {
+						if (p.x == x && p.y == y && p.health > 0) {
+							int owner = p.isMinion ? p.ownerID : p.playerID;
+							if (owner == enemyID) {
+								score += estimatedDmg * 2.5f;
+								if (estimatedDmg >= p.health) score += 15.0f;
+							}
+						}
+					}
+				}
+				if (card.baseHeal > 0 || card.healAmount > 0) {
+					int missing = me.maxHealth - me.health;
+					if (missing > 0) score += std::min(missing, card.baseHeal + card.healAmount) * 2.0f;
+				}
+				if (card.blockAmount > 0 || card.barrierAmount > 0 || card.wardAmount > 0) {
+					score += (nearestEnemyDist <= 2 ? 6.0f : 2.0f);
+				}
+				if (card.summonKind > 0) score += 8.0f;
+				if (card.apGain > 0) score += card.apGain * 2.0f;
+
+				if (score > 0.0f) {
+					candidates.push_back({ ScoredAction::PLAY, i, x, y, score - (cost * 0.5f) });
+				}
+			}
+		}
+	}
+
+	cardInteractionState = (CardInteractionState)savedState;
+	interactingCardIndex = savedIdx;
+	calculateTargetHighlights(interactingCardIndex);
+
+	// Evaluate Movement using shortest path
+	if (currentAP > 0 && enemyTargetX != -1) {
+		std::vector<glm::vec2> pathToEnemy = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)enemyTargetX, (float)enemyTargetY });
+		if (pathToEnemy.size() > 1) {
+			int nextX = (int)pathToEnemy[1].x;
+			int nextY = (int)pathToEnemy[1].y;
+			if (!board[nextX][nextY].hasWall && !board[nextX][nextY].hasPlayer) {
+				candidates.push_back({ ScoredAction::MOVE, -1, nextX, nextY, (candidates.empty() ? 5.0f : 1.5f) });
+			}
+		}
+	}
+
+	// =========================================================================
+	// 5. EXECUTE BEST ACTION OR END TURN
+	// =========================================================================
+	if (!candidates.empty()) {
+		std::sort(candidates.begin(), candidates.end(), [](const ScoredAction & a, const ScoredAction & b) {
+			return a.score > b.score;
+		});
+
+		const ScoredAction & best = candidates.front();
+
+		if (best.type == ScoredAction::PLAY) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PLAY_CARD;
+			cmd.params[0] = best.cardIdx;
+			cmd.params[1] = best.tx;
+			cmd.params[2] = best.ty;
+			sendInputCommand(cmd, true);
+			return;
+		} else {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MOVE_UNIT;
+			cmd.params[0] = me.x;
+			cmd.params[1] = me.y;
+			cmd.params[2] = best.tx;
+			cmd.params[3] = best.ty;
+			sendInputCommand(cmd, true);
+			return;
+		}
+	}
+
+	// Finished all actions -> End Turn
+	selectedCardIndex = -1;
+	hoveredCardIndex = -1;
+
+	InputCommandPacket cmd = {};
+	cmd.type = PKT_INPUT_COMMAND;
+	cmd.playerID = activeID;
+	cmd.turnNumber = globalTurnCounter;
+	cmd.commandType = CMD_END_TURN;
+	cmd.params[0] = currentPlayerIndex;
+	endTurnLocked = true;
+	sendInputCommand(cmd, true);
+}
+
+float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int draftingPlayerIdx) {
+	if (draftingPlayerIdx < 0 || draftingPlayerIdx >= (int)players.size()) return 0.0f;
+
+	Player & me = players[draftingPlayerIdx];
+	int activeOwnerID = me.isMinion ? me.ownerID : me.playerID;
+	int oppOwnerID = (activeOwnerID == 1) ? 0 : 1;
+	int oppIdx = findPlayerIndexByID(oppOwnerID);
+
+	// --- HELPER LAMBDAS ---
+	auto countMyCopies = [&](CardType t) -> int {
+		int count = 0;
+		for (const auto & c : me.deck)
+			if (c.type == t) count++;
+		for (const auto & c : me.hand)
+			if (c.type == t) count++;
+		for (const auto & c : me.discardPile)
+			if (c.type == t) count++;
+		for (const auto & c : me.playedCardsPile)
+			if (c.type == t) count++;
+		return count;
+	};
+
+	auto hasMyCard = [&](CardType t) -> bool {
+		return countMyCopies(t) > 0;
+	};
+
+	auto hasOppCard = [&](CardType t) -> bool {
+		if (oppIdx < 0 || oppIdx >= (int)players.size()) return false;
+		const Player & opp = players[oppIdx];
+		for (const auto & c : opp.deck)
+			if (c.type == t) return true;
+		for (const auto & c : opp.hand)
+			if (c.type == t) return true;
+		for (const auto & c : opp.discardPile)
+			if (c.type == t) return true;
+		for (const auto & c : opp.playedCardsPile)
+			if (c.type == t) return true;
+		return false;
+	};
+
+	auto countSkeletons = [&](int ownerID) -> int {
+		int count = 0;
+		for (const auto & p : players) {
+			if (p.isSkeleton && p.health > 0 && (p.isMinion ? p.ownerID : p.playerID) == ownerID) count++;
+		}
+		return count;
+	};
+
+	auto oppHasMinionsOnBoard = [&]() -> int {
+		int count = 0;
+		for (const auto & p : players) {
+			if (p.isMinion && p.health > 0 && p.ownerID == oppOwnerID) count++;
+		}
+		return count;
+	};
+
+	auto oppHasMinionOver5HP = [&]() -> bool {
+		for (const auto & p : players) {
+			if (p.isMinion && p.health > 5 && p.ownerID == oppOwnerID) return true;
+		}
+		return false;
+	};
+
+	auto oppHasHolyWeakness = [&]() -> bool {
+		for (const auto & p : players) {
+			int owner = p.isMinion ? p.ownerID : p.playerID;
+			if (owner == oppOwnerID && p.health > 0) {
+				if (p.isHellhound || p.isDemon || p.isSkeleton || p.inGhostForm) return true;
+			}
+		}
+		return hasOppCard(CARD_VAMPIRE_BITE);
+	};
+
+	auto oppHasSummonWithHolyWeakness = [&]() -> bool {
+		return hasOppCard(CARD_SUMMON_HELLHOUND) || hasOppCard(CARD_SUMMON_DEMON) || hasOppCard(CARD_RAISE_DEAD) || hasOppCard(CARD_VAMPIRE_BITE);
+	};
+
+	auto hasHugeAPGenerator = [&]() -> bool {
+		// Way to generate > 6 AP in a turn
+		return hasMyCard(CARD_HASTEN) || hasMyCard(CARD_DEMOLITION) || (countMyCopies(CARD_SPRINT) >= 2) || (countMyCopies(CARD_SUMMON_ASSISTANT) >= 2);
+	};
+
+	auto countDirectDamageCards = [&]() -> int {
+		int count = 0;
+		auto checkList = [&](const std::vector<Card> & list) {
+			for (const auto & c : list) {
+				if (c.baseDamage > 0 || c.damageDiceNum > 0) count++;
+			}
+		};
+		checkList(me.deck);
+		checkList(me.hand);
+		checkList(me.discardPile);
+		return count;
+	};
+
+	auto countHealingSources = [&]() -> int {
+		int count = 0;
+		if (hasMyCard(CARD_HEAL)) count++;
+		if (hasMyCard(CARD_LESSER_HEAL)) count++;
+		if (hasMyCard(CARD_FULL_RESTORE)) count++;
+		if (hasMyCard(CARD_SUMMON_FAERIE)) count++;
+		if (hasMyCard(CARD_SUMMON_ASSISTANT)) count++;
+		return count;
+	};
+
+	auto hasNonHandBlockDefense = [&]() -> bool {
+		for (const auto & c : me.deck) {
+			if (c.type != CARD_HAND_BLOCK && (c.blockAmount > 0 || c.barrierAmount > 0 || c.wardAmount > 0 || c.holyBlockAmount > 0 || c.fortifyAmount > 0)) return true;
+		}
+		return false;
+	};
+
+	// =========================================================================
+	//  CLASS 3 DRAFT EVALUATION
+	// =========================================================================
+	if (classTier == 3) {
+		float rankScore = 100.0f; // Default baseline
+
+		switch (card.type) {
+		case CARD_SUMMON_HELLHOUND:
+			rankScore = 1500.0f;
+			break; // Rank 1
+		case CARD_FORM_OF_TORTOISE:
+			rankScore = 1400.0f;
+			break; // Rank 2
+		case CARD_MASTER_FIST:
+			rankScore = 1300.0f;
+			break; // Rank 3
+		case CARD_MAGIC_BOLT:
+			rankScore = 1200.0f;
+			break; // Rank 4
+		case CARD_SUMMON_KOBOLD_KING:
+			rankScore = 1100.0f;
+			break; // Rank 5
+		case CARD_SUMMON_GOLEM:
+			rankScore = 1000.0f;
+			break; // Rank 6
+		case CARD_TRANSFORM_WALL:
+			rankScore = 900.0f;
+			break; // Rank 7
+		case CARD_CONSTITUTION_BOON:
+			rankScore = 800.0f;
+			break; // Rank 8
+		case CARD_NECROMANCER_S_BLESSING:
+			rankScore = 700.0f;
+			break; // Rank 9
+		case CARD_STRENGTHEN_ELEMENTS:
+			rankScore = 600.0f;
+			break; // Rank 10
+		case CARD_FORM_OF_GHOST:
+			rankScore = 500.0f;
+			break; // Rank 11
+		case CARD_TIME_VORTEX:
+			rankScore = 400.0f;
+			break; // Rank 12
+		case CARD_SUMMON_DEMON:
+			rankScore = 300.0f;
+			break; // Rank 13
+		case CARD_DEATH:
+			rankScore = 200.0f;
+			break; // Rank 14
+		case CARD_PSIONIC_WAVE:
+			rankScore = 100.0f;
+			break; // Rank 15
+		default:
+			rankScore = 50.0f;
+			break;
+		}
+
+		// --- Class 3 Conditional Modifiers ---
+
+		// Constitution Boon: Move to Rank 1 if >= 2 Max HP cards & Max HP >= 26
+		if (card.type == CARD_CONSTITUTION_BOON) {
+			int maxHpCards = countMyCopies(CARD_CONSTITUTION_BOON) + countMyCopies(CARD_MASTER_FIST);
+			if (maxHpCards >= 2 && me.maxHealth >= 26) {
+				rankScore = 1550.0f; // Above Rank 1
+			}
+		}
+
+		// Form of Ghost:
+		if (card.type == CARD_FORM_OF_GHOST) {
+			if (hasHugeAPGenerator()) rankScore = 1250.0f; // Move to Rank 4
+
+			// Hard-Lock Win Condition: No keys left, opp has no non-physical damage, and no draft cards
+			bool noKeysLeft = floatingKeyInstances.empty();
+			bool oppHasNonPhys = false;
+			bool oppHasDraft = hasOppCard(CARD_TRAIN) || hasOppCard(CARD_CONSTITUTION_BOON) || hasOppCard(CARD_BLOCKING_BOON);
+
+			if (oppIdx >= 0) {
+				for (const auto & c : players[oppIdx].deck) {
+					if (c.damageType != DAMAGE_PHYSICAL && c.damageType != DAMAGE_PIERCING && (c.baseDamage > 0 || c.damageDiceNum > 0)) {
+						oppHasNonPhys = true;
+						break;
+					}
+				}
+			}
+
+			if (noKeysLeft && !oppHasNonPhys && !oppHasDraft) {
+				rankScore = 1600.0f; // Definite Pick / Rank 1+
+			}
+		}
+
+		// Master Fist: Move up 1 rank if Flurry of Fists in deck
+		if (card.type == CARD_MASTER_FIST && hasMyCard(CARD_FLURRY_OF_FISTS)) {
+			rankScore += 150.0f;
+		}
+
+		// Necromancer's Blessing: Move to Rank 1 if Raise Dead in deck
+		if (card.type == CARD_NECROMANCER_S_BLESSING && hasMyCard(CARD_RAISE_DEAD)) {
+			rankScore = 1550.0f;
+		}
+
+		// Time Vortex: Move to Rank 5 if can generate > 6 AP
+		if (card.type == CARD_TIME_VORTEX && hasHugeAPGenerator()) {
+			rankScore = 1150.0f;
+		}
+
+		// Cap rule for Form of Tortoise (Max 2)
+		if (card.type == CARD_FORM_OF_TORTOISE && countMyCopies(CARD_FORM_OF_TORTOISE) >= 2) {
+			rankScore -= 80.0f; // Lowers priority within tier, still beats lower cards
+		}
+
+		return rankScore;
+	}
+
+	// =========================================================================
+	//  CLASS 1 & 2 DRAFT EVALUATION
+	// =========================================================================
+
+	// Tier Values
+	const float TIER_S = 1000.0f;
+	const float TIER_A = 750.0f;
+	const float TIER_B = 500.0f;
+	const float TIER_C = 250.0f;
+
+	float score = TIER_C;
+	int maxCopies = 99;
+
+	// --- 1. Base Tier Assignment ---
+	switch (card.type) {
+	// TIER S
+	case CARD_SUMMON_ASSISTANT:
+		score = TIER_S;
+		maxCopies = 3;
+		break;
+	case CARD_HASTEN:
+		score = TIER_S;
+		break;
+	case CARD_CHAIN_LIGHTNING:
+		score = TIER_S;
+		break;
+	case CARD_SPRINT:
+		score = TIER_S;
+		maxCopies = 4;
+		break;
+	case CARD_FOUR_LEAF_CLOVER:
+		score = TIER_S;
+		break;
+	case CARD_SUMMON_FAERIE:
+		score = TIER_S;
+		maxCopies = 2;
+		break;
+
+	// TIER A
+	case CARD_FIREBALL:
+		score = TIER_A;
+		maxCopies = 2;
+		break;
+	case CARD_FLAME_HIT:
+		score = TIER_A;
+		maxCopies = 3;
+		break;
+	case CARD_AMNESIA:
+		score = TIER_A;
+		maxCopies = 3;
+		break;
+	case CARD_BURST_OF_LIGHT:
+		score = TIER_A;
+		maxCopies = 3;
+		break;
+	case CARD_CALL_FOR_KOBOLDS:
+		score = TIER_A;
+		break;
+	case CARD_DEMOLITION:
+		score = TIER_A;
+		break;
+	case CARD_SLASH:
+		score = TIER_A;
+		break;
+	case CARD_TRAIN:
+		score = TIER_A;
+		break;
+
+	// TIER B
+	case CARD_SHOCK:
+		score = TIER_B;
+		break;
+	case CARD_STAB:
+		score = TIER_B;
+		break;
+	case CARD_SMITE:
+		score = TIER_B;
+		break;
+	case CARD_ROCK_CRUSH:
+		score = TIER_B;
+		break;
+	case CARD_LESSER_HEAL:
+		score = TIER_B;
+		maxCopies = 2;
+		break;
+	case CARD_RAISE_DEAD:
+		score = TIER_B;
+		maxCopies = 2;
+		break;
+	case CARD_DRAIN_PUNCH:
+		score = TIER_B;
+		break;
+	case CARD_VAMPIRE_BITE:
+		score = TIER_B;
+		break;
+	case CARD_KICK:
+		score = TIER_B;
+		break;
+	case CARD_BASH:
+		score = TIER_B;
+		break;
+	case CARD_FLAIL:
+		score = TIER_B;
+		break;
+	case CARD_ETHEREAL_JOLT:
+		score = TIER_B;
+		break;
+	case CARD_DOUBLE_HANDED:
+		score = TIER_B;
+		break;
+	case CARD_CONSUME_HEALTH_FLAGON:
+		score = TIER_B;
+		break;
+	case CARD_CONSUME_HEALTH_POTION:
+		score = TIER_B;
+		break;
+	case CARD_EARTHQUAKE:
+		score = TIER_B;
+		break;
+	case CARD_FORTIFY:
+		score = TIER_B;
+		break;
+	case CARD_FULL_RESTORE:
+		score = TIER_B;
+		break;
+	case CARD_GIANT_MAGIC_HAND:
+		score = TIER_B;
+		break;
+	case CARD_HAND_BLOCK:
+		score = TIER_B;
+		break;
+	case CARD_HEAL:
+		score = TIER_B;
+		maxCopies = 2;
+		break;
+	case CARD_MAGIC_BLAST:
+		score = TIER_B;
+		break;
+	case CARD_MIND_THEFT:
+		score = TIER_B;
+		break;
+	case CARD_PUNCH:
+		score = TIER_B;
+		break;
+	case CARD_REPLICATE:
+		score = TIER_B;
+		break;
+	case CARD_STUDY:
+		score = TIER_B;
+		break;
+	case CARD_WARD:
+		score = TIER_B;
+		break;
+	case CARD_SUMMON_MAGIC_WALL:
+		score = TIER_B;
+		break;
+	case CARD_SUMMON_WALL:
+		score = TIER_B;
+		break;
+	case CARD_WISDOM_BOON:
+		score = TIER_B;
+		break;
+	case CARD_RENEWED_INSPIRATION:
+		score = TIER_B;
+		break;
+	case CARD_SHOOT_ARROW:
+		score = TIER_B;
+		break;
+	case CARD_TELEPORT:
+		score = TIER_B;
+		break;
+
+	// TIER C
+	case CARD_DISPEL:
+		score = TIER_C;
+		break;
+	case CARD_ADD_POISON:
+		score = TIER_C;
+		break;
+	case CARD_FLURRY_OF_FISTS:
+		score = TIER_C;
+		break;
+	case CARD_BLOCKING_BOON:
+		score = TIER_C;
+		break;
+	case CARD_DARK_SHIELD:
+		score = TIER_C;
+		break;
+	case CARD_SHIELD_BASH:
+		score = TIER_C;
+		break;
+	case CARD_SPARK_OF_GENIUS:
+		score = TIER_C;
+		break;
+	case CARD_CALL_FOR_WOLVES:
+		score = TIER_C;
+		break;
+	default:
+		score = TIER_C;
+		break;
+	}
+
+	// --- 2. Conditional Tier Modifiers ---
+
+	// No Direct Damage in Deck
+	if (countDirectDamageCards() == 0 && (card.baseDamage > 0 || card.damageDiceNum > 0)) {
+		if (oppHasMinionsOnBoard() > 0)
+			score = std::max(score, TIER_S);
+		else
+			score = std::max(score, TIER_A);
+	}
+
+	// Add Poison: Move to Tier A if >= 2 Physical/Piercing cards
+	if (card.type == CARD_ADD_POISON) {
+		int physCount = 0;
+		for (const auto & c : me.deck) {
+			if (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) physCount++;
+		}
+		if (physCount >= 2) score = std::max(score, TIER_A);
+	}
+
+	// Bash: Move to Tier A if Flurry in deck; prioritize above Kick if Luck cards exist
+	if (card.type == CARD_BASH) {
+		if (hasMyCard(CARD_FLURRY_OF_FISTS)) score = std::max(score, TIER_A);
+		if (hasMyCard(CARD_FOUR_LEAF_CLOVER) || hasMyCard(CARD_SUMMON_ASSISTANT)) score += 20.0f; // Prioritize over Kick
+	}
+
+	// Blocking Boon: Move to Tier A if non-HandBlock defense exists
+	if (card.type == CARD_BLOCKING_BOON && hasNonHandBlockDefense()) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Burst of Light: Move to Tier S if opp/minions have Holy weakness
+	if (card.type == CARD_BURST_OF_LIGHT && (oppHasHolyWeakness() || oppHasSummonWithHolyWeakness())) {
+		score = std::max(score, TIER_S);
+	}
+
+	// Call for Wolves: Move to Tier A if >= 2 AP cards (including luck)
+	if (card.type == CARD_CALL_FOR_WOLVES) {
+		int apCards = countMyCopies(CARD_SPRINT) + countMyCopies(CARD_HASTEN) + countMyCopies(CARD_TRAIN) + countMyCopies(CARD_SUMMON_ASSISTANT) + countMyCopies(CARD_FOUR_LEAF_CLOVER);
+		if (apCards >= 2) score = std::max(score, TIER_A);
+	}
+
+	// Dark Shield:
+	if (card.type == CARD_DARK_SHIELD) {
+		int mySkeletons = countSkeletons(activeOwnerID);
+		if (mySkeletons >= 2 || hasMyCard(CARD_RAISE_DEAD)) {
+			score = std::max(score, TIER_S);
+		} else if (mySkeletons >= 1 || countSkeletons(oppOwnerID) >= 1 || hasMyCard(CARD_SUMMON_HELLHOUND) || hasOppCard(CARD_RAISE_DEAD) || hasOppCard(CARD_SUMMON_HELLHOUND)) {
+			score = std::max(score, TIER_A);
+		}
+	}
+
+	// Dispel: Move to Tier A if debuffed or opponent has debuff cards
+	if (card.type == CARD_DISPEL) {
+		bool debuffed = me.onFire || me.isPoisoned || me.isParalyzed || me.sleepTurnsRemaining > 0;
+		bool oppHasDebuffs = hasOppCard(CARD_FLAME_HIT) || hasOppCard(CARD_FIREBALL) || hasOppCard(CARD_ADD_POISON) || hasOppCard(CARD_SHOCK) || hasOppCard(CARD_DEATH);
+		if (debuffed || oppHasDebuffs) score = std::max(score, TIER_A);
+	}
+
+	// Double-Handed, Drain Punch, Giant Magic Hand, Punch: Move to Tier A if Flurry in deck
+	if ((card.type == CARD_DOUBLE_HANDED || card.type == CARD_DRAIN_PUNCH || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_PUNCH) && hasMyCard(CARD_FLURRY_OF_FISTS)) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Giant Magic Hand: Move to Tier A if only center Class 3 key left
+	if (card.type == CARD_GIANT_MAGIC_HAND) {
+		if (floatingKeyInstances.size() == 1 && floatingKeyInstances[0].pos.x == 6 && floatingKeyInstances[0].pos.y == 4) {
+			score = std::max(score, TIER_A);
+		}
+	}
+
+	// Drain Punch, Heal, Lesser Heal, Full Restore, Vampire Bite: Low HP (<10) with no heals
+	if (me.health < 10 && countHealingSources() == 0) {
+		if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_FULL_RESTORE) {
+			score = std::max(score, TIER_S);
+		} else if (card.type == CARD_DRAIN_PUNCH || card.type == CARD_VAMPIRE_BITE) {
+			score = std::max(score, TIER_A);
+		}
+	}
+
+	// Earthquake: Move to Tier A if opp has >= 3 minions
+	if (card.type == CARD_EARTHQUAKE && oppHasMinionsOnBoard() >= 3) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Flail: Move to Tier A if opp has Call for Kobolds or > 2 minions
+	if (card.type == CARD_FLAIL && (hasOppCard(CARD_CALL_FOR_KOBOLDS) || oppHasMinionsOnBoard() > 2)) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Flurry of Fists: Move to Tier A if already have one copy
+	if (card.type == CARD_FLURRY_OF_FISTS && countMyCopies(CARD_FLURRY_OF_FISTS) >= 1) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Fortify, Ward, Hand Block: Move to Tier A if Form of Tortoise active/in deck
+	bool hasTortoise = me.inTortoiseForm || hasMyCard(CARD_FORM_OF_TORTOISE);
+	if (hasTortoise) {
+		if (card.type == CARD_FORTIFY || card.type == CARD_WARD || card.type == CARD_HAND_BLOCK) {
+			score = std::max(score, TIER_A);
+		}
+	}
+
+	// Fortify: Move to Tier A if opp has Call for Kobolds or Kobolds on board
+	if (card.type == CARD_FORTIFY && (hasOppCard(CARD_CALL_FOR_KOBOLDS) || oppHasMinionsOnBoard() > 0)) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Hand Block: Move to Tier B if Flurry in deck
+	if (card.type == CARD_HAND_BLOCK && hasMyCard(CARD_FLURRY_OF_FISTS)) {
+		score = std::max(score, TIER_B);
+	}
+
+	// Kick: Move to Tier A if Sprint in deck
+	if (card.type == CARD_KICK && hasMyCard(CARD_SPRINT)) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Raise Dead: Tier S in initial draft
+	if (card.type == CARD_RAISE_DEAD && !initialDraftComplete) {
+		score = std::max(score, TIER_S);
+	}
+
+	// Renewed Inspiration: Move to low Tier A if Hasten or Sprint in deck
+	if (card.type == CARD_RENEWED_INSPIRATION && (hasMyCard(CARD_HASTEN) || hasMyCard(CARD_SPRINT))) {
+		score = std::max(score, TIER_A - 20.0f);
+	}
+
+	// Rock Crush: Move to Tier S if opp has Hellhound in deck or minion > 5 HP
+	if (card.type == CARD_ROCK_CRUSH && (hasOppCard(CARD_SUMMON_HELLHOUND) || oppHasMinionOver5HP())) {
+		score = std::max(score, TIER_S);
+	}
+
+	// Shield Bash: Move to low Tier A if Dispel or Form of Tortoise in deck/active
+	if (card.type == CARD_SHIELD_BASH && (hasMyCard(CARD_DISPEL) || hasTortoise)) {
+		score = std::max(score, TIER_A - 20.0f);
+	}
+
+	// Shoot Arrow: Move to Tier A if Flame Hit/Add Poison/Shock in deck AND opp has no heals
+	if (card.type == CARD_SHOOT_ARROW) {
+		bool hasSynergy = hasMyCard(CARD_FLAME_HIT) || hasMyCard(CARD_ADD_POISON) || hasMyCard(CARD_SHOCK);
+		bool oppHasHeals = hasOppCard(CARD_HEAL) || hasOppCard(CARD_LESSER_HEAL) || hasOppCard(CARD_FULL_RESTORE) || hasOppCard(CARD_SUMMON_FAERIE);
+		if (hasSynergy && !oppHasHeals) score = std::max(score, TIER_A);
+	}
+
+	// Slash & Stab: Move to Tier A if Add Poison in deck
+	if ((card.type == CARD_SLASH || card.type == CARD_STAB) && hasMyCard(CARD_ADD_POISON)) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Smite: Move to Tier S if opp/minions have Holy weakness
+	if (card.type == CARD_SMITE && (oppHasHolyWeakness() || oppHasSummonWithHolyWeakness())) {
+		score = std::max(score, TIER_S);
+	}
+
+	// Vampire Bite: Move to Tier A if we have Holy damage cards
+	if (card.type == CARD_VAMPIRE_BITE && (hasMyCard(CARD_SMITE) || hasMyCard(CARD_BURST_OF_LIGHT))) {
+		score = std::max(score, TIER_A);
+	}
+
+	// Wisdom Boon: Move to Tier A if deck size >= 8; Tier S if Form of Tortoise in deck/active
+	if (card.type == CARD_WISDOM_BOON) {
+		if (hasTortoise)
+			score = std::max(score, TIER_S);
+		else if (me.deck.size() >= 8)
+			score = std::max(score, TIER_A);
+	}
+
+	// --- 3. Cap Limit Deductions ---
+	// Rule: We still pick higher tiers even if cap reached, so we only deduct a small amount
+	int myCopies = countMyCopies(card.type);
+	if (myCopies >= maxCopies) {
+		score -= 50.0f; // Drops priority among its own tier, but still beats lower tiers
+	}
+
+	return score;
 }
 
 std::vector<float> ofApp::extractGameStateForAI() {
