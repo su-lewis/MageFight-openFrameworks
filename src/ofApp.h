@@ -1002,6 +1002,10 @@ public:
 	int aiLastAttemptedCardIdx = -1;
 	int aiLastAP = -1;
 
+	// NEW: Anti-Stuck Failsafe Memory
+	int aiStuckCounter = 0;
+	int aiLastStateHash = 0;
+
 	// Tactical AI Helper Functions
 	int getCardEstimatedDamage(const Card & c, const Player & caster, const Player & target);
 	float getEnemyThreatScore(int enemyPlayerIdx);

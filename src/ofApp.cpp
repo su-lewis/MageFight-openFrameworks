@@ -5850,7 +5850,7 @@ void ofApp::update() {
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
-	if ((currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) && (steamManager.hasOpponent() || (g_isSpectator && steamManager.isConnected()))) {
+	if ((currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) && (steamManager.hasOpponent() || (g_isSpectator && steamManager.isConnected()) || (steamManager.isConnected() && steamManager.isMatchStarted()))) {
 		static bool loggedDetection = false;
 		if (!loggedDetection) {
 			ofLogNotice("Network") << "DEBUG: Connection trigger active, currentState=" << currentState;
@@ -5885,32 +5885,29 @@ void ofApp::update() {
 			}
 		}
 
-		// CASE B: I AM THE CLIENT
+		// CASE B: I AM THE CLIENT OR SPECTATOR
 		else {
 			if (!isMultiplayer && !hasReceivedHandshake) {
 				static bool loggedWait = false;
 				if (!loggedWait) {
-					ofLogNotice("Network") << "Client: Connected. Requesting Host seed...";
+					ofLogNotice("Network") << "Client: Connected. Negotiating session...";
 					loggedWait = true;
 				}
 
-				if (g_isSpectator) {
-					// We are a spectator. Set initial state.
-					ofLogNotice("Spectator") << "Joined as Spectator! Initializing spectator state...";
+				// If we chose to spectate OR the host has already started the match:
+				if (g_isSpectator || steamManager.isMatchStarted()) {
+					ofLogNotice("Spectator") << "Match already in progress! Transitioning to Spectator and requesting snapshot...";
+					g_isSpectator = true;
 					myLocalPlayerID = 2; // Spectator ID
 					isMultiplayer = true;
 					hasReceivedHandshake = true;
 					g_isConnectingToLobby = false;
-				} else if (steamManager.isMatchStarted()) {
-					uint32_t seed = steamManager.getLobbySeed();
-					if (seed != 0) {
-						float now = ofGetElapsedTimef();
-						if (seed != lastObservedLobbySeed || (now - lastLobbySeedLogTime) > 5.0f) {
-							lastObservedLobbySeed = seed;
-							lastLobbySeedLogTime = now;
-							ofLogNotice("Network") << "Client: Detected lobby seed (observed)=" << seed << " — waiting for host handshake (authoritative).";
-						}
-					}
+
+					// Request state immediately
+					SnapshotRequestPacket req = {};
+					req.type = PKT_SNAPSHOT_REQUEST;
+					req.playerID = myLocalPlayerID;
+					steamManager.sendPacket(&req, sizeof(req));
 				}
 			}
 
@@ -5918,7 +5915,7 @@ void ofApp::update() {
 			if (g_isSpectator && isMultiplayer && (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU)) {
 				static float lastSpectatorSnapshotReqTime = 0.0f;
 				float nowTime = ofGetElapsedTimef();
-				if (nowTime - lastSpectatorSnapshotReqTime > 2.0f) {
+				if (nowTime - lastSpectatorSnapshotReqTime > 1.5f) {
 					lastSpectatorSnapshotReqTime = nowTime;
 					ofLogNotice("Spectator") << "Requesting authoritative game snapshot from host...";
 					SnapshotRequestPacket req = {};
@@ -16071,6 +16068,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_isSpectator = false;
 					steamManager.createLobby();
 					g_isHostingLobby = true;
+
+					// --- SEND DUEL CHALLENGE WEBHOOK ---
+					std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
+					std::string playerName = steamManager.getLocalPlayerName();
+					if (playerName.empty()) playerName = "A Mage";
+					std::string msg = "@here **" + playerName + "** challenges you to a duel! Accept now!";
+					sendDiscordWebhook(webhookURL, msg);
 				} else {
 					// Handle Lobby Clicks!
 					auto lobbies = steamManager.getLobbyList();
@@ -16369,7 +16373,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
 					std::string playerName = steamManager.getLocalPlayerName();
 					if (playerName.empty()) playerName = "A Mage";
-					sendDiscordWebhook(webhookURL, "❌ **" + playerName + "** has stopped hosting a match.");
+					sendDiscordWebhook(webhookURL, "**" + playerName + "** has stopped hosting a match.");
 				}
 
 				steamManager.leaveLobby();
@@ -39733,7 +39737,15 @@ void ofApp::processNetworkPackets() {
 				if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
 					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
 					applySnapshotString(incomingSnapshotBuffer, true);
-					if (waitingForReconnect) {
+
+					if (g_isSpectator) {
+						g_isConnectingToLobby = false;
+						// If spectator was waiting in menus, jump straight into the match
+						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
+							currentState = STATE_GAMEPLAY;
+						}
+						addGameLog("Joined match as spectator.");
+					} else if (waitingForReconnect) {
 						if (reconnectTurnTimerPausedByDisconnect) {
 							turnTimerPaused = false;
 							turnStartFrame = (int)simulationFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
@@ -39744,7 +39756,6 @@ void ofApp::processNetworkPackets() {
 						waitingForReconnect = false;
 						reconnectForfeitStartTime = -1.0f;
 						currentState = STATE_GAMEPLAY;
-						// Removed requestStartNewTurn() so we don't accidentally end the loaded turn!
 						addGameLog("Reconnect complete. Resuming match.");
 					}
 					// Clear waiting flag if we had requested this snapshot
@@ -41139,14 +41150,61 @@ void ofApp::thinkRuleBasedAI() {
 	if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 
 	int activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+
+	// Check if we are responding to an opponent's spell during THEIR turn
+	int aiFocusIndex = currentPlayerIndex;
+	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+		aiFocusIndex = opponentDecisionPlayerIndex;
+		activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
+	}
+
 	int enemyID = (activeID == 1) ? 0 : 1;
 	int oppPlayerIdx = findPlayerIndexByID(enemyID);
-	Player & me = players[currentPlayerIndex];
+	Player & me = players[aiFocusIndex];
 
 	bool isSupportMinion = me.isMinion && (me.isFaerie || me.isAssistant);
 	bool isCombatMinion = me.isMinion && !isSupportMinion;
 
 	float dt = ofGetLastFrameTime();
+
+	// ==========================================
+	// --- MISSING HELPER LAMBDA GOES HERE ---
+	auto countSkeletons = [&](int ownerID) -> int {
+		int count = 0;
+		for (const auto & p : players) {
+			if (p.isSkeleton && p.health > 0 && (p.isMinion ? p.ownerID : p.playerID) == ownerID) count++;
+		}
+		return count;
+	};
+	// ==========================================
+
+	// =========================================================================
+	// 0. ANTI-STUCK FAILSAFE ENGINE
+	// =========================================================================
+	int currentStateHash = currentAP + (me.x * 100) + (me.y * 1000) + (me.hand.size() * 10000) + ((int)cardInteractionState * 100000);
+
+	if (currentStateHash != aiLastStateHash) {
+		aiLastStateHash = currentStateHash;
+		aiStuckCounter = 0; // State changed! Reset the stuck counter
+	}
+
+	aiStuckCounter++;
+	if (aiStuckCounter > 15) {
+		ofLogWarning("AI") << "AI GOT STUCK! Failsafe Triggered. Forcing End Turn.";
+		cancelAllTargeting(); // Force-close any broken menus
+
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = activeID;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_END_TURN;
+		cmd.params[0] = currentPlayerIndex;
+		endTurnLocked = true;
+		sendInputCommand(cmd, true);
+
+		aiStuckCounter = 0;
+		return;
+	}
 
 	// =========================================================================
 	// 1. DRAFTING (WITH 1.8s YELLOW PREVIEW)
@@ -41192,7 +41250,6 @@ void ofApp::thinkRuleBasedAI() {
 		}
 
 		draftAcceptLocked = true;
-
 		int draftOwnerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? (players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID) : 1;
 
 		InputCommandPacket cmd = {};
@@ -41216,10 +41273,93 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	// 2. MENUS, MODALS & TARGET CLICKS
 	// =========================================================================
+	int aiFocusIndex = currentPlayerIndex;
+	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+		aiFocusIndex = opponentDecisionPlayerIndex;
+		activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
+	}
+
+	if (opponentInteraction.open) {
+		if (opponentInteraction.type == MENU_MAGIC_HAND_RELOCATE || opponentInteraction.type == MENU_GHOST_RELOCATE) {
+			int bestX = -1, bestY = -1;
+			std::vector<glm::ivec2> & choices = (opponentInteraction.type == MENU_GHOST_RELOCATE) ? ghostRelocateChoices : magicHandRelocateChoices;
+			if (!choices.empty()) {
+				bestX = choices[0].x;
+				bestY = choices[0].y;
+			}
+			if (bestX != -1) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = activeID;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = opponentInteraction.type;
+				cmd.params[1] = opponentInteraction.targetIndex;
+				cmd.params[2] = 0;
+				cmd.params[3] = -1;
+				cmd.params[4] = bestX;
+				cmd.params[5] = bestY;
+				sendInputCommand(cmd, true);
+			}
+			return;
+		}
+
+		if (opponentInteraction.type == 10) { // Amnesia
+			if (!amnesiaDeckCopy.empty() && numCardsToRemove > 0) {
+				std::vector<int> randomSelections;
+				for (int i = 0; i < std::min((int)amnesiaDeckCopy.size(), numCardsToRemove); ++i) {
+					randomSelections.push_back(i); // AI just burns top cards
+				}
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = activeID;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.params[0] = (int)CARD_AMNESIA;
+				cmd.params[1] = amnesiaTargetPlayerIndex;
+				cmd.params[2] = 3;
+				cmd.params[3] = opponentInteraction.cardIndex;
+
+				uint32_t maskLow = 0, maskHigh = 0;
+				for (int idx : randomSelections) {
+					if (idx < 32)
+						maskLow |= (1U << idx);
+					else if (idx < 64)
+						maskHigh |= (1U << (idx - 32));
+				}
+				cmd.params[4] = (int)maskLow;
+				cmd.params[5] = (int)maskHigh;
+				sendInputCommand(cmd, true);
+			}
+			return;
+		}
+
+		int choice = 1;
+		if (opponentInteraction.type == 2)
+			choice = (me.health < me.maxHealth) ? 2 : 1; // Burst of Light
+		else if (opponentInteraction.type == 3)
+			choice = 1; // Double Handed
+		else if (opponentInteraction.type == 8)
+			choice = 1; // Dispel
+		else if (opponentInteraction.type == 4)
+			choice = (me.deck.empty()) ? 1 : 2; // Magic Blast
+
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = activeID;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = opponentInteraction.type;
+		cmd.params[1] = opponentInteraction.targetIndex;
+		cmd.params[2] = choice;
+		cmd.params[3] = opponentInteraction.cardIndex;
+		sendInputCommand(cmd, true);
+		return;
+	}
+
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		int choice = 1;
 		if (interactingCardType == CARD_BURST_OF_LIGHT) {
-			// Find the main player of our team to see if they need healing
 			Player * boss = nullptr;
 			for (auto & p : players) {
 				if (!p.isMinion && p.playerID == activeID) {
@@ -41234,7 +41374,7 @@ void ofApp::thinkRuleBasedAI() {
 		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
 			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
 				int targetOwner = players[interactionTargetIndex].isMinion ? players[interactionTargetIndex].ownerID : players[interactionTargetIndex].playerID;
-				choice = (targetOwner == enemyID) ? 2 : 1; // 2 = Give enemy Hand Blocks to clog deck
+				choice = (targetOwner == enemyID) ? 2 : 1; // Give enemy Hand Blocks!
 			}
 		} else if (interactingCardType == CARD_DISPEL) {
 			choice = 1;
@@ -41255,6 +41395,40 @@ void ofApp::thinkRuleBasedAI() {
 		return;
 	}
 
+	if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+		int realStatusID = -1;
+		if (!statusSelectLabels.empty()) {
+			const std::string & label = statusSelectLabels[0];
+			if (label == "Fire" || label == "Burning")
+				realStatusID = STATUS_ON_FIRE;
+			else if (label == "Paralysis" || label == "Paralyzed")
+				realStatusID = STATUS_PARALYZED;
+			else if (label == "Poison" || label == "Poisoned")
+				realStatusID = STATUS_POISONED;
+			else if (label == "Sleeping")
+				realStatusID = STATUS_SLEEP;
+		}
+
+		if (realStatusID != -1 && interactionTargetIndex != -1) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_STATUS_ACTION;
+			cmd.params[0] = interactingCardIndex;
+			cmd.params[1] = players[interactionTargetIndex].x;
+			cmd.params[2] = players[interactionTargetIndex].y;
+			cmd.params[3] = realStatusID;
+			if (interactingCardIndex >= 0 && interactingCardIndex < (int)me.hand.size()) {
+				cmd.params[4] = me.hand[interactingCardIndex].cost;
+			}
+			sendInputCommand(cmd, true);
+		} else {
+			cancelAllTargeting();
+		}
+		return;
+	}
+
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		int bestX = -1, bestY = -1;
 		float bestScore = -999.0f;
@@ -41266,7 +41440,7 @@ void ofApp::thinkRuleBasedAI() {
 				if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 					if (oppPlayerIdx >= 0) {
 						int distToEnemy = abs(x - players[oppPlayerIdx].x) + abs(y - players[oppPlayerIdx].y);
-						score += (20.0f - distToEnemy); // Summon closer to enemy
+						score += (20.0f - distToEnemy); // Meatshield
 					}
 				} else {
 					for (const auto & p : players) {
@@ -41274,10 +41448,10 @@ void ofApp::thinkRuleBasedAI() {
 							int owner = p.isMinion ? p.ownerID : p.playerID;
 							if (owner == enemyID) {
 								score += 50.0f;
-								if (!p.isMinion) score += 30.0f;
-								if (p.inTortoiseForm || p.inGhostForm) score += 40.0f;
+								if (!p.isMinion) score += 30.0f; // Target main player!
+								if (p.inTortoiseForm || p.inGhostForm) score += 40.0f; // Break form!
 							} else if (owner == activeID && (interactingCardType == CARD_LESSER_HEAL || interactingCardType == CARD_HEAL || interactingCardType == CARD_BURST_OF_LIGHT)) {
-								if (!p.isMinion && p.health < p.maxHealth) score += 1000.0f; // MASSIVE priority to heal main player
+								if (!p.isMinion && p.health < p.maxHealth) score += 1000.0f; // MASSIVE priority to heal main player!
 							}
 						}
 					}
@@ -41302,41 +41476,6 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	// 3. MANDATORY FREE ACTIONS (Draw First, Assistant Rerolls)
 	// =========================================================================
-
-	// AI ALWAYS draws immediately if it hasn't.
-	if (!me.hasDrawnThisTurn && (!me.deck.empty() || !me.discardPile.empty())) {
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = activeID;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_DRAW_CARDS;
-		cmd.params[0] = currentPlayerIndex;
-		cmd.params[1] = me.isDemon ? 3 : 2;
-		sendInputCommand(cmd, true);
-		return; // Wait for draw to finish before doing anything else
-	}
-
-	if (currentAP == 0) {
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == me.playerID && !players[i].assistantRerollUsedThisTurn) {
-				if (abs(players[i].x - me.x) + abs(players[i].y - me.y) <= 1) {
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = activeID;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_PSEUDO_ACTION;
-					cmd.params[0] = (int)i;
-					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
-					sendInputCommand(cmd, true);
-					return;
-				}
-			}
-		}
-	}
-
-	// =========================================================================
-	// 4. STRATEGIC EVALUATION (Threats, Plays, Movement, Draws)
-	// =========================================================================
 	Player * mainPlayer = nullptr;
 	for (auto & p : players) {
 		if (!p.isMinion && p.playerID == activeID) {
@@ -41349,39 +41488,7 @@ void ofApp::thinkRuleBasedAI() {
 	int missingBossHP = mainPlayer ? (mainPlayer->maxHealth - mainPlayer->health) : 0;
 	bool hasKeysToCollect = !floatingKeyInstances.empty();
 
-	int nearestEnemyDist = 999;
-	int enemyTargetX = -1, enemyTargetY = -1;
-	int mostDangerousEnemyIdx = -1;
-	float maxEnemyThreat = -1.0f;
-
-	for (size_t i = 0; i < players.size(); ++i) {
-		int owner = players[i].isMinion ? players[i].ownerID : players[i].playerID;
-		if (owner == enemyID && players[i].health > 0) {
-			float threat = getEnemyThreatScore((int)i);
-			if (threat > maxEnemyThreat) {
-				maxEnemyThreat = threat;
-				mostDangerousEnemyIdx = (int)i;
-			}
-			int d = abs(players[i].x - me.x) + abs(players[i].y - me.y);
-			if (d < nearestEnemyDist) {
-				nearestEnemyDist = d;
-				enemyTargetX = players[i].x;
-				enemyTargetY = players[i].y;
-			}
-		}
-	}
-
-	struct ScoredAction {
-		enum { PLAY,
-			MOVE,
-			DRAW } type;
-		int cardIdx;
-		int tx, ty;
-		float score;
-	};
-	std::vector<ScoredAction> candidates;
-
-	// --- 4A. STRATEGIC DRAWING EVALUATION ---
+	// DRAW CARDS IF WE HAVEN'T YET
 	if (!me.hasDrawnThisTurn && (!me.deck.empty() || !me.discardPile.empty())) {
 		float drawScore = 300.0f;
 
@@ -41409,28 +41516,116 @@ void ofApp::thinkRuleBasedAI() {
 		}
 
 		if (drawScore > 0.0f) {
-			candidates.push_back({ ScoredAction::DRAW, -1, -1, -1, drawScore });
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_DRAW_CARDS;
+			cmd.params[0] = currentPlayerIndex;
+			cmd.params[1] = me.isDemon ? 3 : 2;
+			sendInputCommand(cmd, true);
+			return; // Wait for draw to finish before doing anything else
 		}
 	}
 
-	// --- 4B. COMBOS: POISON & DEFENSE -> BLOCKING BOON ---
+	// ASSISTANT REROLL
+	if (currentAP == 0) {
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == me.playerID && !players[i].assistantRerollUsedThisTurn) {
+				if (abs(players[i].x - me.x) + abs(players[i].y - me.y) <= 1) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = activeID;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = (int)i;
+					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
+					return;
+				}
+			}
+		}
+	}
+
+	// =========================================================================
+	// 4. STRATEGIC EVALUATION (Threats, Plays, Movement)
+	// =========================================================================
+	int nearestEnemyDist = 999;
+	int enemyTargetX = -1, enemyTargetY = -1;
+	int mostDangerousEnemyIdx = -1;
+	float maxEnemyThreat = -1.0f;
+
+	for (size_t i = 0; i < players.size(); ++i) {
+		int owner = players[i].isMinion ? players[i].ownerID : players[i].playerID;
+		if (owner == enemyID && players[i].health > 0) {
+			float threat = getEnemyThreatScore((int)i);
+			if (threat > maxEnemyThreat) {
+				maxEnemyThreat = threat;
+				mostDangerousEnemyIdx = (int)i;
+			}
+			int d = abs(players[i].x - me.x) + abs(players[i].y - me.y);
+			if (d < nearestEnemyDist) {
+				nearestEnemyDist = d;
+				enemyTargetX = players[i].x;
+				enemyTargetY = players[i].y;
+			}
+		}
+	}
+
+	struct ScoredAction {
+		enum { PLAY,
+			MOVE } type;
+		int cardIdx;
+		int tx, ty;
+		float score;
+	};
+	std::vector<ScoredAction> candidates;
+
+	// --- 4A. COMBOS: FLURRY, POISON & DEFENSE -> BLOCKING BOON ---
 	int addPoisonIdx = -1;
 	int physicalAttackIdx = -1;
 	int blockingBoonIdx = -1;
 	int defenseCardIdx = -1;
+	int flurryIdx = -1;
+	int bigHandAttackIdx = -1;
 
 	for (int i = 0; i < (int)me.hand.size(); ++i) {
 		const Card & c = me.hand[i];
+
 		if (c.type == CARD_ADD_POISON) addPoisonIdx = i;
 		if (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) {
 			if (c.baseDamage > 0 || c.damageDiceNum > 0) physicalAttackIdx = i;
 		}
+
 		if (c.type == CARD_BLOCKING_BOON) blockingBoonIdx = i;
-		if (c.type != CARD_HAND_BLOCK && (c.barrierAmount > 0 || c.wardAmount > 0 || c.fortifyAmount > 0 || c.holyBlockAmount > 0 || c.type == CARD_DISPEL)) {
+		if (c.type != CARD_HAND_BLOCK && (c.barrierAmount > 0 || c.wardAmount > 0 || c.fortifyAmount > 0 || c.holyBlockAmount > 0 || c.type == CARD_DISPEL || c.type == CARD_DARK_SHIELD)) {
 			defenseCardIdx = i;
+		}
+
+		if (c.type == CARD_FLURRY_OF_FISTS) flurryIdx = i;
+		if (c.type == CARD_MASTER_FIST || c.type == CARD_BASH || c.type == CARD_DRAIN_PUNCH || c.type == CARD_DOUBLE_HANDED || c.type == CARD_PUNCH) {
+			bigHandAttackIdx = i;
 		}
 	}
 
+	// COMBO 1: Flurry Engine (Play Flurry BEFORE a big hand attack)
+	if (flurryIdx != -1 && bigHandAttackIdx != -1) {
+		int flurryCost = getEffectiveCardCostForPlayer(me, me.hand[flurryIdx]);
+		int bigAtkCost = getEffectiveCardCostForPlayer(me, me.hand[bigHandAttackIdx]);
+
+		if (currentAP >= (flurryCost + bigAtkCost) || flurryCost == 0) {
+			if (aiLastAttemptedCardIdx != flurryIdx) {
+				if (mostDangerousEnemyIdx != -1) {
+					const Player & e = players[mostDangerousEnemyIdx];
+					if (abs(me.x - e.x) + abs(me.y - e.y) == 1) { // Must be adjacent to punch
+						candidates.push_back({ ScoredAction::PLAY, flurryIdx, e.x, e.y, 950.0f });
+					}
+				}
+			}
+		}
+	}
+
+	// COMBO 2: Poison Engine
 	if (!me.nextAttackAddPoison && addPoisonIdx != -1 && physicalAttackIdx != -1) {
 		int cost = getEffectiveCardCostForPlayer(me, me.hand[addPoisonIdx]);
 		if (currentAP >= cost && aiLastAttemptedCardIdx != addPoisonIdx) {
@@ -41438,14 +41633,26 @@ void ofApp::thinkRuleBasedAI() {
 		}
 	}
 
+	// COMBO 3: Defense -> Blocking Boon
 	if (blockingBoonIdx != -1 && defenseCardIdx != -1) {
 		int cost = getEffectiveCardCostForPlayer(me, me.hand[defenseCardIdx]);
-		if (currentAP >= cost) {
-			candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, me.x, me.y, 850.0f });
+		if (currentAP >= cost && aiLastAttemptedCardIdx != defenseCardIdx) {
+			if (me.hand[defenseCardIdx].type == CARD_FORTIFY) {
+				int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+				for (auto & d : dirs) {
+					int nx = me.x + d[0], ny = me.y + d[1];
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasWall) {
+						candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, nx, ny, 850.0f });
+						break;
+					}
+				}
+			} else {
+				candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, me.x, me.y, 850.0f });
+			}
 		}
 	}
 
-	// --- 4C. EVALUATE ALL PLAYABLE CARDS ---
+	// --- 4B. EVALUATE ALL PLAYABLE CARDS ---
 	int savedState = (int)cardInteractionState;
 	int savedIdx = interactingCardIndex;
 
@@ -41460,7 +41667,11 @@ void ofApp::thinkRuleBasedAI() {
 		int cost = getEffectiveCardCostForPlayer(me, card);
 		if (currentAP < cost) continue;
 
-		if (card.type == CARD_FLURRY_OF_FISTS && handRelatedCount < 3 && me.deck.size() > 6) continue;
+		if (i == aiLastAttemptedCardIdx && currentAP == aiLastAP) continue; // Blacklist if it failed last tick
+
+		if (card.type == CARD_FLURRY_OF_FISTS && handRelatedCount < 3 && me.deck.size() > 6) {
+			continue; // Skip flurry if we don't have enough hand attacks
+		}
 
 		interactingCardIndex = i;
 		calculateTargetHighlights(i);
@@ -41471,13 +41682,13 @@ void ofApp::thinkRuleBasedAI() {
 
 				float score = 0.0f;
 
-				// 1. HEALING & EMERGENCY DEFENSE (Explicitly checking MAIN PLAYER HP)
+				// 1. HEALING & EMERGENCY DEFENSE
 				bool isHealCard = (card.type == CARD_LESSER_HEAL || card.type == CARD_HEAL || card.type == CARD_FULL_RESTORE || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_CONSUME_HEALTH_FLAGON || card.baseHeal > 0 || card.healAmount > 0);
 
 				if (isHealCard && mainPlayer) {
 					if (x == mainPlayer->x && y == mainPlayer->y) {
 						if (isMainPlayerDying)
-							score += 2000.0f + (missingBossHP * 50.0f); // ABSOLUTE TOP PRIORITY
+							score += 2000.0f + (missingBossHP * 50.0f);
 						else if (missingBossHP >= 2)
 							score += 800.0f + (missingBossHP * 20.0f);
 					}
@@ -41487,38 +41698,49 @@ void ofApp::thinkRuleBasedAI() {
 				if (card.type == CARD_HASTEN)
 					score += 480.0f;
 				else if (card.type == CARD_SPRINT)
-					score += 430.0f;
+					score += 600.0f; // Sprint enables Free Kicks!
 				else if (card.type == CARD_TRAIN)
 					score += 380.0f;
 				else if (card.type == CARD_DEMOLITION && (board[x][y].hasWall || isTileWall(x, y)))
 					score += 460.0f;
 				else if (card.type == CARD_TIME_VORTEX)
-					score += 700.0f;
+					score += 1000.0f; // Free Turns!
 				else if (card.type == CARD_STRENGTHEN_ELEMENTS)
 					score += 400.0f;
+				else if (card.type == CARD_REPLICATE)
+					score += 350.0f;
+				else if (card.type == CARD_FORM_OF_TORTOISE && !me.inTortoiseForm)
+					score += 450.0f;
+				else if (card.type == CARD_FORM_OF_GHOST && !me.inGhostForm)
+					score += 450.0f;
+				else if (card.type == CARD_FOUR_LEAF_CLOVER)
+					score += 800.0f;
+				else if (card.type == CARD_NECROMANCER_S_BLESSING)
+					score += 200.0f + (countSkeletons(me.playerID) * 100.0f);
 				else if (card.apGain > 0)
 					score += 180.0f + (card.apGain * 40.0f);
 
-				// 3. DEFENSES & SHIELDS (Only if enemy is near)
-				if (card.blockAmount > 0 || card.barrierAmount > 0 || card.wardAmount > 0 || card.fortifyAmount > 0) {
+				// 3. DEFENSES & SHIELDS
+				if (card.blockAmount > 0 || card.barrierAmount > 0 || card.wardAmount > 0 || card.fortifyAmount > 0 || card.holyBlockAmount > 0) {
 					if (isMainPlayerDying && !me.isMinion)
 						score += 600.0f;
 					else if (nearestEnemyDist <= 3)
-						score += 200.0f;
+						score += 250.0f;
 				}
 
-				// BLOCKING BOON
 				if (card.type == CARD_BLOCKING_BOON) {
 					int physBlock = me.block + me.fortification + me.ward;
 					int nonPhys = me.holyBlock + me.barrier + me.ward + me.fortification;
-					if (physBlock > 0 || nonPhys > 0) {
-						score += 150.0f + (physBlock + nonPhys) * 40.0f;
-					}
+					if (physBlock > 0 || nonPhys > 0) score += 200.0f + (physBlock + nonPhys) * 50.0f;
 				}
 
-				// 4. DECK SABOTAGE & ATTACKS
+				// 4. DECK SABOTAGE & BOARD MANIPULATION
 				if ((card.type == CARD_CALL_FOR_KOBOLDS && me.isKobold) || (card.type == CARD_CALL_FOR_WOLVES && me.isWolf))
 					score += 650.0f;
+				else if (card.type == CARD_DEMOLITION && (board[x][y].hasWall || isTileWall(x, y)))
+					score += 460.0f;
+				else if (card.type == CARD_TRANSFORM_WALL && board[x][y].hasWall)
+					score += 400.0f;
 				else if (card.type == CARD_DOUBLE_HANDED || card.type == CARD_MIND_THEFT || card.type == CARD_AMNESIA) {
 					for (const auto & p : players) {
 						if (p.x == x && p.y == y && p.health > 0) {
@@ -41528,16 +41750,25 @@ void ofApp::thinkRuleBasedAI() {
 				} else if (card.type == CARD_WISDOM_BOON)
 					score += 260.0f + (me.deck.size() * 15.0f);
 
-				// DIRECT ATTACKS & 1-HIT KOs
-				if (card.baseDamage > 0 || card.damageDiceNum > 0) {
+				// 5. DIRECT ATTACKS
+				if (card.baseDamage > 0 || card.damageDiceNum > 0 || card.type == CARD_DEATH || card.type == CARD_SHIELD_BASH) {
 					for (const auto & p : players) {
 						if (p.x == x && p.y == y && p.health > 0) {
 							if ((p.isMinion ? p.ownerID : p.playerID) == enemyID) {
-								int dmg = getCardEstimatedDamage(card, me, p);
+								int dmg = 0;
+								if (card.type == CARD_SHIELD_BASH) {
+									dmg = me.block + me.barrier + me.ward + me.holyBlock + me.fortification;
+								} else {
+									dmg = getCardEstimatedDamage(card, me, p);
+								}
+
+								if (card.type == CARD_DEATH && p.health <= 10) dmg = 99; // Highly likely to execute
+								if (card.type == CARD_KICK && me.freeKickTurns > 0) score += 500.0f; // FREE AP!
+
 								float baseAtkScore = isCombatMinion ? 450.0f : 280.0f;
 								score += baseAtkScore + (dmg * 20.0f);
 
-								if (dmg >= p.health) score += 400.0f; // 1-HIT KO
+								if (dmg >= p.health) score += 400.0f; // 1-HIT KO!
 								if (p.inTortoiseForm && dmg > 0) score += 320.0f;
 								if (p.inGhostForm && card.damageType != DAMAGE_PHYSICAL && card.damageType != DAMAGE_PIERCING) score += 350.0f;
 								if (!p.isMinion && card.damageType == DAMAGE_FIRE) score += 300.0f;
@@ -41547,11 +41778,12 @@ void ofApp::thinkRuleBasedAI() {
 					}
 				}
 
-				// MINION SUMMONS
+				// 6. MINION SUMMONS
 				if (card.summonKind > 0) {
-					score += 320.0f;
-					if (isMainPlayerDying) score += 400.0f; // Emergency meatshield
-					if (card.type == CARD_RAISE_DEAD) score += 80.0f;
+					score += 350.0f;
+					if (isMainPlayerDying) score += 450.0f;
+					if (card.type == CARD_RAISE_DEAD) score += 100.0f;
+					if (card.type == CARD_SUMMON_KOBOLD_KING) score += 120.0f;
 				}
 
 				if (score > 0.0f) {
@@ -41572,9 +41804,19 @@ void ofApp::thinkRuleBasedAI() {
 
 		// STRATEGY A: SUPPORT MINIONS (Stay glued to the Boss for Auras/Healing)
 		if (isSupportMinion && mainPlayer) {
-			int distToBoss = abs(me.x - mainPlayer->x) + abs(me.y - mainPlayer->y);
-			if (distToBoss > 1) {
-				auto path = findShortestPathForPlayer(currentPlayerIndex, { me.x, me.y }, { mainPlayer->x, mainPlayer->y });
+			Player * targetAlly = mainPlayer;
+			if (me.isFaerie) {
+				for (auto & p : players) {
+					if (p.health > 0 && p.health < p.maxHealth && p.playerID != me.playerID && (p.isMinion ? p.ownerID : p.playerID) == activeID) {
+						targetAlly = &p;
+						break;
+					}
+				}
+			}
+
+			int distToAlly = abs(me.x - targetAlly->x) + abs(me.y - targetAlly->y);
+			if (distToAlly > 1) {
+				auto path = findShortestPathForPlayer(currentPlayerIndex, { me.x, me.y }, { targetAlly->x, targetAlly->y });
 				if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
 					candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 300.0f });
 				}
@@ -41593,7 +41835,6 @@ void ofApp::thinkRuleBasedAI() {
 					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 						if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
 							int distFromThreat = abs(nx - dangerEnemy.x) + abs(ny - dangerEnemy.y);
-							// ONLY step if it strictly INCREASES distance, or shifts sideways while maintaining distance
 							if (distFromThreat >= bestFleeDist) {
 								bestFleeDist = distFromThreat;
 								bestFleeTile = { nx, ny };
@@ -41668,17 +41909,10 @@ void ofApp::thinkRuleBasedAI() {
 
 		const ScoredAction & best = candidates.front();
 
-		if (best.type == ScoredAction::DRAW) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = activeID;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_DRAW_CARDS;
-			cmd.params[0] = currentPlayerIndex;
-			cmd.params[1] = me.isDemon ? 3 : 2;
-			sendInputCommand(cmd, true);
-			return;
-		} else if (best.type == ScoredAction::PLAY) {
+		if (best.type == ScoredAction::PLAY) {
+			aiLastAttemptedCardIdx = best.cardIdx;
+			aiLastAP = currentAP;
+
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = activeID;
@@ -41690,6 +41924,8 @@ void ofApp::thinkRuleBasedAI() {
 			sendInputCommand(cmd, true);
 			return;
 		} else if (best.type == ScoredAction::MOVE) {
+			aiLastAttemptedCardIdx = -1;
+
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = activeID;
@@ -41705,6 +41941,8 @@ void ofApp::thinkRuleBasedAI() {
 	}
 
 	// No profitable actions left -> End Turn
+	aiLastAttemptedCardIdx = -1;
+
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.playerID = activeID;
@@ -41718,7 +41956,6 @@ void ofApp::thinkRuleBasedAI() {
 // =========================================================================
 // AI EVALUATION SYSTEM
 // =========================================================================
-
 float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int draftingPlayerIdx) {
 	if (draftingPlayerIdx < 0 || draftingPlayerIdx >= (int)players.size()) return 0.0f;
 
@@ -41830,6 +42067,124 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		}
 		return false;
 	};
+
+	// FIX 1: Added missing lambda for Holy Damage checking
+	auto hasHolyDamageCards = [&]() -> bool {
+		return hasMyCard(CARD_SMITE) || hasMyCard(CARD_BURST_OF_LIGHT);
+	};
+
+	// =========================================================================
+	//  INITIAL DRAFT EVALUATION (Class 1, Pre-Game Draft)
+	// =========================================================================
+	if (!initialDraftComplete && draftStage == 0 && classTier == 1) {
+		float rankScore = -1000.0f; // Default to "Never Pick"
+
+		bool hasAssistant = false;
+		bool hasDispel = false;
+		bool hasWard = false;
+		bool hasBlockingBoon = false;
+		bool hasShieldBash = false;
+		bool hasShock = false;
+		bool hasFlameHit = false;
+		bool hasAddPoison = false;
+		bool hasCheapPhysPierce = false;
+
+		// Analyze the 3 cards offered in the pack
+		for (const auto & c : draftOptions) {
+			if (c.type == CARD_SUMMON_ASSISTANT) hasAssistant = true;
+			if (c.type == CARD_DISPEL) hasDispel = true;
+			if (c.type == CARD_WARD) hasWard = true;
+			if (c.type == CARD_BLOCKING_BOON) hasBlockingBoon = true;
+			if (c.type == CARD_SHIELD_BASH) hasShieldBash = true;
+			if (c.type == CARD_SHOCK) hasShock = true;
+			if (c.type == CARD_FLAME_HIT) hasFlameHit = true;
+			if (c.type == CARD_ADD_POISON) hasAddPoison = true;
+
+			// Check for <= 2 AP Physical/Piercing or Shoot Arrow
+			if (c.type == CARD_SHOOT_ARROW || ((c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) && c.cost <= 2 && (c.baseDamage > 0 || c.damageDiceNum > 0))) {
+				hasCheapPhysPierce = true;
+			}
+		}
+
+		// Evaluate Card
+		switch (card.type) {
+		// Absolute Priority
+		case CARD_SUMMON_ASSISTANT:
+			rankScore = 3000.0f;
+			break; // Tier S++
+
+		// Tier S
+		case CARD_FLAME_HIT:
+			rankScore = 1000.0f;
+			break;
+
+		// Tier A+
+		case CARD_BURST_OF_LIGHT:
+		case CARD_DEMOLITION:
+		case CARD_LESSER_HEAL:
+			rankScore = 900.0f;
+			break;
+
+			// Tier A
+		case CARD_HEAL:
+		case CARD_PUNCH:
+		case CARD_SHOCK:
+		case CARD_SLASH:
+		case CARD_STAB:
+		case CARD_TRAIN:
+			rankScore = 800.0f;
+			break;
+
+		// Tier A-
+		case CARD_DRAIN_PUNCH:
+		case CARD_BASH:
+		case CARD_STUDY:
+			rankScore = 750.0f;
+			break;
+
+		// Tier B
+		case CARD_CONSUME_HEALTH_POTION:
+		case CARD_MIND_THEFT:
+			rankScore = 500.0f;
+			break;
+
+		// Tier C
+		case CARD_DOUBLE_HANDED:
+		case CARD_VAMPIRE_BITE:
+		case CARD_WISDOM_BOON:
+			rankScore = 400.0f;
+			break;
+
+			// --- SYNERGY PAIRS ---
+			// If Assistant is here, ignore synergies to prevent stranding a pair.
+
+		case CARD_ADD_POISON:
+			if (!hasAssistant && hasCheapPhysPierce) rankScore = 950.0f;
+			break;
+		case CARD_BLOCKING_BOON:
+			if (!hasAssistant && (hasDispel || hasWard)) rankScore = 950.0f;
+			break;
+		case CARD_DISPEL:
+			if (!hasAssistant && (hasBlockingBoon || hasShieldBash)) rankScore = 950.0f;
+			break;
+		case CARD_SHIELD_BASH:
+			if (!hasAssistant && hasDispel) rankScore = 950.0f;
+			break;
+		case CARD_SHOOT_ARROW:
+			if (!hasAssistant && (hasShock || hasFlameHit || hasAddPoison)) rankScore = 950.0f;
+			break;
+		case CARD_WARD:
+			if (!hasAssistant && hasBlockingBoon) rankScore = 950.0f;
+			break;
+
+		// Never Pick (-1000.0f):
+		// Double-Handed, Hand Block, Kick, Renewed Inspiration, Summon Wall, Teleport, Vampire Bite, Wisdom Boon
+		default:
+			break;
+		}
+
+		return rankScore;
+	}
 
 	// =========================================================================
 	//  CLASS 3 DRAFT EVALUATION
@@ -42301,8 +42656,9 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 	}
 
 	// Vampire Bite: Move to Tier A if we have Holy damage cards
-	if (card.type == CARD_VAMPIRE_BITE && (hasMyCard(CARD_SMITE) || hasMyCard(CARD_BURST_OF_LIGHT))) {
-		score = std::max(score, TIER_A);
+	if (card.type == CARD_VAMPIRE_BITE) {
+		if (me.health < 10 && countHealingSources() == 0) score = std::max(score, TIER_A);
+		if (hasHolyDamageCards()) score = std::max(score, TIER_A);
 	}
 
 	// Wisdom Boon: Move to Tier A if deck size >= 8; Tier S if Form of Tortoise in deck/active
@@ -42311,6 +42667,15 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 			score = std::max(score, TIER_S);
 		else if (me.deck.size() >= 8)
 			score = std::max(score, TIER_A);
+	}
+
+	// FIX 2: Added missing Hasten synergy!
+	// Hasten Synergy (Promote expensive cards)
+	if (hasMyCard(CARD_HASTEN) && card.cost >= 6) {
+		if (score == TIER_B)
+			score = TIER_A;
+		else if (score == TIER_C)
+			score = TIER_B;
 	}
 
 	// --- 3. Cap Limit Deductions ---
