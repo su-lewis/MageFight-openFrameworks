@@ -41201,8 +41201,6 @@ void ofApp::thinkRuleBasedAI() {
 
 	float dt = ofGetLastFrameTime();
 
-	// ==========================================
-	// --- MISSING HELPER LAMBDA GOES HERE ---
 	auto countSkeletons = [&](int ownerID) -> int {
 		int count = 0;
 		for (const auto & p : players) {
@@ -41210,7 +41208,14 @@ void ofApp::thinkRuleBasedAI() {
 		}
 		return count;
 	};
-	// ==========================================
+
+	auto countHellhounds = [&](int ownerID) -> int {
+		int count = 0;
+		for (const auto & p : players) {
+			if (p.isHellhound && p.health > 0 && (p.isMinion ? p.ownerID : p.playerID) == ownerID) count++;
+		}
+		return count;
+	};
 
 	// =========================================================================
 	// 0. ANTI-STUCK FAILSAFE ENGINE
@@ -41307,12 +41312,6 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	// 2. MENUS, MODALS & TARGET CLICKS
 	// =========================================================================
-	int aiFocusIndex = currentPlayerIndex;
-	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
-		aiFocusIndex = opponentDecisionPlayerIndex;
-		activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
-	}
-
 	if (opponentInteraction.open) {
 		if (opponentInteraction.type == MENU_MAGIC_HAND_RELOCATE || opponentInteraction.type == MENU_GHOST_RELOCATE) {
 			int bestX = -1, bestY = -1;
@@ -41375,8 +41374,8 @@ void ofApp::thinkRuleBasedAI() {
 			choice = 1; // Double Handed
 		else if (opponentInteraction.type == 8)
 			choice = 1; // Dispel
-		else if (opponentInteraction.type == 4 || (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST))
-			choice = (me.deck.empty()) ? 1 : 2; // Magic Blast (1: Take damage, 2: Discard top card)
+		else if (opponentInteraction.type == 4)
+			choice = (me.deck.empty()) ? 1 : 2; // Magic Blast
 
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
@@ -41414,6 +41413,10 @@ void ofApp::thinkRuleBasedAI() {
 			choice = 1;
 		} else if (interactingCardType == CARD_TRAIN) {
 			choice = 1;
+		} else if (interactingCardType == CARD_MAGIC_BLAST) {
+			choice = (me.deck.empty()) ? 1 : 2; // AI takes damage if deck empty, else discards
+		} else if (interactingCardType == CARD_AMNESIA) {
+			choice = 1; // Self path, usually already handled
 		}
 
 		InputCommandPacket cmd = {};
@@ -41615,13 +41618,15 @@ void ofApp::thinkRuleBasedAI() {
 	};
 	std::vector<ScoredAction> candidates;
 
-	// --- 4A. COMBOS: FLURRY, POISON & DEFENSE -> BLOCKING BOON ---
+	// --- 4A. COMBOS & SYNERGIES ---
 	int addPoisonIdx = -1;
 	int physicalAttackIdx = -1;
 	int blockingBoonIdx = -1;
 	int defenseCardIdx = -1;
 	int flurryIdx = -1;
 	int bigHandAttackIdx = -1;
+	int necroBlessingIdx = -1;
+	int raiseDeadIdx = -1;
 
 	for (int i = 0; i < (int)me.hand.size(); ++i) {
 		const Card & c = me.hand[i];
@@ -41640,9 +41645,33 @@ void ofApp::thinkRuleBasedAI() {
 		if (c.type == CARD_MASTER_FIST || c.type == CARD_BASH || c.type == CARD_DRAIN_PUNCH || c.type == CARD_DOUBLE_HANDED || c.type == CARD_PUNCH) {
 			bigHandAttackIdx = i;
 		}
+
+		if (c.type == CARD_NECROMANCER_S_BLESSING) necroBlessingIdx = i;
+		if (c.type == CARD_RAISE_DEAD) raiseDeadIdx = i;
 	}
 
-	// COMBO 1: Flurry Engine (Play Flurry BEFORE a big hand attack)
+	// COMBO 1: Add Poison (Never play unless we can play a physical/piercing attack this turn)
+	if (addPoisonIdx != -1 && !me.nextAttackAddPoison) {
+		bool hasPhys = false;
+		int poisonCost = getEffectiveCardCostForPlayer(me, me.hand[addPoisonIdx]);
+		for (const auto & c : me.hand) {
+			if ((c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) && (c.baseDamage > 0 || c.damageDiceNum > 0)) {
+				if (currentAP >= poisonCost + getEffectiveCardCostForPlayer(me, c)) {
+					hasPhys = true;
+					break;
+				}
+			}
+		}
+		if (!hasPhys) {
+			aiLastAttemptedCardIdx = addPoisonIdx; // Blacklist it this turn
+		} else {
+			if (aiLastAttemptedCardIdx != addPoisonIdx) {
+				candidates.push_back({ ScoredAction::PLAY, addPoisonIdx, me.x, me.y, 900.0f });
+			}
+		}
+	}
+
+	// COMBO 2: Flurry Engine (Play Flurry BEFORE a big hand attack if possible)
 	if (flurryIdx != -1 && bigHandAttackIdx != -1) {
 		int flurryCost = getEffectiveCardCostForPlayer(me, me.hand[flurryIdx]);
 		int bigAtkCost = getEffectiveCardCostForPlayer(me, me.hand[bigHandAttackIdx]);
@@ -41651,7 +41680,7 @@ void ofApp::thinkRuleBasedAI() {
 			if (aiLastAttemptedCardIdx != flurryIdx) {
 				if (mostDangerousEnemyIdx != -1) {
 					const Player & e = players[mostDangerousEnemyIdx];
-					if (abs(me.x - e.x) + abs(me.y - e.y) == 1) { // Must be adjacent to punch
+					if (abs(me.x - e.x) + abs(me.y - e.y) <= 1) { // Must be adjacent to punch
 						candidates.push_back({ ScoredAction::PLAY, flurryIdx, e.x, e.y, 950.0f });
 					}
 				}
@@ -41659,29 +41688,42 @@ void ofApp::thinkRuleBasedAI() {
 		}
 	}
 
-	// COMBO 2: Poison Engine
-	if (!me.nextAttackAddPoison && addPoisonIdx != -1 && physicalAttackIdx != -1) {
-		int cost = getEffectiveCardCostForPlayer(me, me.hand[addPoisonIdx]);
-		if (currentAP >= cost && aiLastAttemptedCardIdx != addPoisonIdx) {
-			candidates.push_back({ ScoredAction::PLAY, addPoisonIdx, me.x, me.y, 900.0f });
-		}
-	}
-
 	// COMBO 3: Defense -> Blocking Boon
-	if (blockingBoonIdx != -1 && defenseCardIdx != -1) {
-		int cost = getEffectiveCardCostForPlayer(me, me.hand[defenseCardIdx]);
-		if (currentAP >= cost && aiLastAttemptedCardIdx != defenseCardIdx) {
-			if (me.hand[defenseCardIdx].type == CARD_FORTIFY) {
-				int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-				for (auto & d : dirs) {
-					int nx = me.x + d[0], ny = me.y + d[1];
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasWall) {
-						candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, nx, ny, 850.0f });
-						break;
+	if (blockingBoonIdx != -1) {
+		int def = me.block + me.barrier + me.ward + me.holyBlock + me.fortification;
+		if (def == 0) {
+			// Never play Blocking Boon unless you have some defence active.
+			if (defenseCardIdx != -1) {
+				int defCost = getEffectiveCardCostForPlayer(me, me.hand[defenseCardIdx]);
+				if (currentAP >= defCost + getEffectiveCardCostForPlayer(me, me.hand[blockingBoonIdx])) {
+					if (aiLastAttemptedCardIdx != defenseCardIdx) {
+						if (me.hand[defenseCardIdx].type == CARD_FORTIFY) {
+							int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+							for (auto & d : dirs) {
+								int nx = me.x + d[0], ny = me.y + d[1];
+								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasWall) {
+									candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, nx, ny, 850.0f });
+									break;
+								}
+							}
+						} else {
+							candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, me.x, me.y, 850.0f });
+						}
 					}
 				}
 			} else {
-				candidates.push_back({ ScoredAction::PLAY, defenseCardIdx, me.x, me.y, 850.0f });
+				aiLastAttemptedCardIdx = blockingBoonIdx; // Blacklist
+			}
+		}
+	}
+
+	// COMBO 4: Necromancer's Blessing
+	if (necroBlessingIdx != -1) {
+		if (countSkeletons(activeID) == 0) {
+			if (raiseDeadIdx != -1 && currentAP >= getEffectiveCardCostForPlayer(me, me.hand[raiseDeadIdx]) + getEffectiveCardCostForPlayer(me, me.hand[necroBlessingIdx])) {
+				// We can cast raise dead first, so we just let standard evaluation handle Raise Dead
+			} else {
+				aiLastAttemptedCardIdx = necroBlessingIdx; // Blacklist if no skeletons and can't make one
 			}
 		}
 	}
@@ -41703,9 +41745,8 @@ void ofApp::thinkRuleBasedAI() {
 
 		if (i == aiLastAttemptedCardIdx && currentAP == aiLastAP) continue; // Blacklist if it failed last tick
 
-		if (card.type == CARD_FLURRY_OF_FISTS && handRelatedCount < 3 && me.deck.size() > 6) {
-			continue; // Skip flurry if we don't have enough hand attacks
-		}
+		if (card.type == CARD_FLURRY_OF_FISTS && handRelatedCount < 3 && me.deck.size() > 6) continue;
+		if (card.type == CARD_DARK_SHIELD && (countSkeletons(activeID) + countHellhounds(activeID)) < 2) continue; // Playbook rule
 
 		interactingCardIndex = i;
 		calculateTargetHighlights(i);
@@ -41720,23 +41761,34 @@ void ofApp::thinkRuleBasedAI() {
 				bool isHealCard = (card.type == CARD_LESSER_HEAL || card.type == CARD_HEAL || card.type == CARD_FULL_RESTORE || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_CONSUME_HEALTH_FLAGON || card.baseHeal > 0 || card.healAmount > 0);
 
 				if (isHealCard && mainPlayer) {
-					if (x == mainPlayer->x && y == mainPlayer->y) {
-						if (isMainPlayerDying)
-							score += 2000.0f + (missingBossHP * 50.0f);
-						else if (missingBossHP >= 2)
-							score += 800.0f + (missingBossHP * 20.0f);
+					if (board[x][y].hasPlayer) {
+						int pIdx = -1;
+						for (size_t k = 0; k < players.size(); ++k) {
+							if (players[k].x == x && players[k].y == y) {
+								pIdx = (int)k;
+								break;
+							}
+						}
+						if (pIdx != -1 && (players[pIdx].isMinion ? players[pIdx].ownerID : players[pIdx].playerID) == activeID) {
+							if (players[pIdx].health < players[pIdx].maxHealth) {
+								if (players[pIdx].health < 10 && !players[pIdx].isMinion)
+									score += 2000.0f; // Critical heal for main player
+								else
+									score += 500.0f;
+							}
+						}
 					}
 				}
 
 				// 2. AP ENGINES & BUFFS
 				if (card.type == CARD_HASTEN)
-					score += 480.0f;
+					score += 1000.0f;
 				else if (card.type == CARD_SPRINT)
-					score += 600.0f; // Sprint enables Free Kicks!
+					score += 1000.0f;
 				else if (card.type == CARD_TRAIN)
 					score += 380.0f;
-				else if (card.type == CARD_DEMOLITION && (board[x][y].hasWall || isTileWall(x, y)))
-					score += 460.0f;
+				else if (card.type == CARD_STUDY)
+					score += 380.0f;
 				else if (card.type == CARD_TIME_VORTEX)
 					score += 1000.0f; // Free Turns!
 				else if (card.type == CARD_STRENGTHEN_ELEMENTS)
@@ -41753,6 +41805,13 @@ void ofApp::thinkRuleBasedAI() {
 					score += 200.0f + (countSkeletons(me.playerID) * 100.0f);
 				else if (card.apGain > 0)
 					score += 180.0f + (card.apGain * 40.0f);
+				else if (card.type == CARD_DISPEL) {
+					if (me.onFire || me.isPoisoned || me.isParalyzed || me.sleepTurnsRemaining > 0) {
+						score += 800.0f; // Purge
+					} else if (nearestEnemyDist <= 3) {
+						score += 400.0f; // Barrier
+					}
+				}
 
 				// 3. DEFENSES & SHIELDS
 				if (card.blockAmount > 0 || card.barrierAmount > 0 || card.wardAmount > 0 || card.fortifyAmount > 0 || card.holyBlockAmount > 0) {
@@ -41781,34 +41840,57 @@ void ofApp::thinkRuleBasedAI() {
 							if ((p.isMinion ? p.ownerID : p.playerID) == enemyID) score += 420.0f;
 						}
 					}
-				} else if (card.type == CARD_WISDOM_BOON)
+				} else if (card.type == CARD_WISDOM_BOON) {
 					score += 260.0f + (me.deck.size() * 15.0f);
+				}
 
 				// 5. DIRECT ATTACKS
 				if (card.baseDamage > 0 || card.damageDiceNum > 0 || card.type == CARD_DEATH || card.type == CARD_SHIELD_BASH) {
-					for (const auto & p : players) {
-						if (p.x == x && p.y == y && p.health > 0) {
-							if ((p.isMinion ? p.ownerID : p.playerID) == enemyID) {
-								int dmg = 0;
-								if (card.type == CARD_SHIELD_BASH) {
-									dmg = me.block + me.barrier + me.ward + me.holyBlock + me.fortification;
-								} else {
-									dmg = getCardEstimatedDamage(card, me, p);
-								}
+					int pIdx = -1;
+					for (size_t k = 0; k < players.size(); ++k) {
+						if (players[k].x == x && players[k].y == y) {
+							pIdx = (int)k;
+							break;
+						}
+					}
 
-								if (card.type == CARD_DEATH && p.health <= 10) dmg = 99; // Highly likely to execute
-								if (card.type == CARD_KICK && me.freeKickTurns > 0) score += 500.0f; // FREE AP!
+					if (pIdx != -1 && (players[pIdx].isMinion ? players[pIdx].ownerID : players[pIdx].playerID) == enemyID) {
+						const Player & targetE = players[pIdx];
+						bool isHealer = (targetE.isFaerie || targetE.isAssistant);
+						bool isMain = !targetE.isMinion;
 
-								float baseAtkScore = isCombatMinion ? 450.0f : 280.0f;
-								score += baseAtkScore + (dmg * 20.0f);
-
-								if (dmg >= p.health) score += 400.0f; // 1-HIT KO!
-								if (p.inTortoiseForm && dmg > 0) score += 320.0f;
-								if (p.inGhostForm && card.damageType != DAMAGE_PHYSICAL && card.damageType != DAMAGE_PIERCING) score += 350.0f;
-								if (!p.isMinion && card.damageType == DAMAGE_FIRE) score += 300.0f;
-								if (card.isAoe || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_LINEAR_PIERCE) score += 150.0f;
+						if (isHealer) score += 600.0f;
+						if (isMain) {
+							if (card.type == CARD_FIREBALL || card.type == CARD_FLAME_HIT || card.type == CARD_MAGIC_BOLT || card.type == CARD_DEATH || card.type == CARD_ROCK_CRUSH) {
+								score += 900.0f;
+							} else {
+								score += 400.0f;
 							}
 						}
+
+						int dmg = 0;
+						if (card.type == CARD_SHIELD_BASH)
+							dmg = me.block + me.barrier + me.ward + me.holyBlock + me.fortification;
+						else
+							dmg = getCardEstimatedDamage(card, me, targetE);
+
+						if (card.type == CARD_DEATH && targetE.health <= 10) dmg = 99; // Highly likely to execute
+						if (card.type == CARD_KICK && me.freeKickTurns > 0) score += 500.0f; // FREE AP!
+
+						float baseAtkScore = isCombatMinion ? 450.0f : 280.0f;
+						score += baseAtkScore + (dmg * 20.0f);
+
+						if (dmg >= targetE.health) score += 1000.0f; // 1-HIT KO!
+						if (targetE.inTortoiseForm && dmg > 0) score += 320.0f;
+						if (targetE.inGhostForm && card.damageType != DAMAGE_PHYSICAL && card.damageType != DAMAGE_PIERCING) score += 350.0f;
+						if (card.damageType == DAMAGE_HOLY && (targetE.isDemon || targetE.isHellhound || targetE.isSkeleton || targetE.inGhostForm)) score += 700.0f;
+						if (card.isAoe || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_LINEAR_PIERCE) score += 150.0f;
+					} else if (card.type == CARD_ROCK_CRUSH && board[x][y].hasWall) {
+						// Center key breaker
+						if (x == 6 && y == 4 && !floatingKeyInstances.empty() && floatingKeyInstances[0].pos.x == 6 && floatingKeyInstances[0].pos.y == 4)
+							score += 800.0f;
+						else
+							score += 200.0f;
 					}
 				}
 
@@ -41850,84 +41932,110 @@ void ofApp::thinkRuleBasedAI() {
 
 			int distToAlly = abs(me.x - targetAlly->x) + abs(me.y - targetAlly->y);
 			if (distToAlly > 1) {
-				auto path = findShortestPathForPlayer(currentPlayerIndex, { me.x, me.y }, { targetAlly->x, targetAlly->y });
+				auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)targetAlly->x, (float)targetAlly->y });
 				if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
 					candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 300.0f });
 				}
 			}
 		}
-		// STRATEGY B: KITING (Wounded players and non-combat units run away!)
-		else if ((!isCombatMinion && nearestEnemyDist <= 2) || (isMainPlayerDying && !me.isMinion)) {
-			if (mostDangerousEnemyIdx != -1) {
-				const Player & dangerEnemy = players[mostDangerousEnemyIdx];
-				int bestFleeDist = nearestEnemyDist;
-				glm::ivec2 bestFleeTile(-1, -1);
+		// STRATEGY B: COMBAT MINIONS RUSH DIRECTLY TOWARDS ENEMY
+		else if (isCombatMinion && enemyTargetX != -1) {
+			if (mainPlayer && mainPlayer->health < 10 && (me.isSkeleton || me.isKobold)) {
+				// Stay near player to protect
+				int distToBoss = abs(me.x - mainPlayer->x) + abs(me.y - mainPlayer->y);
+				if (distToBoss > 2) {
+					auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)mainPlayer->x, (float)mainPlayer->y });
+					if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
+						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 250.0f });
+					}
+				}
+			} else {
+				// Surround the enemy
+				int distToEnemy = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
+				if (distToEnemy > 1) {
+					auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)enemyTargetX, (float)enemyTargetY });
+					if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
+						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 250.0f });
+					}
+				}
+			}
+		}
+		// STRATEGY C: MAIN PLAYER
+		else if (!me.isMinion) {
+			bool hasGoodCards = false;
+			for (const auto & c : me.deck) {
+				if (c.baseDamage >= 5 || c.damageDiceNum >= 2 || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_MAGIC_BOLT) {
+					hasGoodCards = true;
+					break;
+				}
+			}
+			for (const auto & c : me.hand) {
+				if (c.baseDamage >= 5 || c.damageDiceNum >= 2 || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_MAGIC_BOLT) {
+					hasGoodCards = true;
+					break;
+				}
+			}
 
-				int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-				for (auto & d : dirs) {
-					int nx = me.x + d[0], ny = me.y + d[1];
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-						if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-							int distFromThreat = abs(nx - dangerEnemy.x) + abs(ny - dangerEnemy.y);
-							if (distFromThreat >= bestFleeDist) {
-								bestFleeDist = distFromThreat;
-								bestFleeTile = { nx, ny };
+			if (mainPlayer && mainPlayer->health < 10 && !hasGoodCards) {
+				// Run away
+				if (mostDangerousEnemyIdx != -1) {
+					const Player & dangerEnemy = players[mostDangerousEnemyIdx];
+					int bestFleeDist = nearestEnemyDist;
+					glm::ivec2 bestFleeTile(-1, -1);
+
+					int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+					for (auto & d : dirs) {
+						int nx = me.x + d[0], ny = me.y + d[1];
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+								int distFromThreat = abs(nx - dangerEnemy.x) + abs(ny - dangerEnemy.y);
+								if (distFromThreat >= bestFleeDist) {
+									bestFleeDist = distFromThreat;
+									bestFleeTile = { nx, ny };
+								}
+							}
+						}
+					}
+					if (bestFleeTile.x != -1) {
+						candidates.push_back({ ScoredAction::MOVE, -1, bestFleeTile.x, bestFleeTile.y, 600.0f });
+					}
+				}
+			} else if (!hasGoodCards && hasKeysToCollect) {
+				// Go for keys
+				glm::ivec2 targetKey = getBestKeyTarget(me);
+				if (targetKey.x != -1) {
+					bool allyMinionCoveringKey = false;
+					for (const auto & p : players) {
+						if (p.isMinion && p.health > 0 && p.ownerID == me.playerID) {
+							int minionDist = abs(p.x - targetKey.x) + abs(p.y - targetKey.y);
+							int playerDist = abs(me.x - targetKey.x) + abs(me.y - targetKey.y);
+							if (minionDist < playerDist) {
+								allyMinionCoveringKey = true;
+								break;
+							}
+						}
+					}
+
+					if (!allyMinionCoveringKey) {
+						std::vector<glm::vec2> pathToKey = findShortestPathForPlayer(currentPlayerIndex,
+							{ (float)me.x, (float)me.y },
+							{ (float)targetKey.x, (float)targetKey.y });
+						if (pathToKey.size() > 1) {
+							int nx = (int)pathToKey[1].x, ny = (int)pathToKey[1].y;
+							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+								candidates.push_back({ ScoredAction::MOVE, -1, nx, ny, 120.0f });
 							}
 						}
 					}
 				}
-				if (bestFleeTile.x != -1) {
-					candidates.push_back({ ScoredAction::MOVE, -1, bestFleeTile.x, bestFleeTile.y, 600.0f });
-				}
-			}
-		}
-		// STRATEGY C: COMBAT MINIONS RUSH DIRECTLY TOWARDS ENEMY
-		else if (isCombatMinion && enemyTargetX != -1) {
-			int distToEnemy = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
-			if (distToEnemy > 1) { // If already adjacent, STAND GROUND and attack!
-				auto path = findShortestPathForPlayer(currentPlayerIndex, { me.x, me.y }, { enemyTargetX, enemyTargetY });
-				if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
-					candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 250.0f });
-				}
-			}
-		}
-		// STRATEGY D: PLAYER KEY COLLECTION (Only if safe and no minion is closer)
-		else if (hasKeysToCollect && !me.isMinion && !isMainPlayerDying) {
-			glm::ivec2 targetKey = getBestKeyTarget(me);
-			if (targetKey.x != -1) {
-				bool allyMinionCoveringKey = false;
-				for (const auto & p : players) {
-					if (p.isMinion && p.health > 0 && p.ownerID == me.playerID) {
-						int minionDist = abs(p.x - targetKey.x) + abs(p.y - targetKey.y);
-						int playerDist = abs(me.x - targetKey.x) + abs(me.y - targetKey.y);
-						if (minionDist < playerDist) {
-							allyMinionCoveringKey = true;
-							break;
-						}
+			} else if (hasGoodCards && enemyTargetX != -1) {
+				// Close the distance to cast spells accurately
+				int currentDist = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
+				if (currentDist > 2) {
+					auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)enemyTargetX, (float)enemyTargetY });
+					if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
+						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 100.0f });
 					}
-				}
-
-				if (!allyMinionCoveringKey) {
-					std::vector<glm::vec2> pathToKey = findShortestPathForPlayer(currentPlayerIndex,
-						{ (float)me.x, (float)me.y },
-						{ (float)targetKey.x, (float)targetKey.y });
-					if (pathToKey.size() > 1) {
-						int nx = (int)pathToKey[1].x, ny = (int)pathToKey[1].y;
-						if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-							candidates.push_back({ ScoredAction::MOVE, -1, nx, ny, 120.0f });
-						}
-					}
-				}
-			}
-		}
-
-		// STRATEGY E: PEEK-AND-SHOOT ADVANCE (If all else fails, move towards enemy)
-		if (enemyTargetX != -1 && !isSupportMinion) {
-			int currentDist = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
-			if (currentDist > 2 || isCombatMinion) {
-				auto path = findShortestPathForPlayer(currentPlayerIndex, { me.x, me.y }, { enemyTargetX, enemyTargetY });
-				if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
-					candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 100.0f });
 				}
 			}
 		}
@@ -42281,7 +42389,7 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 
 		// Constitution Boon: Move to Rank 1 if >= 2 Max HP cards & Max HP >= 26
 		if (card.type == CARD_CONSTITUTION_BOON) {
-			int maxHpCards = countMyCopies(CARD_CONSTITUTION_BOON) + countMyCopies(CARD_MASTER_FIST);
+			int maxHpCards = countMyCopies(CARD_CONSTITUTION_BOON) + countMyCopies(CARD_MASTER_FIST) + countMyCopies(CARD_FORM_OF_TORTOISE);
 			if (maxHpCards >= 2 && me.maxHealth >= 26) {
 				rankScore = 1550.0f; // Above Rank 1
 			}
@@ -42291,10 +42399,9 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		if (card.type == CARD_FORM_OF_GHOST) {
 			if (hasHugeAPGenerator()) rankScore = 1250.0f; // Move to Rank 4
 
-			// Hard-Lock Win Condition: No keys left, opp has no non-physical damage, and no draft cards
 			bool noKeysLeft = floatingKeyInstances.empty();
 			bool oppHasNonPhys = false;
-			bool oppHasDraft = hasOppCard(CARD_TRAIN) || hasOppCard(CARD_CONSTITUTION_BOON) || hasOppCard(CARD_BLOCKING_BOON);
+			bool oppHasDraft = hasOppCard(CARD_TRAIN) || hasOppCard(CARD_CONSTITUTION_BOON) || hasOppCard(CARD_BLOCKING_BOON) || hasOppCard(CARD_STUDY);
 
 			if (oppIdx >= 0) {
 				for (const auto & c : players[oppIdx].deck) {
@@ -42428,9 +42535,6 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 	case CARD_VAMPIRE_BITE:
 		score = TIER_B;
 		break;
-	case CARD_KICK:
-		score = TIER_B;
-		break;
 	case CARD_BASH:
 		score = TIER_B;
 		break;
@@ -42438,6 +42542,9 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		score = TIER_B;
 		break;
 	case CARD_ETHEREAL_JOLT:
+		score = TIER_B;
+		break;
+	case CARD_PUNCH:
 		score = TIER_B;
 		break;
 	case CARD_DOUBLE_HANDED:
@@ -42453,6 +42560,9 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		score = TIER_B;
 		break;
 	case CARD_FORTIFY:
+		score = TIER_B;
+		break;
+	case CARD_KICK:
 		score = TIER_B;
 		break;
 	case CARD_FULL_RESTORE:
@@ -42474,9 +42584,6 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 	case CARD_MIND_THEFT:
 		score = TIER_B;
 		break;
-	case CARD_PUNCH:
-		score = TIER_B;
-		break;
 	case CARD_REPLICATE:
 		score = TIER_B;
 		break;
@@ -42489,9 +42596,6 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 	case CARD_SUMMON_MAGIC_WALL:
 		score = TIER_B;
 		break;
-	case CARD_SUMMON_WALL:
-		score = TIER_B;
-		break;
 	case CARD_WISDOM_BOON:
 		score = TIER_B;
 		break;
@@ -42499,6 +42603,9 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		score = TIER_B;
 		break;
 	case CARD_SHOOT_ARROW:
+		score = TIER_B;
+		break;
+	case CARD_SUMMON_WALL:
 		score = TIER_B;
 		break;
 	case CARD_TELEPORT:
@@ -42545,18 +42652,24 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 			score = std::max(score, TIER_A);
 	}
 
-	// Add Poison: Move to Tier A if >= 2 Physical/Piercing cards
+	// Add Poison: Move to Tier A if >= 3 Physical/Piercing cards
 	if (card.type == CARD_ADD_POISON) {
 		int physCount = 0;
 		for (const auto & c : me.deck) {
 			if (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) physCount++;
 		}
-		if (physCount >= 2) score = std::max(score, TIER_A);
+		for (const auto & c : me.hand) {
+			if (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) physCount++;
+		}
+		for (const auto & c : me.discardPile) {
+			if (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) physCount++;
+		}
+		if (physCount >= 3) score = std::max(score, TIER_A);
 	}
 
-	// Bash: Move to Tier A if Flurry in deck; prioritize above Kick if Luck cards exist
+	// Bash: Move to Tier A if Flurry in deck or Add Poison; prioritize above Kick if Luck cards exist
 	if (card.type == CARD_BASH) {
-		if (hasMyCard(CARD_FLURRY_OF_FISTS)) score = std::max(score, TIER_A);
+		if (hasMyCard(CARD_FLURRY_OF_FISTS) || hasMyCard(CARD_ADD_POISON)) score = std::max(score, TIER_A);
 		if (hasMyCard(CARD_FOUR_LEAF_CLOVER) || hasMyCard(CARD_SUMMON_ASSISTANT)) score += 20.0f; // Prioritize over Kick
 	}
 
@@ -42570,9 +42683,9 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		score = std::max(score, TIER_S);
 	}
 
-	// Call for Wolves: Move to Tier A if >= 2 AP cards (including luck)
+	// Call for Wolves: Move to Tier A if >= 2 AP cards
 	if (card.type == CARD_CALL_FOR_WOLVES) {
-		int apCards = countMyCopies(CARD_SPRINT) + countMyCopies(CARD_HASTEN) + countMyCopies(CARD_TRAIN) + countMyCopies(CARD_SUMMON_ASSISTANT) + countMyCopies(CARD_FOUR_LEAF_CLOVER);
+		int apCards = countMyCopies(CARD_SPRINT) + countMyCopies(CARD_HASTEN) + countMyCopies(CARD_TRAIN) + countMyCopies(CARD_SUMMON_ASSISTANT) + countMyCopies(CARD_FOUR_LEAF_CLOVER) + countMyCopies(CARD_DEMOLITION);
 		if (apCards >= 2) score = std::max(score, TIER_A);
 	}
 
@@ -42593,9 +42706,16 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		if (debuffed || oppHasDebuffs) score = std::max(score, TIER_A);
 	}
 
-	// Double-Handed, Drain Punch, Giant Magic Hand, Punch: Move to Tier A if Flurry in deck
-	if ((card.type == CARD_DOUBLE_HANDED || card.type == CARD_DRAIN_PUNCH || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_PUNCH) && hasMyCard(CARD_FLURRY_OF_FISTS)) {
-		score = std::max(score, TIER_A);
+	// Double-Handed, Drain Punch, Giant Magic Hand, Punch: Move to Tier A/A+ if Flurry in deck
+	if ((card.type == CARD_DOUBLE_HANDED || card.type == CARD_DRAIN_PUNCH || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_PUNCH)) {
+		if (hasMyCard(CARD_FLURRY_OF_FISTS) || hasMyCard(CARD_ADD_POISON)) {
+			if (card.type == CARD_PUNCH)
+				score = std::max(score, TIER_A + 50.0f); // A+
+			else if (card.type == CARD_GIANT_MAGIC_HAND)
+				score = std::max(score, TIER_A - 50.0f); // A-
+			else
+				score = std::max(score, TIER_A);
+		}
 	}
 
 	// Giant Magic Hand: Move to Tier A if only center Class 3 key left
@@ -42624,9 +42744,16 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		score = std::max(score, TIER_A);
 	}
 
-	// Flurry of Fists: Move to Tier A if already have one copy
-	if (card.type == CARD_FLURRY_OF_FISTS && countMyCopies(CARD_FLURRY_OF_FISTS) >= 1) {
-		score = std::max(score, TIER_A);
+	// Flurry of Fists: Move to Tier A if >= 3 hand-related cards
+	if (card.type == CARD_FLURRY_OF_FISTS) {
+		int handCount = 0;
+		for (const auto & c : me.deck)
+			if (c.isHandRelated) handCount++;
+		for (const auto & c : me.hand)
+			if (c.isHandRelated) handCount++;
+		for (const auto & c : me.discardPile)
+			if (c.isHandRelated) handCount++;
+		if (handCount >= 3) score = std::max(score, TIER_A);
 	}
 
 	// Fortify, Ward, Hand Block: Move to Tier A if Form of Tortoise active/in deck
@@ -42675,7 +42802,7 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 	// Shoot Arrow: Move to Tier A if Flame Hit/Add Poison/Shock in deck AND opp has no heals
 	if (card.type == CARD_SHOOT_ARROW) {
 		bool hasSynergy = hasMyCard(CARD_FLAME_HIT) || hasMyCard(CARD_ADD_POISON) || hasMyCard(CARD_SHOCK);
-		bool oppHasHeals = hasOppCard(CARD_HEAL) || hasOppCard(CARD_LESSER_HEAL) || hasOppCard(CARD_FULL_RESTORE) || hasOppCard(CARD_SUMMON_FAERIE);
+		bool oppHasHeals = hasOppCard(CARD_HEAL) || hasOppCard(CARD_LESSER_HEAL) || hasOppCard(CARD_FULL_RESTORE) || hasOppCard(CARD_SUMMON_FAERIE) || hasOppCard(CARD_SUMMON_ASSISTANT);
 		if (hasSynergy && !oppHasHeals) score = std::max(score, TIER_A);
 	}
 
@@ -42703,7 +42830,6 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 			score = std::max(score, TIER_A);
 	}
 
-	// FIX 2: Added missing Hasten synergy!
 	// Hasten Synergy (Promote expensive cards)
 	if (hasMyCard(CARD_HASTEN) && card.cost >= 6) {
 		if (score == TIER_B)
