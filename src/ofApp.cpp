@@ -16005,11 +16005,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// If a card modal/menu/status is open, consume the press so the board
-	// isn't interacted with. Menu clicks are handled on mouseReleased.
-	// NOTE: Do NOT block `CARD_INTERACTION_STATE_TARGETING` here — targeting
-	// should still allow starting drags and hover interactions.
+	// If a card modal/menu/status is open, process menu clicks and consume the press
 	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || opponentInteraction.open)) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+			processCardStateInput(x, y, button);
+		}
 		return;
 	}
 
@@ -18565,6 +18565,14 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button) {
+	// Allow victims of a modal/menu (e.g. Magic Blast) to click their choices even on the opponent's turn
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			processCardStateInput(x, y, button);
+			return;
+		}
+	}
+
 	if (!isMyTurn()) return;
 	// --- SETTINGS MENU SLIDER DRAG END ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
@@ -22238,17 +22246,23 @@ void ofApp::drawActiveCardInteractionUI() {
 			int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 			Player * targetPlayer = getPlayer(actualTargetIdx);
 			if (targetPlayer) {
+				int targetOwner = targetPlayer->isMinion ? targetPlayer->ownerID : targetPlayer->playerID;
+				bool isLocalDecider = (!isMultiplayer) || (targetOwner == myLocalPlayerID);
+
 				int dmgAmount = 5;
-				for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
-					if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
-						dmgAmount = it->baseDamage;
-						break;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
+						if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
+							dmgAmount = it->baseDamage;
+							break;
+						}
 					}
 				}
 
-				string prompt = isLocalDecider ? ("Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":") : "Waiting for player to choose...";
-				string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
-				bool canDiscard = targetPlayer && !targetPlayer->deck.empty(); // Check if deck is populated
+				string prompt = isLocalDecider ? ("Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":") : ("Waiting for " + getPlayerDisplayName(actualTargetIdx) + " to choose...");
+				int totalRemaining = magicBlastChoicesRemaining + (int)magicBlastSplashTargetIndices.size();
+				string choicesLeft = "Targets remaining: " + ofToString(totalRemaining);
+				bool canDiscard = !targetPlayer->deck.empty();
 				drawCardChoicePanel(menuRect, "Magic Blast", prompt + "\n" + choicesLeft,
 					btn1, btn2, "Take " + ofToString(dmgAmount) + " Magic Damage", canDiscard ? "Remove Top Card" : "No Cards to Remove",
 					ofColor::indianRed, ofColor::darkSlateBlue, isLocalDecider, isLocalDecider && canDiscard);
@@ -26218,24 +26232,40 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
+				if (players[i].health > 0 && !board[players[i].x][players[i].y].hasWall && players[i].x == impactTile.x && players[i].y == impactTile.y) {
 					targetIdx = (int)i;
 					break;
 				}
 			}
 
-			magicBlastTargetPlayerIndex = (targetIdx != -1) ? players[targetIdx].playerID : -1;
-			magicBlastChoicesRemaining = (targetIdx != -1) ? 3 : 0;
 			magicBlastSplashTargetIndices.clear();
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
 				if (players[i].health <= 0) continue;
-				if (isTileWall(players[i].x, players[i].y)) continue; // Magic Blast splash doesn't penetrate walls
+				if (board[players[i].x][players[i].y].hasWall) continue; // Magic Blast splash doesn't penetrate walls
 				int dx = std::abs(players[i].x - impactTile.x);
 				int dy = std::abs(players[i].y - impactTile.y);
 				if (dx + dy == 1) {
 					magicBlastSplashTargetIndices.push_back(players[i].playerID);
+				}
+			}
+
+			if (targetIdx != -1) {
+				magicBlastTargetPlayerIndex = players[targetIdx].playerID;
+				magicBlastChoicesRemaining = 1;
+			} else {
+				magicBlastTargetPlayerIndex = -1;
+				magicBlastChoicesRemaining = 0;
+				while (!magicBlastSplashTargetIndices.empty()) {
+					int nextPID = magicBlastSplashTargetIndices.front();
+					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+					int pIdx = findPlayerIndexByID(nextPID);
+					if (pIdx >= 0 && pIdx < (int)players.size() && players[pIdx].health > 0) {
+						magicBlastTargetPlayerIndex = nextPID;
+						magicBlastChoicesRemaining = 1;
+						break;
+					}
 				}
 			}
 
@@ -26826,30 +26856,29 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 		Player * tgt = getPlayer(actualTargetIdx);
 
-		if (!tgt || tgt->health <= 0) {
+		if (!tgt || tgt->health <= 0 || magicBlastChoicesRemaining <= 0) {
 			magicBlastChoicesRemaining = 0;
-		}
-
-		if (magicBlastChoicesRemaining <= 0) {
+			magicBlastTargetPlayerIndex = -1;
 			while (!magicBlastSplashTargetIndices.empty()) {
-				magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+				int nextPID = magicBlastSplashTargetIndices.front();
 				magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-				actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
-				tgt = getPlayer(actualTargetIdx);
-				if (tgt && tgt->health > 0) {
+				int pIdx = findPlayerIndexByID(nextPID);
+				if (pIdx >= 0 && pIdx < (int)players.size() && players[pIdx].health > 0) {
+					magicBlastTargetPlayerIndex = nextPID;
 					magicBlastChoicesRemaining = 1;
+					actualTargetIdx = pIdx;
+					tgt = getPlayer(actualTargetIdx);
 					break;
 				}
 			}
 		}
 
 		if (actualTargetIdx != -1 && magicBlastChoicesRemaining > 0 && tgt) {
-			// FORCE local control if Singleplayer
-			bool isLocal = (!isMultiplayer) || (tgt->playerID == myLocalPlayerID || (tgt->isMinion && tgt->ownerID == myLocalPlayerID));
+			int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
+			bool isLocal = (!isMultiplayer) || (deciderOwner == myLocalPlayerID);
 
 			if (turnTimerEnabled) {
 				int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-				int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
 
 				if (deciderOwner != activeOwner) {
 					if (!turnTimerPaused) pauseTurnTimerForOpponentDecision(actualTargetIdx);
@@ -26869,20 +26898,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			// --- FIX: Restore the card index so the UI knows how much damage to display! ---
 			int activeCardIdx = currentCardOutcome.cardIndex;
-
-			// FIX: Both peers MUST sync their state machines!
 			interactionTargetIndex = actualTargetIdx;
 			interactingCardIndex = activeCardIdx;
 			cardInteractionState = CARD_INTERACTION_STATE_MENU;
 			interactingCardType = CARD_MAGIC_BLAST;
 			cardPlayState = CARD_PLAY_STATE_MENU;
 
+			menuOpenStartTime = ofGetElapsedTimef();
+			menuOpenScale = 0.6f;
+
 			if (isLocal) {
 				opponentInteraction.open = false;
-				menuOpenStartTime = ofGetElapsedTimef();
-				menuOpenScale = 0.6f;
 			} else {
 				opponentInteraction.open = true;
 				opponentInteraction.type = 4;
@@ -26892,7 +26919,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		} else {
 			// All choices complete!
 			opponentInteraction.open = false;
-			resetCardInteraction(false); // <--- CHANGED HERE
+			resetCardInteraction(false);
 
 			if (turnTimerPaused && opponentDecisionTimerActive) {
 				turnTimerPaused = false;
@@ -28752,7 +28779,14 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_MAGIC_BLAST: {
 			int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 			Player * targetPlayer = getPlayer(actualTargetIdx);
-			bool canDiscard = targetPlayer && !targetPlayer->deck.empty();
+			if (!targetPlayer) break;
+
+			// The player who owns this unit is the decider
+			int targetOwner = targetPlayer->isMinion ? targetPlayer->ownerID : targetPlayer->playerID;
+			bool isLocalDecider = (!isMultiplayer) || (targetOwner == myLocalPlayerID);
+			if (isMultiplayer && !isLocalDecider) return; // Only the target's owner can choose
+
+			bool canDiscard = !targetPlayer->deck.empty();
 
 			if (btn1.inside(mouseX, mouseY)) {
 				handleCardMenuClick("damage");
@@ -41341,8 +41375,8 @@ void ofApp::thinkRuleBasedAI() {
 			choice = 1; // Double Handed
 		else if (opponentInteraction.type == 8)
 			choice = 1; // Dispel
-		else if (opponentInteraction.type == 4)
-			choice = (me.deck.empty()) ? 1 : 2; // Magic Blast
+		else if (opponentInteraction.type == 4 || (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST))
+			choice = (me.deck.empty()) ? 1 : 2; // Magic Blast (1: Take damage, 2: Discard top card)
 
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
