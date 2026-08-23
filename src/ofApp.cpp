@@ -66,24 +66,28 @@ static bool g_peerAuthValidated = false;
 
 class SteamAuthValidator {
 public:
-	STEAM_CALLBACK(SteamAuthValidator, OnValidateAuthTicketResponse, ValidateAuthTicketResponse_t, m_CallbackValidateAuthTicket);
-};
+	SteamAuthValidator()
+		: m_CallbackValidateAuthTicket(this, &SteamAuthValidator::OnValidateAuthTicketResponse) {
+	}
 
-void SteamAuthValidator::OnValidateAuthTicketResponse(ValidateAuthTicketResponse_t * pResponse) {
-	if (!pResponse) return;
+	void OnValidateAuthTicketResponse(ValidateAuthTicketResponse_t * pResponse) {
+		if (!pResponse) return;
 
-	if (pResponse->m_eAuthSessionResponse == k_EAuthSessionResponseOK) {
-		ofLogNotice("SteamAuth") << "Steam validated peer authentication ticket successfully for SteamID: " << pResponse->m_SteamID.ConvertToUint64();
-		g_peerAuthValidated = true;
-	} else {
-		ofLogError("SteamAuth") << "CRITICAL: Peer authentication ticket rejected by Steam! Response code: " << (int)pResponse->m_eAuthSessionResponse;
-		g_peerAuthValidated = false;
-		if (SteamUser() && g_activeAuthPeerSteamID.IsValid()) {
-			SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
-			g_activeAuthPeerSteamID.Clear();
+		if (pResponse->m_eAuthSessionResponse == k_EAuthSessionResponseOK) {
+			ofLogNotice("SteamAuth") << "Steam validated peer authentication ticket successfully for SteamID: " << pResponse->m_SteamID.ConvertToUint64();
+			g_peerAuthValidated = true;
+		} else {
+			ofLogError("SteamAuth") << "CRITICAL: Peer authentication ticket rejected by Steam! Response code: " << (int)pResponse->m_eAuthSessionResponse;
+			g_peerAuthValidated = false;
+			if (SteamUser() && g_activeAuthPeerSteamID.IsValid()) {
+				SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+				g_activeAuthPeerSteamID.Clear();
+			}
 		}
 	}
-}
+
+	CCallback<SteamAuthValidator, ValidateAuthTicketResponse_t> m_CallbackValidateAuthTicket;
+};
 
 static SteamAuthValidator g_steamAuthValidator;
 
