@@ -10096,8 +10096,9 @@ void ofApp::updateGameLogic() {
 			if (issuedChoice) {
 				ofLogNotice("Timer") << "Opponent decision timer expired. Host auto-selecting menu choice.";
 				sendInputCommand(cmd, true);
-				opponentDecisionStartFrame = simulationFrame;
-				opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
+				opponentDecisionTimerActive = false;
+				opponentDecisionStartFrame = 0;
+				opponentDecisionPlayerIndex = -1;
 			}
 		}
 	}
@@ -22903,24 +22904,25 @@ void ofApp::processCommandQueue() {
 
 		bool isStateBlocking = (cardPlayState != CARD_PLAY_STATE_IDLE);
 
-		// If we are waiting for a menu choice, we MUST allow CMD_MENU_CHOICE and CMD_RENEWED_INSPIRATION to pass!
-		if (cardPlayState == CARD_PLAY_STATE_MENU && (cmdType == CMD_MENU_CHOICE || cmdType == CMD_RENEWED_INSPIRATION)) {
-			isStateBlocking = false;
+		// Interactive decision commands that answer an active menu or target prompt
+		bool isInteractiveMenuCommand = (cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION);
+		if (cmdType == CMD_PSEUDO_ACTION) {
+			std::string actionName = cmd.stringData;
+			if (actionName == "PlaceKobold" || actionName == "PlaceWolf" || actionName == "Shell Spike" || actionName == "TriggerGhostRelocate" || actionName == "AssistantReroll") {
+				isInteractiveMenuCommand = true;
+			}
 		}
-		// If we are waiting for a target, we MUST allow CMD_PLAY_CARD and CMD_MENU_CHOICE (for pseudo-actions) to pass!
-		if (cardPlayState == CARD_PLAY_STATE_TARGETING && (cmdType == CMD_PLAY_CARD || cmdType == CMD_MENU_CHOICE || cmdType == CMD_PSEUDO_ACTION)) {
+
+		// If we are waiting for a menu choice or target, allow the answering command to pass through immediately
+		if (isInteractiveMenuCommand) {
 			isStateBlocking = false;
 		}
 
-		// CRITICAL FIX: Force the command queue to pause while units are physically walking!
-		// This guarantees that in-game Key Draft commands (from the Host) are safely held
-		// in the Client's queue until the Client's visual animation actually reaches the Key tile.
 		bool animatingBlocksQueue = isPlayerAnimating && !(currentState == STATE_DRAFTING && isInGameDraft);
 
-		// CRITICAL FIX: Do NOT pause the queue for CMD_END_TURN just because a unit is dying.
-		// If a player clicks End Turn, we must process it immediately so the Turn Timer resets and syncs the peers!
-		if (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue) {
-			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_MENU_CHOICE || cmdType == CMD_STATUS_ACTION || cmdType == CMD_RENEWED_INSPIRATION || cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION) {
+		// Only pause queue for regular gameplay actions while effects/animations run
+		if (!isInteractiveMenuCommand && (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue)) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION) {
 				break; // PAUSE THE QUEUE
 			}
 			if (cmdType == CMD_END_TURN && (isProcessingEffect || isStateBlocking || animatingBlocksQueue)) {
