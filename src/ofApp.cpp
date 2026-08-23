@@ -47,7 +47,72 @@
 static const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
 static const int MENU_MAGIC_HAND_RELOCATE = 999;
 
+#include "steam_api.h"
 #include <assimp/scene.h>
+
+static const uint8_t PKT_AUTH_TICKET = 250;
+
+#pragma pack(push, 1)
+struct AuthTicketPacket {
+	PacketHeader header;
+	uint32_t ticketSize;
+	uint8_t ticketData[1024];
+};
+#pragma pack(pop)
+
+static HAuthTicket g_localAuthTicket = k_HAuthTicketInvalid;
+static CSteamID g_activeAuthPeerSteamID;
+static bool g_peerAuthValidated = false;
+
+class SteamAuthValidator {
+public:
+	STEAM_CALLBACK(SteamAuthValidator, OnValidateAuthTicketResponse, ValidateAuthTicketResponse_t, m_CallbackValidateAuthTicket);
+};
+
+void SteamAuthValidator::OnValidateAuthTicketResponse(ValidateAuthTicketResponse_t * pResponse) {
+	if (!pResponse) return;
+
+	if (pResponse->m_eAuthSessionResponse == k_EAuthSessionResponseOK) {
+		ofLogNotice("SteamAuth") << "Steam validated peer authentication ticket successfully for SteamID: " << pResponse->m_SteamID.ConvertToUint64();
+		g_peerAuthValidated = true;
+	} else {
+		ofLogError("SteamAuth") << "CRITICAL: Peer authentication ticket rejected by Steam! Response code: " << (int)pResponse->m_eAuthSessionResponse;
+		g_peerAuthValidated = false;
+		if (SteamUser() && g_activeAuthPeerSteamID.IsValid()) {
+			SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+			g_activeAuthPeerSteamID.Clear();
+		}
+	}
+}
+
+static SteamAuthValidator g_steamAuthValidator;
+
+static void SendLocalAuthSessionTicket(SteamManager & steamMgr, int localPlayerID) {
+	if (!SteamUser()) return;
+
+	if (g_localAuthTicket != k_HAuthTicketInvalid) {
+		SteamUser()->CancelAuthTicket(g_localAuthTicket);
+		g_localAuthTicket = k_HAuthTicketInvalid;
+	}
+
+	uint8_t ticketBuffer[1024];
+	uint32_t ticketSize = 0;
+
+	g_localAuthTicket = SteamUser()->GetAuthSessionTicket(ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
+
+	if (g_localAuthTicket != k_HAuthTicketInvalid && ticketSize > 0) {
+		AuthTicketPacket pkt = {};
+		pkt.header.type = PKT_AUTH_TICKET;
+		pkt.header.playerID = localPlayerID;
+		pkt.ticketSize = ticketSize;
+		memcpy(pkt.ticketData, ticketBuffer, std::min((size_t)ticketSize, sizeof(pkt.ticketData)));
+
+		steamMgr.sendPacket(&pkt, sizeof(pkt));
+		ofLogNotice("SteamAuth") << "Sent local Steam Auth Session Ticket (" << ticketSize << " bytes) to peer.";
+	} else {
+		ofLogError("SteamAuth") << "Failed to generate Steam Auth Session Ticket.";
+	}
+}
 
 // Converts Assimp row-major matrix to GLM column-major format
 static glm::mat4 convertAssimpMatrix(const aiMatrix4x4 & from) {
@@ -4129,11 +4194,8 @@ void ofApp::setup() {
 #ifdef _WIN32
 	timeBeginPeriod(1); // Enable 1ms high-precision Windows kernel timer
 #endif
-	// --- BULLETPROOF STEAM APP ID FIX ---
-	// When launched as a "Non-Steam Game", Steam assigns a random fake AppID (e.g. 14930192)
-	// which completely overrides the steam_appid.txt file and causes SteamAPI_Init() to fail.
-	// Forcing the environment variable here guarantees it always connects as Spacewar (480)
-	// no matter how the user launches it or if they forgot to extract the zip file.
+	const uint32_t k_uSteamAppId = 4329880;
+
 #ifdef _WIN32
 	_putenv("SteamAppId=4329880");
 	_putenv("SteamGameId=4329880");
@@ -4142,7 +4204,25 @@ void ofApp::setup() {
 	setenv("SteamGameId", "4329880", 1);
 #endif
 
+	// --- 1. STEAM DRM LAUNCH ENFORCEMENT ---
+	if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr) {
+		if (SteamAPI_RestartAppIfNecessary(k_uSteamAppId)) {
+			ofLogNotice("SteamDRM") << "RestartAppIfNecessary returned true. Exiting to relaunch via Steam client...";
+			std::exit(0);
+			return;
+		}
+	}
+
 	steamManager.setup();
+
+	// --- 2. STEAM LICENSE & OWNERSHIP CHECK ---
+	if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr && steamManager.isConnected()) {
+		if (SteamApps() && !SteamApps()->BIsSubscribed()) {
+			ofLogError("SteamDRM") << "Unauthorized user: Active Steam account does not own a license for App ID " << k_uSteamAppId;
+			std::exit(0);
+			return;
+		}
+	}
 
 	// Headless mode: when `MAGEFIGHT_HEADLESS` is set, skip rendering and texture operations.
 	if (std::getenv("MAGEFIGHT_HEADLESS") != nullptr) {
@@ -5881,6 +5961,9 @@ void ofApp::update() {
 					pkt.seed = localSeedComponent;
 					pkt.elo = myElo;
 					steamManager.sendPacket(&pkt, sizeof(pkt));
+
+					// Send Steam Auth Session Ticket to client for backend verification
+					SendLocalAuthSessionTicket(steamManager, 0);
 				}
 			}
 		}
@@ -18275,6 +18358,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
+	// ALWAYS allow camera panning, regardless of whose turn it is or what state the game is in!
+	if (button == OF_MOUSE_BUTTON_MIDDLE) {
+		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
+		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
+		float panMultZ = 1.0f;
+		if (isShowingTooltip) isShowingTooltip = false;
+		if (isTooltipExpanded) {
+			isTooltipExpanded = false;
+			tooltipExpandedText.clear();
+		}
+		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
+		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
+		return; // We handled the camera pan, stop here.
+	}
+
 	if (!isMyTurn()) return;
 	// Keep hover/cursor state up-to-date while a mouse button is held.
 	mouseMoved(x, y);
@@ -18321,15 +18419,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	if (draggedCardIndex != -1) {
 		currentCursor = CURSOR_HOLD;
 	}
-	// Allow camera panning during draft, but block cancel
-	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_MIDDLE) {
-		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-		float panMultZ = 1.0f;
-		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
-		return;
-	}
+
 	// --- SETTINGS MENU SLIDER DRAG ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
 		// Audio tab sliders
@@ -18380,33 +18470,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		}
 
 		if (controlledPlayerID != myLocalPlayerID && deciderOwner != myLocalPlayerID) {
-			// Not our turn - only allow camera movement
-			if (button == OF_MOUSE_BUTTON_MIDDLE) {
-				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-				// For camera2: invert both X and Z to mirror the view
-				float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-				float panMultZ = 1.0f;
-				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
-			}
-			return;
+			return; // Not our turn
 		}
-	}
-
-	if (button == OF_MOUSE_BUTTON_MIDDLE) {
-		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-		// For camera2: invert both X and Z to mirror the view (180° rotation)
-		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-		float panMultZ = 1.0f;
-		// While panning, ensure tooltips are closed so they don't linger
-		if (isShowingTooltip) isShowingTooltip = false;
-		if (isTooltipExpanded) {
-			isTooltipExpanded = false;
-			tooltipExpandedText.clear();
-		}
-		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
-		return;
 	}
 
 	// FIX: Removed isDiceSpinning lock so you can drag cards to preview them while dice spin!
@@ -37174,6 +37239,18 @@ void ofApp::cleanupGame() {
 	s_pendingRemoteChecksums.clear();
 	s_pendingLocalChecksums.clear();
 
+	if (SteamUser()) {
+		if (g_localAuthTicket != k_HAuthTicketInvalid) {
+			SteamUser()->CancelAuthTicket(g_localAuthTicket);
+			g_localAuthTicket = k_HAuthTicketInvalid;
+		}
+		if (g_activeAuthPeerSteamID.IsValid()) {
+			SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+			g_activeAuthPeerSteamID.Clear();
+		}
+	}
+	g_peerAuthValidated = false;
+
 	// Reset game over visualization values
 	s_hasCachedGameOverVisuals = false;
 	s_gameOverScreenStartTime = 0.0f;
@@ -39577,6 +39654,18 @@ void ofApp::exit() {
 #ifdef _WIN32
 	timeEndPeriod(1); // Release kernel timer precision
 #endif
+	// Clean up Steam authentication tickets & sessions
+	if (SteamUser()) {
+		if (g_localAuthTicket != k_HAuthTicketInvalid) {
+			SteamUser()->CancelAuthTicket(g_localAuthTicket);
+			g_localAuthTicket = k_HAuthTicketInvalid;
+		}
+		if (g_activeAuthPeerSteamID.IsValid()) {
+			SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+			g_activeAuthPeerSteamID.Clear();
+		}
+	}
+
 	// 1. Close network sockets first
 	if (zmqSocket) {
 		zmqSocket->close();
@@ -39812,6 +39901,31 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 
+			if (header->type == PKT_AUTH_TICKET && buffer.size() >= sizeof(AuthTicketPacket)) {
+				AuthTicketPacket * authPkt = (AuthTicketPacket *)header;
+				CSteamID opponentSteamID = steamManager.getOpponentSteamID();
+
+				if (SteamUser() && opponentSteamID.IsValid() && authPkt->ticketSize > 0) {
+					if (g_activeAuthPeerSteamID.IsValid()) {
+						SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+					}
+
+					g_activeAuthPeerSteamID = opponentSteamID;
+					EBeginAuthSessionResult res = SteamUser()->BeginAuthSession(authPkt->ticketData, authPkt->ticketSize, opponentSteamID);
+
+					if (res == k_EBeginAuthSessionResultOK) {
+						ofLogNotice("SteamAuth") << "BeginAuthSession initiated successfully with Steam servers for opponent SteamID: " << opponentSteamID.ConvertToUint64();
+					} else {
+						ofLogError("SteamAuth") << "CRITICAL: BeginAuthSession rejected ticket from opponent! Error code: " << (int)res;
+						addGameLog("Security error: Opponent failed Steam authentication verification.");
+						steamManager.leaveLobby();
+						cleanupGame();
+						currentState = STATE_MAIN_MENU;
+					}
+				}
+				continue;
+			}
+
 			if (header->type == PKT_HANDSHAKE) {
 				// FIX: Completely ignore stray/corrupted handshakes if we are already in an active match!
 				if (currentState != STATE_MAIN_MENU && currentState != STATE_MULTIPLAYER_MENU) {
@@ -39898,6 +40012,9 @@ void ofApp::processNetworkPackets() {
 					ack.seed = localSeedComponent;
 					ack.elo = myElo;
 					steamManager.sendPacket(&ack, sizeof(ack));
+
+					// Send Steam Auth Session Ticket to host for backend verification
+					SendLocalAuthSessionTicket(steamManager, 1);
 
 					// Always send the READY packet immediately so the Host can start the match!
 					ClientReadyPacket r = {};
@@ -41220,29 +41337,33 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	// 0. ANTI-STUCK FAILSAFE ENGINE
 	// =========================================================================
-	int currentStateHash = currentAP + (me.x * 100) + (me.y * 1000) + (me.hand.size() * 10000) + ((int)cardInteractionState * 100000);
+	// Only run the failsafe during active gameplay. Running it during the draft
+	// causes the AI to endlessly skip turns because its state hash doesn't change!
+	if (currentState == STATE_GAMEPLAY) {
+		int currentStateHash = currentAP + (me.x * 100) + (me.y * 1000) + (me.hand.size() * 10000) + ((int)cardInteractionState * 100000);
 
-	if (currentStateHash != aiLastStateHash) {
-		aiLastStateHash = currentStateHash;
-		aiStuckCounter = 0; // State changed! Reset the stuck counter
-	}
+		if (currentStateHash != aiLastStateHash) {
+			aiLastStateHash = currentStateHash;
+			aiStuckCounter = 0; // State changed! Reset the stuck counter
+		}
 
-	aiStuckCounter++;
-	if (aiStuckCounter > 15) {
-		ofLogWarning("AI") << "AI GOT STUCK! Failsafe Triggered. Forcing End Turn.";
-		cancelAllTargeting(); // Force-close any broken menus
+		aiStuckCounter++;
+		if (aiStuckCounter > 60) { // Bumped to 60 ticks (1 second) to be safe
+			ofLogWarning("AI") << "AI GOT STUCK! Failsafe Triggered. Forcing End Turn.";
+			cancelAllTargeting(); // Force-close any broken menus
 
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = activeID;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_END_TURN;
-		cmd.params[0] = currentPlayerIndex;
-		endTurnLocked = true;
-		sendInputCommand(cmd, true);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_END_TURN;
+			cmd.params[0] = currentPlayerIndex;
+			endTurnLocked = true;
+			sendInputCommand(cmd, true);
 
-		aiStuckCounter = 0;
-		return;
+			aiStuckCounter = 0;
+			return;
+		}
 	}
 
 	// =========================================================================
@@ -41417,6 +41538,11 @@ void ofApp::thinkRuleBasedAI() {
 			choice = (me.deck.empty()) ? 1 : 2; // AI takes damage if deck empty, else discards
 		} else if (interactingCardType == CARD_AMNESIA) {
 			choice = 1; // Self path, usually already handled
+		} else if (interactingCardType == CARD_WISDOM_BOON) {
+			if (interactionTargetIndex == currentPlayerIndex)
+				choice = 2; // Block if targeting self
+			else
+				choice = 1; // Damage if targeting enemy
 		}
 
 		InputCommandPacket cmd = {};
@@ -41837,11 +41963,20 @@ void ofApp::thinkRuleBasedAI() {
 				else if (card.type == CARD_DOUBLE_HANDED || card.type == CARD_MIND_THEFT || card.type == CARD_AMNESIA) {
 					for (const auto & p : players) {
 						if (p.x == x && p.y == y && p.health > 0) {
-							if ((p.isMinion ? p.ownerID : p.playerID) == enemyID) score += 420.0f;
+							if ((p.isMinion ? p.ownerID : p.playerID) == enemyID) {
+								score += 600.0f;
+								if (!p.isMinion) score += 200.0f; // Prefer main player
+							}
 						}
 					}
 				} else if (card.type == CARD_WISDOM_BOON) {
 					score += 260.0f + (me.deck.size() * 15.0f);
+					if (x == me.x && y == me.y) {
+						if (nearestEnemyDist <= 2) score += 500.0f; // Defensive posture
+						if (me.inTortoiseForm) score += 1000.0f; // Permanent defense
+					} else if (board[x][y].hasPlayer && (x != me.x || y != me.y)) {
+						score += 400.0f; // Damage enemy
+					}
 				}
 
 				// 5. DIRECT ATTACKS
@@ -41900,6 +42035,16 @@ void ofApp::thinkRuleBasedAI() {
 					if (isMainPlayerDying) score += 450.0f;
 					if (card.type == CARD_RAISE_DEAD) score += 100.0f;
 					if (card.type == CARD_SUMMON_KOBOLD_KING) score += 120.0f;
+
+					// Penalize playing Summon Assistant if we have more than its cost in AP,
+					// to force the AI to move first and burn its AP down to 0 for a perfect reroll!
+					if (card.type == CARD_SUMMON_ASSISTANT) {
+						if (currentAP == cost) {
+							score += 800.0f; // Perfect reroll setup! Will leave us at 0 AP.
+						} else if (currentAP > cost) {
+							score -= 300.0f; // Penalize playing it now so we MOVE first to burn AP down!
+						}
+					}
 				}
 
 				if (score > 0.0f) {
@@ -41918,124 +42063,57 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	if (currentAP > 0) {
 
-		// STRATEGY A: SUPPORT MINIONS (Stay glued to the Boss for Auras/Healing)
-		if (isSupportMinion && mainPlayer) {
-			Player * targetAlly = mainPlayer;
-			if (me.isFaerie) {
-				for (auto & p : players) {
-					if (p.health > 0 && p.health < p.maxHealth && p.playerID != me.playerID && (p.isMinion ? p.ownerID : p.playerID) == activeID) {
-						targetAlly = &p;
-						break;
-					}
-				}
-			}
+		// Base Movement Generation for ALL units: score every possible adjacent empty tile
+		int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+		for (auto & d : dirs) {
+			int nx = me.x + d[0], ny = me.y + d[1];
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					float moveScore = 10.0f; // Base score for just being able to move
 
-			int distToAlly = abs(me.x - targetAlly->x) + abs(me.y - targetAlly->y);
-			if (distToAlly > 1) {
-				auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)targetAlly->x, (float)targetAlly->y });
-				if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
-					candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 300.0f });
-				}
-			}
-		}
-		// STRATEGY B: COMBAT MINIONS RUSH DIRECTLY TOWARDS ENEMY
-		else if (isCombatMinion && enemyTargetX != -1) {
-			if (mainPlayer && mainPlayer->health < 10 && (me.isSkeleton || me.isKobold)) {
-				// Stay near player to protect
-				int distToBoss = abs(me.x - mainPlayer->x) + abs(me.y - mainPlayer->y);
-				if (distToBoss > 2) {
-					auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)mainPlayer->x, (float)mainPlayer->y });
-					if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
-						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 250.0f });
-					}
-				}
-			} else {
-				// Surround the enemy
-				int distToEnemy = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
-				if (distToEnemy > 1) {
-					auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)enemyTargetX, (float)enemyTargetY });
-					if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
-						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 250.0f });
-					}
-				}
-			}
-		}
-		// STRATEGY C: MAIN PLAYER
-		else if (!me.isMinion) {
-			bool hasGoodCards = false;
-			for (const auto & c : me.deck) {
-				if (c.baseDamage >= 5 || c.damageDiceNum >= 2 || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_MAGIC_BOLT) {
-					hasGoodCards = true;
-					break;
-				}
-			}
-			for (const auto & c : me.hand) {
-				if (c.baseDamage >= 5 || c.damageDiceNum >= 2 || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_MAGIC_BOLT) {
-					hasGoodCards = true;
-					break;
-				}
-			}
+					int distToEnemy = abs(nx - enemyTargetX) + abs(ny - enemyTargetY);
+					int currentDistToEnemy = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
 
-			if (mainPlayer && mainPlayer->health < 10 && !hasGoodCards) {
-				// Run away
-				if (mostDangerousEnemyIdx != -1) {
-					const Player & dangerEnemy = players[mostDangerousEnemyIdx];
-					int bestFleeDist = nearestEnemyDist;
-					glm::ivec2 bestFleeTile(-1, -1);
-
-					int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-					for (auto & d : dirs) {
-						int nx = me.x + d[0], ny = me.y + d[1];
-						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-								int distFromThreat = abs(nx - dangerEnemy.x) + abs(ny - dangerEnemy.y);
-								if (distFromThreat >= bestFleeDist) {
-									bestFleeDist = distFromThreat;
-									bestFleeTile = { nx, ny };
-								}
-							}
+					if (me.isMinion) {
+						if (isSupportMinion && mainPlayer) {
+							int distToBoss = abs(nx - mainPlayer->x) + abs(ny - mainPlayer->y);
+							if (distToBoss == 1)
+								moveScore += 500.0f; // Wants to be exactly adjacent
+							else if (distToBoss == 2)
+								moveScore += 300.0f;
+						} else if (isCombatMinion) {
+							if (distToEnemy < currentDistToEnemy) moveScore += 400.0f; // Chase
 						}
-					}
-					if (bestFleeTile.x != -1) {
-						candidates.push_back({ ScoredAction::MOVE, -1, bestFleeTile.x, bestFleeTile.y, 600.0f });
-					}
-				}
-			} else if (!hasGoodCards && hasKeysToCollect) {
-				// Go for keys
-				glm::ivec2 targetKey = getBestKeyTarget(me);
-				if (targetKey.x != -1) {
-					bool allyMinionCoveringKey = false;
-					for (const auto & p : players) {
-						if (p.isMinion && p.health > 0 && p.ownerID == me.playerID) {
-							int minionDist = abs(p.x - targetKey.x) + abs(p.y - targetKey.y);
-							int playerDist = abs(me.x - targetKey.x) + abs(me.y - targetKey.y);
-							if (minionDist < playerDist) {
-								allyMinionCoveringKey = true;
+					} else {
+						// MAIN PLAYER MOVEMENT
+						bool hasGoodCards = false;
+						for (const auto & c : me.hand) {
+							if (currentAP >= c.cost && (c.baseDamage >= 5 || c.damageDiceNum >= 2 || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_MAGIC_BOLT)) {
+								hasGoodCards = true;
 								break;
 							}
 						}
-					}
 
-					if (!allyMinionCoveringKey) {
-						std::vector<glm::vec2> pathToKey = findShortestPathForPlayer(currentPlayerIndex,
-							{ (float)me.x, (float)me.y },
-							{ (float)targetKey.x, (float)targetKey.y });
-						if (pathToKey.size() > 1) {
-							int nx = (int)pathToKey[1].x, ny = (int)pathToKey[1].y;
-							if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-								candidates.push_back({ ScoredAction::MOVE, -1, nx, ny, 120.0f });
+						if (me.health < 10 && !hasGoodCards) {
+							// FLEE
+							if (distToEnemy > currentDistToEnemy) moveScore += 600.0f;
+						} else if (!hasGoodCards && hasKeysToCollect) {
+							// KEYS: Massive priority so player uses up AP stepping towards key before summoning an Assistant
+							glm::ivec2 targetKey = getBestKeyTarget(me);
+							if (targetKey.x != -1) {
+								auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)nx, (float)ny }, { (float)targetKey.x, (float)targetKey.y });
+								int distToKey = path.size();
+								moveScore += 800.0f - (distToKey * 10.0f);
 							}
+						} else {
+							// CHASE
+							if (distToEnemy < currentDistToEnemy && currentDistToEnemy > 2) moveScore += 200.0f;
+							// Retreat slightly if we are too close and have no melee
+							if (distToEnemy > currentDistToEnemy && currentDistToEnemy <= 2 && !hasGoodCards) moveScore += 300.0f;
 						}
 					}
-				}
-			} else if (hasGoodCards && enemyTargetX != -1) {
-				// Close the distance to cast spells accurately
-				int currentDist = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
-				if (currentDist > 2) {
-					auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)enemyTargetX, (float)enemyTargetY });
-					if (path.size() > 1 && !board[(int)path[1].x][(int)path[1].y].hasPlayer) {
-						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, 100.0f });
-					}
+
+					candidates.push_back({ ScoredAction::MOVE, -1, nx, ny, moveScore });
 				}
 			}
 		}
@@ -42387,11 +42465,10 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 
 		// --- Class 3 Conditional Modifiers ---
 
-		// Constitution Boon: Move to Rank 1 if >= 2 Max HP cards & Max HP >= 26
+		// Constitution Boon: Boost priority only if 31+ Max HP, but keep below Master Fist & Hellhound
 		if (card.type == CARD_CONSTITUTION_BOON) {
-			int maxHpCards = countMyCopies(CARD_CONSTITUTION_BOON) + countMyCopies(CARD_MASTER_FIST) + countMyCopies(CARD_FORM_OF_TORTOISE);
-			if (maxHpCards >= 2 && me.maxHealth >= 26) {
-				rankScore = 1550.0f; // Above Rank 1
+			if (me.maxHealth >= 31) {
+				rankScore = 1250.0f; // Below Master Fist (1300) and Hellhound (1500)
 			}
 		}
 
@@ -42696,6 +42773,8 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 			score = std::max(score, TIER_S);
 		} else if (mySkeletons >= 1 || countSkeletons(oppOwnerID) >= 1 || hasMyCard(CARD_SUMMON_HELLHOUND) || hasOppCard(CARD_RAISE_DEAD) || hasOppCard(CARD_SUMMON_HELLHOUND)) {
 			score = std::max(score, TIER_A);
+		} else {
+			score = 0.0f; // Strongly penalize and avoid picking if no synergy exists
 		}
 	}
 
