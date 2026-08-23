@@ -6355,14 +6355,6 @@ void ofApp::draw() {
 			this->drawActiveDraftPickedMoves();
 		}
 
-		if (drawPause) {
-			g_suppressText = drawSettings;
-			drawPauseMenu();
-			g_suppressText = false;
-		}
-
-		if (drawSettings) drawSettingsMenu();
-
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_DESYNC || (currentState == STATE_PAUSED && (pausedFromState == STATE_GAMEPLAY || pausedFromState == STATE_DRAFTING || pausedFromState == STATE_INITIATIVE_ROLL)) || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DESYNC || stateBeforeSettings == STATE_PAUSED))) {
 
 			ofPushStyle();
@@ -6373,8 +6365,8 @@ void ofApp::draw() {
 			float scale = ofGetHeight() / 1080.0f;
 			float uiScale = getUIScaleFromHeight(ofGetHeight());
 
+			// Draw card interaction and choice menus beneath the pause/settings menus
 			drawActiveCardInteractionUI();
-
 			// --- Chat System ---
 			{
 				float currentTime = ofGetElapsedTimef();
