@@ -29,18 +29,24 @@ float lum(vec3 c) {
 }
 
 void main() {
-    // 1. Calculate the exact center of the "chunky" pixel grid
-    vec2 texel = 1.0 / uLowRes;
-    vec2 lowCoord = floor(vTexCoord * uLowRes) / uLowRes + (texel * 0.5);
+    vec2 texelLow = 1.0 / uLowRes;
+    vec2 gridCell = floor(vTexCoord * uLowRes);
+    vec2 lowCoord = (gridCell + 0.5) * texelLow;
     
-    // 2. Sample the scene exactly at the center of our retro pixel.
-    // This entirely removes the "shimmering" caused by the old getFatPixel function.
-    vec3 base = texture(tex0, lowCoord).rgb;
+    // 4-tap box filter within the low-res cell
+    // Preserves thin 1px/2px outlines and prevents flickering dropouts during movement
+    vec2 offset = texelLow * 0.25;
+    vec3 base = (
+        texture(tex0, lowCoord + vec2(-offset.x, -offset.y)).rgb +
+        texture(tex0, lowCoord + vec2( offset.x, -offset.y)).rgb +
+        texture(tex0, lowCoord + vec2(-offset.x,  offset.y)).rgb +
+        texture(tex0, lowCoord + vec2( offset.x,  offset.y)).rgb
+    ) * 0.25;
 
-    // --- Milder Color Modifications ---
+    // --- Color Adjustments ---
     float luma = lum(base);
-    base = mix(vec3(luma), base, 1.15); // Slight Saturation boost
-    base *= 1.05; // Slight Brightness boost
+    base = mix(vec3(luma), base, 1.15); // Saturation
+    base *= 1.05; // Brightness
     base = clamp(base, 0.0, 1.0);
 
     // --- Color Banding / Posterization ---
@@ -56,34 +62,21 @@ void main() {
         }
     }
 
-    // --- Center-Relative Edge Detection ---
-    float c = lum(base);
-    float l = lum(texture(tex0, lowCoord + vec2(-texel.x, 0)).rgb);
-    float r = lum(texture(tex0, lowCoord + vec2(texel.x, 0)).rgb);
-    float u = lum(texture(tex0, lowCoord + vec2(0, -texel.y)).rgb);
-    float d = lum(texture(tex0, lowCoord + vec2(0, texel.y)).rgb);
-    
-    float diffL = abs(c - l);
-    float diffR = abs(c - r);
-    float diffU = abs(c - u);
-    float diffD = abs(c - d);
+    // --- Outline / Edge Preservation ---
+    if (edgeStrength > 0.001) {
+        float c = lum(base);
+        float l = lum(texture(tex0, lowCoord + vec2(-texelLow.x, 0.0)).rgb);
+        float r = lum(texture(tex0, lowCoord + vec2( texelLow.x, 0.0)).rgb);
+        float u = lum(texture(tex0, lowCoord + vec2(0.0, -texelLow.y)).rgb);
+        float d = lum(texture(tex0, lowCoord + vec2(0.0,  texelLow.y)).rgb);
+        
+        float edge = max(max(abs(c - l), abs(c - r)), max(abs(c - u), abs(c - d)));
+        float edgeFactor = smoothstep(0.10, 0.22, edge) * edgeStrength;
 
-    float edge = max(max(diffL, diffR), max(diffU, diffD));
-
-    // FIX: Using smoothstep instead of step(). 
-    // This gives edges a tiny bit of anti-aliasing internally so they don't 
-    // flicker on and off abruptly when the camera pans across sub-pixels.
-    float edgeFactor = smoothstep(0.08, 0.18, edge) * max(edgeStrength, 0.4);
-
-    vec3 finalCol;
-    
-    // --- UI OVERWRITE FIX ---
-    // Protect dark UI outlines AND bright UI highlights from being grayed out by the edge detector
-    if (lum(q) < 0.15 || lum(q) > 0.8) {
-        finalCol = q;
-    } else {
-        finalCol = mix(q, edgeColor, edgeFactor * 0.50);
+        if (lum(q) >= 0.12 && lum(q) <= 0.85) {
+            q = mix(q, edgeColor, edgeFactor * 0.5);
+        }
     }
 
-    fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
+    fragColor = vec4(clamp(q, 0.0, 1.0), 1.0);
 }

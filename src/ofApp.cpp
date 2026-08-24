@@ -7312,8 +7312,16 @@ void ofApp::draw() {
 
 			safePopStyle();
 		}
-	};
 
+		// Pause Menu and Settings Menu always render on top of all gameplay elements and modal prompts
+		if (drawPause) {
+			g_suppressText = drawSettings;
+			drawPauseMenu();
+			g_suppressText = false;
+		}
+
+		if (drawSettings) drawSettingsMenu();
+	};
 	// --- PASS 1: RENDER FULL GAME ---
 	drawEverything();
 
@@ -14958,6 +14966,9 @@ void ofApp::mouseMoved(int x, int y) {
 
 		// Forcefully block card hovers when menus are open so Accept/Choice buttons get priority
 		bool isMenuOpen = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || opponentInteraction.open);
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+			isMenuOpen = false; // Allow hovering over cards in hand to select them
+		}
 		if (!isMenuOpen) {
 			// A. PRIORITY CHECK: Always check the currently popped-up/top card FIRST
 			int topCardIndex = (draggedCardIndex != -1) ? draggedCardIndex : hoveredCardIndex;
@@ -22123,7 +22134,10 @@ void ofApp::drawActiveCardInteractionUI() {
 
 	float scale = 1.0f;
 	g_menuAlphaMult = 1.0f;
-	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE));
+
+	// Do not scale the full screen for Renewed Inspiration (hand selection) or Amnesia deck view
+	bool isModalChoiceCard = (interactingCardType != CARD_RENEWED_INSPIRATION && !(interactingCardType == CARD_AMNESIA && !amnesiaDeckCopy.empty()));
+	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)) && isModalChoiceCard;
 
 	if (isAnimatedMenu) {
 		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
@@ -22132,10 +22146,7 @@ void ofApp::drawActiveCardInteractionUI() {
 		scale = glm::mix(menuOpenScale, 1.0f, ease);
 		g_menuAlphaMult = t;
 
-		// Draw overlay unscaled BEFORE matrix push
-		if (interactingCardType != CARD_RENEWED_INSPIRATION && interactingCardType != PSEUDO_CARD_GHOST_RELOCATE) {
-			drawMenuOverlay();
-		}
+		drawMenuOverlay();
 
 		ofPushMatrix();
 		float cx = ofGetWidth() * 0.5f;
@@ -22143,6 +22154,8 @@ void ofApp::drawActiveCardInteractionUI() {
 		ofTranslate(cx, cy);
 		ofScale(scale, scale);
 		ofTranslate(-cx, -cy);
+	} else if (interactingCardType == CARD_AMNESIA && !amnesiaDeckCopy.empty()) {
+		drawMenuOverlay();
 	}
 
 	if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
@@ -28591,7 +28604,10 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		handleCardTargetClick(gridX, gridY);
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 
-		if (ofGetElapsedTimef() - menuOpenStartTime < 0.25f) return; // Prevent accidental instant clicks
+		// Only apply the 0.15s opening debounce to small popups, not to Amnesia grid or Renewed Inspiration
+		if (interactingCardType != CARD_RENEWED_INSPIRATION && !(interactingCardType == CARD_AMNESIA && !amnesiaDeckCopy.empty())) {
+			if (ofGetElapsedTimef() - menuOpenStartTime < 0.15f) return;
+		}
 
 		// STANDARD MENU MATH FOR HITBOXES
 		float w = 720.0f, h = 360.0f;
@@ -28724,9 +28740,10 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				if (i == interactingCardIndex) continue;
 				Card & card = p.hand[i];
 				if (card.playedThisTurn) continue;
-				float w = handBaseCardWidth * card.currentScale;
-				float h = baseCardHeight * card.currentScale;
-				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
+				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
+				float h = baseCardHeight * std::max(0.9f, card.currentScale);
+				ofRectangle cardRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
+				cardRect.height = std::max(cardRect.height, (float)ofGetHeight() - cardRect.y);
 
 				if (cardRect.inside(mouseX, mouseY)) {
 					auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
@@ -39521,100 +39538,106 @@ void ofApp::updateDraftUiAnimations() {
 
 void ofApp::drawPauseMenu() {
 	ofPushStyle();
-	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	ofDisableLighting();
+	ofDisableDepthTest();
+	safeEnableAlphaBlending();
 
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float centerX = ofGetWidth() / 2.0f;
 
-	// --- Draw Background Panel ---
-	float panelW = 500.0f * uiScale;
+	// Dim background
+	ofSetColor(0, 0, 0, 190);
+	ofFill();
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// Background Panel
+	float panelW = 460.0f * uiScale;
 	float panelH = ofGetHeight() * 0.75f;
 	float panelY = ofGetHeight() * 0.125f;
 	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
 
-	ofSetColor(25, 25, 30, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
+	ofSetColor(25, 25, 32, 250);
+	ofFill();
+	ofDrawRectRounded(panelRect, 16.0f * uiScale);
 
 	ofNoFill();
-	ofSetLineWidth(2.0f);
-	ofSetColor(80, 80, 90, 255);
-	ofDrawRectRounded(panelRect, 16.0f);
+	ofSetLineWidth(3.0f * uiScale);
+	ofSetColor(80, 80, 100, 255);
+	ofDrawRectRounded(panelRect, 16.0f * uiScale);
 	ofFill();
 
-	ofSetColor(ofColor::white);
-	std::string title = "PAUSED";
-	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	SafeDrawText(titleFont, title, centerX - titleBox.getWidth() / 2.0f, panelY + 60.0f * uiScale);
+	// Title
+	drawPixelTextCentered(titleFont, "PAUSED", centerX, panelY + 50.0f * uiScale, 1.3f * uiScale, ofColor::gold, 2, ofColor::black);
 
-	auto drawBtn = [&](const ofRectangle & r, const std::string & txt, int index) {
-		if (r.width <= 0 || r.height <= 0) return;
-		if (pauseMenuHoveredIndex == index || r.inside(ofGetMouseX(), ofGetMouseY())) {
-			ofSetColor(ofColor::lightGray);
-			g_hoveredButtonId = "pm_" + txt;
-		} else {
-			ofSetColor(ofColor::white);
-		}
-		ofDrawRectRounded(r, 12.0f);
+	// Dynamically compute and assign button positions every frame
+	float btnW = 360.0f * uiScale;
+	float btnH = 56.0f * uiScale;
+	float btnGap = 16.0f * uiScale;
+	float startY = panelY + 100.0f * uiScale;
+	float btnX = centerX - btnW / 2.0f;
 
-		ofSetColor(ofColor::black);
+	auto drawBtn = [&](ofRectangle & r, float yPos, const std::string & txt, int index, ofColor overrideColor = ofColor()) {
+		r.set(btnX, yPos, btnW, btnH);
+		bool isHovered = (pauseMenuHoveredIndex == index || r.inside(ofGetMouseX(), ofGetMouseY()));
+		if (isHovered) g_hoveredButtonId = "pm_" + txt;
+
+		ofColor bgCol = (overrideColor != ofColor()) ? overrideColor : (isHovered ? ofColor(60, 65, 80) : ofColor(35, 38, 48));
+		ofSetColor(bgCol);
+		ofFill();
+		ofDrawRectRounded(r, 10.0f * uiScale);
+
 		ofNoFill();
-		ofSetLineWidth(2.0f);
-		ofDrawRectRounded(r, 12.0f);
+		ofSetLineWidth(2.0f * uiScale);
+		ofSetColor(isHovered ? ofColor(255, 215, 0) : ofColor(100, 100, 120));
+		ofDrawRectRounded(r, 10.0f * uiScale);
 		ofFill();
 
-		ofSetColor(ofColor::black);
-		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
-		SafeDrawText(uiFont, txt, r.getCenter().x - tb.getWidth() / 2.0f, r.getCenter().y + tb.getHeight() / 2.0f);
+		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
 	};
 
+	float curY = startY;
+	drawBtn(pauseMenuResumeButton, curY, "Resume", 0);
+	curY += btnH + btnGap;
+
 	if (!isMultiplayer) {
-		drawBtn(pauseMenuResumeButton, "Resume", 0);
-		drawBtn(pauseMenuSaveButton, "Save Game", 1);
-		drawBtn(pauseMenuLoadButton, "Load Game", 2);
-		drawBtn(pauseMenuSettingsButton, "Settings", 3);
-		drawBtn(pauseMenuQuitButton, "Quit to Menu", 4);
+		drawBtn(pauseMenuSaveButton, curY, "Save Game", 1);
+		curY += btnH + btnGap;
+		drawBtn(pauseMenuLoadButton, curY, "Load Game", 2);
+		curY += btnH + btnGap;
+		drawBtn(pauseMenuSettingsButton, curY, "Settings", 3);
+		curY += btnH + btnGap;
+		drawBtn(pauseMenuQuitButton, curY, "Quit to Menu", 4);
 	} else {
-		drawBtn(pauseMenuResumeButton, "Resume", 0);
-
-		// --- DRAW SYSTEM UI ---
+		// Multiplayer Draw System
 		if (g_isGameOver) {
-			// Greyed out and disabled if the match is already over
-			ofSetColor(80, 80, 90, 255);
-			ofDrawRectRounded(g_pauseMenuDrawButton, 12.0f);
-			ofSetColor(50, 50, 60, 255);
-			ofNoFill();
-			ofSetLineWidth(2.0f);
-			ofDrawRectRounded(g_pauseMenuDrawButton, 12.0f);
-			ofFill();
-			ofSetColor(150, 150, 150, 255);
-			ofRectangle tb = uiFont.getStringBoundingBox("Request Draw", 0, 0);
-			SafeDrawText(uiFont, "Request Draw", g_pauseMenuDrawButton.getCenter().x - tb.getWidth() / 2.0f, g_pauseMenuDrawButton.getCenter().y + tb.getHeight() / 2.0f);
+			drawBtn(g_pauseMenuDrawButton, curY, "Request Draw", 5, ofColor(50, 50, 60));
 		} else if (g_drawOfferPlayerID == -1) {
-			drawBtn(g_pauseMenuDrawButton, "Request Draw", 5);
+			drawBtn(g_pauseMenuDrawButton, curY, "Request Draw", 5);
 		} else if (g_drawOfferPlayerID == myLocalPlayerID) {
-			drawBtn(g_pauseMenuDrawButton, "Cancel", 5);
-			ofSetColor(200);
-			drawPixelTextCentered(uiFont, "Awaiting answer...", g_pauseMenuDrawButton.getCenter().x, g_pauseMenuDrawButton.y - 10, 0.7f, ofColor::white);
+			drawBtn(g_pauseMenuDrawButton, curY, "Cancel Draw Offer", 5, ofColor(70, 50, 50));
 		} else {
-			// Opponent offered, draw the Accept/Decline UI
-			ofSetColor(200);
-			drawPixelTextCentered(uiFont, "Accept Draw?", g_pauseMenuDrawButton.getCenter().x, g_pauseMenuDrawButton.y - 10, 0.7f, ofColor::white);
+			float halfW = (btnW - btnGap) * 0.5f;
+			g_pauseMenuDrawYesButton.set(btnX, curY, halfW, btnH);
+			g_pauseMenuDrawNoButton.set(btnX + halfW + btnGap, curY, halfW, btnH);
 
-			if (g_pauseMenuDrawYesButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "pm_draw_yes";
-			ofSetColor(pauseMenuHoveredIndex == 6 || g_pauseMenuDrawYesButton.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(100, 255, 100) : ofColor(50, 200, 50));
-			ofDrawRectRounded(g_pauseMenuDrawYesButton, 12.0f);
-			drawPixelTextCentered(uiFont, "Yes", g_pauseMenuDrawYesButton.getCenter().x, g_pauseMenuDrawYesButton.getCenter().y, 1.0f, ofColor::black);
+			bool yesHover = (pauseMenuHoveredIndex == 6 || g_pauseMenuDrawYesButton.inside(ofGetMouseX(), ofGetMouseY()));
+			bool noHover = (pauseMenuHoveredIndex == 7 || g_pauseMenuDrawNoButton.inside(ofGetMouseX(), ofGetMouseY()));
 
-			if (g_pauseMenuDrawNoButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "pm_draw_no";
-			ofSetColor(pauseMenuHoveredIndex == 7 || g_pauseMenuDrawNoButton.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(255, 100, 100) : ofColor(200, 50, 50));
-			ofDrawRectRounded(g_pauseMenuDrawNoButton, 12.0f);
-			drawPixelTextCentered(uiFont, "No", g_pauseMenuDrawNoButton.getCenter().x, g_pauseMenuDrawNoButton.getCenter().y, 1.0f, ofColor::black);
+			ofSetColor(yesHover ? ofColor(50, 180, 50) : ofColor(35, 120, 35));
+			ofFill();
+			ofDrawRectRounded(g_pauseMenuDrawYesButton, 10.0f * uiScale);
+			drawPixelTextCentered(uiFont, "Accept Draw", g_pauseMenuDrawYesButton.getCenter().x, g_pauseMenuDrawYesButton.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
+
+			ofSetColor(noHover ? ofColor(180, 50, 50) : ofColor(120, 35, 35));
+			ofFill();
+			ofDrawRectRounded(g_pauseMenuDrawNoButton, 10.0f * uiScale);
+			drawPixelTextCentered(uiFont, "Decline", g_pauseMenuDrawNoButton.getCenter().x, g_pauseMenuDrawNoButton.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
 		}
+		curY += btnH + btnGap;
 
-		drawBtn(pauseMenuSettingsButton, "Settings", 1);
-		drawBtn(pauseMenuQuitButton, "Disconnect", 2);
+		drawBtn(pauseMenuSettingsButton, curY, "Settings", 1);
+		curY += btnH + btnGap;
+		drawBtn(pauseMenuQuitButton, curY, "Disconnect", 2);
 	}
 
 	safePopStyle();
