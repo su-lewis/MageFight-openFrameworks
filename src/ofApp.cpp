@@ -18428,12 +18428,9 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		}
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+	// Block dragging cards from hand if any modal menu or status prompt is active
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || opponentInteraction.open) {
 		return;
-	}
-
-	if (opponentInteraction.open) {
-		return; // Lock dragging while opponent is deciding
 	}
 	// If we are actively dragging a card, change to the closed fist
 	if (draggedCardIndex != -1) {
