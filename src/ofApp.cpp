@@ -5309,6 +5309,18 @@ void ofApp::updateStateMachine() {
 			// Auto-quit after 10 seconds of being in the desync screen
 			if (ofGetElapsedTimef() - g_desyncStartTime >= 10.0f) {
 				if (isMultiplayer) {
+					if (SteamUser()) {
+						if (g_localAuthTicket != k_HAuthTicketInvalid) {
+							SteamUser()->CancelAuthTicket(g_localAuthTicket);
+							g_localAuthTicket = k_HAuthTicketInvalid;
+						}
+						if (g_activeAuthPeerSteamID.IsValid()) {
+							SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+							g_activeAuthPeerSteamID.Clear();
+						}
+					}
+					g_peerAuthValidated = false;
+
 					steamManager.leaveLobby();
 					isMultiplayer = false;
 					hasReceivedHandshake = false;
