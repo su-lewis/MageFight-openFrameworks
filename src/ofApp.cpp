@@ -41295,26 +41295,124 @@ float ofApp::getEnemyThreatScore(int enemyPlayerIdx) {
 	return threat;
 }
 
-// Helper 3: Find best key target (Gold > Silver > Bronze + shortest path)
+// Helper 3: Find best key target with 1d6 AP dice race probabilities and wall-break awareness
 glm::ivec2 ofApp::getBestKeyTarget(const Player & actor) {
 	if (floatingKeyInstances.empty()) return glm::ivec2(-1, -1);
 
 	glm::ivec2 bestKeyPos(-1, -1);
 	float bestKeyScore = -9999.0f;
+	int actorIdx = findPlayerIndexByID(actor.playerID);
+	int actorOwner = actor.isMinion ? actor.ownerID : actor.playerID;
+	int enemyOwner = (actorOwner == 1) ? 0 : 1;
+
+	// Check if we can break or bypass walls for the center Class 3 key
+	bool canBypassCenterWall = actor.inGhostForm;
+	auto checkWallBreakerCards = [](const std::vector<Card> & list) {
+		for (const auto & c : list) {
+			if (c.type == CARD_ROCK_CRUSH || c.type == CARD_DEMOLITION || c.type == CARD_TRANSFORM_WALL || c.type == CARD_FORM_OF_GHOST || c.type == CARD_TELEPORT) {
+				return true;
+			}
+		}
+		return false;
+	};
+	if (!canBypassCenterWall) {
+		canBypassCenterWall = checkWallBreakerCards(actor.deck) || checkWallBreakerCards(actor.hand) || checkWallBreakerCards(actor.discardPile);
+	}
+
+	// Helper to calculate expected AP per turn based on unit species, buffs, and luck
+	auto getExpectedAPPerTurn = [&](const Player & p, int pIdx) -> float {
+		float baseAP = 3.5f; // Standard 1d6 roll average
+		if (p.isDemon)
+			baseAP = 10.0f; // 4d4
+		else if (p.isHellhound)
+			baseAP = 7.0f; // 2d6
+		else if (p.isWolf)
+			baseAP = 5.5f; // 1d10
+		else if (p.isKobold || (p.isWallUnit && !p.isMagicWallUnit))
+			baseAP = 2.5f; // 1d4
+		else if (p.isAssistant)
+			baseAP = 1.5f; // Coinflip (1 or 2)
+		else if (p.nextTurnD10AP)
+			baseAP = 5.5f;
+
+		int luck = p.luck + computePassiveLuck(pIdx);
+		baseAP += (float)luck;
+
+		if (p.nextTurnAPBonus > 0) baseAP += (float)p.nextTurnAPBonus;
+		return std::max(1.0f, baseAP);
+	};
+
+	float myExpectedAP = getExpectedAPPerTurn(actor, actorIdx);
 
 	for (const auto & k : floatingKeyInstances) {
-		float keyVal = 100.0f; // Bronze (Set 3)
-		if (k.set == 2) keyVal = 250.0f; // Silver (Set 2)
-		if (k.set == 1) keyVal = 500.0f; // Gold / Class 3 (Set 1)
+		// 1. Center Class 3 key check: if surrounded by walls and cannot bypass/break, skip it
+		if (k.pos.x == 6 && k.pos.y == 4) {
+			bool centerEnclosed = board[6][3].hasWall && board[6][5].hasWall && board[5][4].hasWall && board[7][4].hasWall;
+			if (centerEnclosed && !canBypassCenterWall) {
+				continue;
+			}
+		}
 
-		// Center key bonus
-		if (k.pos.x == 6 && k.pos.y == 4) keyVal += 50.0f;
+		float keyBaseValue = 100.0f; // Bronze (Class 1)
+		if (k.set == 2) keyBaseValue = 260.0f; // Silver (Class 2)
+		if (k.set == 1) keyBaseValue = 520.0f; // Gold (Class 3)
 
-		std::vector<glm::vec2> path = findShortestPathForPlayer(findPlayerIndexByID(actor.playerID),
+		// 2. Compute distance and estimated turns for the AI actor
+		std::vector<glm::vec2> myPath = findShortestPathForPlayer(actorIdx,
 			{ (float)actor.x, (float)actor.y },
 			{ (float)k.pos.x, (float)k.pos.y });
-		int dist = (path.size() > 1) ? (int)path.size() - 1 : 999;
-		float score = keyVal - (dist * 15.0f);
+		int myDist = (myPath.size() > 1) ? (int)myPath.size() - 1 : (actor.inGhostForm ? (abs(actor.x - k.pos.x) + abs(actor.y - k.pos.y)) : 999);
+
+		if (myDist >= 999) continue; // Unreachable
+
+		// Estimated turns for AI to reach key
+		float myTurnsToReach = 0.0f;
+		if (myDist > currentAP) {
+			float remainingDist = (float)(myDist - currentAP);
+			myTurnsToReach = 1.0f + (remainingDist / myExpectedAP);
+		}
+
+		// 3. Find closest enemy and compute their expected turns to reach the key
+		float closestEnemyTurns = 999.0f;
+		int closestEnemyDist = 999;
+		for (size_t i = 0; i < players.size(); ++i) {
+			int pOwner = players[i].isMinion ? players[i].ownerID : players[i].playerID;
+			if (pOwner == enemyOwner && players[i].health > 0) {
+				std::vector<glm::vec2> enemyPath = findShortestPathForPlayer((int)i,
+					{ (float)players[i].x, (float)players[i].y },
+					{ (float)k.pos.x, (float)k.pos.y });
+				int eDist = (enemyPath.size() > 1) ? (int)enemyPath.size() - 1 : (abs(players[i].x - k.pos.x) + abs(players[i].y - k.pos.y));
+
+				if (eDist < closestEnemyDist) {
+					closestEnemyDist = eDist;
+					float eExpectedAP = getExpectedAPPerTurn(players[i], (int)i);
+					closestEnemyTurns = (float)eDist / eExpectedAP;
+				}
+			}
+		}
+
+		// 4. Calculate Win Probability of the Key Race (accounting for AP variance from 1d6 rolls)
+		float probIWinRace = 1.0f;
+		if (myDist <= currentAP) {
+			// Can collect on this exact turn with 100% certainty!
+			probIWinRace = 1.0f;
+		} else {
+			// Sigmoid turn difference: turnDiff > 0 means enemy arrives earlier
+			float turnDiff = myTurnsToReach - closestEnemyTurns;
+			// 1 turn gap has ~±2.5 AP roll variance with 1d6
+			probIWinRace = 1.0f / (1.0f + std::exp(1.5f * turnDiff));
+			probIWinRace = std::clamp(probIWinRace, 0.02f, 0.98f);
+		}
+
+		// 5. Home side preference bonus
+		float homeSideBonus = 0.0f;
+		if (actorOwner == 1 && k.pos.x >= 6) homeSideBonus = 40.0f; // Player 2 home half
+		if (actorOwner == 0 && k.pos.x <= 6) homeSideBonus = 40.0f; // Player 1 home half
+
+		// 6. Expected Value Calculation:
+		// High probability of losing Class 3 key reduces its expected value below a guaranteed Class 2 or Class 1 key!
+		float expectedKeyValue = (keyBaseValue * probIWinRace) - (150.0f * (1.0f - probIWinRace));
+		float score = expectedKeyValue + homeSideBonus - (myDist * 16.0f);
 
 		if (score > bestKeyScore) {
 			bestKeyScore = score;
@@ -41490,10 +41588,35 @@ void ofApp::thinkRuleBasedAI() {
 
 		if (opponentInteraction.type == 10) { // Amnesia
 			if (!amnesiaDeckCopy.empty() && numCardsToRemove > 0) {
-				std::vector<int> randomSelections;
-				for (int i = 0; i < std::min((int)amnesiaDeckCopy.size(), numCardsToRemove); ++i) {
-					randomSelections.push_back(i); // AI just burns top cards
+				struct ScoredAmnesiaCard {
+					int index;
+					float priority;
+				};
+				std::vector<ScoredAmnesiaCard> cardsToPick;
+
+				for (int i = 0; i < (int)amnesiaDeckCopy.size(); ++i) {
+					const Card & c = amnesiaDeckCopy[i];
+					float p = 1.0f;
+
+					// Target high-impact and Class 3 threats
+					if (c.cardClass == 3) p += 60.0f;
+					if (c.type == CARD_SUMMON_HELLHOUND || c.type == CARD_FORM_OF_TORTOISE || c.type == CARD_MASTER_FIST) p += 120.0f;
+					if (c.type == CARD_FIREBALL || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_HASTEN) p += 50.0f;
+					if (c.damageType == DAMAGE_FIRE || c.damageType == DAMAGE_HOLY) p += 30.0f;
+					if (c.baseDamage >= 5 || c.damageDiceNum >= 2) p += 25.0f;
+
+					cardsToPick.push_back({ i, p });
 				}
+
+				std::sort(cardsToPick.begin(), cardsToPick.end(), [](const ScoredAmnesiaCard & a, const ScoredAmnesiaCard & b) {
+					return a.priority > b.priority;
+				});
+
+				std::vector<int> selections;
+				for (int i = 0; i < std::min((int)cardsToPick.size(), numCardsToRemove); ++i) {
+					selections.push_back(cardsToPick[i].index);
+				}
+
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = activeID;
@@ -41505,7 +41628,7 @@ void ofApp::thinkRuleBasedAI() {
 				cmd.params[3] = opponentInteraction.cardIndex;
 
 				uint32_t maskLow = 0, maskHigh = 0;
-				for (int idx : randomSelections) {
+				for (int idx : selections) {
 					if (idx < 32)
 						maskLow |= (1U << idx);
 					else if (idx < 64)
@@ -41543,6 +41666,8 @@ void ofApp::thinkRuleBasedAI() {
 
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		int choice = 1;
+
+		// 1. BURST OF LIGHT: Heal self/boss if wounded, otherwise deal 3 Holy Damage
 		if (interactingCardType == CARD_BURST_OF_LIGHT) {
 			Player * boss = nullptr;
 			for (auto & p : players) {
@@ -41555,24 +41680,91 @@ void ofApp::thinkRuleBasedAI() {
 				choice = 2; // Heal
 			else
 				choice = 1; // Damage
-		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
+		}
+		// 2. DOUBLE HANDED: Give self x2 Punch (1) or clog enemy deck with x2 Hand Block (2)
+		else if (interactingCardType == CARD_DOUBLE_HANDED) {
 			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
 				int targetOwner = players[interactionTargetIndex].isMinion ? players[interactionTargetIndex].ownerID : players[interactionTargetIndex].playerID;
-				choice = (targetOwner == enemyID) ? 2 : 1; // Give enemy Hand Blocks!
+				choice = (targetOwner == enemyID) ? 2 : 1;
 			}
-		} else if (interactingCardType == CARD_DISPEL) {
-			choice = 1;
-		} else if (interactingCardType == CARD_TRAIN) {
-			choice = 1;
-		} else if (interactingCardType == CARD_MAGIC_BLAST) {
-			choice = (me.deck.empty()) ? 1 : 2; // AI takes damage if deck empty, else discards
-		} else if (interactingCardType == CARD_AMNESIA) {
-			choice = 1; // Self path, usually already handled
-		} else if (interactingCardType == CARD_WISDOM_BOON) {
-			if (interactionTargetIndex == currentPlayerIndex)
-				choice = 2; // Block if targeting self
+		}
+		// 3. DISPEL: If debuffed, choose Purge (2). If opponent has non-physical cards or we need shields, choose Barrier (1)
+		else if (interactingCardType == CARD_DISPEL) {
+			bool isDebuffed = me.onFire || me.isPoisoned || me.isParalyzed || me.sleepTurnsRemaining > 0;
+			if (isDebuffed) {
+				choice = 2; // Purge
+			} else {
+				choice = 1; // Roll 1d20 Barrier (absorbs Non-Physical)
+			}
+		}
+		// 4. TRAIN: Draft Class 1 (2) if early game / low cards, otherwise +3 AP Next Turn (1)
+		else if (interactingCardType == CARD_TRAIN) {
+			if (me.deck.size() <= 4 || globalTurnCounter <= 2)
+				choice = 2; // Draft
 			else
-				choice = 1; // Damage if targeting enemy
+				choice = 1; // +3 AP Next Turn
+		}
+		// 5. MAGIC BLAST: Discard top card (2) unless deck is empty, then take damage (1)
+		else if (interactingCardType == CARD_MAGIC_BLAST) {
+			choice = (me.deck.empty()) ? 1 : 2;
+		}
+		// 6. GIANT MAGIC HAND: Push (1) if enemy is behind wall to crush them; Pull (2) to open choke points
+		else if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
+			glm::ivec2 wallPos = magicHandTargetTile;
+			glm::ivec2 dir = wallPos - glm::ivec2(me.x, me.y);
+			glm::ivec2 behindWall = wallPos + dir;
+			bool enemyBehind = false;
+			for (const auto & p : players) {
+				if (p.x == behindWall.x && p.y == behindWall.y && (p.isMinion ? p.ownerID : p.playerID) == enemyID) {
+					enemyBehind = true;
+					break;
+				}
+			}
+			choice = enemyBehind ? 1 : 2;
+		}
+		// 7. WISDOM BOON: Damage enemy (1) or Gain Block (2)
+		else if (interactingCardType == CARD_WISDOM_BOON) {
+			if (interactionTargetIndex == currentPlayerIndex || me.inTortoiseForm)
+				choice = 2; // Block
+			else
+				choice = 1; // Damage
+		}
+		// 8. RENEWED INSPIRATION: Select dead cards in hand and submit
+		else if (interactingCardType == CARD_RENEWED_INSPIRATION) {
+			std::vector<int> discardIndices;
+			for (int i = 0; i < (int)me.hand.size(); ++i) {
+				if (i == interactingCardIndex) continue;
+				const Card & c = me.hand[i];
+				if (c.type == CARD_HAND_BLOCK || getEffectiveCardCostForPlayer(me, c) > 6) {
+					discardIndices.push_back(i);
+				}
+			}
+			if (discardIndices.empty()) {
+				for (int i = 0; i < (int)me.hand.size() && discardIndices.size() < 2; ++i) {
+					if (i != interactingCardIndex) discardIndices.push_back(i);
+				}
+			}
+
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_RENEWED_INSPIRATION;
+			cmd.params[0] = currentPlayerIndex;
+			cmd.params[1] = (int)discardIndices.size();
+			cmd.params[2] = interactingCardIndex;
+
+			uint32_t maskLow = 0, maskHigh = 0;
+			for (int idx : discardIndices) {
+				if (idx < 32)
+					maskLow |= (1U << idx);
+				else if (idx < 64)
+					maskHigh |= (1U << (idx - 32));
+			}
+			cmd.params[4] = (int)maskLow;
+			cmd.params[5] = (int)maskHigh;
+			sendInputCommand(cmd, true);
+			return;
 		}
 
 		InputCommandPacket cmd = {};
@@ -41584,6 +41776,10 @@ void ofApp::thinkRuleBasedAI() {
 		cmd.params[1] = interactionTargetIndex != -1 ? interactionTargetIndex : currentPlayerIndex;
 		cmd.params[2] = choice;
 		cmd.params[3] = interactingCardIndex;
+		if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
+			cmd.params[4] = magicHandTargetTile.x;
+			cmd.params[5] = magicHandTargetTile.y;
+		}
 		sendInputCommand(cmd, true);
 		return;
 	}
@@ -41773,6 +41969,47 @@ void ofApp::thinkRuleBasedAI() {
 		float score;
 	};
 	std::vector<ScoredAction> candidates;
+
+	// --- 4-PRE. MOVE-THEN-ATTACK OPPORTUNITIES ---
+	if (currentAP >= 2 && !me.hand.empty()) {
+		int actorIdx = aiFocusIndex;
+		int actorOwner = me.isMinion ? me.ownerID : me.playerID;
+		int enemyOwner = (actorOwner == 1) ? 0 : 1;
+
+		for (int ci = 0; ci < (int)me.hand.size(); ++ci) {
+			const Card & card = me.hand[ci];
+			int cardCost = getEffectiveCardCostForPlayer(me, card);
+			int maxMoveAP = currentAP - cardCost;
+			if (maxMoveAP < 1) continue;
+
+			if (card.baseDamage <= 0 && card.damageDiceNum <= 0 && card.type != CARD_DEATH && card.type != CARD_DRAIN_PUNCH) continue;
+
+			for (size_t ei = 0; ei < players.size(); ++ei) {
+				const Player & enemy = players[ei];
+				int pOwner = enemy.isMinion ? enemy.ownerID : enemy.playerID;
+				if (pOwner != enemyOwner || enemy.health <= 0) continue;
+
+				int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+				for (auto & d : dirs) {
+					int destX = enemy.x + d[0];
+					int destY = enemy.y + d[1];
+					if (destX < 0 || destX >= BOARD_WIDTH || destY < 0 || destY >= BOARD_HEIGHT) continue;
+					if (board[destX][destY].hasWall || board[destX][destY].hasPlayer) continue;
+
+					auto path = findShortestPathForPlayer(actorIdx, { (float)me.x, (float)me.y }, { (float)destX, (float)destY });
+					int pathDist = (path.size() > 1) ? (int)path.size() - 1 : 999;
+
+					if (pathDist <= maxMoveAP && path.size() > 1) {
+						int estimatedDmg = getCardEstimatedDamage(card, me, enemy);
+						float score = 550.0f + (estimatedDmg * 25.0f) - (pathDist * 8.0f);
+						if (estimatedDmg >= enemy.health) score += 1200.0f;
+
+						candidates.push_back({ ScoredAction::MOVE, -1, (int)path[1].x, (int)path[1].y, score });
+					}
+				}
+			}
+		}
+	}
 
 	// --- 4A. COMBOS & SYNERGIES ---
 	int addPoisonIdx = -1;
@@ -42040,16 +42277,37 @@ void ofApp::thinkRuleBasedAI() {
 							dmg = getCardEstimatedDamage(card, me, targetE);
 
 						if (card.type == CARD_DEATH && targetE.health <= 10) dmg = 99; // Highly likely to execute
-						if (card.type == CARD_KICK && me.freeKickTurns > 0) score += 500.0f; // FREE AP!
 
 						float baseAtkScore = isCombatMinion ? 450.0f : 280.0f;
 						score += baseAtkScore + (dmg * 20.0f);
+
+						// Free Kick (Sprint active): Top priority since it costs 0 AP
+						if (card.type == CARD_KICK && me.freeKickTurns > 0) {
+							score += 2500.0f;
+						}
 
 						if (dmg >= targetE.health) score += 1000.0f; // 1-HIT KO!
 						if (targetE.inTortoiseForm && dmg > 0) score += 320.0f;
 						if (targetE.inGhostForm && card.damageType != DAMAGE_PHYSICAL && card.damageType != DAMAGE_PIERCING) score += 350.0f;
 						if (card.damageType == DAMAGE_HOLY && (targetE.isDemon || targetE.isHellhound || targetE.isSkeleton || targetE.inGhostForm)) score += 700.0f;
-						if (card.isAoe || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_LINEAR_PIERCE) score += 150.0f;
+
+						// Smart AOE Splash: Reward multi-enemy hits, penalize friendly fire
+						if (card.isAoe || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT) {
+							int enemiesCaught = 0;
+							int alliesCaught = 0;
+							for (const auto & otherP : players) {
+								if (otherP.health <= 0 || board[otherP.x][otherP.y].hasWall) continue;
+								if (abs(otherP.x - x) <= 1 && abs(otherP.y - y) <= 1) {
+									int pOwner = otherP.isMinion ? otherP.ownerID : otherP.playerID;
+									if (pOwner == enemyID)
+										enemiesCaught++;
+									else if (pOwner == activeID)
+										alliesCaught++;
+								}
+							}
+							score += (enemiesCaught * 200.0f);
+							score -= (alliesCaught * 450.0f);
+						}
 					} else if (card.type == CARD_ROCK_CRUSH && board[x][y].hasWall) {
 						// Center key breaker
 						if (x == 6 && y == 4 && !floatingKeyInstances.empty() && floatingKeyInstances[0].pos.x == 6 && floatingKeyInstances[0].pos.y == 4)
@@ -42104,42 +42362,88 @@ void ofApp::thinkRuleBasedAI() {
 					int distToEnemy = abs(nx - enemyTargetX) + abs(ny - enemyTargetY);
 					int currentDistToEnemy = abs(me.x - enemyTargetX) + abs(me.y - enemyTargetY);
 
+					// 1. UNCONDITIONAL KEY STEP BONUS: If this tile has a key, collecting it is top priority!
+					for (const auto & k : floatingKeyInstances) {
+						if (k.pos.x == nx && k.pos.y == ny) {
+							float keyBonus = 3000.0f;
+							if (k.set == 1)
+								keyBonus = 4000.0f; // Gold (Class 3)
+							else if (k.set == 2)
+								keyBonus = 3500.0f; // Silver (Class 2)
+							moveScore += keyBonus;
+							break;
+						}
+					}
+
+					// 2. ANTI-OSCILLATION: Strongly penalize stepping back to the tile we just left this turn
+					if (aiLastMovedFromTile.x == nx && aiLastMovedFromTile.y == ny) {
+						moveScore -= 1500.0f;
+					}
+
 					if (me.isMinion) {
 						if (isSupportMinion && mainPlayer) {
 							int distToBoss = abs(nx - mainPlayer->x) + abs(ny - mainPlayer->y);
-							if (distToBoss == 1)
-								moveScore += 500.0f; // Wants to be exactly adjacent
-							else if (distToBoss == 2)
-								moveScore += 300.0f;
+							if (distToBoss == 1) {
+								moveScore += 800.0f; // Stay adjacent to summoner for luck and revives
+							} else if (distToBoss == 2) {
+								moveScore += 400.0f;
+							} else {
+								moveScore -= (distToBoss * 25.0f);
+							}
+							if (distToEnemy <= 1) moveScore -= 200.0f; // Avoid melee combat
 						} else if (isCombatMinion) {
 							if (distToEnemy < currentDistToEnemy) moveScore += 400.0f; // Chase
 						}
 					} else {
 						// MAIN PLAYER MOVEMENT
-						bool hasGoodCards = false;
-						for (const auto & c : me.hand) {
-							if (currentAP >= c.cost && (c.baseDamage >= 5 || c.damageDiceNum >= 2 || c.type == CARD_CHAIN_LIGHTNING || c.type == CARD_MAGIC_BOLT)) {
-								hasGoodCards = true;
-								break;
-							}
+						bool oppHasMasterFist = false;
+						bool oppHasMelee = false;
+						bool oppHasNonPhysicalSpells = false;
+
+						if (oppPlayerIdx >= 0 && oppPlayerIdx < (int)players.size()) {
+							const Player & opp = players[oppPlayerIdx];
+							auto checkList = [&](const std::vector<Card> & list) {
+								for (const auto & c : list) {
+									if (c.type == CARD_MASTER_FIST) oppHasMasterFist = true;
+									if (c.type == CARD_BASH || c.type == CARD_DRAIN_PUNCH || c.type == CARD_PUNCH || c.type == CARD_FLURRY_OF_FISTS) oppHasMelee = true;
+									if (c.damageType == DAMAGE_FIRE || c.damageType == DAMAGE_MAGIC || c.damageType == DAMAGE_ELECTRIC) oppHasNonPhysicalSpells = true;
+								}
+							};
+							checkList(opp.deck);
+							checkList(opp.hand);
+							checkList(opp.discardPile);
 						}
 
-						if (me.health < 10 && !hasGoodCards) {
-							// FLEE
-							if (distToEnemy > currentDistToEnemy) moveScore += 600.0f;
-						} else if (!hasGoodCards && hasKeysToCollect) {
-							// KEYS: Massive priority so player uses up AP stepping towards key before summoning an Assistant
+						int totalDefense = me.block + me.fortification + me.ward + me.barrier + me.holyBlock;
+
+						// 1. MASTER FIST & LETHAL MELEE KITING:
+						// If opponent has Master Fist or lethal melee, breaking melee distance is #1 priority!
+						if ((oppHasMasterFist || oppHasMelee) && currentDistToEnemy <= 2) {
+							if (distToEnemy > currentDistToEnemy) {
+								moveScore += oppHasMasterFist ? 1400.0f : 850.0f; // Maximum priority to avoid Master Fist range
+							}
+						}
+						// 2. KEY RACING:
+						else if (hasKeysToCollect) {
 							glm::ivec2 targetKey = getBestKeyTarget(me);
 							if (targetKey.x != -1) {
 								auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)nx, (float)ny }, { (float)targetKey.x, (float)targetKey.y });
-								int distToKey = path.size();
-								moveScore += 800.0f - (distToKey * 10.0f);
+								int distToKey = (path.size() > 1) ? (int)path.size() - 1 : 0;
+								moveScore += 850.0f - (distToKey * 20.0f);
 							}
-						} else {
-							// CHASE
-							if (distToEnemy < currentDistToEnemy && currentDistToEnemy > 2) moveScore += 200.0f;
-							// Retreat slightly if we are too close and have no melee
-							if (distToEnemy > currentDistToEnemy && currentDistToEnemy <= 2 && !hasGoodCards) moveScore += 300.0f;
+						}
+						// 3. LOW HP FLEEING:
+						else if (me.health < 10) {
+							if (distToEnemy > currentDistToEnemy) moveScore += 500.0f;
+						}
+						// 4. POSITIONING:
+						else {
+							// If opponent has ONLY ranged spells, stepping back does not prevent damage, so advance
+							if (oppHasNonPhysicalSpells && !oppHasMelee) {
+								if (distToEnemy < currentDistToEnemy) moveScore += 300.0f;
+							} else if (distToEnemy < currentDistToEnemy && currentDistToEnemy > 2) {
+								moveScore += 250.0f; // Approach
+							}
 						}
 					}
 
@@ -42152,6 +42456,26 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	// 5. EXECUTE HIGHEST SCORING ACTION OR END TURN
 	// =========================================================================
+
+	// Alpha-Strike Check: If opponent hero is low, prioritize direct lethal plays
+	if (oppPlayerIdx >= 0 && oppPlayerIdx < (int)players.size()) {
+		const Player & enemyHero = players[oppPlayerIdx];
+		int enemyEffectiveHP = enemyHero.health + enemyHero.block + enemyHero.fortification + enemyHero.ward + enemyHero.barrier;
+
+		int totalBurstInHand = 0;
+		for (const auto & c : me.hand) {
+			totalBurstInHand += getCardEstimatedDamage(c, me, enemyHero);
+		}
+
+		if (totalBurstInHand >= enemyEffectiveHP) {
+			for (auto & act : candidates) {
+				if (act.type == ScoredAction::PLAY && act.tx == enemyHero.x && act.ty == enemyHero.y) {
+					act.score += 3000.0f; // Prioritize finishing the enemy
+				}
+			}
+		}
+	}
+
 	if (!candidates.empty()) {
 		std::sort(candidates.begin(), candidates.end(), [](const ScoredAction & a, const ScoredAction & b) {
 			return a.score > b.score;
@@ -42175,6 +42499,7 @@ void ofApp::thinkRuleBasedAI() {
 			return;
 		} else if (best.type == ScoredAction::MOVE) {
 			aiLastAttemptedCardIdx = -1;
+			aiLastMovedFromTile = { me.x, me.y }; // Track origin tile to prevent ping-pong oscillation
 
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
@@ -42190,8 +42515,83 @@ void ofApp::thinkRuleBasedAI() {
 		}
 	}
 
+	// --- 6. SMART END-OF-TURN DEFENSE DUMP ---
+	// Cast affordable shields only when they counter the opponent's threats
+	if (currentAP > 0) {
+		bool oppHasNonPhysical = false;
+		bool oppHasPhysical = false;
+		if (oppPlayerIdx >= 0 && oppPlayerIdx < (int)players.size()) {
+			const Player & opp = players[oppPlayerIdx];
+			auto checkThreats = [&](const std::vector<Card> & list) {
+				for (const auto & c : list) {
+					if (c.damageType == DAMAGE_FIRE || c.damageType == DAMAGE_MAGIC || c.damageType == DAMAGE_ELECTRIC || c.damageType == DAMAGE_POISON || c.damageType == DAMAGE_HOLY) oppHasNonPhysical = true;
+					if (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING) oppHasPhysical = true;
+				}
+			};
+			checkThreats(opp.deck);
+			checkThreats(opp.hand);
+		}
+
+		for (int i = 0; i < (int)me.hand.size(); ++i) {
+			const Card & c = me.hand[i];
+			int cost = getEffectiveCardCostForPlayer(me, c);
+			if (cost <= currentAP && i != aiLastAttemptedCardIdx) {
+				bool shouldDump = false;
+
+				// In Tortoise Form, ALL defense is permanent, so always dump
+				if (me.inTortoiseForm && (c.blockAmount > 0 || c.barrierAmount > 0 || c.wardAmount > 0 || c.fortifyAmount > 0 || c.holyBlockAmount > 0 || c.type == CARD_DISPEL)) {
+					shouldDump = true;
+				}
+				// Dispel / Barrier: Highest priority if enemy has Non-Physical damage
+				else if ((c.type == CARD_DISPEL || c.barrierAmount > 0) && (oppHasNonPhysical || nearestEnemyDist <= 3)) {
+					shouldDump = true;
+				}
+				// Ward: Absorbs all damage, always high value
+				else if (c.wardAmount > 0) {
+					shouldDump = true;
+				}
+				// Hand Block / Physical Block: Only valuable if enemy has physical threats or is within melee range
+				else if ((c.blockAmount > 0 || c.fortifyAmount > 0 || c.holyBlockAmount > 0) && (oppHasPhysical || nearestEnemyDist <= 2)) {
+					shouldDump = true;
+				}
+
+				if (shouldDump) {
+					aiLastAttemptedCardIdx = i;
+					aiLastAP = currentAP;
+
+					// For Fortify, target an adjacent wall
+					int targetX = me.x;
+					int targetY = me.y;
+					if (c.type == CARD_FORTIFY) {
+						int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+						for (auto & d : dirs) {
+							int wx = me.x + d[0], wy = me.y + d[1];
+							if (wx >= 0 && wx < BOARD_WIDTH && wy >= 0 && wy < BOARD_HEIGHT && board[wx][wy].hasWall) {
+								targetX = wx;
+								targetY = wy;
+								break;
+							}
+						}
+					}
+
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = activeID;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PLAY_CARD;
+					cmd.params[0] = i;
+					cmd.params[1] = targetX;
+					cmd.params[2] = targetY;
+					sendInputCommand(cmd, true);
+					return;
+				}
+			}
+		}
+	}
+
 	// No profitable actions left -> End Turn
 	aiLastAttemptedCardIdx = -1;
+	aiLastMovedFromTile = { -1, -1 }; // Reset move origin at end of turn
 
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;

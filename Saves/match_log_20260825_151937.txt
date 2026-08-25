@@ -1,0 +1,69 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-08-25 15:19:37
+End Reason: Victory
+Seed: 2235633218
+Turns: 4
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[15:15:33] --- MATCH STARTED ---
+[15:15:57] Turn 0: Player 2's turn
+[15:15:57] Autosaved turn-start (autosave.json)
+[15:15:58] Player 2 moved to (12,1)
+[15:15:59] Turn 1: Player 1's turn
+[15:15:59] Autosaved turn-start (autosave.json)
+[15:16:02] Player 1 moved to (1,5)
+[15:16:06] Turn 1: Player 2's turn
+[15:16:06] Autosaved turn-start (autosave.json)
+[15:16:08] Player 2 played Hasten
+[15:16:08] Player 2 moved to (12,2)
+[15:16:09] Turn 2: Player 1's turn
+[15:16:09] Autosaved turn-start (autosave.json)
+[15:16:11] Player 1 moved to (4,4)
+[15:16:15] Player 1 moved to (4,5)
+[15:16:15] Turn 2: Player 2's turn
+[15:16:15] Autosaved turn-start (autosave.json)
+[15:16:18] Player 2 played Hasten
+[15:16:18] Player 2 moved to (12,3)
+[15:16:19] Player 2 moved to (11,3)
+[15:16:22] Player 2 moved to (10,3)
+[15:16:22] Player 2 moved to (9,3)
+[15:16:23] Player 2 moved to (8,3)
+[15:16:24] Player 2 moved to (9,3)
+[15:16:25] Player 2 moved to (8,3)
+[15:16:26] Player 2 moved to (9,3)
+[15:16:26] Player 2 moved to (8,3)
+[15:16:27] Turn 3: Player 1's turn
+[15:16:27] Autosaved turn-start (autosave.json)
+[15:17:58] Turn 3: Player 2's turn
+[15:17:58] Autosaved turn-start (autosave.json)
+[15:18:00] Player 2 moved to (9,3)
+[15:18:01] Player 2 moved to (8,3)
+[15:18:02] Player 2 moved to (9,3)
+[15:18:02] Player 2 moved to (8,3)
+[15:18:03] Player 2 moved to (9,3)
+[15:18:04] Player 2 moved to (8,3)
+[15:18:05] Player 2 moved to (9,3)
+[15:18:06] Player 2 moved to (8,3)
+[15:18:06] Turn 4: Player 1's turn
+[15:18:06] Autosaved turn-start (autosave.json)
+[15:19:37] Opponent win by forfeit (AFK for 2 consecutive turns). You lose.
+[15:19:37] Turn 4: Player 2's turn
+[15:19:37] Autosaved turn-start (autosave.json)
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 2
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
