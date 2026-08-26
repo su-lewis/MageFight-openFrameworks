@@ -1,0 +1,267 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-08-26 19:09:52
+End Reason: Victory
+Seed: 1267766116
+Turns: 19
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[19:02:48] --- MATCH STARTED ---
+[19:03:09] Turn 1: Player 1's turn
+[19:03:09] Autosaved turn-start (autosave.json)
+[19:03:15] Player 1 moved to (0,5)
+[19:03:16] Turn 1: Player 2's turn
+[19:03:16] Autosaved turn-start (autosave.json)
+[19:03:17] Player 2 moved to (12,1)
+[19:03:18] Player 2 moved to (12,2)
+[19:03:19] Turn 2: Player 1's turn
+[19:03:19] Autosaved turn-start (autosave.json)
+[19:03:24] Player 1 moved to (1,5)
+[19:03:28] Player 1 moved to (4,5)
+[19:03:29] Turn 2: Player 2's turn
+[19:03:29] Autosaved turn-start (autosave.json)
+[19:03:31] Player 2 moved to (12,3)
+[19:03:31] Player 2 moved to (12,4)
+[19:03:34] Player 2 played Summon Assistant
+[19:03:36] Player 2 moved to (12,5)
+[19:03:37] Player 2 moved to (11,5)
+[19:03:39] Player 2 moved to (10,5)
+[19:03:40] Player 2 moved to (9,5)
+[19:03:41] Player 2 moved to (8,5)
+[19:03:42] Player 2 moved to (8,4)
+[19:03:44] Player 2 moved to (8,3)
+[19:03:45] Turn 3: Player 1's turn
+[19:03:45] Autosaved turn-start (autosave.json)
+[19:03:49] Player 1 moved to (4,4)
+[19:04:11] Player 1 moved to (4,2)
+[19:04:12] Turn 3: Player 2's turn
+[19:04:12] Autosaved turn-start (autosave.json)
+[19:04:14] Player 2 moved to (11,3)
+[19:04:17] Player 2 moved to (10,3)
+[19:04:17] Turn 3: Player 2's turn
+[19:04:17] Autosaved turn-start (autosave.json)
+[19:04:19] Player 2 moved to (8,2)
+[19:04:20] Player 2 moved to (7,2)
+[19:04:21] Player 2 moved to (7,1)
+[19:04:22] Player 2 moved to (6,1)
+[19:04:24] Turn 4: Player 1's turn
+[19:04:24] Autosaved turn-start (autosave.json)
+[19:04:28] Player 1 moved to (5,2)
+[19:04:29] Turn 4: Player 2's turn
+[19:04:29] Autosaved turn-start (autosave.json)
+[19:04:31] Player 2 moved to (9,3)
+[19:04:31] Player 2 moved to (9,2)
+[19:04:32] Turn 4: Player 2's turn
+[19:04:32] Autosaved turn-start (autosave.json)
+[19:04:34] Player 2 moved to (6,0)
+[19:04:35] Player 2 moved to (7,0)
+[19:04:36] Player 2 moved to (8,0)
+[19:04:38] Player 2 moved to (9,0)
+[19:04:39] Player 2 moved to (10,0)
+[19:04:40] Player 2 moved to (11,0)
+[19:04:41] Turn 5: Player 1's turn
+[19:04:41] Autosaved turn-start (autosave.json)
+[19:04:53] Player 1 moved to (4,0)
+[19:04:57] Turn 5: Player 2's turn
+[19:04:57] Autosaved turn-start (autosave.json)
+[19:04:59] Player 2 moved to (11,1)
+[19:04:59] Player 2 moved to (11,2)
+[19:05:00] Player 2 moved to (11,3)
+[19:05:01] Player 2 moved to (12,3)
+[19:05:02] Player 2 moved to (12,4)
+[19:05:03] Player 2 moved to (12,5)
+[19:05:03] Turn 6: Player 1's turn
+[19:05:03] Autosaved turn-start (autosave.json)
+[19:05:06] Player 1 moved to (0,0)
+[19:05:11] Player 1 moved to (0,1)
+[19:05:11] Turn 6: Player 2's turn
+[19:05:11] Autosaved turn-start (autosave.json)
+[19:05:13] Player 2 moved to (12,6)
+[19:05:14] Player 2 moved to (12,7)
+[19:05:15] Player 2 moved to (12,8)
+[19:05:17] Turn 7: Player 1's turn
+[19:05:17] Autosaved turn-start (autosave.json)
+[19:05:23] Player 1 played Study
+[19:05:25] Turn 7: Player 2's turn
+[19:05:25] Autosaved turn-start (autosave.json)
+[19:05:27] Player 2 moved to (11,8)
+[19:05:28] Player 2 moved to (10,8)
+[19:05:29] Turn 8: Player 1's turn
+[19:05:29] Autosaved turn-start (autosave.json)
+[19:05:42] Player 1 played Summon Golem
+[19:05:43] Turn 8: Player 2's turn
+[19:05:43] Autosaved turn-start (autosave.json)
+[19:05:45] Player 2 played Summon Assistant
+[19:05:47] Player 2 moved to (11,8)
+[19:05:48] Player 2 moved to (11,7)
+[19:05:49] Player 2 moved to (11,6)
+[19:05:50] Player 2 moved to (11,5)
+[19:05:50] Player 2 moved to (10,5)
+[19:05:51] Player 2 moved to (9,5)
+[19:05:52] Player 2 moved to (9,6)
+[19:05:53] Turn 9: Player 1's turn
+[19:05:53] Autosaved turn-start (autosave.json)
+[19:05:56] Player 1 moved to (3,0)
+[19:05:57] Turn 9: Player 1's turn
+[19:05:57] Autosaved turn-start (autosave.json)
+[19:06:00] Player 1 moved to (0,4)
+[19:06:03] Player 1 moved to (1,3)
+[19:06:06] Turn 9: Player 2's turn
+[19:06:06] Autosaved turn-start (autosave.json)
+[19:06:08] Player 2 moved to (8,8)
+[19:06:10] Player 2 moved to (7,8)
+[19:06:11] Turn 9: Player 2's turn
+[19:06:11] Autosaved turn-start (autosave.json)
+[19:06:13] Player 2 played Summon Assistant
+[19:06:15] Player 2 moved to (8,6)
+[19:06:16] Player 2 moved to (7,6)
+[19:06:17] Turn 10: Player 1's turn
+[19:06:17] Autosaved turn-start (autosave.json)
+[19:06:21] Player 1 moved to (5,3)
+[19:06:22] Turn 10: Player 1's turn
+[19:06:22] Autosaved turn-start (autosave.json)
+[19:06:26] Player 1 moved to (3,3)
+[19:06:39] Player 1 moved to (5,5)
+[19:06:40] Turn 10: Player 2's turn
+[19:06:40] Autosaved turn-start (autosave.json)
+[19:06:42] Player 2 moved to (7,7)
+[19:06:43] Turn 10: Player 2's turn
+[19:06:43] Autosaved turn-start (autosave.json)
+[19:06:45] Player 2 moved to (9,6)
+[19:06:46] Player 2 moved to (8,6)
+[19:06:46] Turn 10: Player 2's turn
+[19:06:46] Autosaved turn-start (autosave.json)
+[19:06:48] Player 2 moved to (6,6)
+[19:06:49] Player 2 moved to (6,7)
+[19:06:52] Player 2 moved to (6,8)
+[19:06:53] Player 2 moved to (5,8)
+[19:06:53] Player 2 moved to (4,8)
+[19:06:56] Player 2 moved to (3,8)
+[19:06:57] Player 2 moved to (2,8)
+[19:06:58] Turn 11: Player 1's turn
+[19:06:58] Autosaved turn-start (autosave.json)
+[19:07:01] Player 1 moved to (8,4)
+[19:07:02] Turn 11: Player 1's turn
+[19:07:02] Autosaved turn-start (autosave.json)
+[19:07:05] Player 1 moved to (5,6)
+[19:07:06] Turn 11: Player 2's turn
+[19:07:06] Autosaved turn-start (autosave.json)
+[19:07:08] Player 2 played Hand Block
+[19:07:08] Turn 11: Player 2's turn
+[19:07:08] Autosaved turn-start (autosave.json)
+[19:07:10] Player 2 played Hand Block
+[19:07:11] Player 2 moved to (7,6)
+[19:07:12] Turn 11: Player 2's turn
+[19:07:12] Autosaved turn-start (autosave.json)
+[19:07:14] Player 2 moved to (3,8)
+[19:07:15] Turn 12: Player 1's turn
+[19:07:15] Autosaved turn-start (autosave.json)
+[19:07:19] Player 1 moved to (8,6)
+[19:07:21] Player 1 played Hand Block
+[19:07:21] Turn 12: Player 1's turn
+[19:07:21] Autosaved turn-start (autosave.json)
+[19:07:25] Player 1 played Hasten
+[19:07:29] Player 1 moved to (5,8)
+[19:07:29] Turn 12: Player 2's turn
+[19:07:29] Autosaved turn-start (autosave.json)
+[19:07:31] Player 2 played Hand Block
+[19:07:32] Turn 12: Player 2's turn
+[19:07:32] Autosaved turn-start (autosave.json)
+[19:07:34] Player 2 played Hand Block
+[19:07:35] Turn 12: Player 2's turn
+[19:07:35] Autosaved turn-start (autosave.json)
+[19:07:37] Player 2 moved to (4,8)
+[19:07:37] Player 2 played Smite
+[19:07:38] Player 2 moved to (3,8)
+[19:07:39] Turn 13: Player 1's turn
+[19:07:39] Autosaved turn-start (autosave.json)
+[19:07:46] Player 1 played Bash
+[19:07:48] Player 1 moved to (7,6)
+[19:07:49] Turn 13: Player 1's turn
+[19:07:49] Autosaved turn-start (autosave.json)
+[19:07:54] Turn 13: Player 2's turn
+[19:07:54] Autosaved turn-start (autosave.json)
+[19:07:56] Player 2 played Hand Block
+[19:07:57] Turn 13: Player 2's turn
+[19:07:57] Autosaved turn-start (autosave.json)
+[19:07:59] Player 2 played Ward
+[19:07:59] Player 2 played Ward
+[19:08:00] Player 2 moved to (4,8)
+[19:08:01] Turn 14: Player 1's turn
+[19:08:01] Autosaved turn-start (autosave.json)
+[19:08:08] Player 1 played Bash
+[19:08:09] Player 1 moved to (6,6)
+[19:08:10] Turn 14: Player 1's turn
+[19:08:10] Autosaved turn-start (autosave.json)
+[19:08:14] Player 1 moved to (6,7)
+[19:08:14] Turn 14: Player 2's turn
+[19:08:14] Autosaved turn-start (autosave.json)
+[19:08:16] Player 2 moved to (5,8)
+[19:08:17] Turn 15: Player 1's turn
+[19:08:17] Autosaved turn-start (autosave.json)
+[19:08:23] Player 1 moved to (5,6)
+[19:08:23] Turn 15: Player 1's turn
+[19:08:23] Autosaved turn-start (autosave.json)
+[19:08:27] Player 1 played Lesser Heal
+[19:08:29] Turn 15: Player 2's turn
+[19:08:29] Autosaved turn-start (autosave.json)
+[19:08:31] Player 2 moved to (5,7)
+[19:08:32] Player 2 played Kick
+[19:08:32] Player 2 moved to (5,8)
+[19:08:33] Player 2 moved to (6,8)
+[19:08:34] Turn 16: Player 1's turn
+[19:08:34] Autosaved turn-start (autosave.json)
+[19:08:36] Player 1 moved to (5,8)
+[19:08:37] Turn 16: Player 1's turn
+[19:08:37] Autosaved turn-start (autosave.json)
+[19:08:46] Player 1 played Hasten
+[19:08:49] Player 1 moved to (6,6)
+[19:08:52] Player 1 moved to (7,7)
+[19:08:53] Turn 16: Player 2's turn
+[19:08:53] Autosaved turn-start (autosave.json)
+[19:08:55] Player 2 moved to (6,7)
+[19:08:55] Player 2 moved to (5,7)
+[19:08:56] Turn 17: Player 1's turn
+[19:08:56] Autosaved turn-start (autosave.json)
+[19:09:00] Player 1 played Bash
+[19:09:02] Player 1 played Hand Block
+[19:09:04] Turn 17: Player 1's turn
+[19:09:04] Autosaved turn-start (autosave.json)
+[19:09:10] Player 1 moved to (6,5)
+[19:09:18] Player 1 played Lesser Heal
+[19:09:23] Player 1 moved to (6,4)
+[19:09:27] Player 1 moved to (6,5)
+[19:09:27] Turn 17: Player 2's turn
+[19:09:27] Autosaved turn-start (autosave.json)
+[19:09:29] Player 2 moved to (5,6)
+[19:09:30] Turn 18: Player 1's turn
+[19:09:30] Autosaved turn-start (autosave.json)
+[19:09:34] Player 1 moved to (5,7)
+[19:09:34] Player 1 played Bash
+[19:09:36] Player 1 played Hand Block
+[19:09:37] Turn 18: Player 1's turn
+[19:09:37] Autosaved turn-start (autosave.json)
+[19:09:41] Player 1 played Summon Hellhound
+[19:09:42] Turn 18: Player 2's turn
+[19:09:42] Autosaved turn-start (autosave.json)
+[19:09:44] Player 2 played Summon Hellhound
+[19:09:45] Turn 19: Player 1's turn
+[19:09:45] Autosaved turn-start (autosave.json)
+[19:09:51] Player 1 played Bash
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 8
+  Cards Played: 15
+  Minions Spawned: 2
+  Total Healing: 6
+Player 1 Stats:
+  Max Dmg/Turn: 5
+  Cards Played: 13
+  Minions Spawned: 4
+  Total Healing: 0
+=====================
