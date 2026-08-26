@@ -1020,6 +1020,34 @@ public:
 	int getAIActionFromModel(const std::vector<float> & state, float reward, bool done);
 	void executeAIAction(int actionIndex);
 
+	// =========================================================================
+	// ADVANCED TACTICAL AI ENGINE STRUCTURES
+	// =========================================================================
+	struct AIActionStep {
+		enum StepType { STEP_MOVE,
+			STEP_PLAY_CARD,
+			STEP_REROLL,
+			STEP_END_TURN } type;
+		int cardIdx;
+		int tx, ty;
+		int apCost;
+		std::string label;
+	};
+
+	struct AITurnPlan {
+		std::vector<AIActionStep> steps;
+		float finalScore = -99999.0f;
+		int expectedDamage = 0;
+		int expectedHealing = 0;
+		glm::ivec2 endTile = { -1, -1 };
+	};
+
+	AITurnPlan currentAIPlan;
+	int currentAIPlanStepIndex = 0;
+
+	void buildEnemyThreatMap(int enemyOwnerID, float outThreatMap[13][9]);
+	AITurnPlan findBestTurnPlan(int actorIdx);
+
 	struct TargetingContext {
 		int sourceCardIndex = -1;
 		int sourcePlayerIndex = -1;

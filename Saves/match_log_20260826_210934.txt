@@ -1,0 +1,102 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-08-26 21:09:34
+End Reason: Victory
+Seed: 3692407211
+Turns: 5
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[21:07:07] --- MATCH STARTED ---
+[21:07:23] Turn 1: Player 1's turn
+[21:07:23] Autosaved turn-start (autosave.json)
+[21:07:27] Turn 1: Player 2's turn
+[21:07:27] Autosaved turn-start (autosave.json)
+[21:07:28] Player 2 moved to (12,1)
+[21:07:29] Player 2 moved to (12,2)
+[21:07:30] Turn 2: Player 1's turn
+[21:07:30] Autosaved turn-start (autosave.json)
+[21:07:35] Player 1 moved to (0,6)
+[21:07:36] Player 1 played Summon Assistant
+[21:07:38] Player 1 played Hasten
+[21:07:40] Player 1 moved to (3,5)
+[21:07:44] Turn 2: Player 2's turn
+[21:07:44] Autosaved turn-start (autosave.json)
+[21:07:46] Player 2 moved to (12,3)
+[21:07:46] Player 2 moved to (12,4)
+[21:07:49] Player 2 moved to (12,5)
+[21:07:50] Player 2 moved to (11,5)
+[21:07:52] Turn 3: Player 1's turn
+[21:07:52] Autosaved turn-start (autosave.json)
+[21:07:54] Player 1 moved to (2,5)
+[21:07:55] Turn 3: Player 1's turn
+[21:07:55] Autosaved turn-start (autosave.json)
+[21:08:00] Player 1 moved to (4,4)
+[21:08:10] Player 1 moved to (6,6)
+[21:08:11] Player 1 played Summon Assistant
+[21:08:15] Player 1 moved to (6,7)
+[21:08:23] Player 1 moved to (6,6)
+[21:08:24] Turn 3: Player 2's turn
+[21:08:24] Autosaved turn-start (autosave.json)
+[21:08:26] Player 2 moved to (10,5)
+[21:08:26] Player 2 moved to (9,5)
+[21:08:27] Turn 4: Player 1's turn
+[21:08:27] Autosaved turn-start (autosave.json)
+[21:08:29] Player 1 moved to (3,5)
+[21:08:30] Turn 4: Player 1's turn
+[21:08:30] Autosaved turn-start (autosave.json)
+[21:08:34] Turn 4: Player 1's turn
+[21:08:34] Autosaved turn-start (autosave.json)
+[21:08:37] Player 1 played Hasten
+[21:08:39] Player 1 moved to (8,5)
+[21:08:39] Turn 4: Player 2's turn
+[21:08:39] Autosaved turn-start (autosave.json)
+[21:08:41] Player 2 played Flame Hit
+[21:08:42] Player 2 moved to (10,5)
+[21:08:43] Player 2 moved to (11,5)
+[21:08:44] Player 2 moved to (11,6)
+[21:08:44] Turn 5: Player 1's turn
+[21:08:44] Autosaved turn-start (autosave.json)
+[21:08:49] Player 1 moved to (4,5)
+[21:08:50] Turn 5: Player 1's turn
+[21:08:50] Autosaved turn-start (autosave.json)
+[21:08:52] Player 1 moved to (7,6)
+[21:08:53] Turn 5: Player 1's turn
+[21:08:53] Autosaved turn-start (autosave.json)
+[21:08:56] Player 1 played Hasten
+[21:08:58] Player 1 moved to (8,6)
+[21:09:01] Player 1 played Time Vortex
+[21:09:02] Player 1 moved to (8,4)
+[21:09:05] Player 1 moved to (8,6)
+[21:09:06] Turn 5: Player 1's turn
+[21:09:06] Autosaved turn-start (autosave.json)
+[21:09:14] Player 1 played Summon Hellhound
+[21:09:19] Player 1 played Hasten
+[21:09:20] Player 1 moved to (9,6)
+[21:09:20] Player 1 moved to (8,6)
+[21:09:24] Turn 5: Player 1's turn
+[21:09:24] Autosaved turn-start (autosave.json)
+[21:09:32] Turn 5: Player 1's turn
+[21:09:32] Autosaved turn-start (autosave.json)
+[21:09:32] Turn 5: Player 1's turn
+[21:09:32] Autosaved turn-start (autosave.json)
+[21:09:33] Turn 5: Player 1's turn
+[21:09:33] Autosaved turn-start (autosave.json)
+[21:09:33] Turn 5: Player 2's turn
+[21:09:33] Autosaved turn-start (autosave.json)
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 8
+  Minions Spawned: 3
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 1
+  Cards Played: 1
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
