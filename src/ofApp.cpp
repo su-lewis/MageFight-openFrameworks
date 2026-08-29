@@ -18647,14 +18647,6 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button) {
-	// Allow victims of a modal/menu (e.g. Magic Blast) to click their choices even on the opponent's turn
-	if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-			processCardStateInput(x, y, button);
-			return;
-		}
-	}
-
 	if (!isMyTurn()) return;
 	// --- SETTINGS MENU SLIDER DRAG END ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
@@ -33362,6 +33354,12 @@ bool ofApp::isMyTurn() const {
 			}
 			return true;
 		}
+		if (isMultiplayer) {
+			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+				int owner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
+				return owner == myLocalPlayerID;
+			}
+		}
 	}
 
 	if (currentPlayerIndex < 0 || players.empty()) return false;
@@ -38485,6 +38483,9 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	currentDraftClassTier = classTier;
 	currentDraftOptionPoolIndices = { -1, -1, -1 };
 
+	// FIX: Clear any lingering played-card visual popups so they don't block the screen
+	activeCardDisplays.clear();
+
 	// Reset AI draft staging so the AI waits to show the yellow outline on new cards
 	aiDraftStaged = false;
 	aiStageTimer = 0.0f;
@@ -40299,7 +40300,7 @@ void ofApp::processNetworkPackets() {
 				if (opponentHoverType == HOVER_UNIT_SELECTED) {
 					// Store current player state to restore after
 					int savedPlayerX = -1, savedPlayerY = -1;
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size()) && !isMyTurn()) {
 						savedPlayerX = players[currentPlayerIndex].x;
 						savedPlayerY = players[currentPlayerIndex].y;
 						// Temporarily move current player to opponent's selected position
@@ -40312,7 +40313,7 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 				// If opponent is hovering a card OR targeting, show their targeting highlights
-				else if ((opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex >= 0) {
+				else if ((opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex >= 0 && !isMyTurn()) {
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
 						Player & currentPlayer = players[currentPlayerIndex];
 						if (opponentHoverCardIndex < static_cast<int>(currentPlayer.hand.size())) {
@@ -40325,6 +40326,9 @@ void ofApp::processNetworkPackets() {
 					opponentHoverGridX = -1;
 					opponentHoverGridY = -1;
 					opponentHoverCardIndex = -1;
+					if (!isMyTurn()) {
+						clearHighlights();
+					}
 				}
 			}
 
