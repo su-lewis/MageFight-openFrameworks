@@ -25713,14 +25713,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				wait.type = EffectOpType::WAIT_VISUAL;
 				wait.data.damage.fixedDamage = 0;
 				queueEffect(wait);
+
 				EffectOp next = {};
 				next.type = EffectOpType::APPLY_MAGIC_BOLT;
 				next.data.damage.fixedDamage = 4;
 				queueEffect(next);
-			} else {
-				// Ensure the spell cleanly finishes if there are no AOE targets!
-				opComplete = true;
 			}
+
+			// FIX: Mark the step as absolutely finished regardless of whether the AOE fired or not!
+			opComplete = true;
 			break;
 		} else if (step == 4) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
