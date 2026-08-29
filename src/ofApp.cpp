@@ -26935,8 +26935,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			else if (waitMode == 2)
 				waitSeconds = 2.5f;
 
-			// Convert seconds to ticks (e.g. 0.8s / 0.016 = ~48 ticks)
-			op.data.damage.targetIndex = std::max(1, (int)(waitSeconds / SIMULATION_TIMESTEP));
+			// CRITICAL FIX: Add + 0.001f epsilon before casting to int to prevent floating point
+			// truncation differences across architectures (e.g. 23.9999 dropping to 23 on Client vs 24 on Host)
+			op.data.damage.targetIndex = std::max(1, (int)((waitSeconds / SIMULATION_TIMESTEP) + 0.001f));
 		}
 
 		op.data.damage.targetIndex--;
@@ -27630,6 +27631,22 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	case EffectOpType::MODIFY_STAT: {
 		// NEW: Handle the immediate turn-end effect used by Sleep/Paralysis skips
 		if (op.data.modifyStat.statType == 99) {
+			// CRITICAL FIX: Do not allow the turn to advance if a unit is dead but hasn't
+			// been cleaned up by the board yet. This guarantees the array doesn't shift
+			// mid-resolution between the Host and Client!
+			bool pendingDeath = false;
+			for (const auto & p : players) {
+				if (p.health <= 0) {
+					pendingDeath = true;
+					break;
+				}
+			}
+
+			if (pendingDeath) {
+				// Defer completing this op until the death check cleans up the board
+				return false;
+			}
+
 			// FIX: Do not emit a network command here! The game relies on the deterministic
 			// `requestStartNewTurn()` to safely sequence unit deaths before the turn advances.
 			// Emitting a CMD_END_TURN causes a race condition that double-skips the turn if a unit died!
