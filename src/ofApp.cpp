@@ -5150,7 +5150,13 @@ void ofApp::updateStateMachine() {
 				// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
 				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
 			}
-			currentState = STATE_GAMEPLAY;
+
+			if (currentState == STATE_PAUSED) {
+				pausedFromState = STATE_GAMEPLAY;
+			} else {
+				currentState = STATE_GAMEPLAY;
+			}
+
 			// Defer authoritative turn start into the deterministic tick
 			requestStartNewTurn();
 		}
@@ -5808,12 +5814,6 @@ void ofApp::update() {
 		for (auto it = activeTracers.begin(); it != activeTracers.end();) {
 			float elapsed = now - it->startTime;
 			if (elapsed >= it->duration) {
-				// Clear tile highlight
-				int tx = it->impactTile.x;
-				int ty = it->impactTile.y;
-				if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-					board[tx][ty].isHighlighted = false;
-				}
 				it = activeTracers.erase(it);
 			} else {
 				++it;
@@ -6170,7 +6170,13 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 	draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
 	draftPlayerIndex = winnerIndex;
 	draftStage = 0;
-	currentState = STATE_DRAFTING;
+
+	if (currentState == STATE_PAUSED) {
+		pausedFromState = STATE_DRAFTING;
+	} else {
+		currentState = STATE_DRAFTING;
+	}
+
 	resetDraftPhaseTimerWindow();
 	ofLogNotice("Draft") << "beginInitiativeDrafting called: winnerIndex=" << winnerIndex << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage;
 	// Both host and clients generate deterministic draft options locally.
@@ -14869,34 +14875,28 @@ void ofApp::drawGame() {
 	}
 
 	// --- Draw Played Card Animation (Center of screen) ---
-	if (!isMyTurn()) {
-		for (const auto & anim : activePlayedCardAnimations) {
-			ofSetColor(255, anim.currentAlpha);
-			float w = animCardBaseWidth * anim.currentScale;
-			float h = animCardBaseHeight * anim.currentScale;
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h, nullptr);
-		}
+	for (const auto & anim : activePlayedCardAnimations) {
+		ofSetColor(255, anim.currentAlpha);
+		float w = animCardBaseWidth * anim.currentScale;
+		float h = animCardBaseHeight * anim.currentScale;
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Amnesia Removal Animation ---
-	if (!isMyTurn()) {
-		for (const auto & anim : activeRemovedCardAnimations) {
-			ofSetColor(255, anim.currentAlpha);
-			float w = animCardBaseWidth * anim.currentScale;
-			float h = animCardBaseHeight * anim.currentScale;
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
-		}
+	for (const auto & anim : activeRemovedCardAnimations) {
+		ofSetColor(255, anim.currentAlpha);
+		float w = animCardBaseWidth * anim.currentScale;
+		float h = animCardBaseHeight * anim.currentScale;
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Card Played Display (UI-based popup after card is played) ---
-	if (!isMyTurn()) {
-		for (const auto & disp : activeCardDisplays) {
-			ofSetColor(255, disp.currentAlpha);
-			float globalScale = getUIScaleFromHeight(ofGetHeight());
-			float w = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
-			float h = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, disp.card, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h, nullptr);
-		}
+	for (const auto & disp : activeCardDisplays) {
+		ofSetColor(255, disp.currentAlpha);
+		float globalScale = getUIScaleFromHeight(ofGetHeight());
+		float w = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
+		float h = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight()) * globalScale * disp.currentScale;
+		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, disp.card, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h, nullptr);
 	}
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
@@ -18718,16 +18718,6 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		return; // Block all other input
 	}
 
-	// --- PROCESS MENUS FIRST ---
-	// Allows victims of cards like Magic Blast to interact with their punishment menus
-	// even when it is technically the Caster's turn!
-	if (button == OF_MOUSE_BUTTON_LEFT) {
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-			processCardStateInput(x, y, button);
-			return;
-		}
-	}
-
 	// TURN VALIDATION: Only allow releasing if it's the local player's turn or a minion owned by the local player
 	// In singleplayer, allow releasing for the active player; only enforce in multiplayer.
 	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -19846,6 +19836,7 @@ void ofApp::startNewTurn() {
 	// Forcefully wipe any lingering menu/targeting states from the previous turn
 	cancelAllTargeting();
 	resetCardState();
+	activeCardDisplays.clear(); // Instantly purge the opponent's played card banner!
 	// ------------------------------------------------------
 
 	// Calculate Max Damage for the turn that just ended
@@ -24357,7 +24348,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 
 			resumeTurnTimerIfPausedForOpponent(cmdDraftPlayerIdx);
-			currentState = STATE_GAMEPLAY;
+
+			if (currentState == STATE_PAUSED) {
+				pausedFromState = STATE_GAMEPLAY;
+			} else {
+				currentState = STATE_GAMEPLAY;
+			}
+
 			break;
 		}
 
@@ -25465,6 +25462,19 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				break;
 			}
 
+			int targetIdx = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
+					targetIdx = (int)i;
+					break;
+				}
+			}
+
+			if (targetIdx == -1) {
+				opComplete = true; // Fell short onto an empty tile, skip damage
+				break;
+			}
+
 			int dmgRoll = currentEffectSequence.blackboard[1];
 			std::vector<int> rawDmg = { currentEffectSequence.blackboard[2] };
 			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
@@ -25604,14 +25614,26 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				break;
 			}
 
-			int primaryDamage = currentEffectSequence.blackboard[1];
-			std::vector<int> rawPrimary = { currentEffectSequence.blackboard[3] };
-			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+			int targetIdx = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
+					targetIdx = (int)i;
+					break;
+				}
+			}
 
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 0;
-			queueEffect(wait);
+			if (targetIdx != -1) {
+				// Only roll primary damage if we scored a direct hit
+				int primaryDamage = currentEffectSequence.blackboard[1];
+				std::vector<int> rawPrimary = { currentEffectSequence.blackboard[3] };
+				queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+
+				EffectOp wait = {};
+				wait.type = EffectOpType::WAIT_VISUAL;
+				wait.data.damage.fixedDamage = 0;
+				queueEffect(wait);
+			}
+
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_MAGIC_BOLT;
 			next.data.damage.fixedDamage = 3;
@@ -25623,7 +25645,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int primaryDamage = currentEffectSequence.blackboard[1];
 			int directHitIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
 					directHitIdx = (int)i;
 					break;
 				}
@@ -25637,23 +25659,64 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				res.data.damage.fixedDamage = primaryDamage;
 				res.data.damage.damageFromSlot = -1;
 				queueEffect(res);
-			} else {
-				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
 			}
 
-			int aoeRoll = currentEffectSequence.blackboard[2];
-			std::vector<int> rawAoe = { currentEffectSequence.blackboard[4] };
-			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.5f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
+			// Pre-calculate if anyone is in the AOE splash before rolling
+			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
+			bool hasAoeTargets = false;
+			long long maxAoeDistSqScaled = (long long)aoeRadiusFeet * (long long)aoeRadiusFeet * 4LL;
+			glm::vec2 impactTileFloat((float)impactTile.x, (float)impactTile.y);
+			glm::vec2 impactCenter = impactTileFloat + 0.5f;
 
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 0;
-			queueEffect(wait);
-			EffectOp next = {};
-			next.type = EffectOpType::APPLY_MAGIC_BOLT;
-			next.data.damage.fixedDamage = 4;
-			queueEffect(next);
-			opComplete = true;
+			for (size_t i = 0; i < players.size(); ++i) {
+				Player & p = players[i];
+				if (p.x == impactTile.x && p.y == impactTile.y) continue;
+				if (p.health <= 0 || board[p.x][p.y].hasWall) continue;
+
+				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, glm::vec2((float)p.x, (float)p.y));
+				if (distSq * 25LL <= maxAoeDistSqScaled) {
+					bool blockedByWall = false;
+					int pDx = std::abs(p.x - impactTile.x);
+					int pDy = std::abs(p.y - impactTile.y);
+					if (pDx == 1 && pDy == 1) {
+						bool wall1 = isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y);
+						bool wall2 = isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y));
+						if (wall1 && wall2) blockedByWall = true;
+					} else {
+						auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
+						for (const auto & stepP : losPath) {
+							if ((int)stepP.x == impactTile.x && (int)stepP.y == impactTile.y) continue;
+							if ((int)stepP.x == p.x && (int)stepP.y == p.y) break;
+							if (isTileWall((int)stepP.x, (int)stepP.y)) {
+								blockedByWall = true;
+								break;
+							}
+						}
+					}
+					if (!blockedByWall) {
+						hasAoeTargets = true;
+						break;
+					}
+				}
+			}
+
+			if (hasAoeTargets) {
+				int aoeRoll = currentEffectSequence.blackboard[2];
+				std::vector<int> rawAoe = { currentEffectSequence.blackboard[4] };
+				queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.5f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
+
+				EffectOp wait = {};
+				wait.type = EffectOpType::WAIT_VISUAL;
+				wait.data.damage.fixedDamage = 0;
+				queueEffect(wait);
+				EffectOp next = {};
+				next.type = EffectOpType::APPLY_MAGIC_BOLT;
+				next.data.damage.fixedDamage = 4;
+				queueEffect(next);
+			} else {
+				// Ensure the spell cleanly finishes if there are no AOE targets!
+				opComplete = true;
+			}
 			break;
 		} else if (step == 4) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
@@ -25809,6 +25872,31 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
 			if (isTileWall(impactTile.x, impactTile.y)) {
 				opComplete = true;
+				break;
+			}
+
+			// CHAIN LIGHTNING AOE CHECK: 3x3 square (dx <= 1, dy <= 1)
+			bool hasAnyTarget = false;
+			for (size_t i = 0; i < players.size(); ++i) {
+				Player & p = players[i];
+				if (p.health <= 0 || board[p.x][p.y].hasWall) continue;
+
+				int dx = std::abs(p.x - impactTile.x);
+				int dy = std::abs(p.y - impactTile.y);
+				if (dx <= 1 && dy <= 1) {
+					bool blocked = false;
+					if (dx == 1 && dy == 1 && isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y) && isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y))) {
+						blocked = true;
+					}
+					if (!blocked) {
+						hasAnyTarget = true;
+						break;
+					}
+				}
+			}
+
+			if (!hasAnyTarget) {
+				opComplete = true; // Completely missed everyone in the 3x3 grid, skip damage!
 				break;
 			}
 
@@ -26107,6 +26195,19 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
 			if (isTileWall(impactTile.x, impactTile.y)) {
 				opComplete = true;
+				break;
+			}
+
+			int targetIdx = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
+					targetIdx = (int)i;
+					break;
+				}
+			}
+
+			if (targetIdx == -1) {
+				opComplete = true; // Fell short onto an empty tile, skip damage
 				break;
 			}
 
@@ -34696,13 +34797,6 @@ void ofApp::spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, o
 	t.duration = duration;
 	t.color = color;
 
-	// Mark tile highlighted immediately
-	int tx = impactTile.x;
-	int ty = impactTile.y;
-	if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-		board[tx][ty].isHighlighted = true;
-	}
-
 	activeTracers.push_back(t);
 }
 
@@ -38563,7 +38657,13 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		draftPicksRemaining = 1;
 
 	selectedDraftIndices.clear();
-	currentState = STATE_DRAFTING;
+
+	if (currentState == STATE_PAUSED) {
+		pausedFromState = STATE_DRAFTING;
+	} else {
+		currentState = STATE_DRAFTING;
+	}
+
 	if (!isInGameDraft) {
 		bool isTransitioningStage0To1 = (previousDraftPlayer == draftPlayerIndex && draftStage == 1 && classTier == 2);
 		if (!isTransitioningStage0To1) {
@@ -38642,7 +38742,13 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 		}
 	}
 	selectedDraftIndices.clear();
-	currentState = STATE_DRAFTING; // Force state transition
+
+	if (currentState == STATE_PAUSED) {
+		pausedFromState = STATE_DRAFTING;
+	} else {
+		currentState = STATE_DRAFTING; // Force state transition
+	}
+
 	if (!isInGameDraft) { // Only reset timer for regular drafts, not in-game drafts
 		resetDraftPhaseTimerWindow();
 	}
@@ -38785,7 +38891,12 @@ void ofApp::onCardPicked(int optionIndex) {
 		}
 		// Return to game (only for in-game drafts)
 		if (isInGameDraft) {
-			currentState = STATE_GAMEPLAY;
+			if (currentState == STATE_PAUSED) {
+				pausedFromState = STATE_GAMEPLAY;
+			} else {
+				currentState = STATE_GAMEPLAY;
+			}
+
 			// Defer authoritative turn-start to the deterministic tick
 			requestStartNewTurn();
 			return;
@@ -39600,8 +39711,21 @@ void ofApp::drawPauseMenu() {
 	// Dynamically compute and assign button positions every frame
 	float btnW = 360.0f * uiScale;
 	float btnH = 56.0f * uiScale;
-	float btnGap = 16.0f * uiScale;
-	float startY = panelY + 100.0f * uiScale;
+
+	int numRows = !isMultiplayer ? 5 : 4;
+	float titleAreaH = 100.0f * uiScale;
+	float bottomPad = 40.0f * uiScale;
+	float availableSpace = panelH - titleAreaH - bottomPad;
+
+	// Calculate dynamic gap so buttons spread out and fill the panel
+	float totalBtnH = numRows * btnH;
+	float dynamicGap = (availableSpace - totalBtnH) / std::max(1, (numRows - 1));
+	float btnGap = std::max(16.0f * uiScale, dynamicGap); // Ensure minimum gap
+
+	// Center the block in the available space
+	float blockHeight = totalBtnH + (numRows - 1) * btnGap;
+	float startY = panelY + titleAreaH + (availableSpace - blockHeight) / 2.0f;
+
 	float btnX = centerX - btnW / 2.0f;
 
 	auto drawBtn = [&](ofRectangle & r, float yPos, const std::string & txt, int index, ofColor overrideColor = ofColor()) {
