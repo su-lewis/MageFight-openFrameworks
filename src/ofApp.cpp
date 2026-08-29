@@ -6290,7 +6290,7 @@ void ofApp::draw() {
 
 			g_textFbo.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA8);
 
-			if (enablePixelArt) {
+			if (enablePixelArt || enableC64Shader) {
 				g_uiPostFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 				g_textFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			}
@@ -6299,7 +6299,7 @@ void ofApp::draw() {
 		ofClear(22, 22, 22, 255);
 
 		g_isFboPass = true;
-		g_renderText = !usePixelPass; // Skip text in Pass 1 if using Pixel filter
+		g_renderText = !(usePixelPass || useC64Pass); // Skip text in Pass 1 if using Pixel OR C64 filter
 	} else {
 		ofBackground(22);
 		g_isFboPass = false;
@@ -7350,7 +7350,7 @@ void ofApp::draw() {
 		// PASS 2: Crisp Text Re-Render with Geometric Eraser
 		// By drawing EVERYTHING again, the menus/cards will erase the text beneath them
 		// into the transparent text FBO, achieving flawless pixel-perfect occlusion.
-		if (usePixelPass) {
+		if (usePixelPass || useC64Pass) {
 			g_textFbo.begin();
 			ofClear(0, 0, 0, 0); // Clear to fully transparent
 
@@ -7398,6 +7398,10 @@ void ofApp::draw() {
 			c64Shader.setUniform1f("uPixelSize", 1.25f);
 			g_uiPostFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			c64Shader.end();
+
+			// Composite the crisp Text FBO on top of the C64 screen
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+			g_textFbo.draw(0, 0, ofGetWidth(), ofGetHeight());
 		} else if (useBlurPass) {
 			worldPostShader.begin();
 			worldPostShader.setUniformTexture("tex0", g_uiPostFbo.getTexture(), 0);
@@ -39689,10 +39693,25 @@ void ofApp::drawPauseMenu() {
 	ofFill();
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
+	// Determine how many rows of buttons we need
+	int numRows = !isMultiplayer ? 5 : 4;
+
+	// Make the buttons much chunkier and easier to click
+	float btnW = 400.0f * uiScale;
+	float btnH = 76.0f * uiScale;
+	float btnGap = 20.0f * uiScale; // Reasonable, fixed gap
+
+	float titleAreaH = 110.0f * uiScale;
+	float bottomPad = 40.0f * uiScale;
+
+	// Dynamically shrink/grow the panel to perfectly fit the buttons!
+	float totalBtnH = (numRows * btnH) + ((numRows - 1) * btnGap);
+	float panelH = titleAreaH + totalBtnH + bottomPad;
+
+	float panelW = 480.0f * uiScale;
+	float panelY = (ofGetHeight() - panelH) / 2.0f; // Center exactly on screen
+
 	// Background Panel
-	float panelW = 460.0f * uiScale;
-	float panelH = ofGetHeight() * 0.75f;
-	float panelY = ofGetHeight() * 0.125f;
 	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
 
 	ofSetColor(25, 25, 32, 250);
@@ -39706,26 +39725,9 @@ void ofApp::drawPauseMenu() {
 	ofFill();
 
 	// Title
-	drawPixelTextCentered(titleFont, "PAUSED", centerX, panelY + 50.0f * uiScale, 1.3f * uiScale, ofColor::gold, 2, ofColor::black);
+	drawPixelTextCentered(titleFont, "PAUSED", centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
 
-	// Dynamically compute and assign button positions every frame
-	float btnW = 360.0f * uiScale;
-	float btnH = 56.0f * uiScale;
-
-	int numRows = !isMultiplayer ? 5 : 4;
-	float titleAreaH = 100.0f * uiScale;
-	float bottomPad = 40.0f * uiScale;
-	float availableSpace = panelH - titleAreaH - bottomPad;
-
-	// Calculate dynamic gap so buttons spread out and fill the panel
-	float totalBtnH = numRows * btnH;
-	float dynamicGap = (availableSpace - totalBtnH) / std::max(1, (numRows - 1));
-	float btnGap = std::max(16.0f * uiScale, dynamicGap); // Ensure minimum gap
-
-	// Center the block in the available space
-	float blockHeight = totalBtnH + (numRows - 1) * btnGap;
-	float startY = panelY + titleAreaH + (availableSpace - blockHeight) / 2.0f;
-
+	float startY = panelY + titleAreaH;
 	float btnX = centerX - btnW / 2.0f;
 
 	auto drawBtn = [&](ofRectangle & r, float yPos, const std::string & txt, int index, ofColor overrideColor = ofColor()) {
@@ -39744,7 +39746,8 @@ void ofApp::drawPauseMenu() {
 		ofDrawRectRounded(r, 10.0f * uiScale);
 		ofFill();
 
-		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
+		// Scaled text up slightly to match the chunky buttons
+		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.2f * uiScale, ofColor::white, 2, ofColor::black);
 	};
 
 	float curY = startY;
