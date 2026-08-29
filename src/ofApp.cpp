@@ -18078,6 +18078,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			if (endTurnLocked) return;
 
+			if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
+				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Finish action first", ofColor::yellow);
+				return;
+			}
+
 			// --- GHOST FORM CHECK: Must relocate if trapped! ---
 			bool needsReloc = false;
 			CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
@@ -19518,6 +19523,10 @@ void ofApp::keyPressed(int key) {
 			return;
 		}
 		if (endTurnLocked) return;
+		if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
+			queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Finish action first", ofColor::yellow);
+			return;
+		}
 		// Ghost form check similar to mouse click
 		bool needsReloc = false;
 		CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
@@ -22931,8 +22940,8 @@ void ofApp::processCommandQueue() {
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION) {
 				break; // PAUSE THE QUEUE
 			}
-			if (cmdType == CMD_END_TURN && (isProcessingEffect || isStateBlocking || animatingBlocksQueue)) {
-				break; // Only pause END_TURN if a spell or animation is actively resolving
+			if (cmdType == CMD_END_TURN && (isProcessingEffect || isEarthquakeActive || isUnitDying || animatingBlocksQueue)) {
+				break; // Allow END_TURN to bypass targeting menus, but pause if effects are resolving
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
@@ -24438,10 +24447,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		// --- CRITICAL RULE FIX: BLOCK ENDING TURN DURING ACTIVE SELECTIONS ---
+		// --- CRITICAL RULE FIX: CANCEL ACTIVE SELECTIONS ON TIMEOUT ---
 		if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
-			ofLogWarning("Lockstep") << "CMD_END_TURN rejected: Cannot end turn while a card menu choice or target selection is pending!";
-			break; // Forcefully exit and reject the command
+			ofLogWarning("Lockstep") << "CMD_END_TURN received while selection pending! Force-canceling selection to prevent soft-lock.";
+			cancelAllTargeting();
 		}
 		// ---------------------------------------------------------------------
 
@@ -24563,6 +24572,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				resetCardState();
 				break;
 			}
+			if (koboldsRemainingToPlace <= 0) break; // Prevent spam clicks
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			// UI Check Removed: We trust the lockstep command!
 			int dist = abs(targetX - koboldPlacementSourceX) + abs(targetY - koboldPlacementSourceY);
@@ -24621,6 +24631,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				resetCardState();
 				break;
 			}
+			if (wolfSummonStage != 1 && wolfSummonStage != 2) break; // Prevent spam clicks
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			int dist = abs(targetX - wolfPlacementSourceX) + abs(targetY - wolfPlacementSourceY);
 			if (dist != 1) break;
@@ -24641,16 +24652,23 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			wolfSummonCount++;
 
-			if (wolfSummonStage <= 1) {
+			if (wolfSummonStage == 1) {
+				wolfSummonStage = 99; // Lock state while waiting for coin
+
 				std::vector<int> rawFlip;
 				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
 				currentEffectSequence.blackboard[0] = flip;
 				queueVisualDiceRoll(gridToWorld(wolfPlacementSourceX, wolfPlacementSourceY) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 
+				EffectOp wait = {};
+				wait.type = EffectOpType::WAIT_VISUAL;
+				wait.data.damage.fixedDamage = 0; // Wait 0.8s for coin
+				queueEffect(wait);
+
 				EffectOp applyOp = {};
 				applyOp.type = EffectOpType::APPLY_WOLF_COIN;
 				queueEffect(applyOp);
-			} else {
+			} else if (wolfSummonStage == 2) {
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 				isShowingTooltip = false;
