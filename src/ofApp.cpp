@@ -10136,7 +10136,7 @@ void ofApp::updateGameLogic() {
 			// CRITICAL FIX: Only allow the Turn Timer to tick if the lockstep command queue is actively processing!
 			// If the queue is paused (e.g. waiting for a unit to die or a spell to finish), the timer must freeze
 			// so the Client doesn't prematurely auto-end the Host's turn!
-			bool isQueuePaused = isProcessingEffect || isEarthquakeActive || cardPlayState != CARD_PLAY_STATE_IDLE;
+			bool isQueuePaused = isProcessingEffect || isEarthquakeActive || cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE || cardPlayState == CARD_PLAY_STATE_DICE || cardPlayState == CARD_PLAY_STATE_OUTCOME || cardPlayState == CARD_PLAY_STATE_FINISHED;
 			for (const auto & pair : s_playerDeathDelayMap) {
 				if (pair.second > 0) {
 					isQueuePaused = true;
@@ -15044,7 +15044,8 @@ void ofApp::mouseMoved(int x, int y) {
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			bool isTargetingMode = (draggedCardIndex != -1)
 				|| (selectedCardIndex != -1)
-				|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING);
+				|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+				|| (cardInteractionState == CARD_INTERACTION_STATE_PLACING);
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
 			if (!isTargetingMode && board[gx][gy].hasPlayer && newHoverType == HOVER_NONE) {
@@ -15149,7 +15150,10 @@ cursor_check_done:;
 		Player & currentPlayer = players[currentPlayerIndex];
 
 		if (draggedCardIndex == -1) {
-			int bestIndex = (newHoverType == HOVER_HAND_CARD) ? newHoverCardIndex : -1;
+			int bestIndex = -1;
+			if (newHoverType == HOVER_HAND_CARD && cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
+				bestIndex = newHoverCardIndex;
+			}
 
 			// Keep highlights stable while holding LMB on a card even if tiny
 			// mouse jitter temporarily leaves the hover rect.
@@ -15231,9 +15235,10 @@ cursor_check_done:;
 		}
 
 		int activeCardForHighlight = -1;
+		int activeCardForHighlight = -1;
 		if (currentState != STATE_DRAFTING) { // Force highlight off during drafting phase
 			if (isCurrentPlayerLocal()) {
-				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING)
 					activeCardForHighlight = interactingCardIndex;
 				else if (draggedCardIndex != -1)
 					activeCardForHighlight = draggedCardIndex;
