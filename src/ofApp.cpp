@@ -9306,45 +9306,6 @@ void ofApp::prepareGameVisualState() {
 					diceRollResultStartTime = ofGetElapsedTimef();
 				}
 			}
-
-			// KOBOLD PLACEMENT TRIGGER
-			if (it->purpose == PURPOSE_SUMMON_KOBOLDS) {
-				int count = currentEffectSequence.blackboard[0];
-				if (count <= 0) {
-					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-					if (isCurrentPlayerLocal()) {
-						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-						resetCardState();
-					}
-				} else {
-					// Only the local player calculates space and opens their placement UI
-					if (isCurrentPlayerLocal()) {
-						int avail = 0;
-						glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-						for (auto & d : adj) {
-							int nx = koboldPlacementSourceX + (int)d.x;
-							int ny = koboldPlacementSourceY + (int)d.y;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-							}
-						}
-						int allowed = std::min<int>(count, std::min(avail, 4));
-						if (allowed <= 0) {
-							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
-							resetCardState();
-						} else {
-							koboldsRemainingToPlace = allowed;
-							koboldSummonCount = 0;
-							updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-							tooltipText = "Place Kobold: click an adjacent empty tile";
-							isShowingTooltip = true;
-							queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-							invalidateTargetCache();
-						}
-					}
-				}
-			}
 		}
 
 		// Remove ALL dice (including AP) after they finish spinning + 5.0s linger
@@ -14193,15 +14154,15 @@ void ofApp::drawGame() {
 	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
 			isOptionalInteraction = true;
-			optionalBtnText = "Skip Remaining";
+			optionalBtnText = "Done";
 		}
 		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) {
 			isOptionalInteraction = true;
-			optionalBtnText = "Skip 2nd Wolf";
+			optionalBtnText = "Done";
 		}
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
 		isOptionalInteraction = true;
-		optionalBtnText = "Skip Spike";
+		optionalBtnText = "Done";
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
 		isOptionalInteraction = true;
 		optionalBtnText = "Done"; // Allow forfeiting remaining tails targeting!
@@ -15234,7 +15195,6 @@ cursor_check_done:;
 			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
 
-		int activeCardForHighlight = -1;
 		int activeCardForHighlight = -1;
 		if (currentState != STATE_DRAFTING) { // Force highlight off during drafting phase
 			if (isCurrentPlayerLocal()) {
@@ -17478,23 +17438,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// Centralized placement handler: delegate placement clicks to `handleCardTargetClick()`
-	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-			// Do not swallow the click if we are clicking the "Done" button!
-			if (endTurnButtonRect.inside(x, y)) {
-				// Let it fall through to the End Turn / Done handler below!
-			} else {
-				ofVec2f boardPos = mouseToBoard(x, y);
-				int gx = floor(boardPos.x), gy = floor(boardPos.y);
-				handleCardTargetClick(gx, gy);
-				return;
-			}
-		} else {
-			return; // Swallow right clicks
-		}
-	}
-
 	// ==============================================================================
 	// PHASE 1: MODAL UI INTERRUPTS
 	// ==============================================================================
@@ -17769,7 +17712,25 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
 		if (currentState != STATE_GAMEPLAY) return;
 
+		// Centralized placement handler: delegate placement clicks to `handleCardTargetClick()`
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+			if (button == OF_MOUSE_BUTTON_LEFT) {
+				// Do not swallow the click if we are clicking the "Done" button!
+				if (endTurnButtonRect.inside(x, y)) {
+					// Let it fall through to the End Turn / Done handler below!
+				} else {
+					ofVec2f boardPos = mouseToBoard(x, y);
+					int gx = floor(boardPos.x), gy = floor(boardPos.y);
+					handleCardTargetClick(gx, gy);
+					return;
+				}
+			} else {
+				return; // Swallow right clicks
+			}
+		}
+
 		// If left-button dragging, ensure tooltips are closed immediately
+
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			if (isShowingTooltip) isShowingTooltip = false;
 			if (isTooltipExpanded) {
@@ -19838,6 +19799,7 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	if (g_isGameOver) return; // FIX: Prevent new turns from starting when the match is over!
 
 	// Reset AI staging flags
 	aiActionStage = 0;
@@ -21491,7 +21453,8 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 					sendInputCommand(cmd, true);
 
-					resetCardInteraction();
+					// FIX: Do NOT call resetCardInteraction() here! Let the PseudoAction response handle state changes!
+					// Otherwise the UI drops out of placement mode before the server confirms the placement!
 					return;
 				}
 			}
@@ -23085,7 +23048,7 @@ void ofApp::simulationTick() {
 	}
 
 	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
-	if (!isProcessingEffect && !isEarthquakeActive) {
+	if (!isEarthquakeActive) {
 		std::vector<int> removeIndices;
 		bool p0Died = false;
 		bool p1Died = false;
@@ -23266,8 +23229,8 @@ void ofApp::simulationTick() {
 			s_pendingRemoteChecksums.clear();
 		}
 
-		// CRITICAL FIX: Do not erase units and shift array indices if an effect sequence (like Resurrection) just started!
-		if (!removeIndices.empty() && !isProcessingEffect) {
+		// CRITICAL FIX: EffectOps are correctly shifted, so we CAN erase units mid-sequence to prevent deadlocks!
+		if (!removeIndices.empty()) {
 			std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
 			bool activePlayerDied = false;
 
@@ -24619,6 +24582,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
 				if (isCurrentPlayerLocal()) calculateTargetHighlights();
 			}
+			// FIX: Force highlight cache to refresh so the newly spawned unit blocks further clicks!
+			calculateTargetHighlights();
 			break;
 		}
 
@@ -24674,9 +24639,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				isShowingTooltip = false;
 				resetCardState();
 			}
+			// FIX: Force highlight cache to refresh so the newly spawned unit blocks further clicks!
+			calculateTargetHighlights();
 			break;
 		}
-
 		// Handle deterministic TurnStart visuals published by host
 		if (actionName.rfind("TurnStart", 0) == 0) {
 			if (isHost()) break;
@@ -26709,6 +26675,38 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_WOLF_COIN: {
+		if (op.data.damage.fixedDamage == 99) {
+			// THIS IS KOBOLD RESOLUTION!
+			int count = currentEffectSequence.blackboard[0];
+			int avail = 0;
+			glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+			for (auto & d : adj) {
+				int nx = koboldPlacementSourceX + (int)d.x;
+				int ny = koboldPlacementSourceY + (int)d.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+				}
+			}
+			int allowed = std::min<int>(count, std::min(avail, 4));
+			if (allowed <= 0) {
+				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
+				resetCardState();
+			} else {
+				koboldsRemainingToPlace = allowed;
+				koboldSummonCount = 0;
+				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+				if (isCurrentPlayerLocal()) {
+					calculateTargetHighlights();
+					queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), "Place " + ofToString(koboldsRemainingToPlace) + " Kobolds", ofColor::gold);
+				} else {
+					queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), "Opponent placing kobolds...", ofColor::gray);
+				}
+			}
+			opComplete = true;
+			break;
+		}
+
 		// Read authoritative coin flip result from blackboard slot 0 (1=Tails, 2=Heads)
 		int flipResult = currentEffectSequence.blackboard[0];
 		// Find Summoner for Text Position
@@ -26749,13 +26747,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				// FIX: Set the stage for BOTH players so the opponent doesn't re-roll the coin!
 				wolfSummonStage = 2;
 
+				// FIX: Ensure both peers re-enter placing mode!
+				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_WOLVES);
+
 				if (isCurrentPlayerLocal()) {
+					calculateTargetHighlights();
 					ofLogNotice("Wolves") << "Heads! You can place another wolf.";
 					queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
 				} else {
 					queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
 				}
-				// FIX: Opponent remains in CARD_INTERACTION_STATE_PLACING so Checksum matches!
 			} else {
 				// HEADS BUT BLOCKED
 				ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
@@ -27752,22 +27753,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	case EffectOpType::MODIFY_STAT: {
 		// NEW: Handle the immediate turn-end effect used by Sleep/Paralysis skips
 		if (op.data.modifyStat.statType == 99) {
-			// CRITICAL FIX: Do not allow the turn to advance if a unit is dead but hasn't
-			// been cleaned up by the board yet. This guarantees the array doesn't shift
-			// mid-resolution between the Host and Client!
-			bool pendingDeath = false;
-			for (const auto & p : players) {
-				if (p.health <= 0) {
-					pendingDeath = true;
-					break;
-				}
-			}
-
-			if (pendingDeath) {
-				// Defer completing this op until the death check cleans up the board
-				return false;
-			}
-
 			// FIX: Do not emit a network command here! The game relies on the deterministic
 			// `requestStartNewTurn()` to safely sequence unit deaths before the turn advances.
 			// Emitting a CMD_END_TURN causes a race condition that double-skips the turn if a unit died!
@@ -29194,6 +29179,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
 	glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
 
+	bool rolledDice = false; // TRACK DICE VISUALS FOR WAIT
+
 	// Roll Range -> blackboard[0]
 	if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
 		std::vector<int> rawRange;
@@ -29201,6 +29188,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		if (playedCard.diceSides != 2) rangeTotal += playedCard.numDice * luckBonus;
 		currentEffectSequence.blackboard[0] = rangeTotal;
 		queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+		rolledDice = true;
 	}
 
 	// Resolve Target Index
@@ -29223,6 +29211,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			if (playedCard.damageDiceSides != 2) dmgRoll += playedCard.damageDiceNum * luckBonus;
 			totalDamage += dmgRoll;
 			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			rolledDice = true;
 		}
 
 		if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
@@ -29269,6 +29258,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			// Store in safe blackboard slot
 			currentEffectSequence.blackboard[15] = poisonRoll;
 			queueVisualDiceRoll(visPos + glm::vec3(0, 1.5f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			rolledDice = true;
 
 			// 3. Apply Poison Status and Damage to all targets hit
 			for (size_t i = 0; i < targets.size(); i++) {
@@ -29330,6 +29320,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			if (playedCard.healDiceSides != 2) healRoll += playedCard.healDiceNum * luckBonus;
 			totalHeal += healRoll;
 			queueVisualDiceRoll(visPos, playedCard.healDiceNum, playedCard.healDiceSides, rawHeal, totalHeal, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
+			rolledDice = true;
 		}
 		currentEffectSequence.blackboard[2] = totalHeal;
 
@@ -29338,6 +29329,14 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		healOp.data.heal.targetIndex = resolvedTargetIndex != -1 ? resolvedTargetIndex : currentPlayerIndex;
 		healOp.data.heal.amountFromSlot = 2;
 		queueEffect(healOp);
+	}
+
+	// Wait for any rolled visual dice to resolve before continuing
+	if (rolledDice) {
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 0; // Mode 0 = 0.8s
+		queueEffect(wait);
 	}
 
 	// Apply Status
@@ -29636,6 +29635,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
 				totalDamage += dmgRoll + (playedCard.damageDiceNum * luckBonus);
 				queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+				EffectOp wait = {};
+				wait.type = EffectOpType::WAIT_VISUAL;
+				wait.data.damage.fixedDamage = 0; // Wait 0.8s
+				queueEffect(wait);
 			}
 
 			// 1. Apply Damage
@@ -29729,6 +29733,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			amnesiaChooserPlayerID = currentPlayer.playerID; // Critical for multiplayer UI sync!
 
 			// 4. Queue the effect that will actually open the menu
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			queueEffect(wait);
+
 			EffectOp amnesiaOp = {};
 			amnesiaOp.type = EffectOpType::APPLY_AMNESIA;
 			queueEffect(amnesiaOp);
@@ -29775,6 +29784,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Store HP in blackboard for the spawn effect
 		currentEffectSequence.blackboard[0] = finalHp;
 		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), hpDiceNum, hpDiceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 0; // Wait 0.8s
+		queueEffect(wait);
 
 		EffectOp spawnOp = {};
 		spawnOp.type = EffectOpType::SPAWN_UNIT;
@@ -29900,6 +29914,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Save roll to blackboard slot 4 for the APPLY_SPARK_OF_GENIUS effect operation
 		currentEffectSequence.blackboard[4] = numCards;
 		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, numCards, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 0; // Wait 0.8s
+		queueEffect(wait);
 
 		EffectOp sparkOp = {};
 		sparkOp.type = EffectOpType::APPLY_SPARK_OF_GENIUS;
@@ -30286,6 +30305,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Spawn Visuals
 		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRoll, turns, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(turns) + " Extra Turns!", ofColor::magenta);
+
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 0; // Wait 0.8s
+		queueEffect(wait);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -30835,7 +30859,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 			count += luckBonus;
 			currentEffectSequence.blackboard[0] = count;
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_SUMMON_KOBOLDS, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			queueEffect(wait);
+
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_WOLF_COIN;
+			applyOp.data.damage.fixedDamage = 99; // 99 = Kobolds!
+			queueEffect(applyOp);
 		}
 
 		playedSuccessfully = true;
@@ -31395,6 +31429,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				currentEffectSequence.blackboard[1] = sleepVal;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleep, sleepVal, PURPOSE_SLEEP_DURATION, currentPlayerIndex, 1.0f);
 			}
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			queueEffect(wait);
+
 			EffectOp apply = {};
 			apply.type = EffectOpType::APPLY_DEATH;
 			queueEffect(apply);
@@ -31442,6 +31481,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			flailTotal += playedCard.baseDamage;
 			currentEffectSequence.blackboard[0] = flailTotal;
 		}
+
+		// Wait for the damage dice to finish spinning before dealing damage
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 0; // Wait 0.8s
+		queueEffect(wait);
 
 		{
 			currentCardOutcome.attackDamageType = playedCard.damageType;
@@ -31510,6 +31555,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int finalHp = hpRoll + (2 * luckBonus);
 			currentEffectSequence.blackboard[2] = finalHp;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			queueEffect(wait);
 		}
 		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
 		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = 2;
@@ -31539,6 +31589,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int finalHp = hpRoll + (3 * luckBonus);
 			currentEffectSequence.blackboard[3] = finalHp;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 3, 10, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			queueEffect(wait);
 		}
 		spawnDemonOp.data.spawnUnit.maxHealth = 0;
 		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = 3;
@@ -31621,6 +31676,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int finalHp = hpRoll + luckBonus;
 			currentEffectSequence.blackboard[0] = finalHp;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+
+			EffectOp wait = {};
+			wait.type = EffectOpType::WAIT_VISUAL;
+			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			queueEffect(wait);
 		}
 		spawnSkeletonOp.data.spawnUnit.maxHealth = 0;
 		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = 0;
