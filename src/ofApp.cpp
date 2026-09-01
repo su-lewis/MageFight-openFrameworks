@@ -20988,6 +20988,27 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return;
 	}
 
+	bool wouldBeTrapped = false;
+	if (board[caster.x][caster.y].hasWall) {
+		int netAP = currentAP - costToPay;
+		if (card.type == CARD_SPRINT) netAP += 2;
+		else if (card.apGain > costToPay) netAP += (card.apGain - costToPay);
+
+		if (card.type != CARD_TELEPORT && card.type != CARD_EARTHQUAKE && card.type != CARD_DEMOLITION && card.type != CARD_TRANSFORM_WALL) {
+			if (netAP <= 0) {
+				if (!hasAssistantRerollAvailable(currentPlayerIndex, caster.x, caster.y)) {
+					wouldBeTrapped = true;
+				}
+			}
+		}
+	}
+
+	if (wouldBeTrapped) {
+		queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Would be trapped!", ofColor::red);
+		draggedCardIndex = -1;
+		return;
+	}
+
 	// Clear any previous interaction state
 	resetCardInteraction();
 
