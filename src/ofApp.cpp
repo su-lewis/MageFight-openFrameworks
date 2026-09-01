@@ -41498,34 +41498,80 @@ void ofApp::updateAI() {
 
 // Helper 1: Calculate damage of a card against a specific target (including synergies)
 int ofApp::getCardEstimatedDamage(const Card & c, const Player & caster, const Player & target) {
-	if (c.baseDamage <= 0 && c.damageDiceNum <= 0) return 0;
+	int baseDmg = c.baseDamage;
+	int diceNum = c.damageDiceNum;
+	int diceSides = c.damageDiceSides;
 
-	int dmg = c.baseDamage + (c.damageDiceNum * (c.damageDiceSides + 1) / 2);
+	switch (c.type) {
+		case CARD_PUNCH: baseDmg = 2; break;
+		case CARD_KICK: baseDmg = 4; break;
+		case CARD_BASH: diceNum = 2; diceSides = 4; break;
+		case CARD_STAB: diceNum = 1; diceSides = 6; break;
+		case CARD_SLASH: diceNum = 1; diceSides = 6; break;
+		case CARD_MAGIC_BLAST: baseDmg = 5; break;
+		case CARD_FIREBALL: diceNum = 1; diceSides = 6; break;
+		case CARD_SHOCK: baseDmg = 2; break;
+		case CARD_ROCK_CRUSH: diceNum = 2; diceSides = 10; break;
+		case CARD_WISDOM_BOON: baseDmg = caster.deck.size(); break;
+		case CARD_ETHEREAL_JOLT: baseDmg = 7; break;
+		case CARD_FLAME_HIT: baseDmg = 1; break;
+		case CARD_DRAIN_PUNCH: {
+			baseDmg = 2;
+			auto isHandRelatedAttack = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+			for (CardType ct : caster.cardsPlayedThisTurn) {
+				if (isHandRelatedAttack(ct)) baseDmg += 2;
+			}
+			break;
+		}
+		case CARD_MASTER_FIST: {
+			baseDmg = 0;
+			auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+			for (const auto & pileCard : caster.discardPile) {
+				if (isHandRelated(pileCard.type)) baseDmg += 2;
+			}
+			break;
+		}
+		case CARD_MAGIC_BOLT: diceNum = 1; diceSides = 20; baseDmg = 3; break; 
+		case CARD_FLAIL: diceNum = 1; diceSides = 6; baseDmg = 2; break;
+		case CARD_DEATH: diceNum = 1; diceSides = 20; break; 
+		case CARD_SHIELD_BASH: baseDmg = caster.block + caster.ward + caster.fortification + caster.barrier + caster.holyBlock; break;
+		case CARD_CHAIN_LIGHTNING: diceNum = 1; diceSides = 10; break;
+		case CARD_FLURRY_OF_FISTS: baseDmg = 2; break;
+		case CARD_VAMPIRE_BITE: baseDmg = 3; break;
+		case CARD_SMITE: baseDmg = 5; break;
+		case CARD_BURST_OF_LIGHT: baseDmg = 3; break;
+		case CARD_SHOOT_ARROW: diceNum = 1; diceSides = 6; break;
+		default: break;
+	}
+
+	if (baseDmg <= 0 && diceNum <= 0 && c.type != CARD_DEATH && c.type != CARD_SHIELD_BASH) return 0;
+
+	int dmg = baseDmg + (diceNum * (diceSides + 1) / 2);
 	int luck = caster.luck + const_cast<ofApp *>(this)->computePassiveLuck(findPlayerIndexByID(caster.playerID));
-	dmg += (c.damageDiceNum * luck);
+	if (diceSides != 2) { 
+		dmg += (diceNum * luck);
+	}
 
 	if (c.isHandRelated && caster.flurryOfFistsStacks > 0) {
 		dmg *= (1 + caster.flurryOfFistsStacks);
 	}
 
-	// Holy damage vulnerability (Hellhound, Demon, Skeleton, Ghost, Vampire Curse)
 	if (c.damageType == DAMAGE_HOLY) {
 		if (target.isHellhound || target.isDemon || target.isSkeleton || target.inGhostForm) {
 			dmg *= 2;
 		}
+		bool hasVampBite = false;
+		for(const auto& tc : target.deck) if (tc.type == CARD_VAMPIRE_BITE) hasVampBite = true;
+		for(const auto& tc : target.discardPile) if (tc.type == CARD_VAMPIRE_BITE) hasVampBite = true;
+		if (hasVampBite) dmg *= 2;
 	}
-
-	// Piercing vulnerability
 	if (c.damageType == DAMAGE_PIERCING) {
-		for (const auto & cardInDeck : target.deck) {
-			if (cardInDeck.type == CARD_CALL_FOR_WOLVES) {
-				dmg *= 2;
-				break;
-			}
-		}
+		bool hasWolves = false;
+		for(const auto& tc : target.deck) if (tc.type == CARD_CALL_FOR_WOLVES) hasWolves = true;
+		for(const auto& tc : target.discardPile) if (tc.type == CARD_CALL_FOR_WOLVES) hasWolves = true;
+		if (hasWolves) dmg *= 2;
 	}
 
-	// Ghost form immunity to Phys/Pierce
 	if (target.inGhostForm && (c.damageType == DAMAGE_PHYSICAL || c.damageType == DAMAGE_PIERCING)) {
 		dmg = 0;
 	}
@@ -42180,14 +42226,12 @@ void ofApp::thinkRuleBasedAI() {
 		int choice = 1;
 
 		if (interactingCardType == CARD_BURST_OF_LIGHT) {
-			Player * boss = nullptr;
-			for (auto & p : players) {
-				if (!p.isMinion && p.playerID == activeID) {
-					boss = &p;
-					break;
-				}
+			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
+				int targetOwner = players[interactionTargetIndex].isMinion ? players[interactionTargetIndex].ownerID : players[interactionTargetIndex].playerID;
+				choice = (targetOwner == enemyID) ? 1 : 2; // 1 = Damage Enemy, 2 = Heal Ally
+			} else {
+				choice = 1;
 			}
-			choice = (boss && boss->health < boss->maxHealth) ? 2 : 1;
 		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
 			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
 				int targetOwner = players[interactionTargetIndex].isMinion ? players[interactionTargetIndex].ownerID : players[interactionTargetIndex].playerID;
@@ -42850,7 +42894,7 @@ void ofApp::thinkRuleBasedAI() {
 				}
 
 				// Data-Driven Direct Attacks & AOE
-				bool isDamageCard = (card.baseDamage > 0 || card.damageDiceNum > 0 || card.type == CARD_DEATH || card.type == CARD_SHIELD_BASH);
+				bool isDamageCard = (card.type == CARD_PUNCH || card.type == CARD_KICK || card.type == CARD_BASH || card.type == CARD_STAB || card.type == CARD_SLASH || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_SHOCK || card.type == CARD_ROCK_CRUSH || card.type == CARD_WISDOM_BOON || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_FLAME_HIT || card.type == CARD_DRAIN_PUNCH || card.type == CARD_MASTER_FIST || card.type == CARD_MAGIC_BOLT || card.type == CARD_FLAIL || card.type == CARD_DEATH || card.type == CARD_SHIELD_BASH || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_ADD_POISON || card.type == CARD_FLURRY_OF_FISTS || card.type == CARD_VAMPIRE_BITE || card.type == CARD_SMITE || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_SHOOT_ARROW || card.baseDamage > 0 || card.damageDiceNum > 0);
 				if (isDamageCard) {
 					int enemiesHit = 0;
 					int maxDmgDealt = 0;
@@ -42937,7 +42981,7 @@ void ofApp::thinkRuleBasedAI() {
 				}
 
 				// Data-Driven Heals
-				bool isHeal = (card.type == CARD_LESSER_HEAL || card.type == CARD_HEAL || card.type == CARD_FULL_RESTORE || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_CONSUME_HEALTH_FLAGON || card.baseHeal > 0 || card.healAmount > 0);
+				bool isHeal = (card.type == CARD_LESSER_HEAL || card.type == CARD_HEAL || card.type == CARD_FULL_RESTORE || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_CONSUME_HEALTH_FLAGON || card.baseHeal > 0 || card.healAmount > 0 || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_VAMPIRE_BITE || card.type == CARD_DRAIN_PUNCH || card.type == CARD_FORM_OF_TORTOISE);
 				if (isHeal && mainPlayer && mainPlayer->health < mainPlayer->maxHealth) {
 					for (size_t k = 0; k < players.size(); ++k) {
 						if (players[k].x == x && players[k].y == y && (players[k].isMinion ? players[k].ownerID : players[k].playerID) == activeID) {
@@ -42955,30 +42999,29 @@ void ofApp::thinkRuleBasedAI() {
 				}
 
 				// Specific Power Engine Overrides
-				if (card.type == CARD_STUDY)
-					score += 800.0f;
-				else if (card.type == CARD_TRAIN)
-					score += 750.0f;
-				else if (card.type == CARD_HASTEN)
-					score += 1500.0f;
-				else if (card.type == CARD_SPRINT)
-					score += 1500.0f;
-				else if (card.type == CARD_TIME_VORTEX)
-					score += 1500.0f;
+				if (card.type == CARD_STUDY) score += 800.0f;
+				else if (card.type == CARD_TRAIN) score += 750.0f;
+				else if (card.type == CARD_HASTEN) score += 1500.0f;
+				else if (card.type == CARD_SPRINT) score += 1500.0f;
+				else if (card.type == CARD_TIME_VORTEX) score += 1500.0f;
 				else if (card.type == CARD_MIND_THEFT) {
-					// Check if targeting opponent player
 					for (size_t k = 0; k < players.size(); ++k) {
 						if (players[k].x == x && players[k].y == y && !players[k].isMinion && players[k].playerID == enemyID) {
 							score += 1600.0f; // High priority to steal good cards from the boss!
 							break;
 						}
 					}
-				} else if (card.type == CARD_AMNESIA)
-					score += 1200.0f; // Strong disruption
-				else if (card.type == CARD_DISPEL)
-					score += 800.0f; // Good utility
-				else if (card.type == CARD_TELEPORT)
-					score += 600.0f; // Base mobility score
+				}
+				else if (card.type == CARD_AMNESIA) score += 1200.0f;
+				else if (card.type == CARD_DISPEL) score += 800.0f;
+				else if (card.type == CARD_TELEPORT) score += 600.0f;
+				else if (card.type == CARD_MASTER_FIST) score += 2500.0f; // ALWAYS good to play (Permanent Luck/HP)
+				else if (card.type == CARD_FOUR_LEAF_CLOVER) score += 2000.0f; // Permanent Luck
+				else if (card.type == CARD_CONSUME_HEALTH_POTION) score += 1000.0f;
+				else if (card.type == CARD_CONSUME_HEALTH_FLAGON) score += 1200.0f;
+				else if (card.type == CARD_RENEWED_INSPIRATION && me.hand.size() >= 3) score += 1000.0f;
+				else if (card.type == CARD_STRENGTHEN_ELEMENTS) score += 1000.0f;
+				else if (card.type == CARD_NECROMANCER_S_BLESSING && countSkeletons(activeID) > 0) score += 1500.0f;
 
 				if (score > 0.0f) {
 					candidates.push_back({ ScoredAction::PLAY, i, x, y, score - (cost * 1.5f) });
