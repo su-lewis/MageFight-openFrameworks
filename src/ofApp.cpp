@@ -44673,6 +44673,24 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 
 	if (candidate.type == CARD_TELEPORT) return true;
 
+	bool wouldBeTrapped = false;
+	if (board[p.x][p.y].hasWall) {
+		int cost = getEffectiveCardCostForPlayer(p, candidate);
+		int netAP = currentAP - cost;
+		if (candidate.type == CARD_SPRINT) netAP += 2;
+		else if (candidate.apGain > cost) netAP += (candidate.apGain - cost);
+
+		if (candidate.type != CARD_TELEPORT && candidate.type != CARD_EARTHQUAKE && candidate.type != CARD_DEMOLITION && candidate.type != CARD_TRANSFORM_WALL) {
+			if (netAP <= 0) {
+				if (!hasAssistantRerollAvailable(playerIndex, p.x, p.y)) {
+					wouldBeTrapped = true;
+				}
+			}
+		}
+	}
+
+	if (wouldBeTrapped) return false;
+
 	// FIX: Use a robust hash of the board and player states so the cache updates exactly when needed!
 	static uint64_t s_cacheHash = 0;
 	static std::map<int, bool> s_glowCache;
