@@ -6519,7 +6519,6 @@ void ofApp::draw() {
 				bool shouldShowChat = isChatOpen || hasLingering;
 
 				if (shouldShowChat) {
-					chatScrollOffset = 0;
 					const UILayoutSpacing uiLayout = buildUILayoutSpacing(scale, turnTimerEnabled);
 					float margin = uiLayout.chatInset + uiLayout.timerBarHeight;
 					float chatY = margin + tabHeight + chatBoxHeight;
@@ -6555,7 +6554,7 @@ void ofApp::draw() {
 						chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
 
 						ofPushStyle();
-						ofSetColor(0, 0, 0, 160);
+						ofSetColor(0, 0, 0, 225); // Increased opacity for readability over 3D board
 						ofDrawRectangle(chatWindowRect);
 						ofSetColor(0, 0, 0, 255);
 						ofNoFill();
@@ -6627,7 +6626,10 @@ void ofApp::draw() {
 							float messageY = contentTop + messageHeight;
 							std::vector<ChatMessage> messagesToDraw;
 							int maxVis = (int)(chatBoxHeight / messageHeight) - inputLines - 1;
-							for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
+							
+							int startIndex = std::max(0, (int)chatHistory.size() - 1 - (int)chatScrollOffset);
+
+							for (int i = startIndex; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
 								messagesToDraw.push_back(chatHistory[i]);
 							}
 							std::reverse(messagesToDraw.begin(), messagesToDraw.end());
@@ -6659,9 +6661,19 @@ void ofApp::draw() {
 						} else if (currentChatTab == ChatTab::LOG) {
 							float logY = contentTop + messageHeight;
 							int maxVis = (int)(chatBoxHeight / messageHeight);
+							
+							// Reverse the log so newest events are at the bottom, matching standard chat UX
+							std::vector<GameLogEntry> logsToDraw;
+							int startLogIdx = std::max(0, (int)gameLog.size() - 1 - (int)chatScrollOffset);
+							
+							for (int i = startLogIdx; i >= 0 && (int)logsToDraw.size() < maxVis; i--) {
+								logsToDraw.push_back(gameLog[i]);
+							}
+							std::reverse(logsToDraw.begin(), logsToDraw.end());
+
 							int drawn = 0;
-							for (int i = 0; i < (int)gameLog.size() && drawn < maxVis; i++) {
-								auto wLines = wrapText(gameLog[i].text, chatMaxWidth - 20);
+							for (const auto& entry : logsToDraw) {
+								auto wLines = wrapText(entry.text, chatMaxWidth - 20);
 								for (const auto & line : wLines) {
 									if (logY > contentBottom || drawn >= maxVis) break;
 									ofSetColor(200);
@@ -16569,12 +16581,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Check if clicking on Chat tab
 					if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
 						currentChatTab = ChatTab::CHAT;
+						chatScrollOffset = 0; // Reset scroll on tab switch
 						lastChatInteractionTime = ofGetElapsedTimef();
 						return;
 					}
 					// Check if clicking on Log tab
 					if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
 						currentChatTab = ChatTab::LOG;
+						chatScrollOffset = 0; // Reset scroll on tab switch
 						lastChatInteractionTime = ofGetElapsedTimef();
 						return;
 					}
@@ -19036,6 +19050,21 @@ void ofApp::mouseReleased(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
+	// Handle Chat Window Scrolling
+	if (isChatOpen && !isChatMinimized && chatWindowRect.inside(x, y)) {
+		if (currentChatTab == ChatTab::CHAT || currentChatTab == ChatTab::LOG) {
+			// Scroll fast!
+			chatScrollOffset += (scrollY > 0) ? 3 : -3; 
+			
+			int maxScroll = 0;
+			if (currentChatTab == ChatTab::CHAT) maxScroll = std::max(0, (int)chatHistory.size() - 1);
+			else maxScroll = std::max(0, (int)gameLog.size() - 1);
+			
+			chatScrollOffset = (float)std::clamp((int)chatScrollOffset, 0, maxScroll);
+		}
+		return;
+	}
+
 	// Handle Multiplayer Menu scrolling
 	if (currentState == STATE_MULTIPLAYER_MENU) {
 		float colW = ofGetWidth() * 0.4f;
@@ -19224,13 +19253,19 @@ void ofApp::keyPressed(int key) {
 		if (key == OF_KEY_RETURN) {
 			if (!chatInput.empty() && !isChatMinimized) {
 
-				// --- 1. SPAM FILTER (Rate Limiting) ---
-				static float lastMessageSentTime = 0.0f;
-				if (ofGetElapsedTimef() - lastMessageSentTime < 2.0f) {
-					// Give them a local warning that fades away
+				// --- 1. SPAM FILTER (Rate Limiting Burst) ---
+				static std::vector<float> messageTimestamps;
+				float now = ofGetElapsedTimef();
+				
+				// Remove message timestamps older than 4.0 seconds
+				messageTimestamps.erase(std::remove_if(messageTimestamps.begin(), messageTimestamps.end(), 
+					[now](float t) { return now - t > 4.0f; }), messageTimestamps.end());
+
+				// Allow up to 3 messages in rapid succession
+				if (messageTimestamps.size() >= 3) {
 					ChatMessage spamWarning;
 					spamWarning.playerName = "[SYSTEM]";
-					spamWarning.message = "You are sending messages too fast. Please wait.";
+					spamWarning.message = "You are sending messages too fast. Please wait a few seconds.";
 					spamWarning.timestamp = ofGetElapsedTimef();
 					chatHistory.push_back(spamWarning);
 
@@ -19285,11 +19320,27 @@ void ofApp::keyPressed(int key) {
 					return;
 				}
 
-				// --- ALL CHECKS PASSED, SEND MESSAGE ---
-				lastMessageSentTime = ofGetElapsedTimef(); // Update spam timer
+				// --- 4. STANDARD SWEAR CENSOR ---
+				auto censorSwears = [](std::string text) {
+					std::vector<std::string> swears = { "fuck", "shit", "bitch", "asshole", "cunt", "dick", "cock", "pussy", "bastard", "slut", "whore" };
+					std::string lowerText = text;
+					std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
+					for (const auto& w : swears) {
+						size_t pos = 0;
+						while ((pos = lowerText.find(w, pos)) != std::string::npos) {
+							for (size_t i = 0; i < w.length(); ++i) text[pos + i] = '*';
+							pos += w.length();
+						}
+					}
+					return text;
+				};
+				chatInput = censorSwears(chatInput);
 
-				// Prepare payload (Now using the cleanedMessage)
-				std::string payload = cleanedMessage;
+				// --- ALL CHECKS PASSED, SEND MESSAGE ---
+				messageTimestamps.push_back(now); // Register message in burst tracker
+
+				// Prepare payload
+				std::string payload = chatInput;
 				if (isMultiplayer && myLocalPlayerID == 2) {
 					std::string myName = steamManager.getLocalPlayerName();
 					if (myName.empty()) myName = "Spectator";
@@ -19374,6 +19425,7 @@ void ofApp::keyPressed(int key) {
 			isChatMinimized = false; // Open in full mode for typing
 			chatInput = "";
 			currentChatTab = ChatTab::CHAT; // Reset to chat tab when opening
+			chatScrollOffset = 0; // Reset scroll to bottom
 		} else if (currentChatTab == ChatTab::CHAT) {
 			// If already open and in Chat tab, Enter closes it (handled in block above, but acts as safety here)
 			isChatOpen = false;
@@ -40579,9 +40631,9 @@ void ofApp::processNetworkPackets() {
 				if (rawMsg.rfind("\aSYNC_NAME:", 0) == 0) {
 					std::string syncedName = rawMsg.substr(11);
 					if (pkt->playerID == 0)
-						player0SteamName = syncedName;
+						player0SteamName = getAlphaTaggedName(syncedName, steamManager.getOpponentSteamID().ConvertToUint64());
 					else if (pkt->playerID == 1)
-						player1SteamName = syncedName;
+						player1SteamName = getAlphaTaggedName(syncedName, steamManager.getOpponentSteamID().ConvertToUint64());
 					continue; // Hidden system message
 				}
 
@@ -42759,19 +42811,17 @@ void ofApp::thinkRuleBasedAI() {
 					}
 				} else if (isLinearPierceCard) {
 					// Step into cardinal horizontal/vertical alignment to pierce
-					int dirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-					for (auto & d : dirs) {
-						int destX = me.x + d[0], destY = me.y + d[1];
-						if (destX >= 0 && destX < BOARD_WIDTH && destY >= 0 && destY < BOARD_HEIGHT && !board[destX][destY].hasWall && !board[destX][destY].hasPlayer) {
-							int dx = std::abs(destX - enemy.x);
-							int dy = std::abs(destY - enemy.y);
-							if ((dx == 0 && (dy == 1 || dy == 2)) || (dy == 0 && (dx == 1 || dx == 2))) {
-								auto path = findShortestPathForPlayer(actorIdx, { (float)me.x, (float)me.y }, { (float)destX, (float)destY });
+					int offsets[] = { -2, -1, 1, 2 };
+					for (int off : offsets) {
+						glm::ivec2 dests[2] = { {enemy.x + off, enemy.y}, {enemy.x, enemy.y + off} };
+						for (auto& dest : dests) {
+							if (dest.x >= 0 && dest.x < BOARD_WIDTH && dest.y >= 0 && dest.y < BOARD_HEIGHT && !board[dest.x][dest.y].hasWall && !board[dest.x][dest.y].hasPlayer) {
+								auto path = findShortestPathForPlayer(actorIdx, { (float)me.x, (float)me.y }, { (float)dest.x, (float)dest.y });
 								int pathDist = (path.size() > 1) ? (int)path.size() - 1 : 999;
 								if (pathDist <= maxMoveAP && path.size() > 1) {
 									float alignScore = 800.0f + (estimatedDmg * 25.0f);
 									if (estimatedDmg >= enemy.health) alignScore += 1200.0f;
-									candidates.push_back({ ScoredAction::MOVE, -1, destX, destY, alignScore });
+									candidates.push_back({ ScoredAction::MOVE, -1, dest.x, dest.y, alignScore });
 								}
 							}
 						}
@@ -43029,6 +43079,16 @@ void ofApp::thinkRuleBasedAI() {
 							if ((enemyTarget.x == t1x && enemyTarget.y == t1y) || (enemyTarget.x == t2x && enemyTarget.y == t2y)) {
 								inHitArea = true;
 							}
+						} else if (card.targeting == TARGET_CLEAVE_ADJACENT || card.type == CARD_SLASH) {
+							int px = me.x, py = me.y;
+							if (std::abs(enemyTarget.x - px) <= 1 && std::abs(enemyTarget.y - py) <= 1) { 
+								int dy = y - py;
+								if (dy != 0) { 
+									if (enemyTarget.y == y && std::abs(enemyTarget.x - x) <= 1) inHitArea = true;
+								} else { 
+									if (enemyTarget.x == x && std::abs(enemyTarget.y - y) <= 1) inHitArea = true;
+								}
+							}
 						}
 
 						if (inHitArea) {
@@ -43195,6 +43255,11 @@ void ofApp::thinkRuleBasedAI() {
 						moveScore -= 1500.0f;
 					}
 
+					// Minions should avoid clogging 1-tile chokepoints unless engaging!
+					if (me.isMinion && isGapTile(glm::vec2(nx, ny)) != 0 && !me.inGhostForm) {
+						moveScore -= 400.0f;
+					}
+
 					// --- SUPPORT MINIONS STAY BACK ---
 					if (isSupportMinion) {
 						Player * boss = nullptr;
@@ -43237,7 +43302,12 @@ void ofApp::thinkRuleBasedAI() {
 						} else if (effectiveHP <= 8) {
 							moveScore -= (danger * 50.0f); // Low HP, highly risk averse
 						} else {
-							moveScore -= (danger * 15.0f); // General damage avoidance
+							// Courage Buff: If HP is double the threat, don't be scared to advance!
+							if (effectiveHP > danger * 2.5f) {
+								moveScore -= (danger * 5.0f); // Brave!
+							} else {
+								moveScore -= (danger * 15.0f); // General damage avoidance
+							}
 						}
 					} else {
 						moveScore += 200.0f; // Safe cover bonus
@@ -43254,7 +43324,7 @@ void ofApp::thinkRuleBasedAI() {
 			});
 
 			const auto & bestMove = moveCandidates.front();
-			if (bestMove.score > 50.0f) {
+			if (bestMove.score > -1000.0f) { // Allow retreating even if the score is slightly negative
 				aiLastAttemptedCardIdx = -1;
 				aiLastMovedFromTile = { me.x, me.y };
 
