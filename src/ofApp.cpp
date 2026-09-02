@@ -646,7 +646,7 @@ static void safePopStyle() {
 	}
 
 static void SafeDrawText(const ofTrueTypeFont & font, const std::string & text, float x, float y) {
-	if (!g_renderText || g_suppressText || text.empty()) return;
+	if (!g_renderText || g_suppressText || text.empty() || !font.isLoaded()) return;
 	TEXT_PASS_BEGIN()
 	font.drawString(text, x, y);
 	TEXT_PASS_END()
@@ -1389,7 +1389,7 @@ static float quantizePixelTextScale(float scale) {
 }
 
 static void drawPixelTextBaseline(const ofTrueTypeFont & font, const std::string & text, float baselineX, float baselineY, float scale, const ofColor & fillColor, int outlinePx = 0, const ofColor & outlineColor = ofColor::black) {
-	if (!g_renderText || text.empty()) return;
+	if (!g_renderText || text.empty() || !font.isLoaded()) return;
 	TEXT_PASS_BEGIN()
 
 	float s = quantizePixelTextScale(scale);
@@ -1492,7 +1492,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const ofColor & outlineColor,
 	int outlinePx) {
 
-	if (!g_renderText || g_suppressText || text.empty()) return;
+	if (!g_renderText || g_suppressText || text.empty() || !font.isLoaded()) return;
 
 	TEXT_PASS_BEGIN()
 
@@ -4376,7 +4376,7 @@ void ofApp::setup() {
 		}
 
 		// --- SET DEFAULTS BEFORE LOADING ---
-		g_windowModeState = 1; // Default to Fullscreen
+		g_windowModeState = 2; // Default to Borderless Windowed (Safest for Linux/Wayland)
 		isFullscreen = true;
 
 		int monitorRefreshRate = 60;
@@ -4543,8 +4543,8 @@ void ofApp::setup() {
 			string filename = "Board/Tile" + ofToString(i) + ".png";
 
 			if (ofLoadImage(tex, filename)) {
-				tex.generateMipmap();
-				tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+				// DO NOT generate mipmaps for 2D pixel art tiles; breaks older Linux Mesa drivers
+				tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 				tex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 				floorTextures.push_back(tex);
 
@@ -4641,15 +4641,24 @@ void ofApp::setup() {
 
 		// --- 4. DICE TEXTURES & COIN ---
 		// Note: Paths point to specific Dice/ subfolders
-		ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
-		ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
-		ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png");
-		ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
+		auto setupDiceTex = [](ofTexture& tex, const std::string& path) {
+			if (ofLoadImage(tex, path)) {
+				// Prevent black specks/static on Linux Mesa drivers by forcing nearest filtering.
+				// This stops the GPU from bleeding empty black pixels across UV atlas boundaries!
+				tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				tex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			}
+		};
+
+		setupDiceTex(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
+		setupDiceTex(d6Texture, "Dice/D6/dice_texture_d6.png");
+		setupDiceTex(d10Texture, "Dice/D10/d10SilverAlbedo.png");
+		setupDiceTex(d20Texture, "Dice/D20/d20_diffuse.png");
 
 		ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
-		// Use nearest filtering and mipmaps for a crisp pixel coin appearance
-		coinFacesTexture.generateMipmap();
-		coinFacesTexture.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+		// Use nearest filtering for a crisp pixel coin appearance
+		coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		coinFacesTexture.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
 		// --- 5. SOUNDS ---
 		// Note: Path points to Sounds/Player/
@@ -4906,10 +4915,20 @@ void ofApp::setup() {
 		// END ADD
 
 		// Adjust FOV based on aspect ratio to maintain consistent scale
-		float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
+		float safeH = std::max(1.0f, (float)ofGetHeight());
+		float aspectRatio = (float)ofGetWidth() / safeH;
 		float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
-		cam.setupPerspective(false, fov, 0.1f, 100000);
-		cam2.setupPerspective(false, fov, 0.1f, 100000); // Same settings for cam2
+
+		// CRITICAL FIX: Z-Near 1.0f and Z-Far 5000.0f completely fixes Z-fighting (black static) 
+		// on 3D meshes (like the dice) by giving the depth buffer massive mathematical precision!
+		cam.setupPerspective(false, fov, 1.0f, 5000.0f); 
+		cam2.setupPerspective(false, fov, 1.0f, 5000.0f); // Same settings for cam2
+
+		// Initialize Menu Panning explicitly so it doesn't propagate NaN
+		currentMenuPanX = 0.0f;
+		targetMenuPanX = 0.0f;
+		targetMenuScreen = 0;
+		isWaitingForMenuTransition = false;
 
 		// --- SHADOW TEXTURE GENERATION ---
 		ofPixels pix;
@@ -5423,7 +5442,8 @@ void ofApp::update() {
 	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA) {
 		if (isWaitingForMenuTransition) {
 			// Determine the boundaries of the screen we are currently looking at
-			int currentScreen = std::round(targetMenuPanX / (30 * menuTileSize));
+			float safeTileSize = std::max(1.0f, menuTileSize);
+			int currentScreen = std::round(targetMenuPanX / (30.0f * safeTileSize));
 			int leftEdge = currentScreen * 30 - 1;
 			int rightEdge = currentScreen * 30 + 13;
 
@@ -5439,7 +5459,8 @@ void ofApp::update() {
 			}
 		}
 
-		float dt = ofGetLastFrameTime();
+		// Clamp delta time to 0.1s so a massive loading lag spike on frame 1 doesn't blast the camera to infinity!
+		float dt = std::min((float)ofGetLastFrameTime(), 0.1f);
 		currentMenuPanX = ofLerp(currentMenuPanX, targetMenuPanX, 6.0f * dt);
 		// Always update rects so buttons slide perfectly with the background
 		updateMenuRects();
@@ -6245,6 +6266,17 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 void ofApp::draw() {
 	if (!isMultiplayer && gameSuspendedDueToInactivity) { }
 	if (headless) return;
+
+	// CRITICAL FIX: Reset Global OpenGL State to prevent black screens on Linux GPUs!
+	ofDisableDepthTest();
+	ofSetColor(255, 255, 255, 255);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_COLOR_MATERIAL);
+	glDisable(GL_LIGHTING);
+	glDisable(GL_CULL_FACE);
+	safeEnableAlphaBlending();
+	glDepthMask(GL_TRUE);
 
 	s_hoveredHistoryIndex = -1;
 	if (currentState == STATE_GAMEPLAY && !g_actionHistory.empty()) {
@@ -7525,12 +7557,13 @@ void ofApp::navigateToMenu(int screenIndex, GameState newState) {
 }
 
 void ofApp::updateMenuRects() {
-	float w = ofGetWidth();
-	float h = ofGetHeight();
+	float w = std::max(1.0f, (float)ofGetWidth());
+	float h = std::max(1.0f, (float)ofGetHeight());
 	float uiScale = std::clamp(settingsUIScale * std::min(w / 1920.0f, getUIScaleFromHeight(h)), 0.75f, 1.25f);
 
 	// FIX: Use 15/11 so the 13x9 board fits perfectly on screen without seeing the adjacent menus!
-	menuTileSize = std::ceil(std::max(w / 15.0f, h / 11.0f));
+	// Clamped to 1.0f to prevent fatal Division-by-Zero errors on Wayland async startups
+	menuTileSize = std::max(1.0f, std::ceil(std::max(w / 15.0f, h / 11.0f)));
 	baseMenuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
 	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
 
@@ -8554,7 +8587,7 @@ void ofApp::recalculateUI(int w, int h) {
 	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.75f, 1.25f);
 
 	// 2. Recalculate Main Menu Buttons
-	menuTileSize = std::ceil(std::max(w / 19.0f, h / 14.0f));
+	menuTileSize = std::max(1.0f, std::ceil(std::max(w / 19.0f, h / 14.0f)));
 
 	menuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
 	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
