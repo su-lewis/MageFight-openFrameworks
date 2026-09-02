@@ -91,6 +91,28 @@ public:
 
 static SteamAuthValidator g_steamAuthValidator;
 
+// --- BROWSER FLAGS ---
+static bool g_saveBrowserIsReplayMode = false;
+static bool g_hasAvailableSaves = false;
+static bool g_hasAvailableReplays = false;
+static float g_gameSavedNotificationTimer = -999.0f;
+
+// --- ALPHA TESTER SYSTEM ---
+static std::string getAlphaTaggedName(std::string name, uint64_t steamID) {
+	if (name.empty()) return name;
+	
+	// Add your Alpha Testers' Steam64 IDs here! (Find them via steamid.io)
+	static const std::vector<uint64_t> alphaIDs = {
+		76561197960287930, // Example ID
+		76561198000000000  // Replace these with your testers!
+	};
+	
+	if (std::find(alphaIDs.begin(), alphaIDs.end(), steamID) != alphaIDs.end()) {
+		return "[Alpha] " + name;
+	}
+	return name;
+}
+
 static void SendLocalAuthSessionTicket(SteamManager & steamMgr, int localPlayerID) {
 	if (!SteamUser()) return;
 
@@ -8168,6 +8190,28 @@ void ofApp::drawSettingsMenu() {
 }
 
 void ofApp::drawSingleplayerMenu() {
+	// Periodically check file availability (rate-limited so it doesn't spam the disk)
+	static float lastDiskCheck = 0.0f;
+	if (ofGetElapsedTimef() - lastDiskCheck > 1.0f) {
+		lastDiskCheck = ofGetElapsedTimef();
+		g_hasAvailableSaves = false;
+		g_hasAvailableReplays = false;
+		try {
+			namespace fs = std::filesystem;
+			fs::path dir = getSavesDirPath();
+			if (fs::exists(dir)) {
+				for (const auto& entry : fs::directory_iterator(dir)) {
+					if (!entry.is_regular_file()) continue;
+					std::string name = entry.path().filename().string();
+					if (name.size() > 5 && name.substr(name.size() - 5) == ".json") {
+						if (name.find("replay") != std::string::npos) g_hasAvailableReplays = true;
+						else if (name.find("save") != std::string::npos) g_hasAvailableSaves = true;
+					}
+				}
+			}
+		} catch(...) {}
+	}
+
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
 	float sX = baseMenuStartX - currentMenuPanX + (30 * menuTileSize);
 	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
@@ -8176,9 +8220,9 @@ void ofApp::drawSingleplayerMenu() {
 	drawPixelTextCentered(titleFont, "SINGLEPLAYER", centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
 	drawMenuPlaqueButton(singleplayerNewGameButton, "New vs AI", singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerContinueButton, "Continue vs AI", singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerLoadButton, "Load Game", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerReplayButton, "Watch Last Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerContinueButton, "Continue vs AI", singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
+	drawMenuPlaqueButton(singleplayerLoadButton, "Load Game", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
+	drawMenuPlaqueButton(singleplayerReplayButton, "Watch a Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableReplays);
 	drawMenuPlaqueButton(mainMenuLocalPvPButton, "Local PvP", mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(singleplayerBackButton, "Back", singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
@@ -8202,7 +8246,7 @@ void ofApp::drawCustomisationState() {
 
 void ofApp::drawSaveBrowser() {
 	ofSetColor(ofColor::white);
-	string title = "Load Saved Game";
+	string title = g_saveBrowserIsReplayMode ? "Watch Replay" : "Load Saved Game";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
 	SafeDrawText(titleFont, title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.12);
 
@@ -8225,8 +8269,14 @@ void ofApp::drawSaveBrowser() {
 				if (!entry.is_regular_file()) continue;
 				std::string name = entry.path().filename().string();
 				if (name.size() > 5 && name.substr(name.size() - 5) == ".json") {
-					if (name.rfind("autosave", 0) == 0 || name.rfind("save", 0) == 0) {
-						files.emplace_back(readSaveTimestampFromFile(entry.path()), entry.path());
+					if (g_saveBrowserIsReplayMode) {
+						if (name.find("replay") != std::string::npos) {
+							files.emplace_back(readSaveTimestampFromFile(entry.path()), entry.path());
+						}
+					} else {
+						if (name.rfind("autosave", 0) == 0 || name.rfind("save", 0) == 0 || name.rfind("manual", 0) == 0) {
+							files.emplace_back(readSaveTimestampFromFile(entry.path()), entry.path());
+						}
 					}
 				}
 			}
@@ -8843,16 +8893,16 @@ void ofApp::setupGame() {
 		if (isHost()) {
 			std::string p0Name = steamManager.getLocalPlayerName();
 			std::string p1Name = steamManager.getOpponentName();
-			player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-			player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+			player0SteamName = getAlphaTaggedName(p0Name.empty() ? "Player 1" : p0Name, steamManager.getLocalSteamID().ConvertToUint64());
+			player1SteamName = getAlphaTaggedName(p1Name.empty() ? "Player 2" : p1Name, steamManager.getOpponentSteamID().ConvertToUint64());
 
 			steamManager.setLobbySeed(currentMapSeed);
 			steamManager.setMatchStarted();
 		} else {
 			std::string p1Name = steamManager.getLocalPlayerName();
 			std::string p0Name = steamManager.getOpponentName();
-			player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-			player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
+			player0SteamName = getAlphaTaggedName(p0Name.empty() ? "Player 1" : p0Name, steamManager.getOpponentSteamID().ConvertToUint64());
+			player1SteamName = getAlphaTaggedName(p1Name.empty() ? "Player 2" : p1Name, steamManager.getLocalSteamID().ConvertToUint64());
 		}
 
 		if (isMultiplayer && myLocalPlayerID != 2) {
@@ -16212,7 +16262,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					isLoadingGame = true;
 				} else if (singleplayerContinueButton.inside(x, y)) {
 					clickedUI = true;
-					if (loadGameStateFromFile("autosave.json")) {
+					if (g_hasAvailableSaves && loadGameStateFromFile("autosave.json")) {
 						isMultiplayer = false;
 						currentState = STATE_GAMEPLAY;
 						buildLevelMesh();
@@ -16223,12 +16273,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				} else if (singleplayerLoadButton.inside(x, y)) {
 					clickedUI = true;
-					saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
-					currentState = STATE_SAVE_BROWSER;
+					if (g_hasAvailableSaves) {
+						g_saveBrowserIsReplayMode = false;
+						saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
+						currentState = STATE_SAVE_BROWSER;
+					}
 				} else if (singleplayerReplayButton.inside(x, y)) {
 					clickedUI = true;
-					loadReplay("last_match_replay.json");
-					currentState = STATE_GAMEPLAY;
+					if (g_hasAvailableReplays) {
+						g_saveBrowserIsReplayMode = true;
+						saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
+						currentState = STATE_SAVE_BROWSER;
+					}
 				}
 			} else if (currentState == STATE_ENCYCLOPEDIA) {
 				if (encyBtnBack.inside(x, y)) {
@@ -17374,7 +17430,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveGameStateToFile(stamped);
 				pruneOldSaves(10); // keep a few manual-stamped saves
 				addGameLog("Game saved to manual_save.json");
-				// Snapshot suppressed: only sent on reconnect or desync recovery.
+				g_gameSavedNotificationTimer = ofGetElapsedTimef(); // Trigger UI Feedback
 			} else {
 				addGameLog("Failed to save game state.");
 			}
@@ -17438,19 +17494,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 						std::string path = saveFilePaths[i];
 						if (isMultiplayer && !isHost()) {
 							addGameLog("Load is host-only in multiplayer.");
-							// dismiss confirm
 							networkPending.saveBrowserConfirmVisible = false;
 							networkPending.saveBrowserPendingIndex = -1;
 							return;
 						}
-						bool ok = loadGameStateFromFile(path);
-						if (ok) {
-							addGameLog("Loaded " + path);
-							// Snapshot suppressed: only sent on reconnect or desync recovery.
+						
+						if (g_saveBrowserIsReplayMode) {
+							// Extract just the filename since loadReplay handles the directory appending
+							namespace fs = std::filesystem;
+							loadReplay(fs::path(path).filename().string());
 							currentState = STATE_GAMEPLAY;
-							// Removed requestStartNewTurn() so we don't accidentally end the loaded turn!
 						} else {
-							addGameLog("Failed to load " + path);
+							bool ok = loadGameStateFromFile(path);
+							if (ok) {
+								addGameLog("Loaded " + path);
+								currentState = STATE_GAMEPLAY;
+							} else {
+								addGameLog("Failed to load " + path);
+							}
 						}
 					}
 					networkPending.saveBrowserConfirmVisible = false;
@@ -39893,7 +39954,11 @@ void ofApp::drawPauseMenu() {
 	curY += btnH + btnGap;
 
 	if (!isMultiplayer) {
-		drawBtn(pauseMenuSaveButton, curY, "Save Game", 1);
+		if (ofGetElapsedTimef() - g_gameSavedNotificationTimer < 2.0f) {
+			drawBtn(pauseMenuSaveButton, curY, "Game Saved!", 1, ofColor(50, 140, 50));
+		} else {
+			drawBtn(pauseMenuSaveButton, curY, "Save Game", 1);
+		}
 		curY += btnH + btnGap;
 		drawBtn(pauseMenuLoadButton, curY, "Load Game", 2);
 		curY += btnH + btnGap;
