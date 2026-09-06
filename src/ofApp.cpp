@@ -100,13 +100,13 @@ static float g_gameSavedNotificationTimer = -999.0f;
 // --- ALPHA TESTER SYSTEM ---
 static std::string getAlphaTaggedName(std::string name, uint64_t steamID) {
 	if (name.empty()) return name;
-	
+
 	// Add your Alpha Testers' Steam64 IDs here! (Find them via steamid.io)
 	static const std::vector<uint64_t> alphaIDs = {
 		76561197960287930, // Example ID
-		76561198000000000  // Replace these with your testers!
+		76561198000000000 // Replace these with your testers!
 	};
-	
+
 	if (std::find(alphaIDs.begin(), alphaIDs.end(), steamID) != alphaIDs.end()) {
 		return "[Alpha] " + name;
 	}
@@ -4663,7 +4663,7 @@ void ofApp::setup() {
 
 		// --- 4. DICE TEXTURES & COIN ---
 		// Note: Paths point to specific Dice/ subfolders
-		auto setupDiceTex = [](ofTexture& tex, const std::string& path) {
+		auto setupDiceTex = [](ofTexture & tex, const std::string & path) {
 			if (ofLoadImage(tex, path)) {
 				// Prevent black specks/static on Linux Mesa drivers by forcing nearest filtering.
 				// This stops the GPU from bleeding empty black pixels across UV atlas boundaries!
@@ -4941,9 +4941,9 @@ void ofApp::setup() {
 		float aspectRatio = (float)ofGetWidth() / safeH;
 		float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
 
-		// CRITICAL FIX: Z-Near 1.0f and Z-Far 5000.0f completely fixes Z-fighting (black static) 
+		// CRITICAL FIX: Z-Near 1.0f and Z-Far 5000.0f completely fixes Z-fighting (black static)
 		// on 3D meshes (like the dice) by giving the depth buffer massive mathematical precision!
-		cam.setupPerspective(false, fov, 1.0f, 5000.0f); 
+		cam.setupPerspective(false, fov, 1.0f, 5000.0f);
 		cam2.setupPerspective(false, fov, 1.0f, 5000.0f); // Same settings for cam2
 
 		// Initialize Menu Panning explicitly so it doesn't propagate NaN
@@ -6626,7 +6626,7 @@ void ofApp::draw() {
 							float messageY = contentTop + messageHeight;
 							std::vector<ChatMessage> messagesToDraw;
 							int maxVis = (int)(chatBoxHeight / messageHeight) - inputLines - 1;
-							
+
 							int startIndex = std::max(0, (int)chatHistory.size() - 1 - (int)chatScrollOffset);
 
 							for (int i = startIndex; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
@@ -6661,18 +6661,18 @@ void ofApp::draw() {
 						} else if (currentChatTab == ChatTab::LOG) {
 							float logY = contentTop + messageHeight;
 							int maxVis = (int)(chatBoxHeight / messageHeight);
-							
+
 							// Reverse the log so newest events are at the bottom, matching standard chat UX
 							std::vector<GameLogEntry> logsToDraw;
 							int startLogIdx = std::max(0, (int)gameLog.size() - 1 - (int)chatScrollOffset);
-							
+
 							for (int i = startLogIdx; i >= 0 && (int)logsToDraw.size() < maxVis; i--) {
 								logsToDraw.push_back(gameLog[i]);
 							}
 							std::reverse(logsToDraw.begin(), logsToDraw.end());
 
 							int drawn = 0;
-							for (const auto& entry : logsToDraw) {
+							for (const auto & entry : logsToDraw) {
 								auto wLines = wrapText(entry.text, chatMaxWidth - 20);
 								for (const auto & line : wLines) {
 									if (logY > contentBottom || drawn >= maxVis) break;
@@ -8212,16 +8212,18 @@ void ofApp::drawSingleplayerMenu() {
 			namespace fs = std::filesystem;
 			fs::path dir = getSavesDirPath();
 			if (fs::exists(dir)) {
-				for (const auto& entry : fs::directory_iterator(dir)) {
+				for (const auto & entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					std::string name = entry.path().filename().string();
 					if (name.size() > 5 && name.substr(name.size() - 5) == ".json") {
-						if (name.find("replay") != std::string::npos) g_hasAvailableReplays = true;
-						else if (name.find("save") != std::string::npos) g_hasAvailableSaves = true;
+						if (name.find("replay") != std::string::npos)
+							g_hasAvailableReplays = true;
+						else if (name.find("save") != std::string::npos)
+							g_hasAvailableSaves = true;
 					}
 				}
 			}
-		} catch(...) {}
+		} catch (...) { }
 	}
 
 	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
@@ -17512,7 +17514,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							networkPending.saveBrowserPendingIndex = -1;
 							return;
 						}
-						
+
 						if (g_saveBrowserIsReplayMode) {
 							// Extract just the filename since loadReplay handles the directory appending
 							namespace fs = std::filesystem;
@@ -19054,12 +19056,14 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	if (isChatOpen && !isChatMinimized && chatWindowRect.inside(x, y)) {
 		if (currentChatTab == ChatTab::CHAT || currentChatTab == ChatTab::LOG) {
 			// Scroll fast!
-			chatScrollOffset += (scrollY > 0) ? 3 : -3; 
-			
+			chatScrollOffset += (scrollY > 0) ? 3 : -3;
+
 			int maxScroll = 0;
-			if (currentChatTab == ChatTab::CHAT) maxScroll = std::max(0, (int)chatHistory.size() - 1);
-			else maxScroll = std::max(0, (int)gameLog.size() - 1);
-			
+			if (currentChatTab == ChatTab::CHAT)
+				maxScroll = std::max(0, (int)chatHistory.size() - 1);
+			else
+				maxScroll = std::max(0, (int)gameLog.size() - 1);
+
 			chatScrollOffset = (float)std::clamp((int)chatScrollOffset, 0, maxScroll);
 		}
 		return;
@@ -19256,10 +19260,11 @@ void ofApp::keyPressed(int key) {
 				// --- 1. SPAM FILTER (Rate Limiting Burst) ---
 				static std::vector<float> messageTimestamps;
 				float now = ofGetElapsedTimef();
-				
+
 				// Remove message timestamps older than 4.0 seconds
-				messageTimestamps.erase(std::remove_if(messageTimestamps.begin(), messageTimestamps.end(), 
-					[now](float t) { return now - t > 4.0f; }), messageTimestamps.end());
+				messageTimestamps.erase(std::remove_if(messageTimestamps.begin(), messageTimestamps.end(),
+											[now](float t) { return now - t > 4.0f; }),
+					messageTimestamps.end());
 
 				// Allow up to 3 messages in rapid succession
 				if (messageTimestamps.size() >= 3) {
@@ -19325,10 +19330,11 @@ void ofApp::keyPressed(int key) {
 					std::vector<std::string> swears = { "fuck", "shit", "bitch", "asshole", "cunt", "dick", "cock", "pussy", "bastard", "slut", "whore" };
 					std::string lowerText = text;
 					std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
-					for (const auto& w : swears) {
+					for (const auto & w : swears) {
 						size_t pos = 0;
 						while ((pos = lowerText.find(w, pos)) != std::string::npos) {
-							for (size_t i = 0; i < w.length(); ++i) text[pos + i] = '*';
+							for (size_t i = 0; i < w.length(); ++i)
+								text[pos + i] = '*';
 							pos += w.length();
 						}
 					}
@@ -21137,8 +21143,10 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	bool wouldBeTrapped = false;
 	if (board[caster.x][caster.y].hasWall) {
 		int netAP = currentAP - costToPay;
-		if (card.type == CARD_SPRINT) netAP += 2;
-		else if (card.apGain > costToPay) netAP += (card.apGain - costToPay);
+		if (card.type == CARD_SPRINT)
+			netAP += 2;
+		else if (card.apGain > costToPay)
+			netAP += (card.apGain - costToPay);
 
 		if (card.type != CARD_TELEPORT && card.type != CARD_EARTHQUAKE && card.type != CARD_DEMOLITION && card.type != CARD_TRANSFORM_WALL) {
 			if (netAP <= 0) {
@@ -41653,52 +41661,109 @@ int ofApp::getCardEstimatedDamage(const Card & c, const Player & caster, const P
 	int diceSides = c.damageDiceSides;
 
 	switch (c.type) {
-		case CARD_PUNCH: baseDmg = 2; break;
-		case CARD_KICK: baseDmg = 4; break;
-		case CARD_BASH: diceNum = 2; diceSides = 4; break;
-		case CARD_STAB: diceNum = 1; diceSides = 6; break;
-		case CARD_SLASH: diceNum = 1; diceSides = 6; break;
-		case CARD_MAGIC_BLAST: baseDmg = 5; break;
-		case CARD_FIREBALL: diceNum = 1; diceSides = 6; break;
-		case CARD_SHOCK: baseDmg = 2; break;
-		case CARD_ROCK_CRUSH: diceNum = 2; diceSides = 10; break;
-		case CARD_WISDOM_BOON: baseDmg = caster.deck.size(); break;
-		case CARD_ETHEREAL_JOLT: baseDmg = 7; break;
-		case CARD_FLAME_HIT: baseDmg = 1; break;
-		case CARD_DRAIN_PUNCH: {
-			baseDmg = 2;
-			auto isHandRelatedAttack = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
-			for (CardType ct : caster.cardsPlayedThisTurn) {
-				if (isHandRelatedAttack(ct)) baseDmg += 2;
-			}
-			break;
+	case CARD_PUNCH:
+		baseDmg = 2;
+		break;
+	case CARD_KICK:
+		baseDmg = 4;
+		break;
+	case CARD_BASH:
+		diceNum = 2;
+		diceSides = 4;
+		break;
+	case CARD_STAB:
+		diceNum = 1;
+		diceSides = 6;
+		break;
+	case CARD_SLASH:
+		diceNum = 1;
+		diceSides = 6;
+		break;
+	case CARD_MAGIC_BLAST:
+		baseDmg = 5;
+		break;
+	case CARD_FIREBALL:
+		diceNum = 1;
+		diceSides = 6;
+		break;
+	case CARD_SHOCK:
+		baseDmg = 2;
+		break;
+	case CARD_ROCK_CRUSH:
+		diceNum = 2;
+		diceSides = 10;
+		break;
+	case CARD_WISDOM_BOON:
+		baseDmg = caster.deck.size();
+		break;
+	case CARD_ETHEREAL_JOLT:
+		baseDmg = 7;
+		break;
+	case CARD_FLAME_HIT:
+		baseDmg = 1;
+		break;
+	case CARD_DRAIN_PUNCH: {
+		baseDmg = 2;
+		auto isHandRelatedAttack = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+		for (CardType ct : caster.cardsPlayedThisTurn) {
+			if (isHandRelatedAttack(ct)) baseDmg += 2;
 		}
-		case CARD_MASTER_FIST: {
-			baseDmg = 0;
-			auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
-			for (const auto & pileCard : caster.discardPile) {
-				if (isHandRelated(pileCard.type)) baseDmg += 2;
-			}
-			break;
+		break;
+	}
+	case CARD_MASTER_FIST: {
+		baseDmg = 0;
+		auto isHandRelated = [](CardType type) { return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND || type == CARD_DOUBLE_HANDED || type == CARD_HAND_BLOCK; };
+		for (const auto & pileCard : caster.discardPile) {
+			if (isHandRelated(pileCard.type)) baseDmg += 2;
 		}
-		case CARD_MAGIC_BOLT: diceNum = 1; diceSides = 20; baseDmg = 3; break; 
-		case CARD_FLAIL: diceNum = 1; diceSides = 6; baseDmg = 2; break;
-		case CARD_DEATH: diceNum = 1; diceSides = 20; break; 
-		case CARD_SHIELD_BASH: baseDmg = caster.block + caster.ward + caster.fortification + caster.barrier + caster.holyBlock; break;
-		case CARD_CHAIN_LIGHTNING: diceNum = 1; diceSides = 10; break;
-		case CARD_FLURRY_OF_FISTS: baseDmg = 2; break;
-		case CARD_VAMPIRE_BITE: baseDmg = 3; break;
-		case CARD_SMITE: baseDmg = 5; break;
-		case CARD_BURST_OF_LIGHT: baseDmg = 3; break;
-		case CARD_SHOOT_ARROW: diceNum = 1; diceSides = 6; break;
-		default: break;
+		break;
+	}
+	case CARD_MAGIC_BOLT:
+		diceNum = 1;
+		diceSides = 20;
+		baseDmg = 3;
+		break;
+	case CARD_FLAIL:
+		diceNum = 1;
+		diceSides = 6;
+		baseDmg = 2;
+		break;
+	case CARD_DEATH:
+		diceNum = 1;
+		diceSides = 20;
+		break;
+	case CARD_SHIELD_BASH:
+		baseDmg = caster.block + caster.ward + caster.fortification + caster.barrier + caster.holyBlock;
+		break;
+	case CARD_CHAIN_LIGHTNING:
+		diceNum = 1;
+		diceSides = 10;
+		break;
+	case CARD_FLURRY_OF_FISTS:
+		baseDmg = 2;
+		break;
+	case CARD_VAMPIRE_BITE:
+		baseDmg = 3;
+		break;
+	case CARD_SMITE:
+		baseDmg = 5;
+		break;
+	case CARD_BURST_OF_LIGHT:
+		baseDmg = 3;
+		break;
+	case CARD_SHOOT_ARROW:
+		diceNum = 1;
+		diceSides = 6;
+		break;
+	default:
+		break;
 	}
 
 	if (baseDmg <= 0 && diceNum <= 0 && c.type != CARD_DEATH && c.type != CARD_SHIELD_BASH) return 0;
 
 	int dmg = baseDmg + (diceNum * (diceSides + 1) / 2);
 	int luck = caster.luck + const_cast<ofApp *>(this)->computePassiveLuck(findPlayerIndexByID(caster.playerID));
-	if (diceSides != 2) { 
+	if (diceSides != 2) {
 		dmg += (diceNum * luck);
 	}
 
@@ -41711,14 +41776,18 @@ int ofApp::getCardEstimatedDamage(const Card & c, const Player & caster, const P
 			dmg *= 2;
 		}
 		bool hasVampBite = false;
-		for(const auto& tc : target.deck) if (tc.type == CARD_VAMPIRE_BITE) hasVampBite = true;
-		for(const auto& tc : target.discardPile) if (tc.type == CARD_VAMPIRE_BITE) hasVampBite = true;
+		for (const auto & tc : target.deck)
+			if (tc.type == CARD_VAMPIRE_BITE) hasVampBite = true;
+		for (const auto & tc : target.discardPile)
+			if (tc.type == CARD_VAMPIRE_BITE) hasVampBite = true;
 		if (hasVampBite) dmg *= 2;
 	}
 	if (c.damageType == DAMAGE_PIERCING) {
 		bool hasWolves = false;
-		for(const auto& tc : target.deck) if (tc.type == CARD_CALL_FOR_WOLVES) hasWolves = true;
-		for(const auto& tc : target.discardPile) if (tc.type == CARD_CALL_FOR_WOLVES) hasWolves = true;
+		for (const auto & tc : target.deck)
+			if (tc.type == CARD_CALL_FOR_WOLVES) hasWolves = true;
+		for (const auto & tc : target.discardPile)
+			if (tc.type == CARD_CALL_FOR_WOLVES) hasWolves = true;
 		if (hasWolves) dmg *= 2;
 	}
 
@@ -42813,8 +42882,8 @@ void ofApp::thinkRuleBasedAI() {
 					// Step into cardinal horizontal/vertical alignment to pierce
 					int offsets[] = { -2, -1, 1, 2 };
 					for (int off : offsets) {
-						glm::ivec2 dests[2] = { {enemy.x + off, enemy.y}, {enemy.x, enemy.y + off} };
-						for (auto& dest : dests) {
+						glm::ivec2 dests[2] = { { enemy.x + off, enemy.y }, { enemy.x, enemy.y + off } };
+						for (auto & dest : dests) {
 							if (dest.x >= 0 && dest.x < BOARD_WIDTH && dest.y >= 0 && dest.y < BOARD_HEIGHT && !board[dest.x][dest.y].hasWall && !board[dest.x][dest.y].hasPlayer) {
 								auto path = findShortestPathForPlayer(actorIdx, { (float)me.x, (float)me.y }, { (float)dest.x, (float)dest.y });
 								int pathDist = (path.size() > 1) ? (int)path.size() - 1 : 999;
@@ -43081,11 +43150,11 @@ void ofApp::thinkRuleBasedAI() {
 							}
 						} else if (card.targeting == TARGET_CLEAVE_ADJACENT || card.type == CARD_SLASH) {
 							int px = me.x, py = me.y;
-							if (std::abs(enemyTarget.x - px) <= 1 && std::abs(enemyTarget.y - py) <= 1) { 
+							if (std::abs(enemyTarget.x - px) <= 1 && std::abs(enemyTarget.y - py) <= 1) {
 								int dy = y - py;
-								if (dy != 0) { 
+								if (dy != 0) {
 									if (enemyTarget.y == y && std::abs(enemyTarget.x - x) <= 1) inHitArea = true;
-								} else { 
+								} else {
 									if (enemyTarget.x == x && std::abs(enemyTarget.y - y) <= 1) inHitArea = true;
 								}
 							}
@@ -43157,11 +43226,16 @@ void ofApp::thinkRuleBasedAI() {
 				}
 
 				// Specific Power Engine Overrides
-				if (card.type == CARD_STUDY) score += 800.0f;
-				else if (card.type == CARD_TRAIN) score += 750.0f;
-				else if (card.type == CARD_HASTEN) score += 1500.0f;
-				else if (card.type == CARD_SPRINT) score += 1500.0f;
-				else if (card.type == CARD_TIME_VORTEX) score += 1500.0f;
+				if (card.type == CARD_STUDY)
+					score += 800.0f;
+				else if (card.type == CARD_TRAIN)
+					score += 750.0f;
+				else if (card.type == CARD_HASTEN)
+					score += 1500.0f;
+				else if (card.type == CARD_SPRINT)
+					score += 1500.0f;
+				else if (card.type == CARD_TIME_VORTEX)
+					score += 1500.0f;
 				else if (card.type == CARD_MIND_THEFT) {
 					for (size_t k = 0; k < players.size(); ++k) {
 						if (players[k].x == x && players[k].y == y && !players[k].isMinion && players[k].playerID == enemyID) {
@@ -43169,17 +43243,26 @@ void ofApp::thinkRuleBasedAI() {
 							break;
 						}
 					}
-				}
-				else if (card.type == CARD_AMNESIA) score += 1200.0f;
-				else if (card.type == CARD_DISPEL) score += 800.0f;
-				else if (card.type == CARD_TELEPORT) score += 600.0f;
-				else if (card.type == CARD_MASTER_FIST) score += 2500.0f; // ALWAYS good to play (Permanent Luck/HP)
-				else if (card.type == CARD_FOUR_LEAF_CLOVER) score += 2000.0f; // Permanent Luck
-				else if (card.type == CARD_CONSUME_HEALTH_POTION) score += 1000.0f;
-				else if (card.type == CARD_CONSUME_HEALTH_FLAGON) score += 1200.0f;
-				else if (card.type == CARD_RENEWED_INSPIRATION && me.hand.size() >= 3) score += 1000.0f;
-				else if (card.type == CARD_STRENGTHEN_ELEMENTS) score += 1000.0f;
-				else if (card.type == CARD_NECROMANCER_S_BLESSING && countSkeletons(activeID) > 0) score += 1500.0f;
+				} else if (card.type == CARD_AMNESIA)
+					score += 1200.0f;
+				else if (card.type == CARD_DISPEL)
+					score += 800.0f;
+				else if (card.type == CARD_TELEPORT)
+					score += 600.0f;
+				else if (card.type == CARD_MASTER_FIST)
+					score += 2500.0f; // ALWAYS good to play (Permanent Luck/HP)
+				else if (card.type == CARD_FOUR_LEAF_CLOVER)
+					score += 2000.0f; // Permanent Luck
+				else if (card.type == CARD_CONSUME_HEALTH_POTION)
+					score += 1000.0f;
+				else if (card.type == CARD_CONSUME_HEALTH_FLAGON)
+					score += 1200.0f;
+				else if (card.type == CARD_RENEWED_INSPIRATION && me.hand.size() >= 3)
+					score += 1000.0f;
+				else if (card.type == CARD_STRENGTHEN_ELEMENTS)
+					score += 1000.0f;
+				else if (card.type == CARD_NECROMANCER_S_BLESSING && countSkeletons(activeID) > 0)
+					score += 1500.0f;
 
 				if (score > 0.0f) {
 					candidates.push_back({ ScoredAction::PLAY, i, x, y, score - (cost * 1.5f) });
@@ -44888,8 +44971,10 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 	if (board[p.x][p.y].hasWall) {
 		int cost = getEffectiveCardCostForPlayer(p, candidate);
 		int netAP = currentAP - cost;
-		if (candidate.type == CARD_SPRINT) netAP += 2;
-		else if (candidate.apGain > cost) netAP += (candidate.apGain - cost);
+		if (candidate.type == CARD_SPRINT)
+			netAP += 2;
+		else if (candidate.apGain > cost)
+			netAP += (candidate.apGain - cost);
 
 		if (candidate.type != CARD_TELEPORT && candidate.type != CARD_EARTHQUAKE && candidate.type != CARD_DEMOLITION && candidate.type != CARD_TRANSFORM_WALL) {
 			if (netAP <= 0) {
