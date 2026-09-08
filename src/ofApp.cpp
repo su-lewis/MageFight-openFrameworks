@@ -37875,6 +37875,30 @@ void ofApp::loadCardData(const std::string & filePath) {
 
 		newCard.luckGain = cardJson.value("luckGain", 0);
 
+		// FIX: Hardcode legacy card fallbacks in case cards.json is outdated
+		if (newCard.type == CARD_PUNCH && newCard.baseDamage == 0) newCard.baseDamage = 2;
+		if (newCard.type == CARD_KICK && newCard.baseDamage == 0) newCard.baseDamage = 4;
+		if (newCard.type == CARD_BASH && newCard.damageDiceNum == 0) {
+			newCard.damageDiceNum = 2;
+			newCard.damageDiceSides = 4;
+		}
+		if (newCard.type == CARD_STAB && newCard.damageDiceNum == 0) {
+			newCard.damageDiceNum = 1;
+			newCard.damageDiceSides = 6;
+		}
+		if (newCard.type == CARD_SLASH && newCard.damageDiceNum == 0) {
+			newCard.damageDiceNum = 1;
+			newCard.damageDiceSides = 6;
+		}
+		if (newCard.type == CARD_HEAL && newCard.healDiceNum == 0 && newCard.baseHeal == 0) {
+			newCard.healDiceNum = 2;
+			newCard.healDiceSides = 6;
+		}
+		if (newCard.type == CARD_LESSER_HEAL && newCard.healDiceNum == 0 && newCard.baseHeal == 0) {
+			newCard.healDiceNum = 1;
+			newCard.healDiceSides = 6;
+		}
+
 		// Parse Class (Default to 1 if missing)
 		newCard.cardClass = cardJson.value("class", 1);
 
@@ -42925,6 +42949,15 @@ void ofApp::thinkRuleBasedAI() {
 	// =========================================================================
 	// 4. STRATEGIC EVALUATION (Threats, Plays, Movement)
 	// =========================================================================
+
+	// --- FIX: Bulletproof Anti-Freeze Memory ---
+	// If the AI's AP hasn't changed since the last frame, it remembers what failed.
+	static std::set<int> s_aiFailedCards;
+	if (currentAP != aiLastAP) {
+		s_aiFailedCards.clear();
+		aiLastAP = currentAP;
+	}
+
 	// Generate Threat Map for self-preservation
 	float threatMap[BOARD_WIDTH][BOARD_HEIGHT];
 	buildEnemyThreatMap(enemyID, threatMap);
@@ -43052,6 +43085,13 @@ void ofApp::thinkRuleBasedAI() {
 		}
 	}
 
+	// --- FIX: Bulletproof Anti-Freeze Memory ---
+	static std::set<int> s_aiFailedCards;
+	if (currentAP != aiLastAP) {
+		s_aiFailedCards.clear();
+		aiLastAP = currentAP;
+	}
+
 	// --- 4A. COMBOS & SYNERGIES (Strict Rules) ---
 	int addPoisonIdx = -1, physicalAttackIdx = -1, blockingBoonIdx = -1, defenseCardIdx = -1;
 	int flurryIdx = -1, bigHandAttackIdx = -1, necroBlessingIdx = -1, raiseDeadIdx = -1;
@@ -43090,8 +43130,9 @@ void ofApp::thinkRuleBasedAI() {
 		}
 		// STRICT RULE: Never play Add Poison if you can't attack this turn!
 		if (!hasPhys) {
-			aiLastAttemptedCardIdx = addPoisonIdx; // Mark as "Do not play"
-		} else if (aiLastAttemptedCardIdx != addPoisonIdx) {
+			s_aiFailedCards.insert(addPoisonIdx); // Mark as "Do not play"
+		} else if (!s_aiFailedCards.count(addPoisonIdx)) {
+			s_aiFailedCards.insert(addPoisonIdx);
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = activeID;
@@ -43111,10 +43152,11 @@ void ofApp::thinkRuleBasedAI() {
 		int bigAtkCost = getEffectiveCardCostForPlayer(me, me.hand[bigHandAttackIdx]);
 
 		if (currentAP >= (flurryCost + bigAtkCost) || flurryCost == 0) {
-			if (aiLastAttemptedCardIdx != flurryIdx) {
+			if (!s_aiFailedCards.count(flurryIdx)) {
 				for (size_t ei = 0; ei < players.size(); ++ei) {
 					if ((players[ei].isMinion ? players[ei].ownerID : players[ei].playerID) == enemyID && players[ei].health > 0) {
 						if (std::abs(me.x - players[ei].x) + std::abs(me.y - players[ei].y) <= 1) {
+							s_aiFailedCards.insert(flurryIdx);
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = activeID;
@@ -43148,7 +43190,8 @@ void ofApp::thinkRuleBasedAI() {
 					}
 				}
 			}
-			if (bestSpawnX != -1 && aiLastAttemptedCardIdx != raiseDeadIdx) {
+			if (bestSpawnX != -1 && !s_aiFailedCards.count(raiseDeadIdx)) {
+				s_aiFailedCards.insert(raiseDeadIdx);
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = activeID;
@@ -43165,7 +43208,8 @@ void ofApp::thinkRuleBasedAI() {
 	// STRICT RULE: Never play Necromancer's Blessing without Skeletons on board
 	if (necroBlessingIdx != -1) {
 		if (countSkeletons(activeID) > 0) {
-			if (aiLastAttemptedCardIdx != necroBlessingIdx) {
+			if (!s_aiFailedCards.count(necroBlessingIdx)) {
+				s_aiFailedCards.insert(necroBlessingIdx);
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = activeID;
@@ -43178,17 +43222,17 @@ void ofApp::thinkRuleBasedAI() {
 				return;
 			}
 		} else {
-			aiLastAttemptedCardIdx = necroBlessingIdx; // Mark as "Do not play"
+			s_aiFailedCards.insert(necroBlessingIdx); // Mark as "Do not play"
 		}
 	}
 
 	// COMBO 4: STRICT RULE: Never play Blocking Boon unless you have active defense.
-	// If you don't, try to cast Dispel or another defense card FIRST.
 	if (blockingBoonIdx != -1) {
 		int totalDef = me.block + me.fortification + me.ward + me.barrier + me.holyBlock;
 		if (totalDef == 0) {
 			if (dispelIdx != -1 && currentAP >= getEffectiveCardCostForPlayer(me, me.hand[dispelIdx]) + getEffectiveCardCostForPlayer(me, me.hand[blockingBoonIdx])) {
-				if (aiLastAttemptedCardIdx != dispelIdx) {
+				if (!s_aiFailedCards.count(dispelIdx)) {
+					s_aiFailedCards.insert(dispelIdx);
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = activeID;
@@ -43201,7 +43245,7 @@ void ofApp::thinkRuleBasedAI() {
 					return;
 				}
 			} else {
-				aiLastAttemptedCardIdx = blockingBoonIdx; // Mark as "Do not play"
+				s_aiFailedCards.insert(blockingBoonIdx); // Mark as "Do not play"
 			}
 		}
 	}
@@ -43213,8 +43257,10 @@ void ofApp::thinkRuleBasedAI() {
 	for (int i = 0; i < (int)me.hand.size(); ++i) {
 		const Card & card = me.hand[i];
 		int cost = getEffectiveCardCostForPlayer(me, card);
+
+		// If we don't have enough AP, or if this specific card was blacklisted, skip it!
 		if (currentAP < cost) continue;
-		if (i == aiLastAttemptedCardIdx && currentAP == aiLastAP) continue;
+		if (s_aiFailedCards.count(i)) continue;
 
 		int handRelatedCount = 0;
 		for (const auto & c : me.deck)
@@ -43417,8 +43463,10 @@ void ofApp::thinkRuleBasedAI() {
 		});
 
 		const auto & best = candidates.front();
-		aiLastAttemptedCardIdx = best.cardIdx;
-		aiLastAP = currentAP;
+
+		// Add to blacklist. If the card succeeds, AP will drop and the list will wipe next frame.
+		// If it gets rejected by the game rules, AP stays the same, and the AI skips it next frame!
+		s_aiFailedCards.insert(best.cardIdx);
 
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
@@ -43580,7 +43628,7 @@ void ofApp::thinkRuleBasedAI() {
 		for (int i = 0; i < (int)me.hand.size(); ++i) {
 			const Card & c = me.hand[i];
 			int cost = getEffectiveCardCostForPlayer(me, c);
-			if (cost <= currentAP && i != aiLastAttemptedCardIdx) {
+			if (cost <= currentAP && !s_aiFailedCards.count(i)) {
 				bool shouldDump = false;
 
 				if (me.inTortoiseForm && (c.blockAmount > 0 || c.barrierAmount > 0 || c.wardAmount > 0 || c.fortifyAmount > 0 || c.holyBlockAmount > 0 || c.type == CARD_DISPEL)) {
@@ -43594,8 +43642,7 @@ void ofApp::thinkRuleBasedAI() {
 				}
 
 				if (shouldDump) {
-					aiLastAttemptedCardIdx = i;
-					aiLastAP = currentAP;
+					s_aiFailedCards.insert(i);
 
 					int targetX = me.x;
 					int targetY = me.y;
