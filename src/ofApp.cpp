@@ -19282,20 +19282,23 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
 		float contentHeight = ofGetHeight() - 230 * uiScale - 30 * uiScale;
 
-		if (encyclopediaMainTab == 2) {
-			float rowStep = ((((ofGetWidth() * 0.9f) - 2.0f * 8.0f * uiScale - 9 * 8.0f * uiScale) / 10.0f) * 1.4f) + 26.0f * uiScale;
-			int totalRows = (allCards.size() + 9) / 10;
-			float totalContentHeight = totalRows * rowStep;
-			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
-
-			encyclopediaMainScroll -= scrollY * rowStep;
-			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+		if (encyclopediaMainTab == 0) {
+			encyclopediaMainScroll -= scrollY * 45.0f * uiScale;
+			encyclopediaMainScroll = std::max(0.0f, encyclopediaMainScroll);
 		} else if (encyclopediaMainTab == 1) {
 			float itemH = 175.0f * uiScale;
 			float totalContentHeight = 10 * (itemH + 12.0f * uiScale); // 10 minions
 			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 
 			encyclopediaMainScroll -= scrollY * 60.0f * uiScale;
+			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+		} else if (encyclopediaMainTab == 2) {
+			float rowStep = ((((ofGetWidth() * 0.9f) - 2.0f * 8.0f * uiScale - 9 * 8.0f * uiScale) / 10.0f) * 1.4f) + 26.0f * uiScale;
+			int totalRows = (allCards.size() + 9) / 10;
+			float totalContentHeight = totalRows * rowStep;
+			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+
+			encyclopediaMainScroll -= scrollY * rowStep;
 			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
 		}
 		return;
@@ -38846,31 +38849,154 @@ void ofApp::drawEncyclopediaState() {
 
 	if (encyclopediaMainTab == 0) {
 		// =====================================================================
-		// TAB 0: HOW TO PLAY (Default Start Tab)
+		// TAB 0: HOW TO PLAY (2-Column Guide & In-Game Colored Reference)
 		// =====================================================================
-		float tX = cx - panelWidth * 0.45f + 40 * uiScale;
-		float tY = contentY + 20 * uiScale;
-		float colW = panelWidth * 0.9f - 80 * uiScale;
+		float colW = (panelWidth - 60.0f * uiScale) * 0.5f;
+		float leftColX = cx - (panelWidth * 0.5f) + 20.0f * uiScale;
+		float rightColX = leftColX + colW + 20.0f * uiScale;
+		float visibleH = contentBottom - contentY;
 
-		auto drawRuleSection = [&](string title, std::vector<string> points) {
-			drawPixelTextBaseline(titleFont, title, tX, tY, 1.2f * uiScale, ofColor::gold, 2, ofColor::black);
-			tY += 35 * uiScale;
-			for (const auto & pt : points) {
-				auto lines = wrapTextScaled(uiFont, pt, colW, 1.0f * uiScale);
-				for (const auto & l : lines) {
-					drawPixelTextBaseline(uiFont, l, tX + 20 * uiScale, tY, 1.0f * uiScale, ofColor(220));
-					tY += 24 * uiScale;
+		// -------------------------------------------------------------
+		// LEFT COLUMN: Match Flow & Core Mechanics Guide
+		// -------------------------------------------------------------
+		{
+			ofRectangle leftBox(leftColX, contentY, colW, visibleH);
+			ofSetColor(22, 24, 32, 235);
+			ofDrawRectRounded(leftBox, 10 * uiScale);
+			ofNoFill();
+			ofSetLineWidth(2.0f);
+			ofSetColor(65, 70, 90);
+			ofDrawRectRounded(leftBox, 10 * uiScale);
+			ofFill();
+
+			// Main Title in Brilliant Gold
+			float curY = leftBox.y + 36 * uiScale;
+			drawPixelTextCentered(titleFont, "HOW TO PLAY", leftBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
+			curY += 46 * uiScale;
+
+			// Subheadings in Crisp Arcane Cyan
+			auto drawGuideBlock = [&](const std::string & heading, const std::vector<std::string> & bullets, ofColor headCol = ofColor(100, 215, 255)) {
+				drawPixelTextBaseline(titleFont, heading, leftBox.x + 18 * uiScale, curY, 0.85f * uiScale, headCol, 2, ofColor::black);
+				curY += 28 * uiScale;
+				float textDrawScale = 0.95f * uiScale;
+				float wrapMaxW = leftBox.width - 36 * uiScale;
+
+				for (const auto & b : bullets) {
+					auto lines = wrapTextScaled(uiFont, b, wrapMaxW, textDrawScale);
+					for (const auto & l : lines) {
+						drawPixelTextBaseline(uiFont, l, leftBox.x + 18 * uiScale, curY, textDrawScale, ofColor(220, 225, 240));
+						curY += 22 * uiScale;
+					}
+					curY += 6 * uiScale;
 				}
-				tY += 8 * uiScale;
+				curY += 16 * uiScale;
+			};
+
+			drawGuideBlock("1. Initiative & Drafting", { "- Start of Match: Both wizards roll 1d6. The highest roll wins initiative, drafts first, and takes the first turn.", "- Initial Draft: Pick 2 Class 1 cards from your choices (get 2 copies of each), then pick 1 Class 2 card.", "- The other player drafts their cards in the same sequence before the match begins." });
+
+			drawGuideBlock("2. Turn Structure & AP", { "- AP Roll: Roll your Action Point dice at turn start (standard wizards roll 1d6; minions roll species dice).", "- Drawing Cards: Drawing is optional on your turn (click your deck). If you draw, you draw 2 cards by default (Demons draw 3)." });
+
+			drawGuideBlock("3. Actions & Movement", { "- Movement: Click your wizard/minion on the board to reveal green paths, then click destination (costs 1 AP per tile).", "- Playing Cards: Drag cards upward out of your hand into the arena, then click a valid target tile/enemy if prompted." });
+
+			drawGuideBlock("4. Floating Keys & Victory", { "- Keys: Moving onto keys grants instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3.", "- Victory: Reduce the enemy wizard to 0 HP, or eliminate them when they run out of all cards (Exhaustion)." });
+		}
+
+		// -------------------------------------------------------------
+		// RIGHT COLUMN: Scrollable Combat & Keyword Reference
+		// -------------------------------------------------------------
+		{
+			ofRectangle rightBox(rightColX, contentY, colW, visibleH);
+			ofSetColor(22, 24, 32, 235);
+			ofDrawRectRounded(rightBox, 10 * uiScale);
+			ofNoFill();
+			ofSetLineWidth(2.0f);
+			ofSetColor(65, 70, 90);
+			ofDrawRectRounded(rightBox, 10 * uiScale);
+			ofFill();
+
+			struct RefEntry {
+				std::string name;
+				ofColor nameColor;
+				ofColor outlineColor;
+				std::string description;
+			};
+
+			struct RefSection {
+				std::string title;
+				ofColor titleColor;
+				std::vector<RefEntry> entries;
+			};
+
+			std::vector<RefSection> sections = {
+				{ "DEFENSE TYPES", ofColor(255, 215, 0), { { "Block", ofColor::gray, ofColor::black, "Absorbs incoming Physical damage. Expires at turn end (unless Tortoise)." }, { "Fortification", ofColor(50, 50, 50), ofColor(200, 200, 200), "Absorbs Physical and Piercing damage." }, { "Barrier", ofColor::hotPink, ofColor::black, "Absorbs Non-Physical damage (Magic, Fire, Electric, Holy, Poison)." }, { "Holy Block", ofColor::yellow, ofColor::black, "Absorbs incoming Holy damage." }, { "Ward", ofColor::black, ofColor(255, 255, 255), "Absorbs all incoming damage types." } } },
+				{ "DAMAGE TYPES", ofColor(255, 80, 80), { { "Physical", ofColor(220, 20, 60), ofColor::black, "Standard attacks; absorbed by Block, Fortification, and Ward." }, { "Piercing", ofColor(192, 192, 192), ofColor::black, "Pierces in a line; subsequent targets take half damage. Deals 2x damage vs Wolves." }, { "Magic", ofColor(148, 0, 211), ofColor::black, "Bypasses physical Block; absorbed by Barrier and Ward." }, { "Electric", ofColor(30, 80, 220), ofColor::black, "Bypasses physical Block; often applies Paralysis or generates bonus AP." }, { "Fire", ofColor(255, 120, 0), ofColor::black, "Bypasses physical Block; damaging Health inflicts lingering Burning." }, { "Holy", ofColor(255, 215, 0), ofColor::black, "Radiant damage; deals 2x damage to Undead (Skeletons), Demons, Hellhounds, Ghosts, and Vampires." }, { "Poison", ofColor(50, 205, 50), ofColor::black, "Bypasses physical Block; inflicts lingering toxic damage." } } },
+				{ "STATUS EFFECTS", ofColor(255, 140, 40), { { "Burning", ofColor(255, 120, 0), ofColor::black, "Takes 1d6 Fire damage at turn start. Rolls of 1 or 2 extinguish the fire." }, { "Poisoned", ofColor(50, 205, 50), ofColor::black, "Takes 1d6 Poison damage at turn start (damage reduces by 1 each turn until cured)." }, { "Paralyzed", ofColor(255, 255, 0), ofColor::black, "Must flip a coin on turn start: Heads allows acting (2 Heads cures), Tails skips turn." }, { "Sleeping", ofColor(0, 255, 255), ofColor::black, "Skips turn until timer expires or upon taking damage." }, { "Regeneration", ofColor(220, 20, 60), ofColor::black, "Heals +1 HP at the start of each turn." }, { "Ghost Form", ofColor(150, 150, 255), ofColor::black, "Phased through walls and units. Immune to Physical and Piercing. Takes 2x Holy damage." }, { "Tortoise Form", ofColor::darkGreen, ofColor::white, "Defense never expires. Spikes adjacent enemies for 3 damage when gaining HP or Defense." }, { "Strengthen Elements", ofColor(255, 120, 0), ofColor::black, "For 3 turns: whenever you play an Electric or Fire card, add a copy to your hand." } } },
+				{ "KEYWORDS & MECHANICS", ofColor(255, 215, 0), { { "Luck", ofColor::darkGreen, ofColor::white, "Adds a flat numerical bonus to nearly every dice roll (attacks, heals, AP, ranges, initiative)." }, { "Flurry of Fists", ofColor::orange, ofColor::black, "Doubles the damage and effect of all Hand-related attacks." }, { "Cleave", ofColor(200, 200, 210), ofColor::black, "Hits 3 adjacent tiles in a sweeping arc." }, { "Linear Pierce", ofColor(192, 192, 192), ofColor::black, "Attacks in a straight 2-tile line; second target takes half damage." }, { "Choose One", ofColor::cyan, ofColor::black, "Offers two distinct tactical options upon casting." }, { "Destroy", ofColor::magenta, ofColor::black, "Permanently removes target cards from decks or annihilates walls." }, { "Execute", ofColor::red, ofColor::black, "Instantly destroys the target unit regardless of remaining Health." }, { "Restore", ofColor::green, ofColor::black, "Heals lost Health up to maximum capacity." }, { "Exhaustion", ofColor(148, 0, 211), ofColor::black, "If a unit has zero cards across deck, hand, discard, and played piles, they perish." } } }
+			};
+
+			float textDrawScale = 0.95f * uiScale;
+			float wrapMaxW = rightBox.width - 36 * uiScale;
+
+			// --- ACCURATE TOTAL HEIGHT CALCULATION ---
+			float totalRefH = 30.0f * uiScale;
+			for (const auto & sec : sections) {
+				totalRefH += 38.0f * uiScale; // Section Header
+				for (const auto & itm : sec.entries) {
+					totalRefH += 28.0f * uiScale; // Subtitle
+					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
+					totalRefH += (float)lines.size() * (22.0f * uiScale) + (16.0f * uiScale); // Description lines + gap
+				}
+				totalRefH += 34.0f * uiScale; // Generous space before next section
 			}
-			tY += 20 * uiScale;
-		};
 
-		drawRuleSection("Turn Structure", { "- Start of Turn: You draw 2 cards (Demons draw 3).", "- AP Roll: You roll dice to determine Action Points (AP). Standard units roll 1d6.", "- Action Phase: Spend AP to play cards or move (1 AP per tile)." });
+			float maxRefScroll = std::max(0.0f, totalRefH - (visibleH - 20 * uiScale));
+			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxRefScroll);
 
-		drawRuleSection("Damage & Defenses", { "- Physical: Absorbed by Block, Fortification, and Ward.", "- Piercing: Halves damage against subsequent targets in a line.", "- Magic/Fire/Electric/Poison: Bypasses Block. Absorbed by Barrier and Ward.", "- Holy: Deals 2x damage to Undead and Demons. Absorbed by Holy Block." });
+			ofPushStyle();
+			glEnable(GL_SCISSOR_TEST);
+			int scX = (int)rightColX;
+			int scW = (int)colW;
+			int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
+			glScissor(scX, scY, scW, (int)visibleH);
 
-		drawRuleSection("Keywords", { "- Luck: Adds a flat bonus to almost every dice roll you make.", "- Flurry: Doubles the effect and damage of all Hand-to-Hand attacks." });
+			float curY = rightBox.y + 34 * uiScale - encyclopediaMainScroll;
+
+			for (size_t si = 0; si < sections.size(); ++si) {
+				const auto & sec = sections[si];
+
+				// Section Header
+				drawPixelTextBaseline(titleFont, sec.title, rightBox.x + 18 * uiScale, curY, 0.90f * uiScale, sec.titleColor, 2, ofColor::black);
+				curY += 38 * uiScale;
+
+				for (const auto & itm : sec.entries) {
+					// Subtitle with specific in-game color & outline
+					drawPixelTextBaseline(titleFont, itm.name, rightBox.x + 18 * uiScale, curY, 0.85f * uiScale, itm.nameColor, 2, itm.outlineColor);
+					curY += 28 * uiScale;
+
+					// Description body
+					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
+					for (const auto & l : lines) {
+						drawPixelTextBaseline(uiFont, l, rightBox.x + 22 * uiScale, curY, textDrawScale, ofColor(215, 220, 235));
+						curY += 22 * uiScale;
+					}
+					curY += 16 * uiScale; // Spacing after each item
+				}
+
+				// Generous break before next major header
+				curY += 34 * uiScale;
+			}
+
+			glDisable(GL_SCISSOR_TEST);
+			safePopStyle();
+
+			// Scrollbar for Right Reference Panel
+			if (maxRefScroll > 0.0f) {
+				float barH = std::max(28.0f * uiScale, visibleH * (visibleH / totalRefH));
+				float barY = contentY + (encyclopediaMainScroll / maxRefScroll) * (visibleH - barH);
+				ofSetColor(100, 100, 130, 220);
+				ofDrawRectRounded(rightColX + colW - 6 * uiScale, barY, 6 * uiScale, barH, 3 * uiScale);
+			}
+		}
 
 	} else if (encyclopediaMainTab == 1) {
 		// =====================================================================
@@ -38886,8 +39012,16 @@ void ofApp::drawEncyclopediaState() {
 		// -------------------------------------------------------------
 		{
 			float totalLeftHeight = contentBottom - contentY;
-			float cardDisplayH = std::min(totalLeftHeight * 0.38f, 240.0f * uiScale);
-			float cardDisplayW = cardDisplayH / 1.388f;
+			// Expanded card size for maximum visibility and presence
+			float cardDisplayW = std::min(leftColumnW - 20.0f * uiScale, 375.0f * uiScale);
+			float cardDisplayH = cardDisplayW * 1.388f;
+
+			// Ensure the rules box below maintains ample vertical space
+			if (cardDisplayH > totalLeftHeight * 0.56f) {
+				cardDisplayH = totalLeftHeight * 0.56f;
+				cardDisplayW = cardDisplayH / 1.388f;
+			}
+
 			float cardDisplayX = leftColumnX + (leftColumnW - cardDisplayW) * 0.5f;
 			float cardDisplayY = contentY + 2 * uiScale;
 
@@ -38907,11 +39041,11 @@ void ofApp::drawEncyclopediaState() {
 
 				// --- DRAW POINTING ARROWS DIRECTLY TO GREEN/RED CHIPS ---
 				float apTargetX = cardDisplayX + cardDisplayW * 0.44f;
-				float apTargetY = cardDisplayY + cardDisplayH - 2 * uiScale;
+				float apTargetY = cardDisplayY + cardDisplayH - 3 * uiScale;
 				float hpTargetX = cardDisplayX + cardDisplayW * 0.56f;
-				float hpTargetY = cardDisplayY + cardDisplayH - 2 * uiScale;
+				float hpTargetY = cardDisplayY + cardDisplayH - 3 * uiScale;
 
-				float arrowBaseY = cardDisplayY + cardDisplayH + 18 * uiScale;
+				float arrowBaseY = cardDisplayY + cardDisplayH + 24 * uiScale;
 				float apBaseX = cardDisplayX + cardDisplayW * 0.22f;
 				float hpBaseX = cardDisplayX + cardDisplayW * 0.78f;
 
@@ -38924,13 +39058,13 @@ void ofApp::drawEncyclopediaState() {
 					// Arrow Head
 					glm::vec2 dir = glm::normalize(glm::vec2(endX - startX, endY - startY));
 					glm::vec2 perp(-dir.y, dir.x);
-					float headSize = 7.0f * scale;
+					float headSize = 9.0f * scale;
 					ofDrawTriangle(endX, endY,
 						endX - dir.x * headSize + perp.x * (headSize * 0.6f), endY - dir.y * headSize + perp.y * (headSize * 0.6f),
 						endX - dir.x * headSize - perp.x * (headSize * 0.6f), endY - dir.y * headSize - perp.y * (headSize * 0.6f));
 
 					// Label below arrow base
-					drawPixelTextCentered(font, label, startX, startY + 12 * scale, 0.80f * scale, col, 2, ofColor::black);
+					drawPixelTextCentered(font, label, startX, startY + 16 * scale, 0.95f * scale, col, 2, ofColor::black);
 					safePopStyle();
 				};
 
@@ -38938,8 +39072,8 @@ void ofApp::drawEncyclopediaState() {
 				drawArrow(hpBaseX, arrowBaseY, hpTargetX, hpTargetY, ofColor(240, 60, 60), "HEALTH (HP)", uiFont, uiScale);
 			}
 
-			// Instruction & Rules Box taking the bottom space
-			float annotY = cardDisplayY + cardDisplayH + 48 * uiScale;
+			// Instruction & Rules Box taking the bottom space with clear separation
+			float annotY = cardDisplayY + cardDisplayH + 54 * uiScale;
 			float annotH = contentBottom - annotY;
 			ofRectangle annotBox(leftColumnX, annotY, leftColumnW, annotH);
 
@@ -38951,10 +39085,12 @@ void ofApp::drawEncyclopediaState() {
 			ofDrawRectRounded(annotBox, 10 * uiScale);
 			ofFill();
 
-			// Draw Title cleanly padded down inside the box
-			float curY = annotBox.y + 36 * uiScale;
-			drawPixelTextCentered(titleFont, "MINION RULES", annotBox.getCenter().x, curY, 0.85f * uiScale, ofColor::gold, 2, ofColor::black);
-			curY += 36 * uiScale;
+			// Large Title inside the box
+			float curY = annotBox.y + 32 * uiScale;
+			drawPixelTextCentered(titleFont, "MINION RULES", annotBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
+
+			// Larger gap between Title and body text
+			curY += 46 * uiScale;
 
 			std::vector<std::string> rulesParagraphs = {
 				"- Minions take their turns before your wizard.",
@@ -38962,16 +39098,16 @@ void ofApp::drawEncyclopediaState() {
 				"- If just summoned, they cannot take their turn until your wizard character has taken theirs."
 			};
 
-			float wrapMaxW = annotBox.width - 48 * uiScale;
+			float wrapMaxW = annotBox.width - 36 * uiScale;
+			float textDrawScale = 1.0f * uiScale;
 
 			for (const auto & para : rulesParagraphs) {
-				// Wrap strictly with 0.5x scaling awareness to prevent overflow
-				auto lines = wrapTextScaled(uiFont, para, wrapMaxW, 0.5f);
+				auto lines = wrapTextScaled(uiFont, para, wrapMaxW, textDrawScale);
 				for (const auto & l : lines) {
-					drawPixelTextBaseline(uiFont, l, annotBox.x + 20 * uiScale, curY, 0.5f, ofColor(215, 220, 235));
-					curY += 24 * uiScale;
+					drawPixelTextBaseline(uiFont, l, annotBox.x + 18 * uiScale, curY, textDrawScale, ofColor(220, 225, 240));
+					curY += (uiFont.getLineHeight() * textDrawScale * 0.95f) + (6 * uiScale);
 				}
-				curY += 14 * uiScale; // Generous paragraph break
+				curY += 12 * uiScale;
 			}
 		}
 
@@ -39106,9 +39242,20 @@ void ofApp::drawEncyclopediaState() {
 			drawPixelTextBaseline(titleFont, minionList[mi].name, textLeft, lineY, 0.85f * uiScale, ofColor::gold, 2, ofColor::black);
 			lineY += 28 * uiScale;
 
-			// AP and HP
-			std::string statsLine = "AP: " + minionList[mi].ap + "  |  HP: " + minionList[mi].hp;
-			drawPixelTextBaseline(uiFont, statsLine, textLeft, lineY, 0.92f * uiScale, ofColor(120, 255, 120));
+			// AP (Green), Separator (Black), and HP (Red)
+			std::string apText = "AP: " + minionList[mi].ap;
+			std::string pipeText = "  |  ";
+			std::string hpText = "HP: " + minionList[mi].hp;
+			float statsScale = 0.92f * uiScale;
+			float curStatX = textLeft;
+
+			drawPixelTextBaseline(uiFont, apText, curStatX, lineY, statsScale, ofColor(120, 255, 120));
+			curStatX += uiFont.getStringBoundingBox(apText, 0, 0).width * statsScale;
+
+			drawPixelTextBaseline(uiFont, pipeText, curStatX, lineY, statsScale, ofColor(0, 0, 0), 1, ofColor(160, 165, 180));
+			curStatX += uiFont.getStringBoundingBox(pipeText, 0, 0).width * statsScale;
+
+			drawPixelTextBaseline(uiFont, hpText, curStatX, lineY, statsScale, ofColor(255, 90, 90));
 			lineY += 24 * uiScale;
 
 			// Deck Line
