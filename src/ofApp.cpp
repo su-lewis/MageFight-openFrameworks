@@ -2650,7 +2650,6 @@ bool containsSlur(const std::string & input) {
 		"spastic",
 		"cocksucker",
 		"troon"
-
 	};
 
 	if (input.empty()) return false;
@@ -2659,8 +2658,9 @@ bool containsSlur(const std::string & input) {
 	// This stops bypasses like "s l u r" or "s-l-u-r"
 	std::string strippedInput = "";
 	for (char c : input) {
-		if (std::isalnum(c)) { // Only keep letters and numbers
-			strippedInput += (char)std::tolower(c);
+		// CRITICAL FIX: Cast to unsigned char to prevent C++ crashing on UTF-8 symbols!
+		if (std::isalnum((unsigned char)c)) {
+			strippedInput += (char)std::tolower((unsigned char)c);
 		}
 	}
 
@@ -6647,12 +6647,17 @@ void ofApp::draw() {
 							std::vector<ChatMessage> messagesToDraw;
 							int maxVis = (int)(chatBoxHeight / messageHeight) - inputLines - 1;
 
-							int startIndex = std::max(0, (int)chatHistory.size() - 1 - (int)chatScrollOffset);
+							// SECURITY FIX: Prevent Segfault (Access Violation) when chat is empty
+							if (!chatHistory.empty()) {
+								int startIndex = std::max(0, (int)chatHistory.size() - 1 - (int)chatScrollOffset);
+								// Double safety clamp to ensure we never exceed bounds
+								startIndex = std::min(startIndex, (int)chatHistory.size() - 1);
 
-							for (int i = startIndex; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
-								messagesToDraw.push_back(chatHistory[i]);
+								for (int i = startIndex; i >= 0 && (int)messagesToDraw.size() < maxVis; i--) {
+									messagesToDraw.push_back(chatHistory[i]);
+								}
+								std::reverse(messagesToDraw.begin(), messagesToDraw.end());
 							}
-							std::reverse(messagesToDraw.begin(), messagesToDraw.end());
 
 							for (const auto & msg : messagesToDraw) {
 								string fullMsg = msg.playerName + ": " + msg.message;
@@ -6684,12 +6689,17 @@ void ofApp::draw() {
 
 							// Reverse the log so newest events are at the bottom, matching standard chat UX
 							std::vector<GameLogEntry> logsToDraw;
-							int startLogIdx = std::max(0, (int)gameLog.size() - 1 - (int)chatScrollOffset);
 
-							for (int i = startLogIdx; i >= 0 && (int)logsToDraw.size() < maxVis; i--) {
-								logsToDraw.push_back(gameLog[i]);
+							// SECURITY FIX: Prevent Segfault (Access Violation) when log is empty
+							if (!gameLog.empty()) {
+								int startLogIdx = std::max(0, (int)gameLog.size() - 1 - (int)chatScrollOffset);
+								startLogIdx = std::min(startLogIdx, (int)gameLog.size() - 1);
+
+								for (int i = startLogIdx; i >= 0 && (int)logsToDraw.size() < maxVis; i--) {
+									logsToDraw.push_back(gameLog[i]);
+								}
+								std::reverse(logsToDraw.begin(), logsToDraw.end());
 							}
-							std::reverse(logsToDraw.begin(), logsToDraw.end());
 
 							int drawn = 0;
 							for (const auto & entry : logsToDraw) {
@@ -19349,7 +19359,10 @@ void ofApp::keyPressed(int key) {
 				auto censorSwears = [](std::string text) {
 					std::vector<std::string> swears = { "fuck", "shit", "bitch", "asshole", "cunt", "dick", "cock", "pussy", "bastard", "slut", "whore" };
 					std::string lowerText = text;
-					std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
+
+					// CRITICAL FIX: Safe tolower lambda for UTF-8 compatibility
+					std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), [](unsigned char c) { return std::tolower(c); });
+
 					for (const auto & w : swears) {
 						size_t pos = 0;
 						while ((pos = lowerText.find(w, pos)) != std::string::npos) {
@@ -19377,8 +19390,12 @@ void ofApp::keyPressed(int key) {
 					ChatMessagePacket pkt = {};
 					pkt.type = PKT_CHAT_MESSAGE;
 					pkt.playerID = myLocalPlayerID;
-					strncpy(pkt.message, payload.c_str(), 255);
-					pkt.message[255] = '\0';
+
+					// CRITICAL FIX: Dynamic safe buffer sizing. Avoids stack buffer overflows!
+					size_t maxLen = sizeof(pkt.message) - 1;
+					strncpy(pkt.message, payload.c_str(), maxLen);
+					pkt.message[maxLen] = '\0';
+
 					steamManager.sendPacket(&pkt, sizeof(pkt));
 				}
 
