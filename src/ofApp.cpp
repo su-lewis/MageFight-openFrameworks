@@ -7673,14 +7673,14 @@ void ofApp::updateMenuRects() {
 
 	// Top Row
 	singleplayerNewGameButton.set(sX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
-	singleplayerContinueButton.set(sX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
+	mainMenuLocalPvPButton.set(sX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, btnW, btnH);
 
 	// Middle Row
-	singleplayerLoadButton.set(sX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
+	singleplayerContinueButton.set(sX + 2 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
 	singleplayerReplayButton.set(sX + 8 * menuTileSize, menuStartY + 4 * menuTileSize, btnW, btnH);
 
 	// Bottom Row
-	mainMenuLocalPvPButton.set(sX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH); // Moved here!
+	singleplayerLoadButton.set(sX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 	singleplayerBackButton.set(sX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 
 	// --- Screen 2: Encyclopedia (Overlay) ---
@@ -7688,9 +7688,9 @@ void ofApp::updateMenuRects() {
 	float tabW = 240 * uiScale;
 	float tabH = 50 * uiScale;
 	float spacing = 20 * uiScale;
-	encyTabCards.set(cX_center - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
+	encyTabRules.set(cX_center - tabW * 1.5f - spacing, 140 * uiScale, tabW, tabH);
 	encyTabMinions.set(cX_center - tabW * 0.5f, 140 * uiScale, tabW, tabH);
-	encyTabRules.set(cX_center + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
+	encyTabCards.set(cX_center + tabW * 0.5f + spacing, 140 * uiScale, tabW, tabH);
 	encyBtnBack.set(cX_center - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
 
 	// --- Screen 3: Customisation (Overlay) ---
@@ -7936,7 +7936,7 @@ void ofApp::drawMainMenu() {
 	drawMenuPlaqueButton(mainMenuOnlineButton, "Online Versus", mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), true);
 	drawMenuPlaqueButton(mainMenuSingleplayerButton, "Singleplayer", mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuCustomisationButton, "Customisation", mainMenuCustomisationButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuEncyclopediaButton, "Encyclopedia", mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuEncyclopediaButton, "Rules & Cards", mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuSettingsButton, "Settings", mainMenuSettingsButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuQuitButton, "Quit", mainMenuQuitButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
@@ -8264,10 +8264,10 @@ void ofApp::drawSingleplayerMenu() {
 	drawPixelTextCentered(titleFont, "SINGLEPLAYER", centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
 	drawMenuPlaqueButton(singleplayerNewGameButton, "New vs AI", singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerContinueButton, "Continue vs AI", singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
-	drawMenuPlaqueButton(singleplayerLoadButton, "Load Game", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
-	drawMenuPlaqueButton(singleplayerReplayButton, "Watch a Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableReplays);
 	drawMenuPlaqueButton(mainMenuLocalPvPButton, "Local PvP", mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerContinueButton, "Continue vs AI", singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
+	drawMenuPlaqueButton(singleplayerReplayButton, "Watch a Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableReplays);
+	drawMenuPlaqueButton(singleplayerLoadButton, "Load Game", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
 	drawMenuPlaqueButton(singleplayerBackButton, "Back", singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
 void ofApp::drawCustomisationState() {
@@ -15942,16 +15942,16 @@ cursor_check_done:;
 	case STATE_ENCYCLOPEDIA: {
 		encyclopediaMainHoveredIndex = -1;
 
-		if (encyclopediaMainTab == 0) {
+		if (encyclopediaMainTab == 2) {
 			float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
 			float panelWidth = ofGetWidth() * 0.9f;
-			float contentY = 230 * uiScale; // Pushed down to clear tabs
+			float contentY = 230 * uiScale;
 			float contentBottom = ofGetHeight() - 30 * uiScale;
 
 			const int cols = 10;
 			const float padX = 8.0f * uiScale;
 			const float padY = 10.0f * uiScale;
-			const float nameBand = 16.0f * uiScale;
+			const float nameBand = 24.0f * uiScale;
 
 			float cardW = std::max(12.0f, (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols);
 			float cardH = cardW * 1.4f;
@@ -16409,15 +16409,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (encyBtnBack.inside(x, y)) {
 					clickedUI = true;
 					currentState = STATE_MAIN_MENU;
-				} else if (encyTabCards.inside(x, y)) {
+				} else if (encyTabRules.inside(x, y)) {
 					clickedUI = true;
 					encyclopediaMainTab = 0;
+					encyclopediaMainScroll = 0.0f;
 				} else if (encyTabMinions.inside(x, y)) {
 					clickedUI = true;
 					encyclopediaMainTab = 1;
-				} else if (encyTabRules.inside(x, y)) {
+					encyclopediaMainScroll = 0.0f;
+				} else if (encyTabCards.inside(x, y)) {
 					clickedUI = true;
 					encyclopediaMainTab = 2;
+					encyclopediaMainScroll = 0.0f;
 				}
 			} else if (currentState == STATE_CUSTOMISATION) {
 				if (customisationBtnBack.inside(x, y)) {
@@ -19277,15 +19280,24 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	// Handle encyclopedia scrolling
 	if (currentState == STATE_ENCYCLOPEDIA) {
 		float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
-		float rowStep = ((((ofGetWidth() * 0.9f) - 2.0f * 8.0f * uiScale - 9 * 8.0f * uiScale) / 10.0f) * 1.4f) + 26.0f * uiScale;
+		float contentHeight = ofGetHeight() - 230 * uiScale - 30 * uiScale;
 
-		int totalRows = (allCards.size() + 9) / 10;
-		float totalContentHeight = totalRows * rowStep;
-		float contentHeight = ofGetHeight() - 230 * uiScale - 30 * uiScale; // Match the pushed-down layout
-		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+		if (encyclopediaMainTab == 2) {
+			float rowStep = ((((ofGetWidth() * 0.9f) - 2.0f * 8.0f * uiScale - 9 * 8.0f * uiScale) / 10.0f) * 1.4f) + 26.0f * uiScale;
+			int totalRows = (allCards.size() + 9) / 10;
+			float totalContentHeight = totalRows * rowStep;
+			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 
-		encyclopediaMainScroll -= scrollY * rowStep;
-		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+			encyclopediaMainScroll -= scrollY * rowStep;
+			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+		} else if (encyclopediaMainTab == 1) {
+			float itemH = 175.0f * uiScale;
+			float totalContentHeight = 10 * (itemH + 12.0f * uiScale); // 10 minions
+			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+
+			encyclopediaMainScroll -= scrollY * 60.0f * uiScale;
+			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+		}
 		return;
 	}
 
@@ -38804,9 +38816,9 @@ void ofApp::drawEncyclopediaState() {
 	float eX_center = ofGetWidth() / 2.0f;
 	float cx = eX_center;
 
-	drawPixelTextCentered(titleFont, "ENCYCLOPEDIA", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(titleFont, "RULES & CARDS", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
 
-	// Tabs
+	// Tabs: 0 = HOW TO PLAY (Default), 1 = MINIONS, 2 = ALL CARDS
 	auto drawTab = [&](ofRectangle r, string label, int index) {
 		bool active = (encyclopediaMainTab == index);
 		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
@@ -38817,9 +38829,9 @@ void ofApp::drawEncyclopediaState() {
 		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, active ? ofColor::white : ofColor(200));
 	};
 
-	drawTab(encyTabCards, "ALL CARDS", 0);
+	drawTab(encyTabRules, "HOW TO PLAY", 0);
 	drawTab(encyTabMinions, "MINIONS", 1);
-	drawTab(encyTabRules, "HOW TO PLAY", 2);
+	drawTab(encyTabCards, "ALL CARDS", 2);
 
 	// Back Button
 	bool backHover = encyBtnBack.inside(ofGetMouseX(), ofGetMouseY());
@@ -38829,12 +38841,304 @@ void ofApp::drawEncyclopediaState() {
 	float contentBottom = ofGetHeight() - 30 * uiScale;
 
 	float panelWidth = ofGetWidth() * 0.9f;
-	// Anchor the background panel to the sliding center (cx)
 	ofRectangle panelRect(cx - panelWidth / 2.0f, contentY - 20 * uiScale, panelWidth, contentBottom - contentY + 40 * uiScale);
 	drawMenuPlaquePanel(panelRect);
 
 	if (encyclopediaMainTab == 0) {
-		// CARDS TAB
+		// =====================================================================
+		// TAB 0: HOW TO PLAY (Default Start Tab)
+		// =====================================================================
+		float tX = cx - panelWidth * 0.45f + 40 * uiScale;
+		float tY = contentY + 20 * uiScale;
+		float colW = panelWidth * 0.9f - 80 * uiScale;
+
+		auto drawRuleSection = [&](string title, std::vector<string> points) {
+			drawPixelTextBaseline(titleFont, title, tX, tY, 1.2f * uiScale, ofColor::gold, 2, ofColor::black);
+			tY += 35 * uiScale;
+			for (const auto & pt : points) {
+				auto lines = wrapTextScaled(uiFont, pt, colW, 1.0f * uiScale);
+				for (const auto & l : lines) {
+					drawPixelTextBaseline(uiFont, l, tX + 20 * uiScale, tY, 1.0f * uiScale, ofColor(220));
+					tY += 24 * uiScale;
+				}
+				tY += 8 * uiScale;
+			}
+			tY += 20 * uiScale;
+		};
+
+		drawRuleSection("Turn Structure", { "- Start of Turn: You draw 2 cards (Demons draw 3).", "- AP Roll: You roll dice to determine Action Points (AP). Standard units roll 1d6.", "- Action Phase: Spend AP to play cards or move (1 AP per tile)." });
+
+		drawRuleSection("Damage & Defenses", { "- Physical: Absorbed by Block, Fortification, and Ward.", "- Piercing: Halves damage against subsequent targets in a line.", "- Magic/Fire/Electric/Poison: Bypasses Block. Absorbed by Barrier and Ward.", "- Holy: Deals 2x damage to Undead and Demons. Absorbed by Holy Block." });
+
+		drawRuleSection("Keywords", { "- Luck: Adds a flat bonus to almost every dice roll you make.", "- Flurry: Doubles the effect and damage of all Hand-to-Hand attacks." });
+
+	} else if (encyclopediaMainTab == 1) {
+		// =====================================================================
+		// TAB 1: MINIONS (2-Column Split: Card Diagram Left + 3D Minion List Right)
+		// =====================================================================
+		float leftColumnW = panelWidth * 0.35f;
+		float leftColumnX = cx - (panelWidth * 0.5f) + 20 * uiScale;
+		float rightColumnW = panelWidth * 0.61f;
+		float rightColumnX = leftColumnX + leftColumnW + 24 * uiScale;
+
+		// -------------------------------------------------------------
+		// LEFT COLUMN: Large Minion Card Anatomy & Direct Chip Arrows
+		// -------------------------------------------------------------
+		{
+			float totalLeftHeight = contentBottom - contentY;
+			float cardDisplayH = std::min(totalLeftHeight * 0.38f, 240.0f * uiScale);
+			float cardDisplayW = cardDisplayH / 1.388f;
+			float cardDisplayX = leftColumnX + (leftColumnW - cardDisplayW) * 0.5f;
+			float cardDisplayY = contentY + 2 * uiScale;
+
+			// Find Raise Dead or Fallback Minion Card
+			const Card * sampleCard = nullptr;
+			for (const auto & c : allCards) {
+				if (c.type == CARD_RAISE_DEAD) {
+					sampleCard = &c;
+					break;
+				}
+			}
+			if (!sampleCard && !allCards.empty()) sampleCard = &allCards[0];
+
+			if (sampleCard) {
+				ofSetColor(255);
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, *sampleCard, cardDisplayX, cardDisplayY, cardDisplayW, cardDisplayH, nullptr);
+
+				// --- DRAW POINTING ARROWS DIRECTLY TO GREEN/RED CHIPS ---
+				float apTargetX = cardDisplayX + cardDisplayW * 0.44f;
+				float apTargetY = cardDisplayY + cardDisplayH - 2 * uiScale;
+				float hpTargetX = cardDisplayX + cardDisplayW * 0.56f;
+				float hpTargetY = cardDisplayY + cardDisplayH - 2 * uiScale;
+
+				float arrowBaseY = cardDisplayY + cardDisplayH + 18 * uiScale;
+				float apBaseX = cardDisplayX + cardDisplayW * 0.22f;
+				float hpBaseX = cardDisplayX + cardDisplayW * 0.78f;
+
+				auto drawArrow = [](float startX, float startY, float endX, float endY, ofColor col, const std::string & label, ofTrueTypeFont & font, float scale) {
+					ofPushStyle();
+					ofSetColor(col);
+					ofSetLineWidth(3.0f * scale);
+					ofDrawLine(startX, startY, endX, endY);
+
+					// Arrow Head
+					glm::vec2 dir = glm::normalize(glm::vec2(endX - startX, endY - startY));
+					glm::vec2 perp(-dir.y, dir.x);
+					float headSize = 7.0f * scale;
+					ofDrawTriangle(endX, endY,
+						endX - dir.x * headSize + perp.x * (headSize * 0.6f), endY - dir.y * headSize + perp.y * (headSize * 0.6f),
+						endX - dir.x * headSize - perp.x * (headSize * 0.6f), endY - dir.y * headSize - perp.y * (headSize * 0.6f));
+
+					// Label below arrow base
+					drawPixelTextCentered(font, label, startX, startY + 12 * scale, 0.80f * scale, col, 2, ofColor::black);
+					safePopStyle();
+				};
+
+				drawArrow(apBaseX, arrowBaseY, apTargetX, apTargetY, ofColor(50, 220, 50), "AP ROLL", uiFont, uiScale);
+				drawArrow(hpBaseX, arrowBaseY, hpTargetX, hpTargetY, ofColor(240, 60, 60), "HEALTH (HP)", uiFont, uiScale);
+			}
+
+			// Instruction & Rules Box taking the bottom space
+			float annotY = cardDisplayY + cardDisplayH + 48 * uiScale;
+			float annotH = contentBottom - annotY;
+			ofRectangle annotBox(leftColumnX, annotY, leftColumnW, annotH);
+
+			ofSetColor(20, 22, 28, 235);
+			ofDrawRectRounded(annotBox, 10 * uiScale);
+			ofNoFill();
+			ofSetLineWidth(2.0f);
+			ofSetColor(70, 75, 95);
+			ofDrawRectRounded(annotBox, 10 * uiScale);
+			ofFill();
+
+			// Draw Title cleanly padded down inside the box
+			float curY = annotBox.y + 36 * uiScale;
+			drawPixelTextCentered(titleFont, "MINION RULES", annotBox.getCenter().x, curY, 0.85f * uiScale, ofColor::gold, 2, ofColor::black);
+			curY += 36 * uiScale;
+
+			std::vector<std::string> rulesParagraphs = {
+				"- Minions take their turns before your wizard.",
+				"- They have their own decks, discard piles, rolls and status effects, they can also optionally draw on their turn.",
+				"- If just summoned, they cannot take their turn until your wizard character has taken theirs."
+			};
+
+			float wrapMaxW = annotBox.width - 48 * uiScale;
+
+			for (const auto & para : rulesParagraphs) {
+				// Wrap strictly with 0.5x scaling awareness to prevent overflow
+				auto lines = wrapTextScaled(uiFont, para, wrapMaxW, 0.5f);
+				for (const auto & l : lines) {
+					drawPixelTextBaseline(uiFont, l, annotBox.x + 20 * uiScale, curY, 0.5f, ofColor(215, 220, 235));
+					curY += 24 * uiScale;
+				}
+				curY += 14 * uiScale; // Generous paragraph break
+			}
+		}
+
+		// -------------------------------------------------------------
+		// RIGHT COLUMN: Scrollable 3D Minion List & Cleaned Stats
+		// -------------------------------------------------------------
+		struct MinionEntryData {
+			std::string name;
+			std::string ap;
+			std::string hp;
+			std::string deck;
+			std::string traits;
+			ofxAssimpModelLoader * model;
+			ofTexture * customTex;
+			float modelScaleAdjustment;
+			float modelYOffset;
+		};
+
+		std::vector<MinionEntryData> minionList = {
+			{ "SKELETON", "1d6", "1d6", "Punch (x2), Hand Block (x2)", "Has Regeneration (+1 HP/turn). Weak to Holy (2x). Steals graveyard cards.", &skeletonModel, nullptr, 1.0f, 0.0f },
+			{ "GOLEM", "1d6", "1d10 (Adapts)", "Bash (x3), Hand Block (x2) + Spells", "Adapts element & HP to previous spell: Rock (1d20), Fire (1d10), Electric (1d6).", &golemModel, &golemTexRock, 0.95f, 0.0f },
+			{ "WOLF", "1d10", "4", "Slash (x3), Call for Wolves (x1)", "Weak to Piercing (2x). Call for Wolves flips a coin to spawn a 2nd Wolf.", &wolfModel, nullptr, 1.0f, 0.0f },
+			{ "HELLHOUND", "2d6", "2d6", "Slash (x2), Flame Hit (x2), Fireball (x2), Dark Shield (x3)", "Weak to Holy (2x). Generates Dark Shield stacks for summoner's AP.", &hellhoundModel, nullptr, 1.0f, 0.0f },
+			{ "DEMON", "4d4", "3d10", "Death (x2), Flail (x2), Fireball (x2), Summon Hellhound, Dark Shield (x3)", "Draws 3 cards/turn. Weak to Holy (2x). When slain, killer drafts a Class 3 card!", &demonModel, nullptr, 0.90f, 0.0f },
+			{ "KOBOLD", "1d4", "1", "Punch (x1), Hand Block (x2), Call for Kobolds (x1)", "Pack swarm tactics: Spawns up to 1d4 Kobolds. Empowers Kobold King.", &koboldModel, nullptr, 1.05f, 0.0f },
+			{ "KOBOLD KING", "1d6", "1 + (Living Kobolds)", "Slash (x2), Stab (x2), Full Restore (x2), Call for Kobolds", "Max HP dynamically scales with the number of allied Kobolds alive on board.", &koboldKingModel, nullptr, 1.05f, 0.0f },
+			{ "ASSISTANT", "Coin (1-2)", "1", "Lesser Heal (x1), Hand Block (x4)", "Clover Aura (+1 Luck to summoner). Can reroll summoner's AP once per turn at 0 AP.", &assistantModel, nullptr, 1.0f, 0.0f },
+			{ "FAERIE", "1d4", "5", "Dispel (x2), Lesser Heal (x2), Magic Blast (x1)", "Has Deck & Regen. Automatically resurrects adjacent fallen allies (1d4 HP roll).", &faerieModel, nullptr, 1.05f, 0.0f },
+			{ "WALL", "1d4", "5", "Fortify (x2), Ward (x2), Summon Wall (x1)", "Solid obstruction unit: Blocks enemy movement and non-piercing attacks.", &wallUnitModel, nullptr, 0.95f, 0.0f }
+		};
+
+		float itemH = 175.0f * uiScale;
+		float itemGap = 12.0f * uiScale;
+		float totalContentH = (float)minionList.size() * (itemH + itemGap);
+		float visibleH = contentBottom - contentY;
+		float maxScroll = std::max(0.0f, totalContentH - visibleH);
+		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+
+		ofPushStyle();
+		glEnable(GL_SCISSOR_TEST);
+		int scX = (int)rightColumnX;
+		int scW = (int)rightColumnW;
+		int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
+		glScissor(scX, scY, scW, (int)visibleH);
+
+		for (size_t mi = 0; mi < minionList.size(); ++mi) {
+			float itemY = contentY + mi * (itemH + itemGap) - encyclopediaMainScroll;
+			if (itemY + itemH < contentY || itemY > contentBottom) continue;
+
+			ofRectangle itemRect(rightColumnX, itemY, rightColumnW - 12 * uiScale, itemH);
+
+			// Item Plaque Background
+			ofSetColor(26, 28, 36, 240);
+			ofDrawRectRounded(itemRect, 10 * uiScale);
+			ofNoFill();
+			ofSetLineWidth(2.0f);
+			ofSetColor(65, 70, 90);
+			ofDrawRectRounded(itemRect, 10 * uiScale);
+			ofFill();
+
+			// 3D Model Viewport Area
+			float modelBoxSize = itemH - 16 * uiScale;
+			float modelBoxX = itemRect.x + 8 * uiScale;
+			float modelBoxY = itemRect.y + 8 * uiScale;
+
+			ofSetColor(18, 18, 24, 255);
+			ofDrawRectRounded(modelBoxX, modelBoxY, modelBoxSize, modelBoxSize, 8 * uiScale);
+
+			// Render 3D Spinning Model - Placed uniformly at the very bottom edge of the square
+			if (minionList[mi].model && minionList[mi].model->getMeshCount() > 0) {
+				ofEnableDepthTest();
+				glClear(GL_DEPTH_BUFFER_BIT);
+				ofDisableLighting();
+
+				ofPushMatrix();
+				float floorLevelY = modelBoxY + modelBoxSize - (2.0f * uiScale) + (minionList[mi].modelYOffset * uiScale);
+				ofTranslate(modelBoxX + modelBoxSize * 0.5f, floorLevelY);
+
+				float mScale = (modelBoxSize / 512.0f) * 90.0f * 0.02f * minionList[mi].modelScaleAdjustment;
+				ofScale(mScale, mScale, mScale);
+				ofRotateZDeg(180);
+				ofRotateXDeg(15);
+				ofRotateYDeg(180 + ofGetElapsedTimef() * -30);
+				ofRotateZDeg(180);
+
+				glDisable(GL_CULL_FACE);
+				glEnable(GL_NORMALIZE);
+
+				ofxAssimpModelLoader * mdl = minionList[mi].model;
+
+				ofPushMatrix();
+				ofMultMatrix(mdl->getModelMatrix());
+				for (unsigned int meshIdx = 0; meshIdx < mdl->getMeshCount(); ++meshIdx) {
+					ofPushMatrix();
+					ofMultMatrix(mdl->getMeshHelper(meshIdx).matrix);
+
+					bool hasTex = false;
+					if (minionList[mi].customTex && minionList[mi].customTex->isAllocated()) {
+						minionList[mi].customTex->bind();
+						hasTex = true;
+					} else if (mdl->getMeshHelper(meshIdx).hasTexture()) {
+						mdl->getMeshHelper(meshIdx).getTextureRef().bind();
+						hasTex = true;
+					}
+
+					ofSetColor(255);
+					mdl->getMeshHelper(meshIdx).cachedMesh.drawFaces();
+
+					if (hasTex) {
+						if (minionList[mi].customTex)
+							minionList[mi].customTex->unbind();
+						else
+							mdl->getMeshHelper(meshIdx).getTextureRef().unbind();
+					}
+					ofPopMatrix();
+				}
+				ofPopMatrix();
+
+				glDisable(GL_NORMALIZE);
+				ofPopMatrix();
+
+				ofDisableDepthTest();
+				ofSetColor(255);
+			}
+
+			// Text Details on the right of the model (shifted down to sit comfortably inside the box)
+			float textLeft = modelBoxX + modelBoxSize + 16 * uiScale;
+			float textMaxW = itemRect.getRight() - textLeft - 12 * uiScale;
+			float lineY = itemRect.y + 46 * uiScale;
+
+			// Minion Name
+			drawPixelTextBaseline(titleFont, minionList[mi].name, textLeft, lineY, 0.85f * uiScale, ofColor::gold, 2, ofColor::black);
+			lineY += 28 * uiScale;
+
+			// AP and HP
+			std::string statsLine = "AP: " + minionList[mi].ap + "  |  HP: " + minionList[mi].hp;
+			drawPixelTextBaseline(uiFont, statsLine, textLeft, lineY, 0.92f * uiScale, ofColor(120, 255, 120));
+			lineY += 24 * uiScale;
+
+			// Deck Line
+			std::string deckLine = "Deck: " + minionList[mi].deck;
+			drawPixelTextBaseline(uiFont, deckLine, textLeft, lineY, 0.82f * uiScale, ofColor(180, 220, 255));
+			lineY += 24 * uiScale;
+
+			// Traits & Passives
+			auto traitLines = wrapTextScaled(uiFont, minionList[mi].traits, textMaxW, 0.80f * uiScale);
+			for (const auto & tl : traitLines) {
+				drawPixelTextBaseline(uiFont, tl, textLeft, lineY, 0.80f * uiScale, ofColor(220, 220, 230));
+				lineY += 21 * uiScale;
+			}
+		}
+
+		glDisable(GL_SCISSOR_TEST);
+		safePopStyle();
+
+		// Minion Scrollbar
+		if (maxScroll > 0.0f) {
+			float scrollBarH = std::max(28.0f * uiScale, visibleH * (visibleH / totalContentH));
+			float scrollBarY = contentY + (encyclopediaMainScroll / maxScroll) * (visibleH - scrollBarH);
+			ofSetColor(100, 100, 130, 220);
+			ofDrawRectRounded(rightColumnX + rightColumnW - 6 * uiScale, scrollBarY, 6 * uiScale, scrollBarH, 3 * uiScale);
+		}
+
+	} else if (encyclopediaMainTab == 2) {
+		// =====================================================================
+		// TAB 2: ALL CARDS
+		// =====================================================================
 		const int cols = 10;
 		const float padX = 8.0f * uiScale;
 		const float padY = 10.0f * uiScale;
@@ -38871,7 +39175,6 @@ void ofApp::drawEncyclopediaState() {
 				hDrawY = drawY;
 				hCard = allCards[i];
 			} else {
-				// Only draw normal cards if they are within the scissor box
 				if (drawY + cardH > contentY && drawY < contentBottom) {
 					ofSetColor(255);
 					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, allCards[i], drawX, drawY, cardW, cardH, nullptr);
@@ -38879,7 +39182,6 @@ void ofApp::drawEncyclopediaState() {
 					string shortName = allCards[i].name;
 					if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
 
-					// Nice Mage Fight themed text under the cards
 					drawPixelTextCentered(uiFont, shortName, drawX + cardW * 0.5f, drawY + cardH + 18.0f * uiScale, 1.0f * uiScale, ofColor(255, 255, 230), 2, ofColor(150, 100, 0));
 				}
 			}
@@ -38893,15 +39195,13 @@ void ofApp::drawEncyclopediaState() {
 		glDisable(GL_SCISSOR_TEST);
 		safePopStyle();
 
-		// Draw the hovered card OUTSIDE the scissor test, so it pops hugely out of the frame!
 		if (hoveredDrawIndex != -1) {
-			float scaleUp = 2.5f; // HUGE!
+			float scaleUp = 2.5f;
 			float thisCardW = cardW * scaleUp;
 			float thisCardH = cardH * scaleUp;
 			float finalX = hDrawX - (thisCardW - cardW) / 2.0f;
 			float finalY = hDrawY - (thisCardH - cardH) / 2.0f;
 
-			// Keep the huge card on screen if you hover over the top or bottom edges
 			if (finalY < 10) finalY = 10;
 			if (finalY + thisCardH > ofGetHeight() - 10) finalY = ofGetHeight() - thisCardH - 10;
 
@@ -38917,69 +39217,6 @@ void ofApp::drawEncyclopediaState() {
 			drawPixelTextCentered(titleFont, fullName, finalX + thisCardW * 0.5f, finalY + thisCardH + 30.0f * uiScale, 1.2f * uiScale, ofColor::white, 3, ofColor(200, 120, 0));
 			safePopStyle();
 		}
-
-	} else if (encyclopediaMainTab == 1) {
-		// MINIONS TAB
-		float startX = cx - panelWidth * 0.45f;
-		float col1X = startX + 20 * uiScale;
-		float col2X = cx + 20 * uiScale;
-		float colW = panelWidth * 0.45f - 40 * uiScale;
-
-		auto drawMinionInfo = [&](string name, string stats, string effect, float & currentY, float currentX) {
-			drawPixelTextBaseline(titleFont, name, currentX, currentY, 0.9f * uiScale, ofColor::gold, 2, ofColor::black);
-			currentY += 26 * uiScale;
-			drawPixelTextBaseline(uiFont, stats, currentX, currentY, 1.0f * uiScale, ofColor(150, 255, 150));
-			currentY += 24 * uiScale;
-
-			auto lines = wrapTextScaled(uiFont, effect, colW, 1.0f * uiScale);
-			for (auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, currentX, currentY, 1.0f * uiScale, ofColor(220));
-				currentY += 22 * uiScale;
-			}
-			currentY += 20 * uiScale;
-		};
-
-		float y1 = contentY + 20 * uiScale;
-		float y2 = contentY + 20 * uiScale;
-
-		drawMinionInfo("SKELETON", "AP: 1d6 | HP: 1d6+Luck", "Weak to Holy", y1, col1X);
-		drawMinionInfo("GOLEM", "AP: 1d6 | HP: 1d10+Luck", "Adapts to previous spell element", y1, col1X);
-		drawMinionInfo("WOLF", "AP: 1d10 | HP: 4", "Can attack immediately if coins allow", y1, col1X);
-		drawMinionInfo("HELLHOUND", "AP: 2d6 | HP: 2d6+2xLuck", "Weak to Holy", y1, col1X);
-		drawMinionInfo("DEMON", "AP: 4d4 | HP: 3d10+3xLuck", "Weak to Holy", y1, col1X);
-		drawMinionInfo("KOBOLD", "AP: 1d4 | HP: 1", "Pack tactics", y1, col1X);
-
-		drawMinionInfo("KOBOLD KING", "AP: 1d6 | HP: 1 + Pack", "HP scales with living Kobolds", y2, col2X);
-		drawMinionInfo("ASSISTANT", "AP: Coin (1-2) | HP: 1", "Rerolls AP for summoner once per turn", y2, col2X);
-		drawMinionInfo("FAERIE", "AP: 1d4 | HP: 5", "Has Deck. Auto-resurrects adjacent allies", y2, col2X);
-		drawMinionInfo("WALL", "AP: 1d4 | HP: 5", "Blocks attacks and movement", y2, col2X);
-		drawMinionInfo("MAGIC WALL", "AP: 1d6 | HP: 7", "Magic dmg x2, Phys dmg /2 in aura", y2, col2X);
-
-	} else if (encyclopediaMainTab == 2) {
-		// HOW TO PLAY TAB
-		float tX = cx - panelWidth * 0.45f + 40 * uiScale;
-		float tY = contentY + 20 * uiScale;
-		float colW = panelWidth * 0.9f - 80 * uiScale;
-
-		auto drawRuleSection = [&](string title, std::vector<string> points) {
-			drawPixelTextBaseline(titleFont, title, tX, tY, 1.2f * uiScale, ofColor::gold, 2, ofColor::black);
-			tY += 35 * uiScale;
-			for (const auto & pt : points) {
-				auto lines = wrapTextScaled(uiFont, pt, colW, 1.0f * uiScale);
-				for (const auto & l : lines) {
-					drawPixelTextBaseline(uiFont, l, tX + 20 * uiScale, tY, 1.0f * uiScale, ofColor(220));
-					tY += 24 * uiScale;
-				}
-				tY += 8 * uiScale;
-			}
-			tY += 20 * uiScale;
-		};
-
-		drawRuleSection("Turn Structure", { "- Start of Turn: You draw 2 cards (Demons draw 3).", "- AP Roll: You roll dice to determine Action Points (AP). Standard units roll 1d6.", "- Action Phase: Spend AP to play cards or move (1 AP per tile)." });
-
-		drawRuleSection("Damage & Defenses", { "- Physical: Absorbed by Block, Fortification, and Ward.", "- Piercing: Halves damage against subsequent targets in a line.", "- Magic/Fire/Electric/Poison: Bypasses Block. Absorbed by Barrier and Ward.", "- Holy: Deals 2x damage to Undead and Demons. Absorbed by Holy Block." });
-
-		drawRuleSection("Keywords", { "- Luck: Adds a flat bonus to almost every dice roll you make.", "- Flurry: Doubles the effect and damage of all Hand-to-Hand attacks." });
 	}
 }
 
