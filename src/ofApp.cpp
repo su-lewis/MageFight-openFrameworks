@@ -6036,6 +6036,26 @@ void ofApp::update() {
 					loggedWait = true;
 				}
 
+				// RECONNECT / WAKE-UP PING: Actively send our seed to the Host to provoke a handshake
+				static float lastClientPingTime = 0.0f;
+				if (ofGetElapsedTimef() - lastClientPingTime > 1.0f) {
+					lastClientPingTime = ofGetElapsedTimef();
+
+					if (localSeedComponent == 0) {
+						std::random_device rd;
+						localSeedComponent = rd();
+					}
+					myElo = steamManager.getLocalElo();
+
+					HandshakePacket pkt = {};
+					pkt.type = PKT_HANDSHAKE;
+					pkt.playerID = 1;
+					pkt.seq = 1002;
+					pkt.seed = localSeedComponent;
+					pkt.elo = myElo;
+					steamManager.sendPacket(&pkt, sizeof(pkt));
+				}
+
 				// If we chose to spectate OR the host has already started the match:
 				if (g_isSpectator || steamManager.isMatchStarted()) {
 					ofLogNotice("Spectator") << "Match already in progress! Transitioning to Spectator and requesting snapshot...";
@@ -27560,6 +27580,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					rem.currentAlpha = 255.0f;
 					activeRemovedCardAnimations.push_back(rem);
 					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Card Destroyed!", ofColor::magenta);
+					addGameLog(getPlayerSteamName(tidx) + " had top card '" + destroyed.name + "' destroyed");
+				} else {
+					addGameLog(getPlayerSteamName(tidx) + " had top card '" + destroyed.name + "' stolen");
 				}
 				ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
 			}
@@ -40095,6 +40118,23 @@ void ofApp::exit() {
 #ifdef _WIN32
 	timeEndPeriod(1); // Release kernel timer precision
 #endif
+
+	// --- CRITICAL FIX: INSTANT RESIGN ON ALT+F4 OR WINDOW CLOSE ---
+	if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 2) {
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.commandId = 0;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PSEUDO_ACTION;
+		strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
+		steamManager.sendPacket(&cmd, sizeof(cmd));
+
+		// Sleep for 50 milliseconds to guarantee the packet enters the OS network hardware buffer
+		// before the process completely dies.
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	}
+
 	// Clean up Steam authentication tickets & sessions
 	if (SteamUser()) {
 		if (g_localAuthTicket != k_HAuthTicketInvalid) {
@@ -40319,6 +40359,9 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
 					applySnapshotString(incomingSnapshotBuffer, true);
 
+					// CRITICAL FIX: Ensure the UI and hitboxes are fully built after receiving a mid-game snapshot!
+					recalculateUI(ofGetWidth(), ofGetHeight());
+
 					if (g_isSpectator) {
 						g_isConnectingToLobby = false;
 						// If spectator was waiting in menus, jump straight into the match
@@ -40398,11 +40441,6 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_HANDSHAKE) {
 				if (buffer.size() < sizeof(HandshakePacket)) continue; // SECURITY FIX: Prevent OOB Read
 
-				// FIX: Completely ignore stray/corrupted handshakes if we are already in an active match!
-				if (currentState != STATE_MAIN_MENU && currentState != STATE_MULTIPLAYER_MENU) {
-					continue;
-				}
-
 				HandshakePacket * pkt = (HandshakePacket *)header;
 
 				// --- VERSION CONTROL: Reject outdated players! ---
@@ -40415,7 +40453,7 @@ void ofApp::processNetworkPackets() {
 					continue;
 				}
 
-				// 1. HOST RECEIVES CLIENT REPLY
+				// 1. HOST RECEIVES CLIENT REPLY (OR RECONNECT REQUEST)
 				if (steamManager.isHost() && pkt->playerID == 1) {
 					if (!hasReceivedHandshake) {
 						opponentElo = pkt->elo;
@@ -40432,21 +40470,36 @@ void ofApp::processNetworkPackets() {
 						lastReceivedSeqByPlayer[0] = 0;
 						lastReceivedSeqByPlayer[1] = 0;
 
-						// Ensure RNG is seeded BEFORE setupGame runs!
 						gameplayRNG.seed(currentMapSeed);
 						gameplayRngAdvanceCount = 0;
 						seedVisualRng(visualRNG, currentMapSeed);
 
 						setupGame();
+					} else {
+						// RECONNECT: Client restarted game and needs the established seed!
+						ofLogNotice("Network") << "Host: Received reconnect handshake. Sending established seed.";
+						HandshakePacket ack = {};
+						ack.type = PKT_HANDSHAKE;
+						ack.playerID = 0;
+						ack.seq = 1002;
+						// Send back a seed that perfectly reconstructs the Host's existing currentMapSeed
+						ack.seed = currentMapSeed ^ pkt->seed;
+						ack.elo = myElo;
+						steamManager.sendPacket(&ack, sizeof(ack));
+
+						// Trigger a snapshot send so they get the board!
+						sendSnapshotToClient(false);
 					}
 				}
-				// 2. CLIENT RECEIVES HOST REQUEST
+				// 2. CLIENT RECEIVES HOST REQUEST (OR RECONNECT REPLY)
 				else if (!steamManager.isHost() && pkt->playerID == 0) {
 					opponentElo = pkt->elo;
 
 					if (!hasReceivedHandshake) {
-						std::random_device rd;
-						localSeedComponent = rd();
+						if (localSeedComponent == 0) {
+							std::random_device rd;
+							localSeedComponent = rd();
+						}
 						myElo = steamManager.getLocalElo();
 
 						currentMapSeed = pkt->seed ^ localSeedComponent;
@@ -40465,7 +40518,6 @@ void ofApp::processNetworkPackets() {
 						player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
 						player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
 
-						// Ensure RNG is seeded BEFORE setupGame runs!
 						gameplayRNG.seed(currentMapSeed);
 						gameplayRngAdvanceCount = 0;
 						seedVisualRng(visualRNG, currentMapSeed);
@@ -40479,15 +40531,13 @@ void ofApp::processNetworkPackets() {
 					HandshakePacket ack = {};
 					ack.type = PKT_HANDSHAKE;
 					ack.playerID = 1;
-					ack.seq = 1002; // <--- GAME VERSION ID! 1002
+					ack.seq = 1002;
 					ack.seed = localSeedComponent;
 					ack.elo = myElo;
 					steamManager.sendPacket(&ack, sizeof(ack));
 
-					// Send Steam Auth Session Ticket to host for backend verification
 					SendLocalAuthSessionTicket(steamManager, 1);
 
-					// Always send the READY packet immediately so the Host can start the match!
 					ClientReadyPacket r = {};
 					r.type = PKT_CLIENT_READY;
 					r.playerID = myLocalPlayerID;
