@@ -8827,6 +8827,77 @@ void ofApp::setupGame() {
 	g_playerDefenses.clear();
 	draftGenerationCounter = 0; // Ensures fresh draft state and seed parity on consecutive matches
 
+	// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
+	gameLog.clear();
+	chatHistory.clear();
+	draftOptions.clear();
+	draftOptionUI.clear();
+	selectedDraftIndices.clear();
+	activeMinionUIs.clear();
+	psionicWaveTargetIndices.clear();
+	activeDraftPickedMoves.clear();
+	visualEvents.clear();
+
+	isEarthquakeActive = false;
+	isEarthquakeDiceRolling = false;
+	isEarthquakeAnimatingStep = false;
+	earthquakeUnits.clear();
+	activeAOERing.centerTile = glm::ivec2(-1, -1);
+	magicHandRelocateChoices.clear();
+	magicHandRelocateTargetIndex = -1;
+
+	turnTimerPaused = false;
+	turnTimerPausedRemainingFrames = 0;
+	opponentDecisionTimerActive = false;
+	opponentDecisionPlayerIndex = -1;
+	opponentDecisionStartFrame = 0;
+
+	deckFlashStartFrame = 0;
+	deckFlashOwnerIndex = -1;
+
+	lastBannerTurnOwnerID = -1;
+	lastBannerTurnCycle = -1;
+	turnBannerText = "";
+	diceRollResultText = "";
+
+	isHandlingTurnStartEffects = false;
+	apResolvedThisTurn = false;
+
+	draftNextScheduled = false;
+	draftEndScheduled = false;
+	lastDraftOptionsPlayer = -1;
+
+	pendingStartNewTurnRequests = 0;
+	g_activePlayerDiedThisTurn = false;
+	lastHoveredUnit = -1;
+	lastAutoScrollTurnUnit = -1;
+
+	reconnectForfeitStartTime = -1.0f;
+	waitingForReconnect = false;
+	hostWaitingForClientsReadyStartTime = 0.0f;
+	waitingForClientHandshake = false;
+
+	cameraShakeTimer = 0.0f;
+	cameraShakeDuration = 0.0f;
+	cameraShakeIntensity = 0.0f;
+	cameraShakeOffset = glm::vec3(0.0f);
+
+	draggedCardIndex = -1;
+	selectedCardIndex = -1;
+	pressedCardIndex = -1;
+	hoveredCardIndex = -1;
+	lastHoveredCardIndex = -1;
+	playerAction = NONE;
+	selectedPieceGridX = -1;
+	selectedPieceGridY = -1;
+	hoverPath.clear();
+	lastHoverGridPos = glm::vec2(-1, -1);
+
+	if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
+		draggingHandLoop.stop();
+	}
+	// ------------------------------------------------------------
+
 	// Clear transient and persistent gameplay state to ensure a true reset
 	players.clear();
 	graveyard.clear();
@@ -9489,8 +9560,9 @@ void ofApp::prepareGameVisualState() {
 
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsed = time - anim.startTime;
-		float holdTime = 1.5f;
-		float shrinkTime = 0.5f;
+		// FIX: Massively speed up the Amnesia card destruction so it doesn't look like a delay!
+		float holdTime = 0.4f;
+		float shrinkTime = 0.3f;
 		float totalTime = holdTime + shrinkTime;
 		if (elapsed >= 0.0f && elapsed < holdTime) {
 			anim.currentScale = 1.8f;
@@ -9503,7 +9575,8 @@ void ofApp::prepareGameVisualState() {
 			anim.currentAlpha = 0.0f;
 		}
 	}
-	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 2.0f; }), activeRemovedCardAnimations.end());
+	// Purge after the new, shorter duration (0.4 + 0.3 = 0.7s)
+	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 0.8f; }), activeRemovedCardAnimations.end());
 
 	for (auto & disp : activeCardDisplays) {
 		float elapsed = time - disp.startTime;
@@ -29148,7 +29221,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					return;
 				}
 				if (draftAcceptButtonRect.inside(mouseX, mouseY)) {
-					if (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) {
+					// FIX: Use the exact same validation logic as the UI rendering so clicks are never swallowed!
+					if (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove || amnesiaSelectedIndices.size() == amnesiaDeckCopy.size()) {
 						InputCommandPacket cmd = {};
 						cmd.type = PKT_INPUT_COMMAND;
 						cmd.playerID = myLocalPlayerID;
@@ -42958,7 +43032,9 @@ void ofApp::thinkRuleBasedAI() {
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
 					cmd.params[0] = (int)i;
+					cmd.params[1] = 0; // Initialize empty param
 					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0'; // Guarantee null-termination
 					sendInputCommand(cmd, true);
 					return;
 				}
@@ -43424,6 +43500,17 @@ void ofApp::thinkRuleBasedAI() {
 				bool isGeneralSummon = (card.summonKind > 0 || card.type == CARD_RAISE_DEAD);
 				if (isGeneralSummon && score == 0.0f) {
 					score += 850.0f; // High base priority for putting bodies on the board
+
+					// --- AI KNOWLEDGE FIX: Assistants are AP Engines! ---
+					if (card.type == CARD_SUMMON_ASSISTANT) {
+						// If casting this drops us to exactly 0 AP, we get an instant free reroll!
+						// This means it effectively extends the turn for free.
+						if (currentAP == cost) {
+							score += 3500.0f; // Absolute highest priority! Do this FIRST to extend the turn!
+						} else {
+							score += 1800.0f; // Always highly prioritize assistants because they generate future AP
+						}
+					}
 				}
 
 				// Specific Power Engine Overrides
