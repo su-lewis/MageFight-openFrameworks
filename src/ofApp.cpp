@@ -27757,6 +27757,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (newIdx >= 0 && !players[newIdx].deck.empty()) {
 						deterministic_shuffle_gameplay(players[newIdx].deck);
 					}
+					addGameLog(getPlayerSteamName(op.data.spawnUnit.ownerPlayerID) + " summoned unit kind " + std::to_string(sk) + " at (" + std::to_string(tx) + "," + std::to_string(ty) + ")");
 				}
 			} else {
 				// If a minion already exists at this tile, update authoritative stats
@@ -27875,6 +27876,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			if (discarded > 0) {
 				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(discarded) + " Card(s)", ofColor::purple);
+				addGameLog(getPlayerSteamName(targetIndex) + " randomly discarded " + std::to_string(discarded) + " card(s)");
 			}
 		}
 		opComplete = true;
@@ -31947,7 +31949,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	if (currentAP < costToPay) return CARD_PLAY_RESULT_NOT_PLAYABLE;
 
 	// Log card played
-	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name);
+	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name + " targeting (" + std::to_string(targetX) + "," + std::to_string(targetY) + ")");
 
 	// (Magic Wall handling moved into the CARD_CREATE_WALL switch-case below.)
 
@@ -40269,6 +40271,14 @@ void ofApp::processNetworkPackets() {
 			// from deterministic command processing (CMD_END_TURN/CMD_PSEUDO_ACTION).
 
 			if (header->type == PKT_SNAPSHOT_BEGIN) {
+				// SECURITY FIX: Rate-limit Snapshot Begin to prevent RAM exhaustion attacks
+				static float lastSnapshotBeginTime = 0.0f;
+				if (ofGetElapsedTimef() - lastSnapshotBeginTime < 1.0f) {
+					ofLogWarning("Security") << "Dropped PKT_SNAPSHOT_BEGIN: Rate limit exceeded.";
+					continue;
+				}
+				lastSnapshotBeginTime = ofGetElapsedTimef();
+
 				SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;
 				incomingSnapshotId = bp->snapshotId;
 
@@ -40285,16 +40295,25 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_SNAPSHOT_CHUNK) {
 				SnapshotChunkPacket * cp = (SnapshotChunkPacket *)header;
 				if (cp->snapshotId == incomingSnapshotId && !incomingSnapshotBuffer.empty()) {
-					uint32_t end = cp->offset + cp->chunkSize;
-					if (end <= incomingSnapshotBuffer.size()) {
-						memcpy(&incomingSnapshotBuffer[cp->offset], cp->data, cp->chunkSize);
-						incomingSnapshotReceivedSize += cp->chunkSize;
+					// SECURITY FIX: Subtraction prevents integer overflow wrap-around attacks
+					if (cp->chunkSize <= incomingSnapshotBuffer.size() && cp->offset <= incomingSnapshotBuffer.size() - cp->chunkSize) {
+
+						// Prevent reading past the actual received network packet size
+						size_t headerSize = sizeof(SnapshotChunkPacket) - sizeof(cp->data);
+						size_t actualDataInPacket = (buffer.size() > headerSize) ? (buffer.size() - headerSize) : 0;
+						size_t safeCopySize = std::min((size_t)cp->chunkSize, actualDataInPacket);
+
+						if (safeCopySize > 0) {
+							memcpy(&incomingSnapshotBuffer[cp->offset], cp->data, safeCopySize);
+							incomingSnapshotReceivedSize += safeCopySize;
+						}
 					}
 				}
 				continue;
 			}
 
 			if (header->type == PKT_SNAPSHOT_END) {
+				if (buffer.size() < sizeof(SnapshotEndPacket)) continue; // SECURITY FIX: Prevent OOB Read
 				SnapshotEndPacket * ep = (SnapshotEndPacket *)header;
 				if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
 					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
@@ -40332,6 +40351,16 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_SNAPSHOT_REQUEST) {
+				if (buffer.size() < sizeof(SnapshotRequestPacket)) continue; // SECURITY FIX: Size check
+
+				// SECURITY FIX: Rate-limit outgoing snapshots to prevent CPU/Bandwidth DoS attacks
+				static float lastSnapshotSentTime = 0.0f;
+				if (ofGetElapsedTimef() - lastSnapshotSentTime < 5.0f) {
+					ofLogWarning("Security") << "Dropped PKT_SNAPSHOT_REQUEST: Rate limit exceeded.";
+					continue;
+				}
+				lastSnapshotSentTime = ofGetElapsedTimef();
+
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
 				// FIX: Allow remaining peer to respond with current snapshot on reconnect
@@ -40344,7 +40373,8 @@ void ofApp::processNetworkPackets() {
 				AuthTicketPacket * authPkt = (AuthTicketPacket *)header;
 				CSteamID opponentSteamID = steamManager.getOpponentSteamID();
 
-				if (SteamUser() && opponentSteamID.IsValid() && authPkt->ticketSize > 0) {
+				// SECURITY FIX: Clamp ticketSize to the strict limits of the physical array
+				if (SteamUser() && opponentSteamID.IsValid() && authPkt->ticketSize > 0 && authPkt->ticketSize <= sizeof(authPkt->ticketData)) {
 					if (g_activeAuthPeerSteamID.IsValid()) {
 						SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
 					}
@@ -40366,6 +40396,8 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_HANDSHAKE) {
+				if (buffer.size() < sizeof(HandshakePacket)) continue; // SECURITY FIX: Prevent OOB Read
+
 				// FIX: Completely ignore stray/corrupted handshakes if we are already in an active match!
 				if (currentState != STATE_MAIN_MENU && currentState != STATE_MULTIPLAYER_MENU) {
 					continue;
@@ -40492,6 +40524,9 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_INPUT_COMMAND) {
 				if (buffer.size() < sizeof(InputCommandPacket)) continue;
 				InputCommandPacket * cmd = (InputCommandPacket *)header;
+
+				// SECURITY FIX: Guarantee null-termination for command string data
+				cmd->stringData[sizeof(cmd->stringData) - 1] = '\0';
 
 				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
 
@@ -40623,6 +40658,17 @@ void ofApp::processNetworkPackets() {
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
 				if (skipChecksumValidation || pkt->playerID == 2) continue;
 
+				// SECURITY FIX: Prevent Memory Exhaustion via Map Spam
+				if (s_pendingRemoteChecksums.size() > 150) {
+					ofLogWarning("Security") << "Dropping Checksum: Maximum pending checksums reached.";
+					continue;
+				}
+
+				// SECURITY FIX: Ignore checksums that are ridiculously far from the current turn
+				if (std::abs((int)pkt->turnNumber - (int)globalTurnCounter) > 100) {
+					continue;
+				}
+
 				// DO NOT drop checksums from different turns!
 				// Visual animations can cause a peer to start a turn slightly later/earlier than the other.
 				// Just store it in the map and it will be safely evaluated when the local turn perfectly matches!
@@ -40633,8 +40679,11 @@ void ofApp::processNetworkPackets() {
 			// will detect key pickups locally. Legacy packet handling deleted to avoid
 			// UI races and double-processing.
 			else if (header->type == PKT_CHAT_MESSAGE) {
+				if (buffer.size() < sizeof(ChatMessagePacket)) continue; // SECURITY FIX: Prevent OOB Read
 				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
 
+				// SECURITY FIX: Guarantee null-termination from network strings
+				pkt->message[sizeof(pkt->message) - 1] = '\0';
 				std::string rawMsg = pkt->message;
 				if (rawMsg.rfind("\aSYNC_NAME:", 0) == 0) {
 					std::string syncedName = rawMsg.substr(11);
@@ -40675,6 +40724,7 @@ void ofApp::processNetworkPackets() {
 				// Show chat for 5 seconds when message received
 				lastChatInteractionTime = ofGetElapsedTimef();
 			} else if (header->type == PKT_HOVER) {
+				if (buffer.size() < sizeof(HoverPacket)) continue; // SECURITY FIX: Prevent OOB Read
 				// Ignore hover packets in singleplayer builds
 				if (!isMultiplayer) continue;
 				HoverPacket * pkt = (HoverPacket *)header;
@@ -40777,6 +40827,36 @@ void ofApp::processNetworkPackets() {
 			ofBufferToFile(dumpName, dumpBuf);
 			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
 
+			// --- FULL MATCH LOG SAVING (DESYNC) ---
+			std::string matchLog = "=== MATCH SUMMARY ===\n";
+			matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
+			matchLog += "End Reason: Fatal Desync\n";
+			matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
+			matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n";
+			matchLog += "Winner ID: N/A\n\n";
+			matchLog += "--- PLAYERS ---\n";
+			matchLog += "Player 0: " + player0SteamName + "\n";
+			matchLog += "Player 1: " + player1SteamName + "\n\n";
+			matchLog += "--- EVENT LOG ---\n";
+			for (const auto & line : s_fullMatchLog) {
+				matchLog += line + "\n";
+			}
+			matchLog += "\n--- STATS ---\n";
+			for (int i = 0; i < 2; i++) {
+				matchLog += "Player " + std::to_string(i) + " Stats:\n";
+				matchLog += "  Max Dmg/Turn: " + std::to_string(matchStats[i].maxDamageInOneTurn) + "\n";
+				matchLog += "  Cards Played: " + std::to_string(matchStats[i].cardsPlayed) + "\n";
+				matchLog += "  Minions Spawned: " + std::to_string(matchStats[i].minionsSpawned) + "\n";
+				matchLog += "  Total Healing: " + std::to_string(matchStats[i].totalHealing) + "\n";
+			}
+			matchLog += "=====================\n";
+
+			std::string logFilename = getSavesDirPath().string() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
+			ofFile f(logFilename, ofFile::WriteOnly);
+			f << matchLog;
+			f.close();
+			ofLogNotice("MatchLog") << "Saved full match log to " << logFilename;
+
 			// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
 			std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
 
@@ -40789,16 +40869,21 @@ void ofApp::processNetworkPackets() {
 			msg += "**Players:** " + myName + " vs " + oppName + "\n";
 			msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
 			msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
-			msg += "Attached are the local state dump and lockstep trace for debugging.";
+			msg += "**Checksums:** Local [" + std::to_string(localSum) + "] | Remote [" + std::to_string(remoteSum) + "]\n\n";
 
-			std::vector<std::string> uploadFiles = { dumpName, traceName };
+			msg += "**Last Actions Before Desync:**\n```text\n";
+			int startIdx = std::max(0, (int)s_fullMatchLog.size() - 25);
+			for (size_t i = startIdx; i < s_fullMatchLog.size(); ++i) {
+				msg += s_fullMatchLog[i] + "\n";
+			}
+			msg += "```\n*Attached are the Human-Readable Action Log and the Raw State Dump.*";
+
+			std::vector<std::string> uploadFiles = { logFilename, dumpName };
 			sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
 
 			desyncMessage = "Local: " + std::to_string(localSum) + "\nRemote: " + std::to_string(remoteSum) + "\nCheck latest_desync_dump logs.";
 			currentState = STATE_DESYNC;
 			g_desyncStartTime = ofGetElapsedTimef();
-
-			// --- FULL MATCH LOG SAVING (DESYNC) ---
 			std::string matchLog = "=== MATCH SUMMARY ===\n";
 			matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
 			matchLog += "End Reason: Fatal Desync\n";
