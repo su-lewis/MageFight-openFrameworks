@@ -24243,7 +24243,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			};
 
 			long long distSq = getTeleportDistanceSquaredScaledLocal(casterTile, targetTile);
-			bool inRange = (distSq * 25LL <= maxDistSqScaled);
+			// SECURITY FIX: Add +4LL leniency for Teleport distance validation
+			bool inRange = (distSq * 25LL <= maxDistSqScaled + 4LL);
 
 			bool isWall = board[destX][destY].hasWall;
 			bool isOccupied = board[destX][destY].hasPlayer && !(destX == tpCaster.x && destY == tpCaster.y);
@@ -25680,7 +25681,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
+						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -25832,7 +25834,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
+						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -26016,7 +26019,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::vec2 targetTile((float)p.x, (float)p.y);
 				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, targetTile);
 
-				if (distSq * 25LL <= maxAoeDistSqScaled) {
+				// SECURITY FIX: Add +4LL leniency to splash damage targets
+				if (distSq * 25LL <= maxAoeDistSqScaled + 4LL) {
 					bool blockedByWall = false;
 					int pDx = std::abs(p.x - currentCardOutcome.primaryTarget.x);
 					int pDy = std::abs(p.y - currentCardOutcome.primaryTarget.y);
@@ -26095,7 +26099,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
+						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -26285,7 +26290,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
+						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -26418,7 +26424,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled) {
+						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -26630,10 +26637,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = interactionTargetTile;
 			int rangeRoll = currentEffectSequence.blackboard[0];
 
-			long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
-			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			// SECURITY FIX: Standardize math to use 25LL/4LL ratio for leniency support
+			long long maxDistSqScaled = (long long)rangeRoll * (long long)rangeRoll * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSq, bool stopsOnObstacle) -> glm::ivec2 {
+			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
 				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
 				int x0 = (int)cTile.x, y0 = (int)cTile.y;
 				int x1 = (int)tTile.x, y1 = (int)tTile.y;
@@ -26643,7 +26650,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				glm::ivec2 furthestValid = { x0, y0 };
 				while (true) {
 					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) > maxDSq) {
+						// SECURITY FIX: Add +4LL leniency
+						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
 							impact = furthestValid;
 							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
 								impact = { x0, y0 };
@@ -26673,7 +26681,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				return impact;
 			};
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSq, true);
+			// Pass maxDistSqScaled here
+			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -30252,8 +30261,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// 3. Find Targets (Using Deterministic Integer Math)
 		psionicWaveTargetIndices.clear();
 
-		long long maxRangeHalfTiles = ((long long)rangeFeet * 2LL) / 5LL;
-		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		// SECURITY FIX: Standardize math to use the 25LL/4LL ratio for leniency support
+		long long maxDistSqScaled = (long long)rangeFeet * (long long)rangeFeet * 4LL;
 
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 
@@ -30266,7 +30275,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			glm::vec2 targetTile = { (float)p.x, (float)p.y };
 			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 
-			if (distSq <= maxDistSq) {
+			// SECURITY FIX: Add +4LL leniency
+			if (distSq * 25LL <= maxDistSqScaled + 4LL) {
 				// No LOS check - goes through walls!
 				psionicWaveTargetIndices.push_back((int)i);
 			}
@@ -32480,9 +32490,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				glm::vec2 targetPos(x, y);
 				long long distSq = getTeleportDistanceSquaredScaled(casterPos, targetPos);
 
-				if (distSq * 25LL <= maxDistSqScaled) {
+				// SECURITY FIX: Add +4LL leniency so green highlights match the execution rules!
+				if (distSq * 25LL <= maxDistSqScaled + 4LL) {
 					board[x][y].isTargetPreview = true;
-
 					bool isWall = board[x][y].hasWall;
 					bool isOccupied = board[x][y].hasPlayer && !(x == px && y == py); // Allow targeting current square
 
@@ -32575,8 +32585,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// --- UNCONDITIONAL TOOLTIP DATA CALCULATION ---
 				// Calculate and assign min roll/chance for EVERY tile on the board
 				if (maxRangeFeet < 9000.0f && rangeNum > 0 && rangeSides > 0) {
-					// Safe visual tooltip conversion from squared distance back to feet
-					int minRoll = (int)ceil(sqrt((double)distSq) * 2.5);
+					// Safe visual tooltip conversion from squared distance back to feet.
+					// SECURITY FIX: Subtract a tiny epsilon (0.1) so 7.07 feet "Knight's Moves" round down to 7 instead of 8!
+					int minRoll = (int)ceil(sqrt((double)distSq) * 2.5 - 0.1);
 					int maxPossibleRoll = rangeNum * rangeSides;
 					if (minRoll < rangeNum) minRoll = rangeNum;
 
@@ -37315,7 +37326,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	long long distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 	long long maxRangeSqScaled = (long long)maxRangeFeet * (long long)maxRangeFeet * 4LL;
 
-	if (distScaledSq * 25LL > maxRangeSqScaled) {
+	// SECURITY FIX: Add +4LL leniency (equivalent to 2.4 inches) so a Knight's Move (7.07 feet) is valid on a 7 roll!
+	if (distScaledSq * 25LL > maxRangeSqScaled + 4LL) {
 		result.reason = INVALID_OUT_OF_RANGE;
 		return result;
 	}
@@ -37338,7 +37350,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 					if (casterIndexForSelfChecks >= 0 && (int)i == casterIndexForSelfChecks) continue; // Cannot validate on self
 					if (players[i].health <= 0) continue;
 					long long distSq = getFaceToFaceDistanceSquaredScaled(targetTile, glm::vec2((float)players[i].x, (float)players[i].y));
-					if (distSq * 25LL <= maxAoeDistSqScaled) {
+					// SECURITY FIX: Add +4LL leniency for AOE splash calculations
+					if (distSq * 25LL <= maxAoeDistSqScaled + 4LL) {
 						auto innerLosPath = getLineOfSightPath(targetTile + 0.5f, glm::vec2((float)players[i].x + 0.5f, (float)players[i].y + 0.5f));
 						bool blockedByWall = false;
 						for (const auto & stepP : innerLosPath) {
