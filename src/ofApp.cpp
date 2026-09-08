@@ -15277,8 +15277,10 @@ cursor_check_done:;
 					// Send hover packet to show opponent the card targeting
 					updateAndSendHover(HOVER_HAND_CARD, -1, -1, hoveredCardIndex);
 				} else {
-					// Hover cleared -> clear highlights
-					clearHighlights();
+					// SECURITY FIX: Do not clear board highlights if the player is actively aiming a spell or placing a unit!
+					if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
+						clearHighlights();
+					}
 					updateAndSendHover(HOVER_NONE);
 				}
 			} else {
@@ -16541,9 +16543,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// === CARD STATE MACHINE INPUT HANDLER ===
 	// Centralized interaction state is authoritative for click routing.
 	if (currentState == STATE_GAMEPLAY) {
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && endTurnButtonRect.inside(x, y)) {
-				// Allow clicking the Done button to fall through and cancel optional targeting!
+		// FIX: Include CARD_INTERACTION_STATE_PLACING so placement clicks (Wolves/Kobolds) are correctly routed to the board handler!
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+			if ((cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) && endTurnButtonRect.inside(x, y)) {
+				// Allow clicking the Done button to fall through and cancel optional targeting/placement!
 			} else {
 				processCardStateInput(x, y, button);
 				// FIX: ALWAYS return after processing a modal input! Do not let it fall through
