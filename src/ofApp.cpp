@@ -41065,35 +41065,6 @@ void ofApp::processNetworkPackets() {
 			desyncMessage = "Local: " + std::to_string(localSum) + "\nRemote: " + std::to_string(remoteSum) + "\nCheck latest_desync_dump logs.";
 			currentState = STATE_DESYNC;
 			g_desyncStartTime = ofGetElapsedTimef();
-			std::string matchLog = "=== MATCH SUMMARY ===\n";
-			matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
-			matchLog += "End Reason: Fatal Desync\n";
-			matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
-			matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n";
-			matchLog += "Winner ID: N/A\n\n";
-			matchLog += "--- PLAYERS ---\n";
-			matchLog += "Player 0: " + player0SteamName + "\n";
-			matchLog += "Player 1: " + player1SteamName + "\n\n";
-			matchLog += "--- EVENT LOG ---\n";
-			for (const auto & line : s_fullMatchLog) {
-				matchLog += line + "\n";
-			}
-			matchLog += "\n--- STATS ---\n";
-			for (int i = 0; i < 2; i++) {
-				matchLog += "Player " + std::to_string(i) + " Stats:\n";
-				matchLog += "  Max Dmg/Turn: " + std::to_string(matchStats[i].maxDamageInOneTurn) + "\n";
-				matchLog += "  Cards Played: " + std::to_string(matchStats[i].cardsPlayed) + "\n";
-				matchLog += "  Minions Spawned: " + std::to_string(matchStats[i].minionsSpawned) + "\n";
-				matchLog += "  Total Healing: " + std::to_string(matchStats[i].totalHealing) + "\n";
-			}
-			matchLog += "=====================\n";
-
-			std::string filename = getSavesDirPath().string() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
-			ofFile f(filename, ofFile::WriteOnly);
-			f << matchLog;
-			f.close();
-			ofLogNotice("MatchLog") << "Saved full match log to " << filename;
-			// --------------------------------------
 
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
@@ -43192,13 +43163,6 @@ void ofApp::thinkRuleBasedAI() {
 				}
 			}
 		}
-	}
-
-	// --- FIX: Bulletproof Anti-Freeze Memory ---
-	static std::set<int> s_aiFailedCards;
-	if (currentAP != aiLastAP) {
-		s_aiFailedCards.clear();
-		aiLastAP = currentAP;
 	}
 
 	// --- 4A. COMBOS & SYNERGIES (Strict Rules) ---
