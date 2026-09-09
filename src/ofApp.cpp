@@ -23128,17 +23128,15 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			steamManager.sendPacket(&cmd, sizeof(cmd));
 
 			if (applyLocally) {
-				// Optimistic Execution: Execute locally to make UI snappy
-				// FIX 1: Use a fake temporary ID so we don't desync the authoritative nextCommandId counter
-				uint32_t predictedId = 0xFFFFFFFF - cmd.clientActionID;
-				cmd.commandId = predictedId;
-
-				std::string snap = buildSnapshotString();
-				provisionalSnapshots[cmd.clientActionID] = snap; // Store via Action ID
-				provisionalCommands[cmd.clientActionID] = cmd;
-
-				queueInputCommand(cmd);
-				processCommandQueue();
+				if (isMultiplayer && isClient() && !isAIvsAI) {
+					// SECURITY FIX: Disable optimistic execution in multiplayer to prevent fatal lockstep desyncs.
+					// Clients MUST wait for the host's authoritative sequenced echo.
+					ofLogNotice("Network") << "Optimistic execution disabled for network sync. Waiting for Host echo.";
+				} else {
+					// Singleplayer or Host can execute immediately safely
+					queueInputCommand(cmd);
+					processCommandQueue();
+				}
 			}
 			return true;
 		} else if (isHost()) {
@@ -23905,6 +23903,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogWarning("Lockstep") << "CMD_MOVE_UNIT: no unit found at origin (" << fromX << "," << fromY << ") - skipping";
 			break;
 		}
+
+		// SECURITY FIX: Ensure the sender owns the unit being moved
+		int unitOwner = players[unitIndex].isMinion ? players[unitIndex].ownerID : players[unitIndex].playerID;
+		if (isMultiplayer && unitOwner != (int)cmd.playerID) {
+			ofLogWarning("Security") << "CMD_MOVE_UNIT spoofing attempt blocked. Sender: " << cmd.playerID;
+			break;
+		}
+
 		// Compute authoritative path and AP cost
 		std::vector<glm::vec2> path = findShortestPathForPlayer(unitIndex, { (float)fromX, (float)fromY }, { (float)toX, (float)toY });
 		int moveCost = (path.size() > 1) ? (int)path.size() - 1 : 0;
@@ -24246,7 +24252,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_TELEPORT) {
 			int destX = targetIndex;
 			int destY = choice;
-			int passedDiceRoll = cmd.params[3]; // Range passed from client
+			// SECURITY FIX: Trust the deterministic server blackboard, NOT the client's packet
+			int passedDiceRoll = currentEffectSequence.blackboard[0];
 			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
 				resetCardInteraction();
 				advanceCardState(CARD_PLAY_STATE_FINISHED);
@@ -24497,6 +24504,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (cmdDraftPlayerIdx < 0 || cmdDraftPlayerIdx >= (int)players.size()) {
 			ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: invalid draftPlayerIndex=" << cmdDraftPlayerIdx;
+			break;
+		}
+
+		// SECURITY FIX: Ensure the sender owns the drafting unit
+		int draftOwner = players[cmdDraftPlayerIdx].isMinion ? players[cmdDraftPlayerIdx].ownerID : players[cmdDraftPlayerIdx].playerID;
+		if (isMultiplayer && draftOwner != (int)cmd.playerID) {
+			ofLogWarning("Security") << "Draft command spoofing attempt blocked. Sender: " << cmd.playerID;
 			break;
 		}
 		Player & p = players[cmdDraftPlayerIdx];
@@ -24750,6 +24764,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
+		// SECURITY FIX: Ensure the sender actually owns the current turn
+		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		if (isMultiplayer && activeOwner != (int)cmd.playerID) {
+			ofLogWarning("Security") << "CMD_END_TURN spoofing attempt blocked. Sender: " << cmd.playerID;
+			break;
+		}
+
 		// --- CRITICAL RULE FIX: CANCEL ACTIVE SELECTIONS ON TIMEOUT ---
 		if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
 			ofLogWarning("Lockstep") << "CMD_END_TURN received while selection pending! Force-canceling selection to prevent soft-lock.";
@@ -24791,6 +24812,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "ToggleUnlimitedAP") {
+			if (isMultiplayer && !isHost()) {
+				ofLogWarning("Security") << "Unauthorized cheat command blocked: ToggleUnlimitedAP";
+				break;
+			}
 			hasUnlimitedAP = !hasUnlimitedAP;
 			if (hasUnlimitedAP) currentAP = 99;
 			ofLogNotice("Debug") << "Unlimited AP: " << (hasUnlimitedAP ? "ON" : "OFF");
@@ -24798,6 +24823,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "ToggleUnlimitedTime") {
+			if (isMultiplayer && !isHost()) {
+				ofLogWarning("Security") << "Unauthorized cheat command blocked: ToggleUnlimitedTime";
+				break;
+			}
 			turnTimerEnabled = !turnTimerEnabled;
 			if (turnTimerEnabled) {
 				turnStartFrame = (int)simulationFrame;
@@ -40902,6 +40931,8 @@ void ofApp::processNetworkPackets() {
 			// from deterministic command processing (CMD_END_TURN/CMD_PSEUDO_ACTION).
 
 			if (header->type == PKT_SNAPSHOT_BEGIN) {
+				if (buffer.size() < sizeof(SnapshotBeginPacket)) continue; // SECURITY FIX: Prevent OOB Read
+
 				// SECURITY FIX: Rate-limit Snapshot Begin to prevent RAM exhaustion attacks
 				static float lastSnapshotBeginTime = 0.0f;
 				if (ofGetElapsedTimef() - lastSnapshotBeginTime < 1.0f) {
@@ -40924,6 +40955,8 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_SNAPSHOT_CHUNK) {
+				if (buffer.size() < sizeof(SnapshotChunkPacket)) continue; // SECURITY FIX: Prevent OOB Read
+
 				SnapshotChunkPacket * cp = (SnapshotChunkPacket *)header;
 				if (cp->snapshotId == incomingSnapshotId && !incomingSnapshotBuffer.empty()) {
 					// SECURITY FIX: Subtraction prevents integer overflow wrap-around attacks
@@ -41296,6 +41329,8 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_CHECKSUM_CHECK) {
+				if (buffer.size() < sizeof(ChecksumPacket)) continue; // SECURITY FIX: Prevent OOB Read
+
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
 				if (skipChecksumValidation || pkt->playerID == 2) continue;
 
