@@ -1,0 +1,87 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-09 14:14:57
+End Reason: Victory
+Seed: 1684892600
+Turns: 8
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[14:13:37] --- MATCH STARTED ---
+[14:13:41] Turn 1: Player 1's turn
+[14:13:41] Autosaved turn-start (autosave.json)
+[14:13:45] Player 1 moved to (0,5)
+[14:13:46] Turn 1: Player 2's turn
+[14:13:46] Autosaved turn-start (autosave.json)
+[14:13:48] Player 2 moved to (12,1)
+[14:13:48] Turn 2: Player 1's turn
+[14:13:48] Autosaved turn-start (autosave.json)
+[14:13:51] Player 1 moved to (2,5)
+[14:13:52] Turn 2: Player 2's turn
+[14:13:52] Autosaved turn-start (autosave.json)
+[14:13:54] Player 2 moved to (12,2)
+[14:13:55] Player 2 moved to (12,3)
+[14:13:56] Player 2 moved to (12,4)
+[14:13:59] Player 2 moved to (12,5)
+[14:13:59] Turn 3: Player 1's turn
+[14:13:59] Autosaved turn-start (autosave.json)
+[14:14:02] Player 1 moved to (4,4)
+[14:14:05] Player 1 moved to (5,3)
+[14:14:05] Turn 3: Player 2's turn
+[14:14:05] Autosaved turn-start (autosave.json)
+[14:14:07] Player 2 moved to (11,5)
+[14:14:10] Turn 4: Player 1's turn
+[14:14:10] Autosaved turn-start (autosave.json)
+[14:14:12] Player 1 played Summon Hellhound targeting (5,2)
+[14:14:13] Player 1 summoned unit kind 3 at (5,2)
+[14:14:14] Player 1 moved to (4,3)
+[14:14:14] Turn 4: Player 2's turn
+[14:14:14] Autosaved turn-start (autosave.json)
+[14:14:16] Player 2 moved to (10,5)
+[14:14:17] Player 2 moved to (9,5)
+[14:14:18] Player 2 moved to (8,5)
+[14:14:18] Player 2 moved to (8,4)
+[14:14:21] Turn 5: Player 1's turn
+[14:14:21] Autosaved turn-start (autosave.json)
+[14:14:25] Player 1 moved to (7,3)
+[14:14:26] Player 1 played Fireball targeting (8,4)
+[14:14:28] Turn 5: Player 1's turn
+[14:14:28] Autosaved turn-start (autosave.json)
+[14:14:33] Player 1 moved to (5,5)
+[14:14:34] Turn 5: Player 2's turn
+[14:14:34] Autosaved turn-start (autosave.json)
+[14:14:38] Turn 6: Player 1's turn
+[14:14:38] Autosaved turn-start (autosave.json)
+[14:14:42] Player 1 moved to (8,3)
+[14:14:43] Player 1 played Flame Hit targeting (8,4)
+[14:14:43] Turn 6: Player 1's turn
+[14:14:43] Autosaved turn-start (autosave.json)
+[14:14:45] Turn 6: Player 2's turn
+[14:14:45] Autosaved turn-start (autosave.json)
+[14:14:49] Player 2 played Stab targeting (8,3)
+[14:14:50] Player 2 played Sprint targeting (8,4)
+[14:14:51] Turn 7: Player 1's turn
+[14:14:51] Autosaved turn-start (autosave.json)
+[14:14:54] Player 1 played Flame Hit targeting (8,4)
+[14:14:55] Turn 7: Player 1's turn
+[14:14:55] Autosaved turn-start (autosave.json)
+[14:14:56] Turn 7: Player 2's turn
+[14:14:56] Autosaved turn-start (autosave.json)
+[14:14:56] Turn 8: Player 1's turn
+[14:14:56] Autosaved turn-start (autosave.json)
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 6
+  Cards Played: 4
+  Minions Spawned: 1
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 4
+  Cards Played: 2
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

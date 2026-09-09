@@ -14356,7 +14356,7 @@ void ofApp::drawGame() {
 			isOptionalInteraction = true;
 			optionalBtnText = "Done";
 		}
-		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) {
+		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage > 0) {
 			isOptionalInteraction = true;
 			optionalBtnText = "Done";
 		}
@@ -18188,7 +18188,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			bool isOptionalInteraction = false;
 			if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 				if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
-				if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage == 2) isOptionalInteraction = true;
+				if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage > 0) isOptionalInteraction = true;
 			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
 				isOptionalInteraction = true;
 			} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
@@ -25327,6 +25327,9 @@ void ofApp::queueEffect(const EffectOp & op) {
 }
 
 bool ofApp::isEffectSequenceComplete() const {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
+		return false;
+	}
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST && magicBlastChoicesRemaining > 0) {
 		return false;
 	}
@@ -29183,13 +29186,13 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 	int gridX = (int)floor(boardPos.x);
 	int gridY = (int)floor(boardPos.y);
 
-	// Snap to hovered 3D unit to ensure clicking tall models targets the correct tile
-	if (isHoveringUnit && hoveredUnitIndex >= 0 && hoveredUnitIndex < (int)players.size()) {
+	// Snap to hovered 3D unit only when targeting units, not when placing on empty tiles
+	if (cardInteractionState != CARD_INTERACTION_STATE_PLACING && isHoveringUnit && hoveredUnitIndex >= 0 && hoveredUnitIndex < (int)players.size()) {
 		gridX = players[hoveredUnitIndex].x;
 		gridY = players[hoveredUnitIndex].y;
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 		handleCardTargetClick(gridX, gridY);
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
