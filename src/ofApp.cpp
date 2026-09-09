@@ -24058,66 +24058,91 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		// Special handling: if this is an Amnesia accept payload, apply selections
-		if (menuType == CARD_AMNESIA && choice == 3) {
-			std::vector<int> sel;
+		if (menuType == CARD_AMNESIA) {
 			uint32_t maskLow = (uint32_t)cmd.params[4];
 			uint32_t maskHigh = (uint32_t)cmd.params[5];
-			for (int i = 0; i < 32; ++i) {
-				if (maskLow & (1U << i)) sel.push_back(i);
-				if (maskHigh & (1U << i)) sel.push_back(i + 32);
+
+			if (choice == 1 && amnesiaTargetPlayerIndex != -1 && numCardsToRemove > 0) {
+				// AFK TIMEOUT AUTO-RESOLVE: The Turn Timer forces choice=1. We must randomly select the required cards!
+				Player & target = players[amnesiaTargetPlayerIndex];
+				int limit = std::min(numCardsToRemove, (int)target.deck.size());
+				maskLow = 0;
+				maskHigh = 0;
+				for (int idx = 0; idx < limit; ++idx) {
+					if (idx < 32)
+						maskLow |= (1U << idx);
+					else if (idx < 64)
+						maskHigh |= (1U << (idx - 32));
+				}
+				// Morph this into an Accept command so the sequence continues!
+				choice = 3;
 			}
 
-			// Validate target index
-			if (targetIndex >= 0 && targetIndex < (int)players.size()) {
-				Player & target = players[targetIndex];
+			if (choice == 3) {
+				std::vector<int> sel;
+			}
 
-				// Record the destroyed cards into the history
-				if (!g_actionHistory.empty() && g_actionHistory.back().card.type == CARD_AMNESIA) {
-					for (int idx : sel) {
-						if (idx >= 0 && idx < (int)target.deck.size()) {
-							g_actionHistory.back().destroyedCardNames.push_back(target.deck[idx].name);
+			if (choice == 3) {
+				std::vector<int> sel;
+				uint32_t maskLow = (uint32_t)cmd.params[4];
+				uint32_t maskHigh = (uint32_t)cmd.params[5];
+				for (int i = 0; i < 32; ++i) {
+					if (maskLow & (1U << i)) sel.push_back(i);
+					if (maskHigh & (1U << i)) sel.push_back(i + 32);
+				}
+
+				// Validate target index
+				if (targetIndex >= 0 && targetIndex < (int)players.size()) {
+					Player & target = players[targetIndex];
+
+					// Record the destroyed cards into the history
+					if (!g_actionHistory.empty() && g_actionHistory.back().card.type == CARD_AMNESIA) {
+						for (int idx : sel) {
+							if (idx >= 0 && idx < (int)target.deck.size()) {
+								g_actionHistory.back().destroyedCardNames.push_back(target.deck[idx].name);
+							}
 						}
 					}
-				}
 
-				// Remove selected indices from the target's deck in descending order
-				std::sort(sel.begin(), sel.end(), std::greater<int>());
-				int removed = 0;
-				float baseTime = ofGetElapsedTimef();
+					// Remove selected indices from the target's deck in descending order
+					std::sort(sel.begin(), sel.end(), std::greater<int>());
+					int removed = 0;
+					float baseTime = ofGetElapsedTimef();
 
-				for (int idx : sel) {
-					if (idx >= 0 && idx < (int)target.deck.size()) {
-						Card destroyed = target.deck[idx];
-						target.deck.erase(target.deck.begin() + idx);
+					for (int idx : sel) {
+						if (idx >= 0 && idx < (int)target.deck.size()) {
+							Card destroyed = target.deck[idx];
+							target.deck.erase(target.deck.begin() + idx);
 
-						// Stagger the animations slightly so they don't perfectly overlap
-						RemovedCardAnimation rem;
-						rem.card = destroyed;
-						rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
-						rem.startTime = baseTime + (removed * 0.2f);
-						rem.currentScale = 1.8f;
-						rem.currentAlpha = 255.0f;
-						activeRemovedCardAnimations.push_back(rem);
+							// Stagger the animations slightly so they don't perfectly overlap
+							RemovedCardAnimation rem;
+							rem.card = destroyed;
+							rem.startPos = glm::vec2(ofGetWidth() / 2.0f + (removed * 50.0f - 75.0f), ofGetHeight() / 2.0f);
+							rem.startTime = baseTime + (removed * 0.2f);
+							rem.currentScale = 1.8f;
+							rem.currentAlpha = 255.0f;
+							activeRemovedCardAnimations.push_back(rem);
 
-						removed++;
+							removed++;
+						}
 					}
-				}
-				if (removed > 0) {
-					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Amnesia: " + ofToString(removed) + " removed", ofColor::magenta);
-					ofLogNotice("Amnesia") << "Removed " << removed << " cards from player " << target.playerID;
-				}
+					if (removed > 0) {
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "Amnesia: " + ofToString(removed) + " removed", ofColor::magenta);
+						ofLogNotice("Amnesia") << "Removed " << removed << " cards from player " << target.playerID;
+					}
 
-				// Finalize the card play via central outcome flow (AP deductions / effects handled there)
-				resetCardState();
-				currentCardOutcome.cardType = static_cast<CardType>(menuType);
-				currentCardOutcome.cardIndex = cardIndex;
-				currentCardOutcome.casterIndex = currentPlayerIndex;
-				currentCardOutcome.apPaid = true; // AP was already paid when the card was dragged!
-				beginEffectSequence();
-				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-				resetCardInteraction();
-			}
-			break;
+					// Finalize the card play via central outcome flow (AP deductions / effects handled there)
+					resetCardState();
+					currentCardOutcome.cardType = static_cast<CardType>(menuType);
+					currentCardOutcome.cardIndex = cardIndex;
+					currentCardOutcome.casterIndex = currentPlayerIndex;
+					currentCardOutcome.apPaid = true; // AP was already paid when the card was dragged!
+					beginEffectSequence();
+					advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+					resetCardInteraction();
+				}
+				break;
+			} // Close choice == 3 block
 		}
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
@@ -24513,6 +24538,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogWarning("Security") << "Draft command spoofing attempt blocked. Sender: " << cmd.playerID;
 			break;
 		}
+
 		Player & p = players[cmdDraftPlayerIdx];
 		const std::vector<Card> * pool = &class1Cards;
 		if (classTier == 2) pool = &class2Cards;
@@ -24729,6 +24755,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << draftPlayerIdx;
 				break;
 			}
+
+			// SECURITY FIX: Ensure the sender owns the drafting unit
+			int draftOwner = players[draftPlayerIdx].isMinion ? players[draftPlayerIdx].ownerID : players[draftPlayerIdx].playerID;
+			if (isMultiplayer && draftOwner != (int)cmd.playerID) {
+				ofLogWarning("Security") << "Draft action spoofing attempt blocked. Sender: " << cmd.playerID;
+				break;
+			}
+
 			int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 			// Toggle selection in `selectedDraftIndices` deterministically
 			auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
@@ -24794,12 +24828,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "Desync") {
-			if (currentState != STATE_DESYNC) {
-				steamManager.disarmLeaverBuster(); // Save their Elo!
-				desyncMessage = "Opponent detected a fatal desync.";
-				currentState = STATE_DESYNC;
-				g_desyncStartTime = ofGetElapsedTimef();
-			}
+			ofLogWarning("Net") << "Received legacy Desync pseudo action. Ignoring to allow seamless rollback.";
 			break;
 		}
 
@@ -30867,6 +30896,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		int n = (int)players.size();
 		for (int i = 0; i < n; ++i) {
+			// FIX: Prevent dead bodies from rolling dice and moving during an Earthquake!
+			if (players[i].health <= 0) continue;
+
 			EarthquakeState state;
 			state.playerIndex = i;
 			state.startGrid = { players[i].x, players[i].y };
@@ -34207,7 +34239,7 @@ std::string ofApp::buildSnapshotString() {
 		   << (p.isDemon ? 1 : 0) << "\t" << (p.isWallUnit ? 1 : 0) << "\t" << (p.isMagicWallUnit ? 1 : 0) << "\t"
 		   << (p.isKoboldKing ? 1 : 0) << "\t" << (p.isFaerie ? 1 : 0) << "\t" << (p.isAssistant ? 1 : 0) << "\t"
 		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
-		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
+		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.storedDarkShieldDice << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
 		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t" << p.nextTurnExtraDrawSetOnCycle << "\t"
 		   << p.fireApplierPlayerID << "\t" << p.poisonApplierPlayerID << "\t" << p.defenseCycle << "\t";
 
@@ -34302,6 +34334,12 @@ std::string ofApp::buildSnapshotString() {
 	ss << "OUTCOME_PSN\t" << currentCardOutcome.poisonTargetPlayerIDs.size();
 	for (int id : currentCardOutcome.poisonTargetPlayerIDs)
 		ss << "\t" << id;
+	ss << "\n";
+
+	ss << "EFFECT_SEQ\t" << (int)cardPlayState << "\t" << (isProcessingEffect ? 1 : 0) << "\t" << (currentEffectSequence.isComplete ? 1 : 0) << "\t" << currentEffectSequence.currentOp;
+	for (int i = 0; i < 16; i++) {
+		ss << "\t" << currentEffectSequence.blackboard[i];
+	}
 	ss << "\n";
 
 	return ss.str();
@@ -34414,6 +34452,12 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	std::vector<int> tmpAmnesiaSelectedIndices;
 	std::vector<int> tmpRenewedSelectedHandIndices;
 	CardOutcome tmpOutcome;
+
+	CardPlayState tmpCardPlayState = CARD_PLAY_STATE_IDLE;
+	bool tmpIsProcessingEffect = false;
+	bool tmpSeqComplete = true;
+	size_t tmpSeqCurOp = 0;
+	int tmpBlackboard[16] = { 0 };
 
 	// Initialize board copy from current to keep any non-snapshot fields intact until swap
 	for (int x = 0; x < BOARD_WIDTH; ++x)
@@ -34718,6 +34762,20 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 						}
 					}
 				}
+
+				// Re-initialize Form cards so they aren't lost upon reverting!
+				if (p.inTortoiseForm) {
+					const Card * c = findCardByName("Form of Tortoise");
+					if (c) {
+						p.tortoiseFormCard = *c;
+						p.tortoiseFormCard.value = 1;
+					}
+				}
+				if (p.inGhostForm) {
+					const Card * c = findCardByName("Form of Ghost");
+					if (c) p.ghostFormCard = *c;
+				}
+
 				tmpPlayers.push_back(p);
 			}
 		}
@@ -34831,6 +34889,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				int count = std::stoi(parts[1]);
 				for (int i = 0; i < count; ++i)
 					tmpOutcome.poisonTargetPlayerIDs.push_back(std::stoi(parts[2 + i]));
+			} else if (parts[0] == "EFFECT_SEQ" && parts.size() >= 21) {
+				tmpCardPlayState = (CardPlayState)std::stoi(parts[1]);
+				tmpIsProcessingEffect = (std::stoi(parts[2]) != 0);
+				tmpSeqComplete = (std::stoi(parts[3]) != 0);
+				tmpSeqCurOp = std::stoull(parts[4]);
+				for (int i = 0; i < 16; i++) {
+					tmpBlackboard[i] = std::stoi(parts[5 + i]);
+				}
 			}
 		}
 
@@ -34914,6 +34980,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear(); // FIX: Allow reconnected players to accept all future command IDs!
 	skippedOptimisticCommands.clear();
+	lastProcessedCommandId = 0; // FIX: Reset lockstep sequence trackers to accept incoming commands immediately
 
 	// Clear all transient dice visuals when applying a full snapshot
 	// Only remove any lingering AP visuals — keep unrelated dice (e.g., summoned HP)
@@ -35120,6 +35187,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	renewedSelectedHandIndices = tmpRenewedSelectedHandIndices;
 
 	currentCardOutcome = tmpOutcome;
+
+	cardPlayState = tmpCardPlayState;
+	isProcessingEffect = tmpIsProcessingEffect;
+	currentEffectSequence.isComplete = tmpSeqComplete;
+	currentEffectSequence.currentOp = tmpSeqCurOp;
+	for (int i = 0; i < 16; i++) {
+		currentEffectSequence.blackboard[i] = tmpBlackboard[i];
+	}
 
 	// Clear any stale highlights from pre-restore state
 	clearHighlights();
@@ -41237,11 +41312,38 @@ void ofApp::processNetworkPackets() {
 							uint64_t realKey = (uint64_t(cmd->playerID) << 32) | uint64_t(cmd->commandId);
 							skippedOptimisticCommands.insert(realKey);
 
-							// DO NOT continue! Let it fall through to queueInputCommand(*cmd)
+						} else {
+							// ROLLBACK RECOVERY: The snapshot was cleared by a rollback! Treat this echoed command as a normal command to execute.
+							queueInputCommand(*cmd);
 						}
+					} else {
+						// ROLLBACK NETCODE: If it's a command from the opponent/server and we have unconfirmed optimistic actions...
+						if (!provisionalSnapshots.empty()) {
+							ofLogWarning("Lockstep") << "CONFLICT: Unpredicted host command received! Rolling back optimistic UI...";
+
+							// 1. Get the oldest snapshot (the state BEFORE we optimistically played our card)
+							auto oldest = provisionalSnapshots.begin();
+							std::string safeSnapshot = oldest->second;
+
+							// 2. Cache the command IDs so we don't break the timeline
+							uint32_t cachedLastProcessed = lastProcessedCommandId;
+							uint32_t cachedNextCommand = nextCommandId;
+
+							// 3. Restore state to BEFORE we optimistically played the card
+							applySnapshotString(safeSnapshot, true);
+
+							// 4. Restore the timeline integers that applySnapshotString doesn't touch
+							lastProcessedCommandId = cachedLastProcessed;
+							nextCommandId = cachedNextCommand;
+
+							// 5. Clear the optimistic tracker. When our echoed command arrives later, it will execute normally.
+							provisionalSnapshots.clear();
+							provisionalCommands.clear();
+						}
+
+						// It's the opponent's command, or a command we didn't predict. Execute it.
+						queueInputCommand(*cmd);
 					}
-					// It's the opponent's command, or a command we didn't predict. Execute it.
-					queueInputCommand(*cmd);
 				}
 				continue;
 			}
@@ -41488,10 +41590,8 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 
-			ofLogError("Net") << "DESYNC DETECTED! Local: " << localSum << " vs Remote: " << remoteSum << ". Halting game.";
+			ofLogError("Net") << "DESYNC DETECTED! Local: " << localSum << " vs Remote: " << remoteSum << ". Initiating Rollback.";
 			writeLockstepTrace(steamManager.isHost(), turnNumber, "*** DESYNC DETECTED! Local: " + std::to_string(localSum) + " vs Remote: " + std::to_string(remoteSum) + " ***");
-
-			steamManager.disarmLeaverBuster();
 
 			std::string roleStr = steamManager.isHost() ? "host" : "client";
 			std::string dumpName = "latest_desync_dump_" + roleStr + ".txt";
@@ -41506,24 +41606,15 @@ void ofApp::processNetworkPackets() {
 			// --- FULL MATCH LOG SAVING (DESYNC) ---
 			std::string matchLog = "=== MATCH SUMMARY ===\n";
 			matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
-			matchLog += "End Reason: Fatal Desync\n";
+			matchLog += "Event: Desync Rollback\n";
 			matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
-			matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n";
-			matchLog += "Winner ID: N/A\n\n";
+			matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n\n";
 			matchLog += "--- PLAYERS ---\n";
 			matchLog += "Player 0: " + player0SteamName + "\n";
 			matchLog += "Player 1: " + player1SteamName + "\n\n";
 			matchLog += "--- EVENT LOG ---\n";
 			for (const auto & line : s_fullMatchLog) {
 				matchLog += line + "\n";
-			}
-			matchLog += "\n--- STATS ---\n";
-			for (int i = 0; i < 2; i++) {
-				matchLog += "Player " + std::to_string(i) + " Stats:\n";
-				matchLog += "  Max Dmg/Turn: " + std::to_string(matchStats[i].maxDamageInOneTurn) + "\n";
-				matchLog += "  Cards Played: " + std::to_string(matchStats[i].cardsPlayed) + "\n";
-				matchLog += "  Minions Spawned: " + std::to_string(matchStats[i].minionsSpawned) + "\n";
-				matchLog += "  Total Healing: " + std::to_string(matchStats[i].totalHealing) + "\n";
 			}
 			matchLog += "=====================\n";
 
@@ -41541,7 +41632,7 @@ void ofApp::processNetworkPackets() {
 			std::string oppName = steamManager.getOpponentName();
 			if (oppName.empty()) oppName = "Opponent";
 
-			std::string msg = "🚨 **FATAL DESYNC DETECTED** 🚨\n";
+			std::string msg = "🚨 **DESYNC DETECTED - INITIATING ROLLBACK** 🚨\n";
 			msg += "**Players:** " + myName + " vs " + oppName + "\n";
 			msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
 			msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
@@ -41557,18 +41648,29 @@ void ofApp::processNetworkPackets() {
 			std::vector<std::string> uploadFiles = { logFilename, dumpName };
 			sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
 
-			desyncMessage = "Local: " + std::to_string(localSum) + "\nRemote: " + std::to_string(remoteSum) + "\nCheck latest_desync_dump logs.";
-			currentState = STATE_DESYNC;
-			g_desyncStartTime = ofGetElapsedTimef();
+			glm::vec3 textPos = glm::vec3(0, 5, 0);
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				textPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0);
+			}
 
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = 0;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PSEUDO_ACTION;
-			strncpy(cmd.stringData, "Desync", sizeof(cmd.stringData) - 1);
-			steamManager.sendPacket(&cmd, sizeof(cmd));
+			if (steamManager.isHost()) {
+				ofLogNotice("Net") << "Host: Sending authoritative snapshot to force client rollback.";
+				sendSnapshotToClient(false);
+				queueFloatingTextVisual(textPos, "Resyncing Client...", ofColor::yellow);
+			} else {
+				ofLogNotice("Net") << "Client: Requesting authoritative snapshot for rollback.";
+				SnapshotRequestPacket req = {};
+				req.type = PKT_SNAPSHOT_REQUEST;
+				req.playerID = myLocalPlayerID;
+				req.requestedTurn = globalTurnCounter;
+				steamManager.sendPacket(&req, sizeof(req));
+				queueFloatingTextVisual(textPos, "Desync! Rolling Back...", ofColor::orange);
+			}
+
+			// Clear pending checksums so we don't spam desync requests
+			s_pendingLocalChecksums.clear();
+			s_pendingRemoteChecksums.clear();
+			continue;
 		}
 	}
 }
