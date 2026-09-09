@@ -15352,7 +15352,13 @@ cursor_check_done:;
 				} else {
 					// SECURITY FIX: Do not clear board highlights if the player is actively aiming a spell or placing a unit!
 					if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
-						clearHighlights();
+						if (playerAction == PIECE_SELECTED) {
+							// If a unit is selected for movement, ONLY wipe the red/green card preview tiles,
+							// do NOT call clearHighlights() as that wipes the movement path!
+							calculateTargetHighlights(-1);
+						} else {
+							clearHighlights();
+						}
 					}
 					updateAndSendHover(HOVER_NONE);
 				}
@@ -23810,9 +23816,40 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetX = cmd.params[1];
 		int targetY = cmd.params[2];
 
+		// CRITICAL FIX: Backup the dice and movement states BEFORE any potential reset!
+		auto savedDice = activeDiceRolls;
+		auto savedAction = playerAction;
+		int savedSelX = selectedPieceGridX;
+		int savedSelY = selectedPieceGridY;
+		auto savedPath = hoverPath;
+		bool savedHighlights[BOARD_WIDTH][BOARD_HEIGHT];
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				savedHighlights[x][y] = board[x][y].isHighlighted;
+			}
+		}
+
+		// Helper to reset the card state machine without destroying UI visuals
+		auto safeResetCardState = [&]() {
+			resetCardState();
+			// RESTORE
+			activeDiceRolls = savedDice;
+			if (savedAction == PIECE_SELECTED) {
+				playerAction = savedAction;
+				selectedPieceGridX = savedSelX;
+				selectedPieceGridY = savedSelY;
+				hoverPath = savedPath;
+				for (int x = 0; x < BOARD_WIDTH; ++x) {
+					for (int y = 0; y < BOARD_HEIGHT; ++y) {
+						board[x][y].isHighlighted = savedHighlights[x][y];
+					}
+				}
+			}
+		};
+
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
 			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid currentPlayerIndex=" << currentPlayerIndex;
-			resetCardState(); // CRITICAL FIX
+			safeResetCardState(); // CRITICAL FIX
 			break;
 		}
 
@@ -23820,19 +23857,18 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 		if (isMultiplayer && activeOwner != (int)cmd.playerID) {
 			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: Sender " << cmd.playerID << " does not own active unit " << currentPlayerIndex;
-			resetCardState();
+			safeResetCardState();
 			break;
 		}
 
 		Player & actor = players[currentPlayerIndex];
 		if (cardIndex < 0 || cardIndex >= (int)actor.hand.size()) {
 			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid cardIndex=" << cardIndex;
-			resetCardState(); // CRITICAL FIX
+			safeResetCardState(); // CRITICAL FIX
 			break;
 		}
 
 		const Card cardSnapshot = actor.hand[cardIndex];
-
 		const std::string cardName = cardSnapshot.name;
 
 		// Deterministic lockstep: every peer executes the same play logic
@@ -23841,7 +23877,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (result == CARD_PLAY_RESULT_NOT_PLAYABLE || result == CARD_PLAY_RESULT_CANCELLED) {
 			// CRITICAL FIX: Unfreeze state machine if the play was invalid or aborted!
-			resetCardState();
+			safeResetCardState();
 		} else {
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
@@ -25270,10 +25306,19 @@ void ofApp::updateEffectSequence() {
 		return;
 	}
 
-	EffectOp & op = currentEffectSequence.ops[currentEffectSequence.currentOp];
+	// CRITICAL FIX: Pass by value (copy) to completely shield `op` from vector reallocations!
+	// If `processEffectOp` calls `queueEffect` (like Chain Lightning does repeatedly for AOE targets),
+	// the `ops` vector will expand and reallocate memory, which would turn a reference into a dangling pointer and crash the game!
+	EffectOp op = currentEffectSequence.ops[currentEffectSequence.currentOp];
+
 	// processEffectOp now returns whether the op completed immediately.
 	bool opComplete = processEffectOp(op);
-	if (opComplete) {
+
+	if (!opComplete) {
+		// If the operation is yielding (e.g., WAIT_VISUAL modifying its internal timer),
+		// write the modified copy back into the vector safely.
+		currentEffectSequence.ops[currentEffectSequence.currentOp] = op;
+	} else {
 		currentEffectSequence.currentOp++;
 		if (currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
 			currentEffectSequence.isComplete = true;
@@ -28808,7 +28853,38 @@ void ofApp::updateCardStateMachine() {
 				p.playedCardsPile.clear();
 			}
 		}
+
+		// CRITICAL FIX: Backup the dice and movement states BEFORE the reset!
+		// If we don't do this, the visual dice are instantly wiped off the screen instead of lingering,
+		// and any unit you clicked to move gets forcefully unselected!
+		auto savedDice = activeDiceRolls;
+		auto savedAction = playerAction;
+		int savedSelX = selectedPieceGridX;
+		int savedSelY = selectedPieceGridY;
+		auto savedPath = hoverPath;
+		bool savedHighlights[BOARD_WIDTH][BOARD_HEIGHT];
+
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				savedHighlights[x][y] = board[x][y].isHighlighted;
+			}
+		}
+
 		resetCardState();
+
+		// RESTORE: Put the dice and movement highlights back seamlessly
+		activeDiceRolls = savedDice;
+		if (savedAction == PIECE_SELECTED) {
+			playerAction = savedAction;
+			selectedPieceGridX = savedSelX;
+			selectedPieceGridY = savedSelY;
+			hoverPath = savedPath;
+			for (int x = 0; x < BOARD_WIDTH; ++x) {
+				for (int y = 0; y < BOARD_HEIGHT; ++y) {
+					board[x][y].isHighlighted = savedHighlights[x][y];
+				}
+			}
+		}
 	}
 }
 
