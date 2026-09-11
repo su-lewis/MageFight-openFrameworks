@@ -93,9 +93,15 @@ static SteamAuthValidator g_steamAuthValidator;
 
 // --- BROWSER FLAGS ---
 static bool g_saveBrowserIsReplayMode = false;
+// --- ALPHA TESTER SYSTEM ---
+// --- NEW CODE ---
 static bool g_hasAvailableSaves = false;
 static bool g_hasAvailableReplays = false;
 static float g_gameSavedNotificationTimer = -999.0f;
+static int s_draftNextPlayerIndex = -1;
+static int s_draftNextStage = -1;
+
+// --- ALPHA TESTER SYSTEM ---
 
 // --- ALPHA TESTER SYSTEM ---
 static std::string getAlphaTaggedName(std::string name, uint64_t steamID) {
@@ -5177,6 +5183,12 @@ void ofApp::updateStateMachine() {
 			draftNextScheduled = false;
 			int ct = draftNextClassTier;
 			draftNextClassTier = -1;
+			if (s_draftNextPlayerIndex != -1) {
+				draftPlayerIndex = s_draftNextPlayerIndex;
+				draftStage = s_draftNextStage;
+				s_draftNextPlayerIndex = -1;
+				s_draftNextStage = -1;
+			}
 			generateDraftOptions(ct);
 		}
 	}
@@ -8637,7 +8649,11 @@ void ofApp::applySettings() {
 
 		int screenW = ofGetScreenWidth();
 		int screenH = ofGetScreenHeight();
-		ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
+
+		// CRITICAL FIX: Wayland crashes if apps try to move their own windows!
+		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
+			ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
+		}
 		isFullscreen = false;
 	}
 
@@ -8826,6 +8842,8 @@ void ofApp::setupGame() {
 	resetCardState();
 	g_playerDefenses.clear();
 	draftGenerationCounter = 0; // Ensures fresh draft state and seed parity on consecutive matches
+	s_draftNextPlayerIndex = -1;
+	s_draftNextStage = -1;
 
 	// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
 	gameLog.clear();
@@ -19995,7 +20013,11 @@ void ofApp::windowResized(int w, int h) {
 		int screenH = ofGetScreenHeight();
 		int winW = ofGetWidth();
 		int winH = ofGetHeight();
-		ofSetWindowPosition((screenW - winW) / 2, (screenH - winH) / 2);
+
+		// CRITICAL FIX: Wayland crashes if apps try to move their own windows!
+		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
+			ofSetWindowPosition((screenW - winW) / 2, (screenH - winH) / 2);
+		}
 	}
 	allocateWorldFbo(w, h);
 
@@ -20003,7 +20025,10 @@ void ofApp::windowResized(int w, int h) {
 	if (ofGetWindowMode() != OF_FULLSCREEN) {
 		int screenW = ofGetScreenWidth();
 		int screenH = ofGetScreenHeight();
-		ofSetWindowPosition((screenW - w) / 2, (screenH - h) / 2);
+
+		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
+			ofSetWindowPosition((screenW - w) / 2, (screenH - h) / 2);
+		}
 	}
 
 	// --- FIX: Snap UI elements immediately to prevent "flying in" visual glitches ---
@@ -23128,15 +23153,15 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			steamManager.sendPacket(&cmd, sizeof(cmd));
 
 			if (applyLocally) {
+				// We CAN do optimistic execution because we have Rollback!
 				if (isMultiplayer && isClient() && !isAIvsAI) {
-					// SECURITY FIX: Disable optimistic execution in multiplayer to prevent fatal lockstep desyncs.
-					// Clients MUST wait for the host's authoritative sequenced echo.
-					ofLogNotice("Network") << "Optimistic execution disabled for network sync. Waiting for Host echo.";
-				} else {
-					// Singleplayer or Host can execute immediately safely
-					queueInputCommand(cmd);
-					processCommandQueue();
+					// Save snapshot BEFORE executing optimistically
+					std::string snap = buildSnapshotString();
+					provisionalSnapshots[cmd.clientActionID] = snap;
+					provisionalCommands[cmd.clientActionID] = cmd;
 				}
+				queueInputCommand(cmd);
+				processCommandQueue();
 			}
 			return true;
 		} else if (isHost()) {
@@ -23767,9 +23792,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
+		Player & lp = players[targetIdx];
+		// SECURITY FIX: Prevent multi-draw exploit!
+		if (lp.hasDrawnThisTurn) {
+			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: Player " << targetIdx << " already drew this turn!";
+			break;
+		}
+
 		int savedCurrent = currentPlayerIndex;
 		currentPlayerIndex = targetIdx;
-		Player & lp = players[targetIdx];
 		int handSizeBefore = (int)lp.hand.size();
 
 		for (int d = 0; d < num; ++d) {
@@ -24552,8 +24583,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (pick1 >= 0) picks.push_back(pick1);
 		if (pick2 >= 0) picks.push_back(pick2);
 
-		// Always spawn visual drafting flight-paths for the AI whenever the drafting player is Player 1 / AI!
-		bool isAiDrafting = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && (players[cmdDraftPlayerIdx].playerID == 1 || players[cmdDraftPlayerIdx].ownerID == 1));
+		bool isAiDrafting = false;
+		if (!isMultiplayer && cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && (players[cmdDraftPlayerIdx].playerID == 1 || players[cmdDraftPlayerIdx].ownerID == 1)) {
+			isAiDrafting = true;
+		}
 
 		if (cmd.playerID != (uint32_t)myLocalPlayerID || isAiDrafting) {
 
@@ -24723,16 +24756,16 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (headless) delay = 0.01f;
 
 		if (classTier <= 1) {
-			this->draftPlayerIndex = cmdDraftPlayerIdx;
-			draftStage = 1;
+			s_draftNextPlayerIndex = cmdDraftPlayerIdx;
+			s_draftNextStage = 1;
 			scheduleGenerateDraftOptions(2, delay);
 		} else {
 			int nextPlayerIdx = (cmdDraftPlayerIdx + 1) % 2;
 
 			// If the other player has not drafted yet, switch to them
 			if (players[nextPlayerIdx].deck.empty()) {
-				this->draftPlayerIndex = nextPlayerIdx;
-				draftStage = 0;
+				s_draftNextPlayerIndex = nextPlayerIdx;
+				s_draftNextStage = 0;
 				scheduleGenerateDraftOptions(1, delay);
 			} else {
 				// Both players are fully drafted! Schedule the transition to gameplay
@@ -38056,6 +38089,8 @@ void ofApp::cleanupGame() {
 	hostWaitingForClientsReadyStartTime = 0.0f; // <--- This caused the "Endless Dice" bug!
 	isInGameDraft = false;
 	initialDraftComplete = false;
+	s_draftNextPlayerIndex = -1;
+	s_draftNextStage = -1;
 
 	// Restore default walls for the main menu background
 	const char * maze[BOARD_HEIGHT] = {
