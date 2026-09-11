@@ -1,0 +1,40 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-11 14:27:55
+End Reason: Victory
+Seed: 0
+Turns: 1
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Opponent
+Player 1: planetlewis
+
+--- EVENT LOG ---
+[14:25:54] --- MATCH STARTED ---
+[14:26:12] Turn 0: planetlewis's turn
+[14:26:20] Debug: Added all 70 cards to hand
+[14:26:20] Debug: Added all 70 cards to hand
+[14:26:21] Debug: Added all 70 cards to hand
+[14:26:29] planetlewis moved to (12,1)
+[14:26:53] Turn 1: Opponent's turn
+[14:26:57] Opponent moved to (0,7)
+[14:26:58] Turn 1: planetlewis's turn
+[14:27:06] Debug spawner is host-only in multiplayer.
+[14:27:09] Debug spawner is host-only in multiplayer.
+[14:27:11] Debug spawner is host-only in multiplayer.
+[14:27:12] Debug spawner is host-only in multiplayer.
+[14:27:15] Debug: Added all 70 cards to hand
+[14:27:55] Opponent win by forfeit (conceded). You lose.
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

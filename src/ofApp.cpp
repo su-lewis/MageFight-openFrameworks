@@ -100,6 +100,7 @@ static bool g_hasAvailableReplays = false;
 static float g_gameSavedNotificationTimer = -999.0f;
 static int s_draftNextPlayerIndex = -1;
 static int s_draftNextStage = -1;
+static bool g_isSimulatedMultiplayer = false;
 
 // --- ALPHA TESTER SYSTEM ---
 
@@ -5233,7 +5234,7 @@ void ofApp::updateStateMachine() {
 	}
 
 	// Disconnection / reconnection handling (multiplayer)
-	if (isMultiplayer) {
+	if (isMultiplayer && !g_isSimulatedMultiplayer) {
 		bool isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
 		if (isDisconnected) {
 			// If the game has already concluded, or we are viewing a desync, don't interrupt
@@ -5880,21 +5881,9 @@ void ofApp::update() {
 	// `InputCommandPacket`s and processed via the command stream. Legacy
 	// `DraftActionPacket` resend/ACK tracking has been retired.
 
-	// Resend watchdog for client-sent input commands (retry until host ACK)
-	if (isClient() && lastSentActionValid) {
-		float now = ofGetElapsedTimef();
-		if (now - lastSentActionTime > ACTION_RESEND_INTERVAL) {
-			if (lastSentActionResendCount < ACTION_MAX_RESENDS) {
-				steamManager.sendPacket(&lastSentActionPacket, sizeof(lastSentActionPacket));
-				lastSentActionResendCount++;
-				lastSentActionTime = now;
-				ofLogNotice("Network") << "Resent InputCommand to host (attempt=" << lastSentActionResendCount << ")";
-			} else {
-				lastSentActionValid = false; // give up after max attempts
-				ofLogWarning("Network") << "Giving up on InputCommand resend after " << lastSentActionResendCount << " attempts";
-			}
-		}
-	}
+	// SteamNetworkingSockets already guarantees reliable packet delivery.
+	// Redundant manual resends are disabled to prevent duplicate packet floods.
+	lastSentActionValid = false;
 
 	// If client is waiting for authoritative DraftOptions for too long, request a snapshot
 	// FIX: Do not run this check in headless mode (no visual draft)
@@ -6609,7 +6598,7 @@ void ofApp::draw() {
 
 						drawTab(chatTabRect, "CHAT", currentChatTab == ChatTab::CHAT);
 						drawTab(logTabRect, "LOG", currentChatTab == ChatTab::LOG);
-						if (!isMultiplayer) {
+						if (!isMultiplayer || g_isSimulatedMultiplayer) {
 							drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
 						}
 						safePopStyle();
@@ -9162,7 +9151,7 @@ void ofApp::setupGame() {
 	playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
-	if (isMultiplayer) {
+	if (isMultiplayer && !g_isSimulatedMultiplayer) {
 		if (isHost()) {
 			hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
 			clientsReady.clear();
@@ -9171,7 +9160,7 @@ void ofApp::setupGame() {
 			ofLogNotice("Game") << "Client: waiting for StartMatch command from host.";
 		}
 	} else {
-		// Singleplayer: start immediately
+		// Singleplayer or Simulated Multiplayer: start immediately
 		startInitiativePhase();
 	}
 
@@ -16802,7 +16791,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// Debug button handling moved inside Chat DEBUG tab (only when chat is fully open)
 	if (button == OF_MOUSE_BUTTON_LEFT && isChatOpen && !isChatMinimized && currentChatTab == ChatTab::DEBUG && chatWindowRect.inside(x, y)) {
-		if (isMultiplayer && !isHost()) {
+		if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 			addGameLog("Debug tools are host-only in multiplayer.");
 			return;
 		}
@@ -17049,19 +17038,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			sendInputCommand(cmd, true);
 			return;
 		}
-		if (debugUnlimitedTimeButton.inside(x, y)) {
-			turnTimerEnabled = !turnTimerEnabled;
-			if (turnTimerEnabled) {
-				turnStartFrame = (int)simulationFrame;
-				addGameLog("Turn timer enabled.");
-			} else {
-				addGameLog("Unlimited time enabled (turn timer disabled).");
-			}
-			// Snapshot suppressed: only sent on reconnect or desync recovery.
-			return;
-		}
 		if (debugSkipDraftButton.inside(x, y)) {
-			if (!isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0) debugSkipDraftRandomCards();
+			if ((!isMultiplayer || g_isSimulatedMultiplayer) && currentState == STATE_DRAFTING) {
+				debugSkipDraftRandomCards();
+			}
 			return;
 		}
 		if (debugForceEndTurnButton.inside(x, y)) {
@@ -17697,7 +17677,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 
-		if (isMultiplayer && !isHost()) {
+		if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 			addGameLog("Debug spawner is host-only in multiplayer.");
 			isCardEncyclopediaOpen = false;
 			isCardSpawnerOpen = false;
@@ -17862,7 +17842,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- Card Spawner UI ---
 	if (isCardSpawnerOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		if (isMultiplayer && !isHost()) {
+		if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 			addGameLog("Debug spawner is host-only in multiplayer.");
 			isCardSpawnerOpen = false;
 			return;
@@ -17992,7 +17972,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Debug spawn mode: click a board tile to place/move a player deterministically.
 		if (button == OF_MOUSE_BUTTON_LEFT && debugSpawnMode != DEBUG_SPAWN_NONE) {
-			if (isMultiplayer && !isHost()) {
+			if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 				addGameLog("Debug spawner is host-only in multiplayer.");
 				debugSpawnMode = DEBUG_SPAWN_NONE;
 				return;
@@ -18031,19 +18011,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			Player testUnit = initMinionFromKind(10, ownerID, 5, 0, ownerID);
-			testUnit.summonOrder = ++nextSummonOrder;
-			testUnit.playerID = 100 + testUnit.summonOrder;
-			testUnit.x = gx;
-			testUnit.y = gy;
-			testUnit.visualPos = gridToWorld(gx, gy);
-			testUnit.summonedOnTurnCycle = globalTurnCounter;
-			if (testUnit.health <= 0) {
-				testUnit.health = std::max(1, testUnit.maxHealth);
-			}
-			board[gx][gy].hasPlayer = true;
-			players.push_back(testUnit);
-			ofLogNotice("Debug") << "Spawned test unit at (" << gx << "," << gy << ") ownerID=" << ownerID << " playerID=" << testUnit.playerID;
+			// Route through the deterministic lockstep queue so all peers and AI see the unit!
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			cmd.params[0] = gx;
+			cmd.params[1] = gy;
+			cmd.params[2] = ownerID;
+			strncpy(cmd.stringData, "DebugSpawnUnit", sizeof(cmd.stringData) - 1);
+			sendInputCommand(cmd, true);
 
 			debugSpawnMode = DEBUG_SPAWN_NONE;
 			return;
@@ -19371,6 +19349,18 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 }
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
+	// DEV SHORTCUT: Press F8 anywhere on menus to test Online Versus as the Client!
+	if (key == OF_KEY_F8 && (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU)) {
+		cleanupGame();
+		g_isSimulatedMultiplayer = true;
+		isMultiplayer = true;
+		myLocalPlayerID = 1; // You are Player 1 (The Client)
+		isVsAI = true; // The Host is the AI
+		isLoadingGame = true;
+		ofLogNotice("Dev") << "=== LAUNCHING SIMULATED MULTIPLAYER (YOU ARE CLIENT) ===";
+		return;
+	}
+
 	if (currentState == STATE_WAITING_FOR_RECONNECT && key == OF_KEY_ESC) {
 		bool saved = saveGameStateToFile("autosave_disconnect.json");
 		ofLogNotice("Save") << (saved ? "Saved autosave_disconnect.json before quit." : "Failed to save autosave_disconnect.json before quit.");
@@ -19548,12 +19538,12 @@ void ofApp::keyPressed(int key) {
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_TAB) {
-			// Cycle through tabs: CHAT -> LOG -> DEBUG (singleplayer only) -> CHAT
+			// Cycle through tabs: CHAT -> LOG -> DEBUG -> CHAT
 			if (currentChatTab == ChatTab::CHAT) {
 				currentChatTab = ChatTab::LOG;
 			} else if (currentChatTab == ChatTab::LOG) {
-				if (isMultiplayer) {
-					currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in multiplayer
+				if (isMultiplayer && !g_isSimulatedMultiplayer) {
+					currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in real multiplayer
 				} else {
 					currentChatTab = ChatTab::DEBUG;
 				}
@@ -19862,7 +19852,7 @@ void ofApp::keyPressed(int key) {
 void ofApp::keyReleased(int key) {
 	// 1. Toggle Chat Debug tab with tilde/backtick: open or close the visible debug menu.
 	if (key == '`' || key == '~') {
-		if (isMultiplayer && !isHost()) {
+		if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 			addGameLog("Debug mode is host-only in multiplayer.");
 			return;
 		}
@@ -19891,8 +19881,8 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 'c' - Open Card Spawner (Singleplayer only)
-	if ((key == 'c' || key == 'C') && currentState == STATE_GAMEPLAY && !isMultiplayer) {
+	// 'c' - Open Card Spawner (Singleplayer & Simulated Multiplayer)
+	if ((key == 'c' || key == 'C') && currentState == STATE_GAMEPLAY && (!isMultiplayer || g_isSimulatedMultiplayer)) {
 		isCardSpawnerOpen = !isCardSpawnerOpen;
 		if (isCardSpawnerOpen) {
 			cardSpawnerInput = "";
@@ -23132,10 +23122,19 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 		cmd.params[0] = currentPlayerIndex;
 	}
 	cmd.type = PKT_INPUT_COMMAND;
-	cmd.turnNumber = globalTurnCounter; // <--- FIX: Guarantee the turn number is always stamped!
+	cmd.turnNumber = globalTurnCounter;
 
-	if (isMultiplayer && !isAIvsAI) {
+	// In simulated mode, let the AI send with ID 0 and you with ID 1
+	if (!g_isSimulatedMultiplayer && isMultiplayer && !isAIvsAI) {
 		cmd.playerID = myLocalPlayerID;
+	}
+
+	// LOOPBACK SIMULATION: If simulating online versus, route locally!
+	if (g_isSimulatedMultiplayer) {
+		cmd.commandId = nextCommandId++;
+		queueInputCommand(cmd);
+		processCommandQueue();
+		return true;
 	}
 
 	if (isMultiplayer) {
@@ -23230,9 +23229,12 @@ void ofApp::processCommandQueue() {
 
 		bool animatingBlocksQueue = isPlayerAnimating && !(currentState == STATE_DRAFTING && isInGameDraft);
 
+		// Draft commands must NEVER be paused behind gameplay/card animations
+		bool isDraftCommand = (cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION);
+
 		// Only pause queue for regular gameplay actions while effects/animations run
-		if (!isInteractiveMenuCommand && (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue)) {
-			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION) {
+		if (!isDraftCommand && !isInteractiveMenuCommand && (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue)) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
 				break; // PAUSE THE QUEUE
 			}
 			if (cmdType == CMD_END_TURN && (isProcessingEffect || isEarthquakeActive || isUnitDying || animatingBlocksQueue)) {
@@ -23793,9 +23795,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		Player & lp = players[targetIdx];
-		// SECURITY FIX: Prevent multi-draw exploit!
+
+		// GUARANTEED ONE-DRAW RULE: Reject any duplicate draw packets on the same turn
 		if (lp.hasDrawnThisTurn) {
-			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: Player " << targetIdx << " already drew this turn!";
+			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: Unit " << targetIdx << " already drew cards this turn!";
 			break;
 		}
 
@@ -24874,18 +24877,23 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "ToggleUnlimitedAP") {
-			if (isMultiplayer && !isHost()) {
+			if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 				ofLogWarning("Security") << "Unauthorized cheat command blocked: ToggleUnlimitedAP";
 				break;
 			}
 			hasUnlimitedAP = !hasUnlimitedAP;
-			if (hasUnlimitedAP) currentAP = 99;
+			if (hasUnlimitedAP) {
+				currentAP = 99;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					players[currentPlayerIndex].ap = 99;
+				}
+			}
 			ofLogNotice("Debug") << "Unlimited AP: " << (hasUnlimitedAP ? "ON" : "OFF");
 			break;
 		}
 
 		if (actionName == "ToggleUnlimitedTime") {
-			if (isMultiplayer && !isHost()) {
+			if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) {
 				ofLogWarning("Security") << "Unauthorized cheat command blocked: ToggleUnlimitedTime";
 				break;
 			}
@@ -24896,6 +24904,27 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			} else {
 				addGameLog("Unlimited time enabled (turn timer disabled).");
 			}
+			break;
+		}
+
+		if (actionName == "DebugSpawnUnit") {
+			int gx = cmd.params[0];
+			int gy = cmd.params[1];
+			int ownerID = cmd.params[2];
+
+			Player testUnit = initMinionFromKind(10, ownerID, 5, 0, ownerID);
+			testUnit.summonOrder = ++nextSummonOrder;
+			testUnit.playerID = 100 + testUnit.summonOrder;
+			testUnit.x = gx;
+			testUnit.y = gy;
+			testUnit.visualPos = gridToWorld(gx, gy);
+			testUnit.summonedOnTurnCycle = globalTurnCounter;
+			if (testUnit.health <= 0) {
+				testUnit.health = std::max(1, testUnit.maxHealth);
+			}
+			board[gx][gy].hasPlayer = true;
+			players.push_back(testUnit);
+			ofLogNotice("Debug") << "Spawned test unit at (" << gx << "," << gy << ") ownerID=" << ownerID << " playerID=" << testUnit.playerID;
 			break;
 		}
 
@@ -34026,6 +34055,20 @@ const Card * ofApp::findCardByName(const std::string & name) const {
 bool ofApp::isMyTurn() const {
 	if (g_isSpectator || myLocalPlayerID == 2) return false;
 
+	if (g_isSimulatedMultiplayer) {
+		if (currentState == STATE_DRAFTING) {
+			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+				int owner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
+				return owner == myLocalPlayerID;
+			}
+			return false;
+		}
+		if (currentPlayerIndex < 0 || players.empty()) return false;
+		int pid = players[currentPlayerIndex].playerID;
+		int oid = players[currentPlayerIndex].ownerID;
+		return (pid == myLocalPlayerID || oid == myLocalPlayerID);
+	}
+
 	// FIX: Make the turn check Draft-Aware so it correctly tracks who is currently picking cards!
 	if (currentState == STATE_DRAFTING) {
 		if (isAIvsAI) return true;
@@ -37917,8 +37960,8 @@ void ofApp::updateDebugRects() {
 }
 //--------------------------------------------------------------
 void ofApp::debugSkipDraftRandomCards() {
-	// Only works in singleplayer during draft
-	if (isMultiplayer || currentState != STATE_DRAFTING) {
+	// Works in singleplayer and simulated multiplayer
+	if ((isMultiplayer && !g_isSimulatedMultiplayer) || currentState != STATE_DRAFTING) {
 		ofLogWarning("Debug") << "Cannot skip draft: multiplayer=" << isMultiplayer << " state=" << currentState;
 		return;
 	}
@@ -38067,6 +38110,7 @@ void ofApp::cleanupGame() {
 	skippedOptimisticCommands.clear();
 
 	g_isSpectator = false; // Safely reset spectator flag when match ends
+	g_isSimulatedMultiplayer = false;
 
 	// Reset Chat State to prevent Hotkeys from getting locked in menus
 	isChatOpen = false;
@@ -40935,6 +40979,11 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	if (draftIndex < 0 || draftIndex >= (int)players.size()) return false;
 	int draftOwnerID = players[draftIndex].isMinion ? players[draftIndex].ownerID : players[draftIndex].playerID;
 
+	// If simulating client, you are Player 1
+	if (g_isSimulatedMultiplayer) {
+		return (draftOwnerID == myLocalPlayerID);
+	}
+
 	// In AI vs AI, neither side is human
 	if (isAIvsAI) return false;
 
@@ -41327,16 +41376,16 @@ void ofApp::processNetworkPackets() {
 				} else {
 					// Client receives officially sequenced command from Host.
 					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID != 0) {
+						// Always immediately disarm the resend watchdog on echo
+						if (cmd->clientActionID == lastSentActionPacket.clientActionID) {
+							lastSentActionValid = false;
+						}
+
 						// This is the Host echoing the command we already predicted!
 						if (provisionalSnapshots.find(cmd->clientActionID) != provisionalSnapshots.end()) {
 							ofLogNotice("Lockstep") << "Dropping echoed optimistic command clientActionID=" << cmd->clientActionID;
 							provisionalSnapshots.erase(cmd->clientActionID);
 							provisionalCommands.erase(cmd->clientActionID);
-
-							// Stop the resend watchdog
-							if (cmd->clientActionID == lastSentActionPacket.clientActionID) {
-								lastSentActionValid = false;
-							}
 
 							// Sync local command ID counter to match Host's numbering
 							if (cmd->commandId >= nextCommandId) {
@@ -42488,15 +42537,18 @@ void ofApp::updateAI() {
 
 	// In Singleplayer Vs AI, strictly ensure the AI only controls its own turn, its draft, or its opponent decision prompts
 	if (isVsAI && !isAIvsAI) {
+		int humanID = g_isSimulatedMultiplayer ? 1 : 0;
+		int aiID = g_isSimulatedMultiplayer ? 0 : 1;
+
 		if (currentState == STATE_DRAFTING) {
 			int draftOwner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
-			if (draftOwner != 1) return; // Never touch Human's draft!
+			if (draftOwner == humanID) return; // Never touch Human's draft!
 		} else if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
 			int deciderOwner = players[opponentDecisionPlayerIndex].isMinion ? players[opponentDecisionPlayerIndex].ownerID : players[opponentDecisionPlayerIndex].playerID;
-			if (deciderOwner != 1) return; // Only decide if it's the AI's prompt!
+			if (deciderOwner != aiID) return;
 		} else {
 			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-			if (activeOwner != 1) return; // Never touch Human's turn!
+			if (activeOwner != aiID) return;
 		}
 	}
 

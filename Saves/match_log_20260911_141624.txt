@@ -1,0 +1,27 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-11 14:16:24
+End Reason: Victory
+Seed: 0
+Turns: 0
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Opponent
+Player 1: planetlewis
+
+--- EVENT LOG ---
+[14:15:29] --- MATCH STARTED ---
+[14:16:24] Opponent win by forfeit (conceded). You lose.
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
