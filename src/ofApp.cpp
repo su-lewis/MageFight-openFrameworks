@@ -31717,7 +31717,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_FIREBALL: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		TargetInfo info = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+
+		// Validate against actual card range dice (2d6 fallback) instead of infinite range
+		auto [rNum, rSides] = getCardRangeDice(playedCard, 2, 6);
+		float maxRangeFeet = (float)(rNum * rSides);
+
+		TargetInfo info = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
 		if (info.reason != VALID) return true;
 		beginEffectSequence();
 
@@ -31725,16 +31730,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// 1. Roll Range
 		std::vector<int> rawRange;
-		int rangeRoll = resolveDiceRollDetailed(2, 6, rawRange);
-		rangeRoll += 2 * luckBonus;
+		int rangeRoll = resolveDiceRollDetailed(rNum, rSides, rawRange);
+		rangeRoll += rNum * luckBonus;
 		currentEffectSequence.blackboard[0] = rangeRoll;
 		currentEffectSequence.blackboard[3] = rawRange.size() > 0 ? rawRange[0] : 1;
 		currentEffectSequence.blackboard[4] = rawRange.size() > 1 ? rawRange[1] : 1;
 
-		// 2. Roll Damage
+		// 2. Roll Damage (1d6 fallback)
+		auto [dNum, dSides] = getCardDamageDice(playedCard, 1, 6);
 		std::vector<int> rawDmg;
-		int dmgRoll = resolveDiceRollDetailed(1, 6, rawDmg);
-		dmgRoll += 1 * luckBonus;
+		int dmgRoll = resolveDiceRollDetailed(dNum, dSides, rawDmg);
+		dmgRoll += dNum * luckBonus;
 		currentEffectSequence.blackboard[1] = dmgRoll;
 		currentEffectSequence.blackboard[2] = rawDmg.size() > 0 ? rawDmg[0] : 1;
 
