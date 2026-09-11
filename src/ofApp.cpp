@@ -1413,8 +1413,9 @@ static bool startsWith(const std::string & s, const std::string & prefix) {
 }
 
 static float quantizePixelTextScale(float scale) {
-	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
-	return std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
+	// Quantize to quarter-steps (0.25x) instead of half-steps (0.5x).
+	// Keeps pixel art text crisp without collapsing 1080p/720p text to half size!
+	return std::max(0.5f, std::round(scale * 4.0f) / 4.0f);
 }
 
 static void drawPixelTextBaseline(const ofTrueTypeFont & font, const std::string & text, float baselineX, float baselineY, float scale, const ofColor & fillColor, int outlinePx = 0, const ofColor & outlineColor = ofColor::black) {
@@ -2794,10 +2795,8 @@ bool ofApp::loadGameStateFromFile(const std::string & path) {
 		std::stringstream buffer;
 		buffer << ifs.rdbuf();
 		ifs.close();
-		// Preserve current game mode when loading from disk.
-		// Network snapshots should force multiplayer; local save loads should not.
-		bool fromNetworkSnapshot = isMultiplayer;
-		applySnapshotString(buffer.str(), fromNetworkSnapshot);
+		// Files loaded from local disk must never be treated as authoritative remote network snapshots
+		applySnapshotString(buffer.str(), false);
 		return true;
 	} catch (...) {
 		return false;
@@ -7624,7 +7623,8 @@ void ofApp::navigateToMenu(int screenIndex, GameState newState) {
 void ofApp::updateMenuRects() {
 	float w = std::max(1.0f, (float)ofGetWidth());
 	float h = std::max(1.0f, (float)ofGetHeight());
-	float uiScale = std::clamp(settingsUIScale * std::min(w / 1920.0f, getUIScaleFromHeight(h)), 0.75f, 1.25f);
+	// Standard 1080p reference baseline: 0.67 at 720p, 1.0 at 1080p, 1.33 at 1440p
+	float uiScale = std::clamp(settingsUIScale * std::min(w / 1920.0f, h / 1080.0f), 0.65f, 1.75f);
 
 	// FIX: Use 15/11 so the 13x9 board fits perfectly on screen without seeing the adjacent menus!
 	// Clamped to 1.0f to prevent fatal Division-by-Zero errors on Wayland async startups
@@ -7952,7 +7952,7 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 	}
 
-	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float setX = ofGetWidth() / 2.0f;
 	float centerX = setX;
 
@@ -8257,7 +8257,7 @@ void ofApp::drawSingleplayerMenu() {
 		} catch (...) { }
 	}
 
-	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float sX = baseMenuStartX - currentMenuPanX + (30 * menuTileSize);
 	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
@@ -8277,7 +8277,7 @@ void ofApp::drawCustomisationState() {
 	ofSetColor(0, 0, 0, 240);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float cx = ofGetWidth() / 2.0f;
 
 	drawPixelTextCentered(titleFont, "CUSTOMISATION", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
@@ -8456,7 +8456,7 @@ void ofApp::drawSaveBrowser() {
 }
 
 void ofApp::drawMultiplayerMenu() {
-	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize);
 	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
@@ -23159,7 +23159,13 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 					provisionalSnapshots[cmd.clientActionID] = snap;
 					provisionalCommands[cmd.clientActionID] = cmd;
 				}
-				queueInputCommand(cmd);
+
+				// SYNTHETIC KEY FIX: The network packet sent to the host has commandId = 0,
+				// but local client prediction MUST queue with (0xFFFFFFFF - clientActionID).
+				// This guarantees unique keys so rapid consecutive client inputs are never dropped as duplicates!
+				InputCommandPacket localCmd = cmd;
+				localCmd.commandId = 0xFFFFFFFF - cmd.clientActionID;
+				queueInputCommand(localCmd);
 				processCommandQueue();
 			}
 			return true;
@@ -29828,6 +29834,18 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	queueStatGain(13, playedCard.fortifyAmount);
 	queueStatGain(1, playedCard.hpDerivedAdd);
 
+	// Prevent pure healing cards from resolving on full HP targets
+	if (hasHeal && !hasDamage && !hasStatus && !hasDraw && !hasAPGain && !hasStatGains) {
+		int targetIdx = resolvedTargetIndex != -1 ? resolvedTargetIndex : currentPlayerIndex;
+		if (targetIdx >= 0 && targetIdx < (int)players.size()) {
+			Player & target = players[targetIdx];
+			if (target.health >= target.maxHealth) {
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Already Full HP", ofColor::gray);
+				return true; // Abort without consuming AP
+			}
+		}
+	}
+
 	// Roll Heal -> blackboard[2]
 	if (hasHeal) {
 		int totalHeal = playedCard.baseHeal + playedCard.healAmount;
@@ -29956,11 +29974,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	if (playedCard.targeting != TARGET_NONE) {
-		int rangeDiceNum = playedCard.numDice;
-		int rangeDiceSides = playedCard.diceSides;
-		if (rangeDiceNum <= 0 || rangeDiceSides <= 0) {
-			// fallback check omitted for brevity, handles via JSON fields now
-		}
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
 		if (rangeDiceNum > 0 && rangeDiceSides > 0) {
 			float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
 			if (playedCard.type == CARD_MAGIC_BOLT) {
@@ -29971,7 +29985,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = { (float)targetX, (float)targetY };
 			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
-			if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) {
+			if (validationResult.reason != VALID) {
 				return true;
 			}
 
@@ -30016,10 +30030,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_HEAL:
 	case CARD_LESSER_HEAL: {
+		int targetIdx = resolvedTargetIndex != -1 ? resolvedTargetIndex : currentPlayerIndex;
+		if (targetIdx >= 0 && targetIdx < (int)players.size()) {
+			Player & target = players[targetIdx];
+			if (target.health >= target.maxHealth) {
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Already Full HP", ofColor::gray);
+				return true; // Abort without consuming AP or playing card
+			}
+		}
+
 		beginEffectSequence();
 		EffectOp healOp = {};
 		healOp.type = EffectOpType::HEAL;
-		healOp.data.heal.targetIndex = resolvedTargetIndex != -1 ? resolvedTargetIndex : currentPlayerIndex;
+		healOp.data.heal.targetIndex = targetIdx;
 		healOp.data.heal.amount = playedCard.baseHeal > 0 ? playedCard.baseHeal : playedCard.healAmount;
 		healOp.data.heal.amountFromSlot = -1;
 		queueEffect(healOp);
@@ -32734,9 +32757,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	// Data-driven preview/targeting for ranged/dice-based cards:
 	// Use card fields from cards.json (rangeDiceNum/rangeDiceSides, numDice/diceSides, targeting, healAmount)
 	bool shouldShowRangedPreview = false;
-	if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0)
-		shouldShowRangedPreview = true;
-	else if (card.numDice > 0 && card.diceSides > 0)
+	auto [testRangeNum, testRangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
+	if (testRangeNum > 0 && testRangeSides > 0)
 		shouldShowRangedPreview = true;
 	else if (card.targeting == TARGET_LINE_OF_SIGHT_TILE || card.targeting == TARGET_BURST_AREA)
 		shouldShowRangedPreview = true;
@@ -33459,7 +33481,12 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							rSides = 20;
 						}
 					}
-					currentMaxRangeFeet = (float)(rNum * rSides);
+					// If range dice exist, use them; otherwise default to infinite LOS (not 0)
+					if (rNum > 0 && rSides > 0) {
+						currentMaxRangeFeet = (float)(rNum * rSides);
+					} else {
+						currentMaxRangeFeet = 9999.0f;
+					}
 				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, currentMaxRangeFeet, card.type);
@@ -39077,7 +39104,8 @@ void ofApp::drawEncyclopediaState() {
 	ofSetColor(0, 0, 0, 240); // Darker overlay blocks out the board entirely
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+	// Full native 1080p baseline for overlay menus
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float eX_center = ofGetWidth() / 2.0f;
 	float cx = eX_center;
 
@@ -39142,12 +39170,13 @@ void ofApp::drawEncyclopediaState() {
 				curY += 28 * uiScale;
 				float textDrawScale = 0.95f * uiScale;
 				float wrapMaxW = leftBox.width - 36 * uiScale;
+				float lineStep = std::max(22.0f * uiScale, uiFont.getLineHeight() * quantizePixelTextScale(textDrawScale) * 0.92f);
 
 				for (const auto & b : bullets) {
 					auto lines = wrapTextScaled(uiFont, b, wrapMaxW, textDrawScale);
 					for (const auto & l : lines) {
 						drawPixelTextBaseline(uiFont, l, leftBox.x + 18 * uiScale, curY, textDrawScale, ofColor(220, 225, 240));
-						curY += 22 * uiScale;
+						curY += lineStep;
 					}
 					curY += 6 * uiScale;
 				}
@@ -39198,6 +39227,7 @@ void ofApp::drawEncyclopediaState() {
 
 			float textDrawScale = 0.95f * uiScale;
 			float wrapMaxW = rightBox.width - 36 * uiScale;
+			float lineStep = std::max(22.0f * uiScale, uiFont.getLineHeight() * quantizePixelTextScale(textDrawScale) * 0.92f);
 
 			// --- ACCURATE TOTAL HEIGHT CALCULATION ---
 			float totalRefH = 30.0f * uiScale;
@@ -39206,9 +39236,9 @@ void ofApp::drawEncyclopediaState() {
 				for (const auto & itm : sec.entries) {
 					totalRefH += 28.0f * uiScale; // Subtitle
 					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
-					totalRefH += (float)lines.size() * (22.0f * uiScale) + (16.0f * uiScale); // Description lines + gap
+					totalRefH += (float)lines.size() * lineStep + (16.0f * uiScale);
 				}
-				totalRefH += 34.0f * uiScale; // Generous space before next section
+				totalRefH += 34.0f * uiScale;
 			}
 
 			float maxRefScroll = std::max(0.0f, totalRefH - (visibleH - 20 * uiScale));
@@ -39239,7 +39269,7 @@ void ofApp::drawEncyclopediaState() {
 					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
 					for (const auto & l : lines) {
 						drawPixelTextBaseline(uiFont, l, rightBox.x + 22 * uiScale, curY, textDrawScale, ofColor(215, 220, 235));
-						curY += 22 * uiScale;
+						curY += lineStep;
 					}
 					curY += 16 * uiScale; // Spacing after each item
 				}
@@ -40746,7 +40776,7 @@ void ofApp::drawPauseMenu() {
 	ofDisableDepthTest();
 	safeEnableAlphaBlending();
 
-	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())), 0.75f, 1.25f);
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float centerX = ofGetWidth() / 2.0f;
 
 	// Dim background

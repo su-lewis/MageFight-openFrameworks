@@ -1,0 +1,58 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-11 15:12:04
+End Reason: Victory
+Seed: 0
+Turns: 3
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Opponent
+Player 1: Player
+
+--- EVENT LOG ---
+[15:10:54] --- MATCH STARTED ---
+[15:10:57] Turn 0: Player's turn
+[15:11:00] Player moved to (12,1)
+[15:11:00] Turn 1: Opponent's turn
+[15:11:01] Opponent moved to (0,7)
+[15:11:02] Turn 1: Player's turn
+[15:11:06] Player played Call for Wolves targeting (12,1)
+[15:11:07] Player summoned unit kind 2 at (11,1)
+[15:11:08] Player summoned unit kind 2 at (12,2)
+[15:11:12] Player moved to (11,0)
+[15:11:12] Player played Call for Kobolds targeting (11,0)
+[15:11:13] Player summoned unit kind 1 at (12,0)
+[15:11:14] Player summoned unit kind 1 at (10,0)
+[15:11:18] Player played Call for Wolves targeting (11,0)
+[15:11:20] Player played Call for Wolves targeting (11,0)
+[15:11:22] Turn 2: Opponent's turn
+[15:11:24] Opponent moved to (0,6)
+[15:11:24] Turn 2: Player's turn
+[15:11:26] Player moved to (11,3)
+[15:11:28] Turn 2: Player's turn
+[15:11:29] Turn 2: Player's turn
+[15:11:30] Player moved to (12,1)
+[15:11:30] Turn 2: Player's turn
+[15:11:31] Turn 2: Player's turn
+[15:11:35] Unlimited time enabled (turn timer disabled).
+[15:11:36] Turn timer enabled.
+[15:11:36] Player played Call for Wolves targeting (11,0)
+[15:11:37] Player summoned unit kind 2 at (11,1)
+[15:11:38] Player summoned unit kind 2 at (12,0)
+[15:11:46] Player played Earthquake targeting (11,0)
+[15:11:51] Player played Call for Wolves targeting (11,0)
+[15:12:01] Turn 3: Opponent's turn
+[15:12:04] Opponent win by forfeit (conceded). You lose.
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 8
+  Cards Played: 7
+  Minions Spawned: 6
+  Total Healing: 0
+=====================
