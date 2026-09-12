@@ -5312,22 +5312,7 @@ void ofApp::updateStateMachine() {
 		}
 	}
 
-	// Host Fallback: If ClientReady packet was dropped by Steam, force start after 3 seconds
-	if (isMultiplayer && isHost() && hostWaitingForClientsReadyStartTime > 0.0f) {
-		if (ofGetElapsedTimef() - hostWaitingForClientsReadyStartTime > 3.0f) {
-			ofLogNotice("Network") << "Host: ClientReady timeout, force starting match.";
-			hostWaitingForClientsReadyStartTime = 0.0f;
-
-			InputCommandPacket startCmd = {};
-			startCmd.type = PKT_INPUT_COMMAND;
-			startCmd.playerID = myLocalPlayerID;
-			startCmd.commandId = 0;
-			startCmd.turnNumber = globalTurnCounter;
-			startCmd.commandType = CMD_PSEUDO_ACTION;
-			strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
-			sendInputCommand(startCmd, true);
-		}
-	}
+	// (Obsolete ClientReady timeout removed — StartMatch begins the initiative phase immediately)
 
 	// Disconnection / reconnection handling (multiplayer)
 	if (isMultiplayer && !g_isSimulatedMultiplayer) {
@@ -9272,19 +9257,9 @@ void ofApp::setupGame() {
 	// This prevents the opponent's model from snapping to your local tile on the client's screen on startup.
 	playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
-	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
-	if (isMultiplayer && !g_isSimulatedMultiplayer) {
-		if (isHost()) {
-			hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
-			clientsReady.clear();
-			ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
-		} else {
-			ofLogNotice("Game") << "Client: waiting for StartMatch command from host.";
-		}
-	} else {
-		// Singleplayer or Simulated Multiplayer: start immediately
-		startInitiativePhase();
-	}
+	// --- INITIATIVE PHASE START ---
+	// Start initiative roll immediately for all players
+	startInitiativePhase();
 
 	recalculateUI(ofGetWidth(), ofGetHeight()); // <-- Fixes the missing Draw button!
 }
@@ -9435,19 +9410,8 @@ void ofApp::initialiseGameStateCommon() {
 	else
 		playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
-	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
-	if (isMultiplayer) {
-		if (isHost()) {
-			hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
-			clientsReady.clear();
-			ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
-		} else {
-			ofLogNotice("Game") << "Client: waiting for StartMatch command from host.";
-		}
-	} else {
-		// Singleplayer: start immediately
-		startInitiativePhase();
-	}
+	// --- INITIATIVE PHASE START ---
+	startInitiativePhase();
 }
 //--------------------------------------------------------------
 void ofApp::updateGame() {
@@ -25138,13 +25102,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (actionName == "StartMatch") {
 			g_inLobby = false; // Exit lobby visually
+			isMultiplayer = true;
 
 			// Set the deterministic seed provided by the Host
 			currentMapSeed = cmd.params[0];
 			gameplayRNG.seed(currentMapSeed);
 			seedVisualRng(visualRNG, currentMapSeed);
 
-			// Call setupGame() which will now read the lobby players and start the initiative phase
+			// Call setupGame() which will read the lobby players and roll initiative
 			setupGame();
 			break;
 		}
