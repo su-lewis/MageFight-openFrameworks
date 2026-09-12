@@ -4222,7 +4222,69 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	}
 	return out;
 }
+// --- LOBBY DATA STRUCTURES ---
+struct LobbyPlayer {
+	uint32_t playerID;
+	uint32_t seed;
+	bool isReady;
+	std::string name;
+};
+std::vector<LobbyPlayer> g_lobbyPlayers;
+bool g_inLobby = false;
 
+ofRectangle lobbyStartBtn;
+ofRectangle lobbyForceStartBtn;
+ofRectangle lobbyReadyBtn;
+
+static const uint8_t PKT_LOBBY_UPDATE = 250;
+#pragma pack(push, 1)
+struct LobbyUpdatePacket {
+	PacketHeader header;
+	uint8_t numPlayers;
+	struct {
+		uint32_t playerID;
+		uint8_t isReady;
+		char name[32];
+	} players[4];
+};
+#pragma pack(pop)
+
+void broadcastLobbyState(SteamManager & steamManager) {
+	if (!steamManager.isHost()) return;
+	LobbyUpdatePacket lup = {};
+	lup.header.type = PKT_LOBBY_UPDATE;
+	lup.header.playerID = 0;
+	lup.numPlayers = std::min((int)g_lobbyPlayers.size(), 4);
+	for (int i = 0; i < lup.numPlayers; i++) {
+		lup.players[i].playerID = g_lobbyPlayers[i].playerID;
+		lup.players[i].isReady = g_lobbyPlayers[i].isReady ? 1 : 0;
+		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 31);
+		lup.players[i].name[31] = '\0';
+	}
+	steamManager.sendPacket(&lup, sizeof(lup));
+}
+// --- PHASE 2 HELPERS ---
+std::string getPlayerNameByID(int id) {
+	for (const auto & lp : g_lobbyPlayers) {
+		if (lp.playerID == id) return lp.name;
+	}
+	// Fallbacks
+	if (id == 0) return "Player 1";
+	if (id == 1) return "Player 2";
+	if (id == 2) return "Player 3";
+	if (id == 3) return "Player 4";
+	return "Opponent";
+}
+
+float getCameraAngleForPlayer(int playerID) {
+	// Rotates the camera perfectly around the center of the board
+	if (playerID == 0) return 0.0f; // Bottom-Left
+	if (playerID == 1) return -90.0f; // Top-Left
+	if (playerID == 2) return 180.0f; // Top-Right
+	if (playerID == 3) return 90.0f; // Bottom-Right
+	return 0.0f; // Spectators default to P0 view
+}
+// ------------------------------
 //--------------------------------------------------------------
 void ofApp::setup() {
 #ifdef _WIN32
@@ -8442,7 +8504,64 @@ void ofApp::drawSaveBrowser() {
 	}
 }
 
+void ofApp::drawLobby() {
+	draw2DMenuBackground();
+	ofSetColor(0, 0, 0, 200);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	float uiScale = getUIScaleFromHeight(ofGetHeight());
+	float cx = ofGetWidth() / 2.0f;
+
+	drawPixelTextCentered(titleFont, "GAME LOBBY", cx, 60 * uiScale, 1.5f * uiScale, ofColor::gold, 2, ofColor::black);
+
+	// --- Players Panel (Left) ---
+	ofRectangle playersRect(cx - 600 * uiScale, 120 * uiScale, 500 * uiScale, 400 * uiScale);
+	drawMenuPlaquePanel(playersRect);
+	drawPixelTextCentered(titleFont, "Players", playersRect.getCenter().x, playersRect.y + 40 * uiScale, 1.0f * uiScale, ofColor::white);
+
+	float py = playersRect.y + 90 * uiScale;
+	for (const auto & lp : g_lobbyPlayers) {
+		ofSetColor(40, 40, 50);
+		ofDrawRectRounded(playersRect.x + 20 * uiScale, py, playersRect.width - 40 * uiScale, 60 * uiScale, 8);
+		ofColor statusCol = lp.isReady ? ofColor::green : ofColor::red;
+		drawPixelTextBaseline(uiFont, lp.name, playersRect.x + 40 * uiScale, py + 40 * uiScale, 1.0f * uiScale, ofColor::white);
+		drawPixelTextBaseline(uiFont, lp.isReady ? "READY" : "NOT READY", playersRect.getRight() - 150 * uiScale, py + 40 * uiScale, 1.0f * uiScale, statusCol);
+		py += 70 * uiScale;
+	}
+
+	// --- Modifiers Panel (Right) ---
+	ofRectangle modRect(cx + 100 * uiScale, 120 * uiScale, 500 * uiScale, 400 * uiScale);
+	drawMenuPlaquePanel(modRect);
+	drawPixelTextCentered(titleFont, "Modifiers", modRect.getCenter().x, modRect.y + 40 * uiScale, 1.0f * uiScale, ofColor::white);
+	drawPixelTextCentered(uiFont, "Coming Soon...", modRect.getCenter().x, modRect.getCenter().y, 1.0f * uiScale, ofColor(150));
+
+	// --- Action Buttons ---
+	if (isHost()) {
+		lobbyStartBtn.set(cx - 210 * uiScale, ofGetHeight() - 120 * uiScale, 200 * uiScale, 60 * uiScale);
+		lobbyForceStartBtn.set(cx + 10 * uiScale, ofGetHeight() - 120 * uiScale, 200 * uiScale, 60 * uiScale);
+
+		bool allReady = true;
+		for (const auto & lp : g_lobbyPlayers) {
+			if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
+		}
+
+		drawMenuPlaqueButton(lobbyStartBtn, "Start Game", lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
+		drawMenuPlaqueButton(lobbyForceStartBtn, "Force Start", lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()));
+	} else {
+		lobbyReadyBtn.set(cx - 100 * uiScale, ofGetHeight() - 120 * uiScale, 200 * uiScale, 60 * uiScale);
+		bool iAmReady = false;
+		for (const auto & lp : g_lobbyPlayers)
+			if (lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
+		drawMenuPlaqueButton(lobbyReadyBtn, iAmReady ? "Unready" : "Ready", lobbyReadyBtn.inside(ofGetMouseX(), ofGetMouseY()));
+	}
+}
+
 void ofApp::drawMultiplayerMenu() {
+	if (g_inLobby) {
+		drawLobby();
+		return;
+	}
+
 	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize);
 	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
@@ -8473,8 +8592,8 @@ void ofApp::drawMultiplayerMenu() {
 				bool isHovered = lRect.inside(ofGetMouseX(), ofGetMouseY());
 				if (isHovered) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
 
-				bool inProgress = (lobbies[i].numPlayers >= 2);
-				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/10)";
+				bool inProgress = (lobbies[i].numPlayers >= 4);
+				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
 				lobbyText += inProgress ? " [SPECTATE]" : " [JOIN]";
 
 				drawMenuPlaqueButton(lRect, lobbyText, isHovered);
@@ -8514,7 +8633,6 @@ void ofApp::drawMultiplayerMenu() {
 
 				drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), lbRect.x + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
 
-				int accountLevel = 0; // Steam API rate-limit avoidance kept here
 				auto rank = getMageRank(entry.score);
 
 				float nameX = lbRect.x + 80 * uiScale;
@@ -8540,12 +8658,12 @@ void ofApp::drawMultiplayerMenu() {
 	drawMenuPlaqueButton(mpHostButton, "Host Match", mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mpBackButton, "Back to Menu", mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
-	if (g_isHostingLobby || g_isConnectingToLobby) {
+	if (g_isConnectingToLobby) {
 		ofSetColor(0, 0, 0, 220);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		std::string title = g_isHostingLobby ? "Hosting Match..." : "Connecting to Match...";
-		std::string sub = g_isHostingLobby ? "Waiting for opponent to join..." : "Please wait...";
+		std::string title = "Connecting to Match...";
+		std::string sub = "Please wait...";
 
 		drawPixelTextCentered(titleFont, title, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f - 20.0f, 1.5f, ofColor::white);
 		drawPixelTextCentered(uiFont, sub, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f + 30.0f, 1.0f, ofColor::lightGray);
@@ -9049,24 +9167,26 @@ void ofApp::setupGame() {
 		}
 	}
 
-	// --- CAMERA RESET ---
-	cameraTargetZoom = 32.0f; // Closer zoom
+	// --- CAMERA RESET (4-PLAYER READY) ---
+	cameraTargetZoom = 32.0f;
 	cameraCurrentZoom = 32.0f;
-	cameraTargetPan = glm::vec3(0, 0, 3); // Pan backwards to keep bottom edge visible
-	cameraCurrentPan = glm::vec3(0, 0, 3);
+	cameraTargetPan = glm::vec3(0, 0, 0); // Center of the board
+	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
 
-	// Setup Player 0's camera (south side) — tilt a bit more toward board
-	cam.setPosition(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f);
-	cam.lookAt(cameraCurrentPan);
+	// Apply Dynamic Orbit Rotation
+	float angle = getCameraAngleForPlayer(myLocalPlayerID);
+	glm::mat4 rot = glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3(0, 1, 0));
 
-	// Setup Player 1's camera (north side, 180° opposite)
-	cam2.setPosition(0, cameraCurrentZoom * 1.35f, -(cameraCurrentZoom * 0.60f));
-	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
-	cameraCurrentPos = cam.getPosition();
-	cameraCurrentPos2 = cam2.getPosition();
+	// Base Offset: Backwards (+Z) and Upwards (+Y)
+	glm::vec3 baseOffset(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f + 3.0f);
+	glm::vec3 rotatedOffset = glm::vec3(rot * glm::vec4(baseOffset, 1.0f));
+
+	cameraCurrentPos = cameraCurrentPan + rotatedOffset;
 	cameraCurrentLookAt = cameraCurrentPan;
-	cameraCurrentLookAt2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
+
+	cam.setPosition(cameraCurrentPos);
+	cam.lookAt(cameraCurrentLookAt);
 
 	// --- BOARD WALLS SETUP ---
 	board[2][2].hasWall = true;
@@ -9100,30 +9220,65 @@ void ofApp::setupGame() {
 	buildFloorMesh();
 
 	// --- PLAYER CREATION ---
-	Player p1 = {};
-	p1.x = 0;
-	p1.y = BOARD_HEIGHT - 1;
-	p1.playerID = 0;
-	p1.visualPos = gridToWorld(p1.x, p1.y); // FIX: Initialize visual position
-	p1.summonedOnTurnCycle = -1; // FIX: Main players do not suffer from summoning sickness!
-	p1.health = 15;
-	p1.maxHealth = 15;
-	p1.deck.clear();
-	players.push_back(p1);
+	players.clear();
+	if (isMultiplayer && g_lobbyPlayers.size() > 0) {
+		for (size_t i = 0; i < g_lobbyPlayers.size(); i++) {
+			Player p = {};
+			p.playerID = g_lobbyPlayers[i].playerID;
+			p.health = 15;
+			p.maxHealth = 15;
+			p.summonedOnTurnCycle = -1; // Main players do not suffer from summoning sickness!
+			p.deck.clear();
 
-	Player p2 = {};
-	p2.x = BOARD_WIDTH - 1;
-	p2.y = 0;
-	p2.playerID = 1;
-	p2.visualPos = gridToWorld(p2.x, p2.y); // FIX: Initialize visual position
-	p2.summonedOnTurnCycle = -1;
-	p2.health = 15;
-	p2.maxHealth = 15;
-	p2.deck.clear();
-	players.push_back(p2);
+			// 4 Corners Generation
+			if (p.playerID == 0) {
+				p.x = 0;
+				p.y = BOARD_HEIGHT - 1;
+			} // Bottom Left
+			else if (p.playerID == 1) {
+				p.x = 0;
+				p.y = 0;
+			} // Top Left
+			else if (p.playerID == 2) {
+				p.x = BOARD_WIDTH - 1;
+				p.y = 0;
+			} // Top Right
+			else if (p.playerID == 3) {
+				p.x = BOARD_WIDTH - 1;
+				p.y = BOARD_HEIGHT - 1;
+			} // Bottom Right
 
-	board[p1.x][p1.y].hasPlayer = true;
-	board[p2.x][p2.y].hasPlayer = true;
+			p.visualPos = gridToWorld(p.x, p.y);
+			board[p.x][p.y].hasPlayer = true;
+			players.push_back(p);
+		}
+	} else {
+		// Singleplayer Fallback
+		Player p1 = {};
+		p1.x = 0;
+		p1.y = BOARD_HEIGHT - 1;
+		p1.playerID = 0;
+		p1.visualPos = gridToWorld(p1.x, p1.y);
+		p1.summonedOnTurnCycle = -1;
+		p1.health = 15;
+		p1.maxHealth = 15;
+		p1.deck.clear();
+		players.push_back(p1);
+
+		Player p2 = {};
+		p2.x = BOARD_WIDTH - 1;
+		p2.y = 0;
+		p2.playerID = 1;
+		p2.visualPos = gridToWorld(p2.x, p2.y);
+		p2.summonedOnTurnCycle = -1;
+		p2.health = 15;
+		p2.maxHealth = 15;
+		p2.deck.clear();
+		players.push_back(p2);
+
+		board[p1.x][p1.y].hasPlayer = true;
+		board[p2.x][p2.y].hasPlayer = true;
+	}
 
 	// Ensure a valid starting player index for singleplayer games
 	currentPlayerIndex = 0;
@@ -9343,22 +9498,23 @@ void ofApp::prepareGameVisualState() {
 	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
 	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
 
-	glm::vec3 cameraCurrentPan2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
-	glm::vec3 targetPos, targetPos2;
+	// Orbit Rotation
+	float angle = getCameraAngleForPlayer(myLocalPlayerID);
+	glm::mat4 rot = glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3(0, 1, 0));
+
+	glm::vec3 targetPos;
 	glm::vec3 targetLookAt = cameraCurrentPan;
-	glm::vec3 targetLookAt2 = cameraCurrentPan2;
 
 	if (isTopDownView) {
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 0.6f, cameraCurrentPan2.z);
 	} else {
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.35f, cameraCurrentPan.z + cameraCurrentZoom * 0.60f);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.35f, cameraCurrentPan2.z - cameraCurrentZoom * 0.60f);
+		glm::vec3 baseOffset(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f + 3.0f);
+		glm::vec3 rotatedOffset = glm::vec3(rot * glm::vec4(baseOffset, 1.0f));
+		targetPos = cameraCurrentPan + rotatedOffset;
 	}
+
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
-	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
 	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
-	cameraCurrentLookAt2 = glm::mix(cameraCurrentLookAt2, targetLookAt2, frame_independent_smoothing);
 
 	{
 		bool quakeMoving = false;
@@ -9385,8 +9541,6 @@ void ofApp::prepareGameVisualState() {
 
 	cam.setPosition(cameraCurrentPos + cameraShakeOffset);
 	cam.lookAt(cameraCurrentLookAt + cameraShakeOffset * 0.5f);
-	cam2.setPosition(cameraCurrentPos2 + cameraShakeOffset);
-	cam2.lookAt(cameraCurrentLookAt2 + cameraShakeOffset * 0.5f);
 
 	float time = ofGetElapsedTimef();
 	float flicker = ofNoise(time * 0.6f);
@@ -13624,9 +13778,41 @@ void ofApp::drawGame() {
 	};
 
 	int p0Elo = isMultiplayer ? myElo : -1;
-	int p1Elo = isMultiplayer ? opponentElo : -1;
-	drawProfile(p0_profileX, profileY, profileW, profileH, true, p0Name, p0Active, p0Elo);
-	drawProfile(p1_profileX, profileY, profileW, profileH, false, p1Name, p1Active, p1Elo);
+	int p1Elo = isMultiplayer ? opponentElo : -1; // We can upgrade this to fetch per-player Elo later
+
+	std::string myName = getPlayerNameByID(myLocalPlayerID);
+	std::string oppName = getPlayerNameByID(g_viewedOpponentID);
+
+	drawProfile(p0_profileX, profileY, profileW, profileH, true, myName, p0Active, p0Elo);
+	drawProfile(p1_profileX, profileY, profileW, profileH, false, oppName, p1Active, p1Elo);
+
+	// --- DRAW OPPONENT SELECTOR TABS ---
+	opponentViewTabs.clear();
+	if (g_lobbyPlayers.size() > 2) {
+		float tabW = 60.0f * scale;
+		float tabH = 20.0f * scale;
+		float tabX = p1_profileX + profileW - tabW; // Align right edge
+		float tabY = profileY - tabH - 2.0f; // Above profile
+
+		for (int i = g_lobbyPlayers.size() - 1; i >= 0; i--) {
+			int pID = g_lobbyPlayers[i].playerID;
+			if (pID == myLocalPlayerID) continue; // Don't tab yourself
+
+			ofRectangle tRect(tabX, tabY, tabW, tabH);
+			opponentViewTabs.push_back(tRect);
+
+			bool isHovered = tRect.inside(ofGetMouseX(), ofGetMouseY());
+			bool isActive = (pID == g_viewedOpponentID);
+
+			ofSetColor(isActive ? ofColor(80, 100, 140) : (isHovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
+			ofDrawRectRounded(tRect, 4.0f);
+
+			std::string tabName = "P" + std::to_string(pID + 1);
+			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.8f * scale, isActive ? ofColor::white : ofColor(200));
+
+			tabX -= (tabW + 4.0f * scale);
+		}
+	}
 	// ------------------------------------------
 
 	float handBaseCardWidth = kCardPixelWidth;
@@ -13803,31 +13989,34 @@ void ofApp::drawGame() {
 
 		ofPopMatrix();
 	}
-	// --- MAIN UI DRAWING ---
-	// Resolve side actors robustly. Prefer non-minions by owner side (0/1), but
-	// tolerate ID/flag drift during reconnect/load so HUD stays visible in draft.
-	Player * side0 = nullptr;
-	Player * side1 = nullptr;
-	for (auto & p : players) {
-		int side = -1;
-		if ((p.playerID == 0 || p.playerID == 1) && !p.isMinion) {
-			side = p.playerID;
-		} else if (p.ownerID == 0 || p.ownerID == 1) {
-			side = p.ownerID;
-		} else if (p.playerID == 0 || p.playerID == 1) {
-			side = p.playerID;
-		}
+	// --- MAIN UI DRAWING (4-PLAYER READY) ---
 
-		if (side == 0) {
-			if (!side0 || (side0->isMinion && !p.isMinion)) side0 = &p;
-		} else if (side == 1) {
-			if (!side1 || (side1->isMinion && !p.isMinion)) side1 = &p;
+	// Auto-switch viewed opponent to whoever's turn it currently is
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		if (activeOwner != myLocalPlayerID) {
+			g_viewedOpponentID = activeOwner;
 		}
 	}
 
-	// In multiplayer, local side is myLocalPlayerID. In singleplayer local side is 0.
-	Player * localPlayer = (isMultiplayer && myLocalPlayerID == 1) ? side1 : side0;
-	Player * opponentPlayer = (isMultiplayer && myLocalPlayerID == 1) ? side0 : side1;
+	// Failsafe: Don't view yourself or a non-existent player
+	if (g_viewedOpponentID == myLocalPlayerID || g_viewedOpponentID >= std::max((int)g_lobbyPlayers.size(), 2)) {
+		g_viewedOpponentID = (myLocalPlayerID == 0) ? 1 : 0;
+	}
+
+	Player * localPlayer = nullptr;
+	Player * opponentPlayer = nullptr;
+
+	for (auto & p : players) {
+		if (!p.isMinion) {
+			if (p.playerID == myLocalPlayerID) localPlayer = &p;
+			if (p.playerID == g_viewedOpponentID) opponentPlayer = &p;
+		}
+	}
+
+	// Safety fallback
+	if (!localPlayer) localPlayer = opponentPlayer;
+	if (!opponentPlayer) opponentPlayer = localPlayer;
 
 	// Safety fallbacks: keep HUD alive if one side is temporarily unresolved.
 	if (!localPlayer) localPlayer = opponentPlayer;
@@ -16151,6 +16340,21 @@ cursor_check_done:;
 
 void ofApp::mousePressed(int x, int y, int button) {
 	if (g_isGameOver && currentState != STATE_PAUSED && currentState != STATE_SETTINGS) {
+		// Handle Opponent View Tabs
+		if (currentState == STATE_GAMEPLAY && button == OF_MOUSE_BUTTON_LEFT) {
+			int tabIdx = 0;
+			for (int i = g_lobbyPlayers.size() - 1; i >= 0; i--) {
+				int pID = g_lobbyPlayers[i].playerID;
+				if (pID == myLocalPlayerID) continue;
+
+				if (tabIdx < opponentViewTabs.size() && opponentViewTabs[tabIdx].inside(x, y)) {
+					g_viewedOpponentID = pID;
+					playHandFeedbackSfx(1.0f, 0.2f);
+					return; // Consume click
+				}
+				tabIdx++;
+			}
+		}
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
 				saveReplay("last_match_replay.json");
@@ -16330,6 +16534,57 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 			} else if (currentState == STATE_MULTIPLAYER_MENU) {
+
+				if (g_inLobby) {
+					clickedUI = true;
+					if (isHost()) {
+						if (lobbyStartBtn.inside(x, y)) {
+							bool allReady = true;
+							for (const auto & lp : g_lobbyPlayers) {
+								if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
+							}
+							if (allReady) {
+								std::random_device rd;
+								currentMapSeed = rd();
+								InputCommandPacket startCmd = {};
+								startCmd.type = PKT_INPUT_COMMAND;
+								startCmd.playerID = myLocalPlayerID;
+								startCmd.commandType = CMD_PSEUDO_ACTION;
+								startCmd.params[0] = currentMapSeed;
+								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+								sendInputCommand(startCmd, true);
+							}
+						} else if (lobbyForceStartBtn.inside(x, y)) {
+							std::random_device rd;
+							currentMapSeed = rd();
+							InputCommandPacket startCmd = {};
+							startCmd.type = PKT_INPUT_COMMAND;
+							startCmd.playerID = myLocalPlayerID;
+							startCmd.commandType = CMD_PSEUDO_ACTION;
+							startCmd.params[0] = currentMapSeed;
+							strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+							sendInputCommand(startCmd, true);
+						}
+					} else {
+						if (lobbyReadyBtn.inside(x, y)) {
+							bool isReady = false;
+							for (auto & lp : g_lobbyPlayers) {
+								if (lp.playerID == myLocalPlayerID) {
+									lp.isReady = !lp.isReady;
+									isReady = lp.isReady;
+									break;
+								}
+							}
+							ClientReadyPacket cr = {};
+							cr.type = PKT_CLIENT_READY;
+							cr.playerID = myLocalPlayerID;
+							cr.ready = isReady ? 1 : 0;
+							steamManager.sendPacket(&cr, sizeof(cr));
+						}
+					}
+					return;
+				}
+
 				if (mpBackButton.inside(x, y)) {
 					clickedUI = true;
 					navigateToMenu(0, STATE_MAIN_MENU);
@@ -16342,21 +16597,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_isSpectator = false;
 					steamManager.createLobby();
 					g_isHostingLobby = true;
+					g_inLobby = true; // Enter lobby state instantly as Host
 
-					// --- SEND DUEL CHALLENGE WEBHOOK ---
-					std::string webhookURL = "https://discord.com/api/webhooks/1519839989427343360/LTkynjahdzF4CN4Rn7H36rEx9K5jWFcVDkhlsSFBh2uCNExstlepSzIIy7hJSKgrh1eP";
-					std::string playerName = steamManager.getLocalPlayerName();
-					if (playerName.empty()) playerName = "A Mage";
-					std::string msg = "@here **" + playerName + "** challenges you to a duel! Accept now!";
-					sendDiscordWebhook(webhookURL, msg);
+					// Add ourselves to the player list
+					myLocalPlayerID = 0;
+					g_lobbyPlayers.clear();
+					LobbyPlayer lp;
+					lp.playerID = 0;
+					lp.seed = localSeedComponent;
+					lp.isReady = true; // Host is always ready
+					lp.name = steamManager.getLocalPlayerName();
+					g_lobbyPlayers.push_back(lp);
+
 				} else {
 					// Handle Lobby Clicks!
 					auto lobbies = steamManager.getLobbyList();
 					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
 						if (mpLobbyButtons[i].inside(x, y)) {
 							clickedUI = true;
-							bool inProgress = (lobbies[i].numPlayers >= 2);
+							bool inProgress = (lobbies[i].numPlayers >= 4); // Max 4 players
 							g_isSpectator = inProgress;
+							myLocalPlayerID = 255; // Set to unknown until host replies
 							steamManager.joinLobbyByID(lobbies[i].lobbyID);
 							g_isConnectingToLobby = true;
 							return;
@@ -18564,16 +18825,18 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	// ALWAYS allow camera panning, regardless of whose turn it is or what state the game is in!
 	if (button == OF_MOUSE_BUTTON_MIDDLE) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-		float panMultZ = 1.0f;
 		if (isShowingTooltip) isShowingTooltip = false;
 		if (isTooltipExpanded) {
 			isTooltipExpanded = false;
 			tooltipExpandedText.clear();
 		}
-		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
-		return; // We handled the camera pan, stop here.
+		// Pan dynamically along the camera's localized right/forward axes
+		glm::vec3 fwd = glm::normalize(glm::vec3(cam.getLookAtDir().x, 0, cam.getLookAtDir().z));
+		glm::vec3 rht = glm::normalize(glm::cross(fwd, glm::vec3(0, 1, 0)));
+
+		cameraTargetPan -= rht * dx * 0.05f * (TILE_SIZE / 4.0f);
+		cameraTargetPan -= fwd * dy * 0.05f * (TILE_SIZE / 4.0f);
+		return;
 	}
 
 	if (!isMyTurn()) return;
@@ -24092,12 +24355,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			if (choice == 3) {
 				std::vector<int> sel;
-			}
-
-			if (choice == 3) {
-				std::vector<int> sel;
-				uint32_t maskLow = (uint32_t)cmd.params[4];
-				uint32_t maskHigh = (uint32_t)cmd.params[5];
 				for (int i = 0; i < 32; ++i) {
 					if (maskLow & (1U << i)) sel.push_back(i);
 					if (maskHigh & (1U << i)) sel.push_back(i + 32);
@@ -24837,7 +25094,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		std::string actionName = cmd.stringData;
 
 		if (actionName == "StartMatch") {
-			startInitiativePhase();
+			g_inLobby = false; // Exit lobby visually
+
+			// Set the deterministic seed provided by the Host
+			currentMapSeed = cmd.params[0];
+			gameplayRNG.seed(currentMapSeed);
+			seedVisualRng(visualRNG, currentMapSeed);
+
+			// Call setupGame() which will now read the lobby players and start the initiative phase
+			setupGame();
 			break;
 		}
 
@@ -34128,19 +34393,7 @@ bool ofApp::isCurrentPlayerLocal() const {
 
 //--------------------------------------------------------------
 ofCamera & ofApp::getActiveCamera() {
-	// During drafting phase, keep the camera that was being used before drafting
-	if (currentState == STATE_DRAFTING) {
-		// Client should always use camera 2 during drafting to avoid snap
-		if (isMultiplayer && myLocalPlayerID == 1) {
-			return cam2;
-		}
-		return cam;
-	}
-	// In multiplayer, Player 1 (client) uses cam2 positioned on opposite side
-	// Player 0 (host) uses cam (default position)
-	if (isMultiplayer && myLocalPlayerID == 1) {
-		return cam2;
-	}
+	// Everyone uses the exact same camera now, dynamically rotated!
 	return cam;
 }
 
@@ -41103,11 +41356,10 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 
 // --------------------------------------------------------------
 void ofApp::processNetworkPackets() {
-	// Diagnostic: report incoming queue size so we can see if packets are piling up
 	if (!steamManager.packetQueue.empty()) {
 		ofLogNotice("NetTrace") << "processNetworkPackets: queueSize=" << steamManager.packetQueue.size();
 	}
-	// Temporary reusable packet used for state syncs (declare when needed)
+
 	while (!steamManager.packetQueue.empty()) {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
@@ -41116,20 +41368,13 @@ void ofApp::processNetworkPackets() {
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
 
-		// CRITICAL FIX: If we are not in a multiplayer match (or we fatal desynced), drop ALL gameplay packets.
-		// This prevents lingering snapshots/commands in the Steam network buffer from
-		// "resurrecting" a closed game and trapping the player in an empty board!
-		// We DO NOT check currentState here because the Client is technically still in
-		// STATE_MULTIPLAYER_MENU when it needs to receive the StartMatch command!
+		// Drop unexpected packets if disconnected or desynced
 		if (!isMultiplayer || currentState == STATE_DESYNC) {
-			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY) {
+			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY && header->type != PKT_LOBBY_UPDATE) {
 				continue;
 			}
 		}
 
-		// Mark that we're actively processing a network packet. This allows us to
-		// enforce the "Zombie Client" rule: clients must not execute authoritative
-		// logic (draws, dice, turn starts) except while handling host packets.
 		{
 			struct PacketProcessingGuard {
 				bool * flag;
@@ -41138,98 +41383,217 @@ void ofApp::processNetworkPackets() {
 				~PacketProcessingGuard() { *flag = false; }
 			} packetGuard(&processingNetworkPacket);
 
-			// PKT_DRAFT_OPTIONS handling removed: draft options are applied deterministically
-			// via the canonical input command stream. This legacy fast-path was deleted
-			// to avoid UI races and duplicate processing.
-
-			// Verbose packet tracing for debugging desyncs: only log canonical lockstep packets
-			if (header->type == PKT_INPUT_COMMAND || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_PLACE_SUMMONED_BEGIN) {
-				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
-				if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
-					InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
-				}
-			}
-			// ACK handling removed; rely on SteamNetworkingSockets reliability.
-
-			// Only check duplicates for input command style packets (card plays / input commands)
-			// STRICT: rely solely on clientActionID for deduplication on the host.
-			// Network seq numbers are not used for dedupe because they can be
-			// unrelated and much larger than client-local monotonic IDs.
 			if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
 				InputCommandPacket * ip = (InputCommandPacket *)buffer.data();
 				uint32_t clientActionID = ip->clientActionID;
-				int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
+				int sender = (header->playerID >= 0 && header->playerID <= 3) ? (int)header->playerID : -1;
+
 				if (sender >= 0 && isHost()) {
 					if (clientActionID != 0) {
 						if (clientActionID <= lastReceivedSeqByPlayer[sender]) {
-							ofLogNotice("Network") << "DROPPED DUPLICATE INPUT COMMAND (clientActionID): clientActionID=" << clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
-							// Re-ACK the clientActionID so the originating client stops resending
 							AckPacket ack = {};
 							ack.type = PKT_ACK;
 							ack.playerID = myLocalPlayerID;
-							ack.ackSeq = clientActionID; // echo the client ID
+							ack.ackSeq = clientActionID;
 							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
-							ofLogNotice("NetTrace") << "Host: re-sent ACK for clientActionID=" << ack.ackSeq;
 
-							// CRITICAL FIX: If the host dropped this, the client's optimistic execution queue will hang!
-							// We must manually advance the client's expected ID.
-							if (isHost()) {
-								uint64_t fakeKey = (uint64_t(ip->playerID) << 32) | uint64_t(0xFFFFFFFF - clientActionID);
-								skippedOptimisticCommands.erase(fakeKey);
-							}
+							uint64_t fakeKey = (uint64_t(ip->playerID) << 32) | uint64_t(0xFFFFFFFF - clientActionID);
+							skippedOptimisticCommands.erase(fakeKey);
 							continue;
 						}
 						lastReceivedSeqByPlayer[sender] = clientActionID;
-					} else {
-						// No clientActionID present: cannot safely dedupe. Accept packet but
-						// do not update lastReceivedSeqByPlayer to avoid corrupting the ID timeline.
-						ofLogNotice("NetTrace") << "Host: Received input command without clientActionID; skipping dedupe.";
 					}
 				}
 			}
 
-			// Legacy TurnStart handling removed; clients now derive AP/turn-start
-			// from deterministic command processing (CMD_END_TURN/CMD_PSEUDO_ACTION).
+			// --- LOBBY UPDATE SYNCHRONIZATION ---
+			if (header->type == PKT_LOBBY_UPDATE && buffer.size() >= sizeof(LobbyUpdatePacket)) {
+				if (!isHost()) {
+					LobbyUpdatePacket * lup = (LobbyUpdatePacket *)header;
+					g_lobbyPlayers.clear();
+					for (int i = 0; i < lup->numPlayers; i++) {
+						LobbyPlayer lp;
+						lp.playerID = lup->players[i].playerID;
+						lp.isReady = (lup->players[i].isReady == 1);
+						lp.name = std::string(lup->players[i].name);
+						g_lobbyPlayers.push_back(lp);
+					}
+				}
+				continue;
+			}
 
-			if (header->type == PKT_SNAPSHOT_BEGIN) {
-				if (buffer.size() < sizeof(SnapshotBeginPacket)) continue; // SECURITY FIX: Prevent OOB Read
+			if (header->type == PKT_HANDSHAKE) {
+				if (buffer.size() < sizeof(HandshakePacket)) continue;
+				HandshakePacket * pkt = (HandshakePacket *)header;
 
-				// SECURITY FIX: Rate-limit Snapshot Begin to prevent RAM exhaustion attacks
-				static float lastSnapshotBeginTime = 0.0f;
-				if (ofGetElapsedTimef() - lastSnapshotBeginTime < 1.0f) {
-					ofLogWarning("Security") << "Dropped PKT_SNAPSHOT_BEGIN: Rate limit exceeded.";
+				if (pkt->seq != 1002) {
+					ofLogError("Network") << "VERSION MISMATCH! Expected 1002, got " << pkt->seq;
+					addGameLog("ERROR: Version mismatch! You or your opponent must update the game.");
+					steamManager.leaveLobby();
+					cleanupGame();
+					currentState = STATE_MAIN_MENU;
 					continue;
 				}
-				lastSnapshotBeginTime = ofGetElapsedTimef();
 
+				// 1. HOST RECEIVES HANDSHAKE
+				if (steamManager.isHost()) {
+					if (pkt->playerID == 255) { // Unassigned Client connecting
+						int assignedID = -1;
+						// Reconnect check by seed
+						for (auto & lp : g_lobbyPlayers) {
+							if (lp.seed == pkt->seed) {
+								assignedID = lp.playerID;
+								break;
+							}
+						}
+
+						// Assign new ID
+						if (assignedID == -1) {
+							if (g_lobbyPlayers.size() < 4) { // Max 4 Players
+								assignedID = g_lobbyPlayers.size();
+								LobbyPlayer lp;
+								lp.playerID = assignedID;
+								lp.seed = pkt->seed;
+								lp.isReady = false;
+								lp.name = "Player " + std::to_string(assignedID + 1);
+								g_lobbyPlayers.push_back(lp);
+							} else {
+								assignedID = 255; // Spectator
+							}
+						}
+
+						// Echo seed and send ID back to specific client
+						HandshakePacket reply = {};
+						reply.type = PKT_HANDSHAKE;
+						reply.playerID = assignedID;
+						reply.seq = 1002;
+						reply.seed = pkt->seed;
+						steamManager.sendPacket(&reply, sizeof(reply));
+
+						broadcastLobbyState(steamManager);
+					}
+				}
+				// 2. CLIENT RECEIVES ASSIGNED ID FROM HOST
+				else if (!steamManager.isHost() && pkt->seed == localSeedComponent && myLocalPlayerID == 255) {
+					myLocalPlayerID = pkt->playerID;
+					if (myLocalPlayerID == 255) g_isSpectator = true;
+
+					hasReceivedHandshake = true;
+					gameplaySeededByHost = true;
+					g_isConnectingToLobby = false;
+
+					if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
+						g_inLobby = true;
+						currentState = STATE_MULTIPLAYER_MENU;
+						isChatOpen = true;
+						isChatMinimized = false;
+					}
+
+					SendLocalAuthSessionTicket(steamManager, myLocalPlayerID);
+				}
+				continue;
+			}
+
+			// --- CLIENT READY TOGGLE IN LOBBY ---
+			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
+				ClientReadyPacket * cr = (ClientReadyPacket *)header;
+				if (isHost()) {
+					for (auto & lp : g_lobbyPlayers) {
+						if (lp.playerID == cr->playerID) {
+							lp.isReady = (cr->ready == 1);
+							break;
+						}
+					}
+					broadcastLobbyState(steamManager);
+				}
+				continue;
+			}
+
+			// --- FORWARD CHAT AND HOVER TO ALL CLIENTS ---
+			if (header->type == PKT_CHAT_MESSAGE) {
+				if (buffer.size() < sizeof(ChatMessagePacket)) continue;
+				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
+				pkt->message[sizeof(pkt->message) - 1] = '\0';
+
+				// Re-broadcast if Host received from Client
+				if (isHost() && header->playerID != myLocalPlayerID) {
+					steamManager.sendPacket(buffer.data(), buffer.size());
+				}
+
+				ChatMessage msg;
+				if (pkt->playerID == 255) {
+					msg.playerName = "Spectator";
+				} else {
+					// Use Lobby name if available
+					msg.playerName = "Player " + std::to_string(pkt->playerID + 1);
+					for (auto & lp : g_lobbyPlayers) {
+						if (lp.playerID == pkt->playerID) msg.playerName = lp.name;
+					}
+				}
+				msg.message = pkt->message;
+				msg.timestamp = ofGetElapsedTimef();
+				chatHistory.push_back(msg);
+				if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) chatHistory.erase(chatHistory.begin());
+				lastChatInteractionTime = ofGetElapsedTimef();
+				continue;
+			}
+
+			if (header->type == PKT_HOVER) {
+				if (buffer.size() < sizeof(HoverPacket)) continue;
+				if (isHost() && header->playerID != myLocalPlayerID) {
+					steamManager.sendPacket(buffer.data(), buffer.size());
+				}
+
+				HoverPacket * pkt = (HoverPacket *)header;
+				int hoverTypeInt = static_cast<int>(pkt->hoverType);
+				if (hoverTypeInt >= 0 && hoverTypeInt <= 5) opponentHoverType = static_cast<HoverType>(hoverTypeInt);
+				opponentHoverGridX = static_cast<int>(pkt->gridX);
+				opponentHoverGridY = static_cast<int>(pkt->gridY);
+				opponentHoverCardIndex = static_cast<int>(pkt->cardIndex);
+				continue;
+			}
+
+			if (header->type == PKT_INPUT_COMMAND) {
+				if (buffer.size() < sizeof(InputCommandPacket)) continue;
+				InputCommandPacket * cmd = (InputCommandPacket *)header;
+				cmd->stringData[sizeof(cmd->stringData) - 1] = '\0';
+
+				if (isHost()) {
+					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
+						// Host stamps official ID and FORWARDS the action to EVERYONE (Star Topology)
+						cmd->commandId = nextCommandId++;
+						steamManager.sendPacket(cmd, sizeof(InputCommandPacket));
+						queueInputCommand(*cmd);
+						processCommandQueue();
+					}
+				} else {
+					queueInputCommand(*cmd);
+					processCommandQueue();
+				}
+				continue;
+			}
+
+			// --- SNAPSHOT RESTORE LOGIC ---
+			if (header->type == PKT_SNAPSHOT_BEGIN) {
+				if (buffer.size() < sizeof(SnapshotBeginPacket)) continue;
 				SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;
 				incomingSnapshotId = bp->snapshotId;
-
-				// Clamp snapshot size to 10 MB to prevent memory exhaustion attacks
 				uint32_t safeSize = std::min(bp->totalSize, (uint32_t)(10 * 1024 * 1024));
-
 				incomingSnapshotExpectedSize = safeSize;
 				incomingSnapshotReceivedSize = 0;
 				incomingSnapshotBuffer.assign(safeSize, '\0');
-				ofLogNotice("Network") << "Snapshot begin (id=" << incomingSnapshotId << ", bytes=" << incomingSnapshotExpectedSize << ")";
 				continue;
 			}
 
 			if (header->type == PKT_SNAPSHOT_CHUNK) {
-				if (buffer.size() < sizeof(SnapshotChunkPacket)) continue; // SECURITY FIX: Prevent OOB Read
-
+				if (buffer.size() < sizeof(SnapshotChunkPacket)) continue;
 				SnapshotChunkPacket * cp = (SnapshotChunkPacket *)header;
 				if (cp->snapshotId == incomingSnapshotId && !incomingSnapshotBuffer.empty()) {
-					// SECURITY FIX: Subtraction prevents integer overflow wrap-around attacks
 					if (cp->chunkSize <= incomingSnapshotBuffer.size() && cp->offset <= incomingSnapshotBuffer.size() - cp->chunkSize) {
-
-						// Prevent reading past the actual received network packet size
 						size_t headerSize = sizeof(SnapshotChunkPacket) - sizeof(cp->data);
 						size_t actualDataInPacket = (buffer.size() > headerSize) ? (buffer.size() - headerSize) : 0;
 						size_t safeCopySize = std::min((size_t)cp->chunkSize, actualDataInPacket);
-
 						if (safeCopySize > 0) {
 							memcpy(&incomingSnapshotBuffer[cp->offset], cp->data, safeCopySize);
 							incomingSnapshotReceivedSize += safeCopySize;
@@ -41240,22 +41604,14 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_SNAPSHOT_END) {
-				if (buffer.size() < sizeof(SnapshotEndPacket)) continue; // SECURITY FIX: Prevent OOB Read
+				if (buffer.size() < sizeof(SnapshotEndPacket)) continue;
 				SnapshotEndPacket * ep = (SnapshotEndPacket *)header;
 				if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
-					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
 					applySnapshotString(incomingSnapshotBuffer, true);
-
-					// CRITICAL FIX: Ensure the UI and hitboxes are fully built after receiving a mid-game snapshot!
 					recalculateUI(ofGetWidth(), ofGetHeight());
-
 					if (g_isSpectator) {
 						g_isConnectingToLobby = false;
-						// If spectator was waiting in menus, jump straight into the match
-						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
-							currentState = STATE_GAMEPLAY;
-						}
-						addGameLog("Joined match as spectator.");
+						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) currentState = STATE_GAMEPLAY;
 					} else if (waitingForReconnect) {
 						if (reconnectTurnTimerPausedByDisconnect) {
 							turnTimerPaused = false;
@@ -41267,12 +41623,8 @@ void ofApp::processNetworkPackets() {
 						waitingForReconnect = false;
 						reconnectForfeitStartTime = -1.0f;
 						currentState = STATE_GAMEPLAY;
-						addGameLog("Reconnect complete. Resuming match.");
 					}
-					// Clear waiting flag if we had requested this snapshot
 					waitingForSnapshotStartTime = 0.0f;
-					addGameLog("Recovered game state from host snapshot");
-					queueFloatingTextVisual(glm::vec3(0, 5, 0), "Snapshot Applied", ofColor::green);
 					incomingSnapshotBuffer.clear();
 					incomingSnapshotExpectedSize = 0;
 					incomingSnapshotReceivedSize = 0;
@@ -41281,418 +41633,41 @@ void ofApp::processNetworkPackets() {
 			}
 
 			if (header->type == PKT_SNAPSHOT_REQUEST) {
-				if (buffer.size() < sizeof(SnapshotRequestPacket)) continue; // SECURITY FIX: Size check
-
-				// SECURITY FIX: Rate-limit outgoing snapshots to prevent CPU/Bandwidth DoS attacks
-				static float lastSnapshotSentTime = 0.0f;
-				if (ofGetElapsedTimef() - lastSnapshotSentTime < 5.0f) {
-					ofLogWarning("Security") << "Dropped PKT_SNAPSHOT_REQUEST: Rate limit exceeded.";
-					continue;
-				}
-				lastSnapshotSentTime = ofGetElapsedTimef();
-
+				if (buffer.size() < sizeof(SnapshotRequestPacket)) continue;
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
-				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
-				// Legitimate reconnect/resync response.
 				sendSnapshotToClient(true);
-				ofLogNotice("Network") << "Sent current snapshot to reconnected peer " << rp->playerID;
 				continue;
 			}
 
-			if (header->type == PKT_AUTH_TICKET && buffer.size() >= sizeof(AuthTicketPacket)) {
-				AuthTicketPacket * authPkt = (AuthTicketPacket *)header;
-				CSteamID opponentSteamID = steamManager.getOpponentSteamID();
-
-				// SECURITY FIX: Clamp ticketSize to the strict limits of the physical array
-				if (SteamUser() && opponentSteamID.IsValid() && authPkt->ticketSize > 0 && authPkt->ticketSize <= sizeof(authPkt->ticketData)) {
-					if (g_activeAuthPeerSteamID.IsValid()) {
-						SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
-					}
-
-					g_activeAuthPeerSteamID = opponentSteamID;
-					EBeginAuthSessionResult res = SteamUser()->BeginAuthSession(authPkt->ticketData, authPkt->ticketSize, opponentSteamID);
-
-					if (res == k_EBeginAuthSessionResultOK) {
-						ofLogNotice("SteamAuth") << "BeginAuthSession initiated successfully with Steam servers for opponent SteamID: " << opponentSteamID.ConvertToUint64();
-					} else {
-						ofLogError("SteamAuth") << "CRITICAL: BeginAuthSession rejected ticket from opponent! Error code: " << (int)res;
-						addGameLog("Security error: Opponent failed Steam authentication verification.");
-						steamManager.leaveLobby();
-						cleanupGame();
-						currentState = STATE_MAIN_MENU;
-					}
-				}
-				continue;
-			}
-
-			if (header->type == PKT_HANDSHAKE) {
-				if (buffer.size() < sizeof(HandshakePacket)) continue; // SECURITY FIX: Prevent OOB Read
-
-				HandshakePacket * pkt = (HandshakePacket *)header;
-
-				// --- VERSION CONTROL: Reject outdated players! ---
-				if (pkt->seq != 1002) {
-					ofLogError("Network") << "VERSION MISMATCH! Expected 1002, got " << pkt->seq;
-					addGameLog("ERROR: Version mismatch! You or your opponent must update the game.");
-					steamManager.leaveLobby();
-					cleanupGame();
-					currentState = STATE_MAIN_MENU;
-					continue;
-				}
-
-				// 1. HOST RECEIVES CLIENT HANDSHAKE
-				if (steamManager.isHost() && pkt->playerID == 1) {
-					if (!hasReceivedHandshake) {
-						opponentElo = pkt->elo;
-						currentMapSeed = localSeedComponent ^ pkt->seed;
-
-						ofLogNotice("Network") << "Host received Client Handshake. Final Seed: " << currentMapSeed;
-
-						isMultiplayer = true;
-						myLocalPlayerID = 0;
-						waitingForClientHandshake = false;
-						hasReceivedHandshake = true;
-
-						lastReceivedSeqByPlayer[0] = 0;
-						lastReceivedSeqByPlayer[1] = 0;
-
-						gameplayRNG.seed(currentMapSeed);
-						gameplayRngAdvanceCount = 0;
-						seedVisualRng(visualRNG, currentMapSeed);
-
-						setupGame();
-					} else {
-						// Handshake already completed. Ignore duplicate packet to prevent snapshot loop!
-						ofLogNotice("Network") << "Host: Duplicate handshake from client ignored.";
-					}
-				}
-				// 2. CLIENT RECEIVES HOST HANDSHAKE
-				else if (!steamManager.isHost() && pkt->playerID == 0) {
-					if (!hasReceivedHandshake) {
-						opponentElo = pkt->elo;
-
-						if (localSeedComponent == 0) {
-							std::random_device rd;
-							localSeedComponent = rd();
-						}
-						myElo = steamManager.getLocalElo();
-
-						currentMapSeed = pkt->seed ^ localSeedComponent;
-						ofLogNotice("Network") << "Client received Host Handshake. Final Seed: " << currentMapSeed;
-
-						isMultiplayer = true;
-						if (g_isSpectator)
-							myLocalPlayerID = 2;
-						else
-							myLocalPlayerID = 1;
-						hasReceivedHandshake = true;
-						gameplaySeededByHost = true;
-
-						std::string p0Name = steamManager.getOpponentName();
-						std::string p1Name = steamManager.getLocalPlayerName();
-						player0SteamName = p0Name.empty() ? "Player 1" : p0Name;
-						player1SteamName = p1Name.empty() ? "Player 2" : p1Name;
-
-						gameplayRNG.seed(currentMapSeed);
-						gameplayRngAdvanceCount = 0;
-						seedVisualRng(visualRNG, currentMapSeed);
-
-						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
-							setupGame();
-						}
-
-						// Send the Handshake ACK back to the Host ONCE only
-						HandshakePacket ack = {};
-						ack.type = PKT_HANDSHAKE;
-						ack.playerID = 1;
-						ack.seq = 1002;
-						ack.seed = localSeedComponent;
-						ack.elo = myElo;
-						steamManager.sendPacket(&ack, sizeof(ack));
-
-						SendLocalAuthSessionTicket(steamManager, 1);
-
-						ClientReadyPacket r = {};
-						r.type = PKT_CLIENT_READY;
-						r.playerID = myLocalPlayerID;
-						r.ready = 1;
-						steamManager.sendPacket(&r, sizeof(r));
-						clientSentReady = true;
-					} else {
-						// Handshake already completed. Ignore duplicate packet to prevent snapshot loop!
-						ofLogNotice("Network") << "Client: Duplicate handshake from host ignored.";
-					}
-				}
-				continue;
-			}
-			// Handle ClientReady: Host receives client confirmation that it's ready to start
-			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
-				ClientReadyPacket * cr = (ClientReadyPacket *)header;
-				ofLogNotice("Network") << "ClientReady received from playerID=" << cr->playerID;
-				if (isHost() && hostWaitingForClientsReadyStartTime > 0.0f) {
-					clientsReady.insert(cr->playerID);
-					// For 2-player matches, start when we have any client ready
-					if (!clientsReady.empty()) {
-						ofLogNotice("Network") << "All clients ready - broadcasting StartMatch command.";
-						hostWaitingForClientsReadyStartTime = 0.0f;
-
-						// Broadcast a StartMatch command!
-						InputCommandPacket startCmd = {};
-						startCmd.type = PKT_INPUT_COMMAND;
-						startCmd.playerID = myLocalPlayerID;
-						startCmd.commandId = 0;
-						startCmd.turnNumber = globalTurnCounter;
-						startCmd.commandType = CMD_PSEUDO_ACTION;
-						strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
-						sendInputCommand(startCmd, true); // True = apply locally too
-					}
-				}
-				continue;
-			}
-			if (header->type == PKT_INPUT_COMMAND) {
-				if (buffer.size() < sizeof(InputCommandPacket)) continue;
-				InputCommandPacket * cmd = (InputCommandPacket *)header;
-
-				// SECURITY FIX: Guarantee null-termination for command string data
-				cmd->stringData[sizeof(cmd->stringData) - 1] = '\0';
-
-				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
-
-				if (isHost()) {
-					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
-						// Host receives client intent. Assign official ID, execute, and echo.
-						cmd->commandId = nextCommandId++;
-						steamManager.sendPacket(cmd, sizeof(InputCommandPacket)); // Send sequenced command to client
-						queueInputCommand(*cmd);
-						processCommandQueue();
-					}
-				} else {
-					// Client receives officially sequenced command from Host.
-					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID != 0) {
-						if (cmd->clientActionID == lastSentActionPacket.clientActionID) {
-							lastSentActionValid = false;
-						}
-					}
-					// Always queue and process in strict host-authoritative order.
-					queueInputCommand(*cmd);
-					processCommandQueue();
-				}
-				continue;
-			}
-
-			// Handle MenuState visualization from opponents (open/close/hover)
-			if (header->type == PKT_MENU_STATE) {
-				if (buffer.size() < sizeof(MenuStatePacket)) continue;
-				MenuStatePacket * msp = (MenuStatePacket *)header;
-				int mappedIdx = -1;
-				for (int i = 0; i < (int)players.size(); ++i) {
-					if (players[i].playerID == (int)msp->playerID) {
-						mappedIdx = i;
-						break;
-					}
-				}
-				// Only update visualization for remote players
-				if (mappedIdx >= 0 && mappedIdx != getLocalPlayerIndex()) {
-					if (msp->menuType == 0) {
-						resetCardInteraction(); // FIX: Sync closure exactly!
-
-						// CRITICAL FIX: If the opponent cancelled their menu, unfreeze our state machine!
-						if (cardPlayState == CARD_PLAY_STATE_MENU || cardPlayState == CARD_PLAY_STATE_TARGETING) {
-							resetCardState();
-						}
-					} else {
-						// Map MenuType back to standard CardType
-						CardType cType = CARD_NONE;
-						switch (msp->menuType) {
-						case 1:
-							cType = CARD_WISDOM_BOON;
-							break;
-						case 2:
-							cType = CARD_BURST_OF_LIGHT;
-							break;
-						case 3:
-							cType = CARD_DOUBLE_HANDED;
-							break;
-						case 4:
-							cType = CARD_MAGIC_BLAST;
-							break;
-						case 5:
-							cType = PSEUDO_CARD_GHOST_RELOCATE;
-							break;
-						case 6:
-							cType = CARD_RENEWED_INSPIRATION;
-							break;
-						case 7:
-							cType = CARD_TRAIN;
-							break;
-						case 8:
-							cType = CARD_DISPEL;
-							break;
-						case 9:
-							cType = CARD_GIANT_MAGIC_HAND;
-							break;
-						case 10:
-							cType = CARD_AMNESIA;
-							break;
-						}
-
-						if (cType != CARD_NONE) {
-							// FIX 2: Only trigger the state transition if it's not already open!
-							// This prevents the menu from flashing every time the opponent moves their mouse.
-							if (cardInteractionState != CARD_INTERACTION_STATE_MENU || interactingCardType != cType) {
-								updateCardInteractionState(CARD_INTERACTION_STATE_MENU, msp->cardIndex, cType);
-							}
-							interactionTargetIndex = msp->targetIndex;
-
-							// FIX: Unpack the wall coordinates for Giant Magic Hand
-							if (cType == CARD_GIANT_MAGIC_HAND) {
-								magicHandTargetTile.x = (msp->targetIndex >> 16) & 0xFFFF;
-								magicHandTargetTile.y = msp->targetIndex & 0xFFFF;
-							}
-
-							opponentInteraction.open = true;
-							opponentInteraction.type = msp->menuType;
-							opponentInteraction.targetIndex = msp->targetIndex;
-							opponentInteraction.cardIndex = msp->cardIndex;
-							opponentInteraction.hoveredChoice = msp->hoveredChoice;
-						}
-					}
-					ofLogNotice("Network") << "Received MenuState from playerID=" << msp->playerID << " type=" << msp->menuType << " hover=" << msp->hoveredChoice;
-				}
-				continue;
-			}
-
+			// --- CHECKSUM ROUTING & STORAGE ---
 			if (header->type == PKT_CHECKSUM_CHECK) {
-				if (buffer.size() < sizeof(ChecksumPacket)) continue; // SECURITY FIX: Prevent OOB Read
-
+				if (buffer.size() < sizeof(ChecksumPacket)) continue;
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
-				if (skipChecksumValidation || pkt->playerID == 2) continue;
 
-				// SECURITY FIX: Prevent Memory Exhaustion via Map Spam
-				if (s_pendingRemoteChecksums.size() > 150) {
-					ofLogWarning("Security") << "Dropping Checksum: Maximum pending checksums reached.";
-					continue;
+				// Host routes checksums to other clients so everyone validates everyone
+				if (isHost() && pkt->playerID != myLocalPlayerID) {
+					steamManager.sendPacket(buffer.data(), buffer.size());
 				}
 
-				// Unpack the turn cycle from the upper 16 bits of uniqueTurnId
+				if (skipChecksumValidation || pkt->playerID == 255 || pkt->playerID == myLocalPlayerID) continue;
+
 				int pktTurn = (pkt->turnNumber >> 16) & 0x7FFF;
-				if (std::abs(pktTurn - (int)globalTurnCounter) > 10) {
-					continue;
-				}
+				if (std::abs(pktTurn - (int)globalTurnCounter) > 10) continue;
 
+				// Use player ID in the map key to support 4-player validation later if desired.
+				// For now, any remote checksum received is stored for validation.
 				s_pendingRemoteChecksums[pkt->turnNumber] = pkt->checksum;
 				continue;
 			}
-			// PKT_KEY_PICKUP handling removed:
-			// will detect key pickups locally. Legacy packet handling deleted to avoid
-			// UI races and double-processing.
-			else if (header->type == PKT_CHAT_MESSAGE) {
-				if (buffer.size() < sizeof(ChatMessagePacket)) continue; // SECURITY FIX: Prevent OOB Read
-				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
-
-				// SECURITY FIX: Guarantee null-termination from network strings
-				pkt->message[sizeof(pkt->message) - 1] = '\0';
-				std::string rawMsg = pkt->message;
-				if (rawMsg.rfind("\aSYNC_NAME:", 0) == 0) {
-					std::string syncedName = rawMsg.substr(11);
-					if (pkt->playerID == 0)
-						player0SteamName = getAlphaTaggedName(syncedName, steamManager.getOpponentSteamID().ConvertToUint64());
-					else if (pkt->playerID == 1)
-						player1SteamName = getAlphaTaggedName(syncedName, steamManager.getOpponentSteamID().ConvertToUint64());
-					continue; // Hidden system message
-				}
-
-				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID;
-
-				ChatMessage msg;
-				if (isMultiplayer) {
-					if (pkt->playerID == 2) {
-						std::string raw = pkt->message;
-						size_t delim = raw.find('\a');
-						if (delim != std::string::npos) {
-							msg.playerName = raw.substr(0, delim) + " [Spectating]";
-							msg.message = raw.substr(delim + 1);
-						} else {
-							msg.playerName = "Spectator";
-							msg.message = raw;
-						}
-					} else {
-						msg.playerName = (pkt->playerID == 0) ? player0SteamName : player1SteamName;
-						msg.message = pkt->message;
-					}
-				} else {
-					msg.playerName = (pkt->playerID == 0) ? "Player 1" : "Player 2";
-					msg.message = pkt->message;
-				}
-				msg.timestamp = ofGetElapsedTimef();
-				chatHistory.push_back(msg);
-				if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
-					chatHistory.erase(chatHistory.begin());
-				}
-				// Show chat for 5 seconds when message received
-				lastChatInteractionTime = ofGetElapsedTimef();
-			} else if (header->type == PKT_HOVER) {
-				if (buffer.size() < sizeof(HoverPacket)) continue; // SECURITY FIX: Prevent OOB Read
-				// Ignore hover packets in singleplayer builds
-				if (!isMultiplayer) continue;
-				HoverPacket * pkt = (HoverPacket *)header;
-				int hoverTypeInt = static_cast<int>(pkt->hoverType);
-				if (hoverTypeInt >= 0 && hoverTypeInt <= 5) {
-					opponentHoverType = static_cast<HoverType>(hoverTypeInt);
-				}
-				opponentHoverGridX = static_cast<int>(pkt->gridX);
-				opponentHoverGridY = static_cast<int>(pkt->gridY);
-				opponentHoverCardIndex = static_cast<int>(pkt->cardIndex);
-
-				// If opponent selected a unit for movement, show their movement highlights
-				if (opponentHoverType == HOVER_UNIT_SELECTED) {
-					// Store current player state to restore after
-					int savedPlayerX = -1, savedPlayerY = -1;
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size()) && !isMyTurn()) {
-						savedPlayerX = players[currentPlayerIndex].x;
-						savedPlayerY = players[currentPlayerIndex].y;
-						// Temporarily move current player to opponent's selected position
-						players[currentPlayerIndex].x = opponentHoverGridX;
-						players[currentPlayerIndex].y = opponentHoverGridY;
-						calculateHighlights();
-						// Restore position
-						players[currentPlayerIndex].x = savedPlayerX;
-						players[currentPlayerIndex].y = savedPlayerY;
-					}
-				}
-				// If opponent is hovering a card OR targeting, show their targeting highlights
-				else if ((opponentHoverType == HOVER_HAND_CARD || static_cast<int>(opponentHoverType) == 4) && opponentHoverCardIndex >= 0 && !isMyTurn()) {
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
-						Player & currentPlayer = players[currentPlayerIndex];
-						if (opponentHoverCardIndex < static_cast<int>(currentPlayer.hand.size())) {
-							calculateTargetHighlights(opponentHoverCardIndex);
-						}
-					}
-				}
-				// If opponent cleared hover, clear opponent hover tracking without wiping local movement highlights
-				else if (opponentHoverType == HOVER_NONE) {
-					opponentHoverGridX = -1;
-					opponentHoverGridY = -1;
-					opponentHoverCardIndex = -1;
-					if (!isMyTurn()) {
-						clearHighlights();
-					}
-				}
-			}
-
-			// Legacy draft packet handlers removed: PKT_DRAFT_ACK, PKT_DRAFT_ACTION and
-			// PKT_DRAFT_OPTIONS are no longer processed here. Drafting is driven
-			// deterministically through the canonical input command stream.
 		}
-
-		// Legacy resend watchdogs removed: lockstep input commands are reliable.
-
-		// Close processNetworkPackets() scope
 	}
 
-	// --- EVALUATE PENDING CHECKSUMS ---
+	// =========================================================================
+	// --- EVALUATE PENDING CHECKSUMS (RESTORED!) ---
+	// =========================================================================
 	auto localIt = s_pendingLocalChecksums.begin();
 	auto remoteIt = s_pendingRemoteChecksums.begin();
+
 	while (localIt != s_pendingLocalChecksums.end() && remoteIt != s_pendingRemoteChecksums.end()) {
 		if (localIt->first < remoteIt->first) {
 			++localIt;
@@ -41706,13 +41681,13 @@ void ofApp::processNetworkPackets() {
 		long long localSum = localIt->second;
 		long long remoteSum = remoteIt->second;
 		int turnNumber = localIt->first;
+
 		localIt = s_pendingLocalChecksums.erase(localIt);
 		remoteIt = s_pendingRemoteChecksums.erase(remoteIt);
 
 		writeLockstepTrace(steamManager.isHost(), turnNumber, "CHECKSUM_CHECK Evaluated. Local: " + std::to_string(localSum) + " Remote: " + std::to_string(remoteSum));
 
 		if (localSum != remoteSum) {
-			// FIX: Ignore checksum mismatches if the game has already concluded!
 			if (g_isGameOver) {
 				ofLogNotice("Net") << "Checksum mismatch ignored because match is already over. Local: " << localSum << " Remote: " << remoteSum;
 				s_pendingLocalChecksums.clear();
@@ -41733,13 +41708,11 @@ void ofApp::processNetworkPackets() {
 			ofBufferToFile(dumpName, dumpBuf);
 			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
 
-			// Rate limit desync reporting so it only sends once per 10 seconds, and ONLY from the Host
 			static float lastDesyncReportTime = 0.0f;
 			float nowTime = ofGetElapsedTimef();
 			if (steamManager.isHost() && (nowTime - lastDesyncReportTime > 10.0f)) {
 				lastDesyncReportTime = nowTime;
 
-				// --- FULL MATCH LOG SAVING (DESYNC) ---
 				std::string matchLog = "=== MATCH SUMMARY ===\n";
 				matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
 				matchLog += "Event: Desync Rollback\n";
@@ -41759,7 +41732,6 @@ void ofApp::processNetworkPackets() {
 				f << matchLog;
 				f.close();
 
-				// --- SEND DISCORD WEBHOOK (HOST ONLY) ---
 				std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
 				std::string myName = steamManager.getLocalPlayerName().empty() ? "Host" : steamManager.getLocalPlayerName();
 				std::string oppName = steamManager.getOpponentName().empty() ? "Client" : steamManager.getOpponentName();
@@ -41793,14 +41765,12 @@ void ofApp::processNetworkPackets() {
 				queueFloatingTextVisual(textPos, "Resyncing with Host...", ofColor::orange);
 			}
 
-			// Clear pending checksums so we don't spam desync requests
 			s_pendingLocalChecksums.clear();
 			s_pendingRemoteChecksums.clear();
 			continue;
 		}
 	}
 }
-
 // --- Networking helper implementations ---
 void ofApp::sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace) {
 	PlaceSummonedBeginPacket bp = {};

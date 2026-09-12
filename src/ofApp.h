@@ -1144,6 +1144,8 @@ public:
 	bool isAIvsAI = false;
 	float aiThinkTimer = 0.0f;
 	int myLocalPlayerID = 0;
+	int g_viewedOpponentID = 1; // Tracks which opponent's UI is visible on the right
+	std::vector<ofRectangle> opponentViewTabs; // Hitboxes for the UI dropdown tabs
 
 	zmq::context_t * zmqContext = nullptr;
 	zmq::socket_t * zmqSocket = nullptr;
@@ -1216,6 +1218,7 @@ private:
 	void drawMainMenu();
 	void drawSettingsMenu();
 	void drawPauseMenu();
+	void drawLobby();
 	void updateAudioVolumes();
 	void applySettings();
 	void recalculateUI(int w, int h);
