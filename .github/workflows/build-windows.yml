@@ -122,6 +122,9 @@ jobs:
         
         echo "Forcing steam_appid.txt generation..."
         echo "4329880" > steam_appid.txt
+
+        echo "Copying credits.txt..."
+        cp ../credits.txt . 2>/dev/null || cp data/credits.txt . 2>/dev/null || true
         
         echo "Cleaning up Linux files and compiler stubs..."
         find . -name "*.so*" -type f -delete
