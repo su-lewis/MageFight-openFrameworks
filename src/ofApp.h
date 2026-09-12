@@ -1146,6 +1146,9 @@ public:
 	int myLocalPlayerID = 0;
 	int g_viewedOpponentID = 1; // Tracks which opponent's UI is visible on the right
 	std::vector<ofRectangle> opponentViewTabs; // Hitboxes for the UI dropdown tabs
+	std::vector<int> matchTurnOrder; // Strict 1st to 4th order for drafting and turn 1
+	int currentDraftingOrderIndex = 0; // Tracks whose turn it is to draft
+	std::vector<int> matchPlacementOrder; // Tracks who died in what order (1st to die = 4th place)
 
 	zmq::context_t * zmqContext = nullptr;
 	zmq::socket_t * zmqSocket = nullptr;
@@ -1574,7 +1577,8 @@ private:
 		int minionsSpawned = 0;
 		int cardsPlayed = 0;
 	};
-	PlayerMatchStats matchStats[2];
+	PlayerMatchStats matchStats[4];
+	std::array<int, 4> afkStrikeCounts = { 0, 0, 0, 0 };
 
 	struct ReplayCommand {
 		uint32_t frame;
@@ -1706,8 +1710,7 @@ private:
 	int opponentDecisionDurationFrames = 30 * 60;
 	int opponentDecisionPlayerIndex = -1;
 
-	std::array<int, 2> afkStrikeCounts = { 0, 0 };
-	int currentTurnOwnerID = -1;
+		int currentTurnOwnerID = -1;
 	bool currentTurnHadMeaningfulAction = false;
 	bool currentTurnTimeoutProcessed = false;
 	float reconnectForfeitStartTime = -1.0f;

@@ -688,7 +688,74 @@ extern bool g_isSpectator;
 // Path constants
 
 // Pending macros migrated; use `networkPending.*` fields.
+// --- LOBBY DATA STRUCTURES ---
+struct LobbyPlayer {
+	uint32_t playerID;
+	uint32_t seed;
+	bool isReady;
+	std::string name;
+};
+std::vector<LobbyPlayer> g_lobbyPlayers;
+bool g_inLobby = false;
 
+ofRectangle lobbyPlayersPanelRect;
+ofRectangle lobbyModifiersPanelRect;
+ofRectangle lobbyChatPanelRect;
+
+ofRectangle lobbyStartBtn;
+ofRectangle lobbyForceStartBtn;
+ofRectangle lobbyReadyBtn;
+ofRectangle lobbyLeaveBtn;
+
+static const uint8_t PKT_LOBBY_UPDATE = 250;
+#pragma pack(push, 1)
+struct LobbyUpdatePacket {
+	PacketHeader header;
+	uint8_t numPlayers;
+	struct {
+		uint32_t playerID;
+		uint8_t isReady;
+		char name[32];
+	} players[4];
+};
+#pragma pack(pop)
+
+void broadcastLobbyState(SteamManager & steamManager) {
+	if (!steamManager.isHost()) return;
+	LobbyUpdatePacket lup = {};
+	lup.header.type = PKT_LOBBY_UPDATE;
+	lup.header.playerID = 0;
+	lup.numPlayers = std::min((int)g_lobbyPlayers.size(), 4);
+	for (int i = 0; i < lup.numPlayers; i++) {
+		lup.players[i].playerID = g_lobbyPlayers[i].playerID;
+		lup.players[i].isReady = g_lobbyPlayers[i].isReady ? 1 : 0;
+		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 31);
+		lup.players[i].name[31] = '\0';
+	}
+	steamManager.sendPacket(&lup, sizeof(lup));
+}
+// --- PHASE 2 HELPERS ---
+std::string getPlayerNameByID(int id) {
+	for (const auto & lp : g_lobbyPlayers) {
+		if ((int)lp.playerID == id) return lp.name;
+	}
+	// Fallbacks
+	if (id == 0) return "Player 1";
+	if (id == 1) return "Player 2";
+	if (id == 2) return "Player 3";
+	if (id == 3) return "Player 4";
+	return "Opponent";
+}
+
+float getCameraAngleForPlayer(int playerID) {
+	// Rotates the camera perfectly around the center of the board
+	if (playerID == 0) return 0.0f; // Bottom-Left
+	if (playerID == 1) return -90.0f; // Top-Left
+	if (playerID == 2) return 180.0f; // Top-Right
+	if (playerID == 3) return 90.0f; // Bottom-Right
+	return 0.0f; // Spectators default to P0 view
+}
+// ------------------------------
 void ofApp::triggerCameraShake(float intensity, float duration) {
 	cameraShakeIntensity = intensity * 0.6f;
 	cameraShakeDuration = std::max(0.001f, duration);
@@ -2814,23 +2881,51 @@ void ofApp::startInitiativePhase() {
 	isInitiativeRolling = true;
 	initiativeTimerFrames = 0;
 
-	std::vector<int> raw1, raw2;
-	int r1 = resolveDiceRollDetailed(1, 6, raw1);
-	int r2 = resolveDiceRollDetailed(1, 6, raw2);
+	matchTurnOrder.clear();
+	matchPlacementOrder.clear();
 
-	// Store authoritative results in blackboard so simulationTick can use them perfectly in sync
-	currentEffectSequence.blackboard[0] = r1;
-	currentEffectSequence.blackboard[1] = r2;
+	int numPlayers = isMultiplayer ? g_lobbyPlayers.size() : 2;
+	if (numPlayers == 0) numPlayers = 2; // Failsafe
 
-	int safeIdx0 = 0;
-	int safeIdx1 = (players.size() > 1) ? 1 : 0;
+	struct PlayerRoll {
+		int playerID;
+		int roll;
+		int tieBreaker;
+	};
+	std::vector<PlayerRoll> rolls;
 
-	queueVisualDiceRoll(gridToWorld(players[safeIdx0].x, players[safeIdx0].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, r1, PURPOSE_DEBUG, safeIdx0, 1.0f);
-	queueVisualDiceRoll(gridToWorld(players[safeIdx1].x, players[safeIdx1].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, r2, PURPOSE_DEBUG, safeIdx1, 1.0f);
+	// Roll 1d20 for each player, and a hidden tie-breaker
+	for (int i = 0; i < numPlayers; i++) {
+		std::vector<int> raw;
+		int r = resolveDiceRollDetailed(1, 20, raw);
 
-	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
-	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
-	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+		// Use getGameRandom for a deterministic invisible tiebreaker (1 to 1000)
+		int tb = getGameRandom(1, 1000);
+		rolls.push_back({ i, r, tb });
+
+		currentEffectSequence.blackboard[i] = r; // Store for visual UI
+
+		// Find where this player is standing to spawn the die
+		for (const auto & p : players) {
+			if (!p.isMinion && p.playerID == i) {
+				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, r, PURPOSE_DEBUG, i, 1.5f);
+				break;
+			}
+		}
+	}
+
+	// Sort descending by roll, then by tiebreaker
+	std::sort(rolls.begin(), rolls.end(), [](const PlayerRoll & a, const PlayerRoll & b) {
+		if (a.roll != b.roll) return a.roll > b.roll;
+		return a.tieBreaker > b.tieBreaker;
+	});
+
+	// Build the official turn order
+	for (const auto & r : rolls) {
+		matchTurnOrder.push_back(r.playerID);
+	}
+
+	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED (4-Player) ---";
 }
 
 ofApp::~ofApp() { }
@@ -4222,69 +4317,7 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	}
 	return out;
 }
-// --- LOBBY DATA STRUCTURES ---
-struct LobbyPlayer {
-	uint32_t playerID;
-	uint32_t seed;
-	bool isReady;
-	std::string name;
-};
-std::vector<LobbyPlayer> g_lobbyPlayers;
-bool g_inLobby = false;
 
-ofRectangle lobbyStartBtn;
-ofRectangle lobbyForceStartBtn;
-ofRectangle lobbyReadyBtn;
-
-static const uint8_t PKT_LOBBY_UPDATE = 250;
-#pragma pack(push, 1)
-struct LobbyUpdatePacket {
-	PacketHeader header;
-	uint8_t numPlayers;
-	struct {
-		uint32_t playerID;
-		uint8_t isReady;
-		char name[32];
-	} players[4];
-};
-#pragma pack(pop)
-
-void broadcastLobbyState(SteamManager & steamManager) {
-	if (!steamManager.isHost()) return;
-	LobbyUpdatePacket lup = {};
-	lup.header.type = PKT_LOBBY_UPDATE;
-	lup.header.playerID = 0;
-	lup.numPlayers = std::min((int)g_lobbyPlayers.size(), 4);
-	for (int i = 0; i < lup.numPlayers; i++) {
-		lup.players[i].playerID = g_lobbyPlayers[i].playerID;
-		lup.players[i].isReady = g_lobbyPlayers[i].isReady ? 1 : 0;
-		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 31);
-		lup.players[i].name[31] = '\0';
-	}
-	steamManager.sendPacket(&lup, sizeof(lup));
-}
-// --- PHASE 2 HELPERS ---
-std::string getPlayerNameByID(int id) {
-	for (const auto & lp : g_lobbyPlayers) {
-		if (lp.playerID == id) return lp.name;
-	}
-	// Fallbacks
-	if (id == 0) return "Player 1";
-	if (id == 1) return "Player 2";
-	if (id == 2) return "Player 3";
-	if (id == 3) return "Player 4";
-	return "Opponent";
-}
-
-float getCameraAngleForPlayer(int playerID) {
-	// Rotates the camera perfectly around the center of the board
-	if (playerID == 0) return 0.0f; // Bottom-Left
-	if (playerID == 1) return -90.0f; // Top-Left
-	if (playerID == 2) return 180.0f; // Top-Right
-	if (playerID == 3) return 90.0f; // Bottom-Right
-	return 0.0f; // Spectators default to P0 view
-}
-// ------------------------------
 //--------------------------------------------------------------
 void ofApp::setup() {
 #ifdef _WIN32
@@ -5636,14 +5669,18 @@ void ofApp::update() {
 		matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n";
 		matchLog += "Winner ID: " + std::to_string(g_winnerID) + "\n\n";
 		matchLog += "--- PLAYERS ---\n";
-		matchLog += "Player 0: " + player0SteamName + "\n";
-		matchLog += "Player 1: " + player1SteamName + "\n\n";
-		matchLog += "--- EVENT LOG ---\n";
+
+		int maxPlayers = isMultiplayer ? g_lobbyPlayers.size() : 2;
+		for (int i = 0; i < maxPlayers; i++) {
+			matchLog += "Player " + std::to_string(i) + ": " + getPlayerNameByID(i) + "\n";
+		}
+
+		matchLog += "\n--- EVENT LOG ---\n";
 		for (const auto & line : s_fullMatchLog) {
 			matchLog += line + "\n";
 		}
 		matchLog += "\n--- STATS ---\n";
-		for (int i = 0; i < 2; i++) {
+		for (int i = 0; i < maxPlayers; i++) {
 			matchLog += "Player " + std::to_string(i) + " Stats:\n";
 			matchLog += "  Max Dmg/Turn: " + std::to_string(matchStats[i].maxDamageInOneTurn) + "\n";
 			matchLog += "  Cards Played: " + std::to_string(matchStats[i].cardsPlayed) + "\n";
@@ -5658,178 +5695,101 @@ void ofApp::update() {
 		f.close();
 		ofLogNotice("MatchLog") << "Saved full match log to " << filename;
 	} else if (!g_isGameOver) {
-		matchLogSaved = false; // Reset for next match
+		matchLogSaved = false;
 	}
 
-	// --- ELO CALCULATION (ZERO-SUM REVISED) ---
-	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 2 && currentState != STATE_DESYNC) {
-		// Try fetching ELO one last time if it was uninitialized
-		if (myElo <= 0) {
-			myElo = steamManager.getLocalElo();
-		}
+	// --- PAIRWISE ELO CALCULATION (FFA READY) ---
+	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 255 && currentState != STATE_DESYNC) {
+		if (myElo <= 0) myElo = steamManager.getLocalElo();
 
-		// Abort saving if stats never loaded from Steam
 		if (myElo <= 0) {
 			ofLogWarning("Elo") << "Skipping ELO save: Steam Cloud stats not available.";
-			eloCalculated = true; // Prevent loop
+			eloCalculated = true;
 		} else {
 			eloCalculated = true;
 
-			if (opponentElo <= 0) opponentElo = 1000;
-
-			float myExpected = 1.0f / (1.0f + pow(10.0f, (opponentElo - myElo) / 400.0f));
-			float myActual = (g_winnerID == 2) ? 0.5f : ((g_winnerID == myLocalPlayerID) ? 1.0f : 0.0f);
-
-			// Record Head-to-Head outcome in JSON
-			uint64_t oppSteamID = steamManager.getOpponentSteamID().ConvertToUint64();
-			if (oppSteamID > 0) {
-				int h2hOutcome = (g_winnerID == 2) ? 2 : ((g_winnerID == myLocalPlayerID) ? 1 : 0);
-				recordH2HOutcome(std::to_string(oppSteamID), player1SteamName, h2hOutcome);
-			}
-
-			// Win Streak Tracker
-			if (g_winnerID == myLocalPlayerID && g_winnerID != 2) {
-				s_winStreak++;
-			} else if (g_winnerID != 2) {
-				s_winStreak = 0;
-			}
-
-			float myKMultiplier = 1.0f;
-			if (s_winStreak == 3)
-				myKMultiplier = 1.25f;
-			else if (s_winStreak >= 4)
-				myKMultiplier = 1.50f;
-
-			float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
-			float oppK = (opponentElo < 1150) ? 40.0f : ((opponentElo > 1600) ? 16.0f : 24.0f);
-			myK *= myKMultiplier;
-			float avgK = (myK + oppK) / 2.0f;
-
-			eloChange = (int)round(avgK * (myActual - myExpected));
-
-			// --- LOW ELO INFLATION BOOST (+30% on Wins under 1200 ELO) ---
-			if (myActual == 1.0f && myElo < 1200 && eloChange > 0) {
-				int boostedChange = (int)round(eloChange * 1.30f);
-				ofLogNotice("Elo") << "Low ELO Inflation Boost (+30%) applied: " << eloChange << " -> " << boostedChange;
-				eloChange = boostedChange;
-			}
-
-			int maxSwing = (int)round(avgK * 1.30f);
-			eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
-
-			myElo += eloChange;
-			if (myElo < 300) {
-				eloChange += (300 - myElo);
-				myElo = 300;
-			}
-
-			steamManager.setLocalElo(myElo);
-			steamManager.disarmLeaverBuster();
-
-			ofLogNotice("Elo") << "Game Over. Actual: " << myActual << ", Expected: " << myExpected
-							   << ", Change: " << eloChange << ", New Rating: " << myElo;
-		}
-
-		// Module 3: Endurance Engine (Performance & Length-Based XP)
-		int baseXP = 100;
-		int winXP = (g_winnerID == myLocalPlayerID) ? 50 : 0;
-		int marathonBonusXP = 0;
-
-		if (globalTurnCounter >= 30) {
-			int extraIntervals = (globalTurnCounter - 30) / 5;
-			marathonBonusXP = extraIntervals * 25;
-		}
-
-		int myIndex = getLocalPlayerIndex();
-		int summonXP = 0;
-		int healingXP = 0;
-		int cardPlayXP = 0;
-
-		if (myIndex >= 0 && myIndex < 2) {
-			const auto & stats = matchStats[myIndex];
-			summonXP = std::min(25, stats.minionsSpawned * 5);
-			healingXP = std::min(20, stats.totalHealing / 2);
-			cardPlayXP = std::min(30, stats.cardsPlayed);
-		}
-
-		int totalXPToGain = baseXP + winXP + marathonBonusXP + summonXP + healingXP + cardPlayXP;
-		int bonusXP = marathonBonusXP;
-
-		int32_t currentXP = 0;
-		int32_t currentLevel = 1;
-
-		if (steamManager.isConnected() && SteamUserStats()) {
-			SteamUserStats()->GetStat("account_xp", &currentXP);
-			SteamUserStats()->GetStat("account_level", &currentLevel);
-			if (currentLevel < 1) {
-				currentLevel = 1;
-			}
-
-			s_startingLevel = currentLevel;
-			s_startingXP = currentXP;
-			s_xpGained = totalXPToGain;
-			s_hasCachedGameOverVisuals = true;
-			s_gameOverScreenStartTime = ofGetElapsedTimef();
-
-			currentXP += totalXPToGain;
-			bool leveledUp = false;
-
-			while (true) {
-				int32_t xpRequired = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
-				if (currentXP >= xpRequired) {
-					currentXP -= xpRequired;
-					currentLevel++;
-					leveledUp = true;
-				} else {
-					break;
+			// Reconstruct robust display order
+			std::vector<int> displayOrder;
+			for (int i = matchPlacementOrder.size() - 1; i >= 0; --i)
+				displayOrder.push_back(matchPlacementOrder[i]);
+			for (const auto & lp : g_lobbyPlayers) {
+				if (std::find(displayOrder.begin(), displayOrder.end(), lp.playerID) == displayOrder.end()) {
+					displayOrder.push_back(lp.playerID);
 				}
 			}
 
-			SteamUserStats()->SetStat("account_xp", currentXP);
-			SteamUserStats()->SetStat("account_level", currentLevel);
-			SteamUserStats()->StoreStats();
-
-			std::string xpLog = "Gained " + std::to_string(totalXPToGain) + " Account XP (";
-			xpLog += "Base: " + std::to_string(baseXP);
-			if (winXP > 0) xpLog += ", Win: +" + std::to_string(winXP);
-			if (marathonBonusXP > 0) xpLog += ", Marathon: +" + std::to_string(marathonBonusXP);
-			if (summonXP > 0) xpLog += ", Summoner: +" + std::to_string(summonXP);
-			if (healingXP > 0) xpLog += ", Healer: +" + std::to_string(healingXP);
-			if (cardPlayXP > 0) xpLog += ", Tactician: +" + std::to_string(cardPlayXP);
-			xpLog += ").";
-
-			if (leveledUp) {
-				xpLog += " LEVEL UP! You are now Account Level " + std::to_string(currentLevel) + "!";
-			} else {
-				int32_t nextLevelThreshold = 500 + (currentLevel * 150) + (currentLevel * currentLevel * 10);
-				xpLog += " Progress: " + std::to_string(currentXP) + " / " + std::to_string(nextLevelThreshold) + " XP to next level.";
+			// Find my rank index (0 = 1st Place, 1 = 2nd Place, etc.)
+			int myRankIdx = -1;
+			for (int i = 0; i < displayOrder.size(); i++) {
+				if (displayOrder[i] == myLocalPlayerID) myRankIdx = i;
 			}
-			addGameLog(xpLog);
+
+			float totalEloChange = 0;
+			float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
+
+			// Calculate Pairwise against every other player
+			for (int i = 0; i < displayOrder.size(); i++) {
+				if (i == myRankIdx) continue;
+				int oppID = displayOrder[i];
+
+				// We assume 1000 for unknown opponents in FFA for now, until we broadcast Elo in lobbies
+				float tempOppElo = 1000.0f;
+
+				float myExpected = 1.0f / (1.0f + pow(10.0f, (tempOppElo - myElo) / 400.0f));
+				float myActual = 0.0f;
+
+				if (g_winnerID == 2)
+					myActual = 0.5f; // Absolute Draw
+				else if (myRankIdx < i)
+					myActual = 1.0f; // I placed higher
+				else if (myRankIdx > i)
+					myActual = 0.0f; // I placed lower
+
+				totalEloChange += myK * (myActual - myExpected);
+			}
+
+			// Average out the change based on player count
+			if (displayOrder.size() > 1) {
+				eloChange = (int)round(totalEloChange / (displayOrder.size() - 1));
+			} else {
+				eloChange = 0;
+			}
+
+			// Low Elo Inflation
+			if (myRankIdx == 0 && myElo < 1200 && eloChange > 0) {
+				eloChange = (int)round(eloChange * 1.30f);
+			}
+
+			int maxSwing = (int)round(myK * 1.50f);
+			eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
+
+			myElo += eloChange;
+			if (myElo < 300) myElo = 300;
+
+			steamManager.setLocalElo(myElo);
+			steamManager.disarmLeaverBuster();
+			ofLogNotice("Elo") << "Game Over. Change: " << eloChange << ", New Rating: " << myElo;
 		}
 
-		// --- DISCORD GAME HISTORY WEBHOOK ---
-		if (steamManager.isHost() && !g_isSpectator && myLocalPlayerID != 2 && currentState != STATE_DESYNC) {
+		// --- DISCORD GAME HISTORY WEBHOOK (HOST ONLY) ---
+		if (steamManager.isHost()) {
 			std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
 
-			std::string myName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
-			std::string oppName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
-			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : ((g_winnerID == myLocalPlayerID) ? myName : oppName);
+			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : getPlayerNameByID(g_winnerID);
 
-			int oppEloChange = -eloChange;
-			int newOppElo = std::max(300, opponentElo + oppEloChange);
+			std::string msg = "⚔️ **FFA DUEL FINISHED** ⚔️\n";
+			msg += "🏆 **Winner:** " + winnerName + "\n\n**Standings:**\n";
 
-			std::string signMe = (eloChange >= 0) ? "+" : "";
-			std::string signOpp = (oppEloChange >= 0) ? "+" : "";
+			// Robust order reconstruction
+			std::vector<int> displayOrder;
+			for (int i = matchPlacementOrder.size() - 1; i >= 0; --i)
+				displayOrder.push_back(matchPlacementOrder[i]);
+			for (const auto & lp : g_lobbyPlayers) {
+				if (std::find(displayOrder.begin(), displayOrder.end(), lp.playerID) == displayOrder.end()) displayOrder.push_back(lp.playerID);
+			}
 
-			auto rankMe = getMageRank(myElo);
-			auto rankOpp = getMageRank(newOppElo);
-
-			std::string msg = "⚔️ **DUEL FINISHED** ⚔️\n";
-			msg += "**" + myName + "** (" + rankMe.first + ", " + std::to_string(myElo) + " ELO, " + signMe + std::to_string(eloChange) + ") vs ";
-			msg += "**" + oppName + "** (" + rankOpp.first + ", " + std::to_string(newOppElo) + " ELO, " + signOpp + std::to_string(oppEloChange) + ")\n";
-			msg += "🏆 **Winner:** " + winnerName;
-			if (bonusXP > 0) {
-				msg += "\n🏃 **Marathon Endurance Match:** Turn " + std::to_string(globalTurnCounter) + " reached! (+" + std::to_string(bonusXP) + "% XP Bonus)";
+			for (int i = 0; i < displayOrder.size(); i++) {
+				msg += "#" + std::to_string(i + 1) + " - **" + getPlayerNameByID(displayOrder[i]) + "**\n";
 			}
 
 			sendDiscordWebhook(historyWebhook, msg);
@@ -6567,7 +6527,7 @@ void ofApp::draw() {
 
 				std::vector<std::vector<std::string>> visibleWrappedBlocks;
 				std::vector<float> visibleAlphas;
-				if (!isChatOpen) {
+				if (!isChatOpen && !g_inLobby) {
 					for (int i = (int)chatHistory.size() - 1; i >= 0; --i) {
 						const ChatMessage & msg = chatHistory[i];
 						string fullMsg = msg.playerName + ": " + msg.message;
@@ -6588,7 +6548,7 @@ void ofApp::draw() {
 					}
 				}
 
-				bool shouldShowChat = isChatOpen || hasLingering;
+				bool shouldShowChat = isChatOpen || hasLingering || g_inLobby;
 
 				if (shouldShowChat) {
 					const UILayoutSpacing uiLayout = buildUILayoutSpacing(scale, turnTimerEnabled);
@@ -6596,31 +6556,41 @@ void ofApp::draw() {
 					float chatY = margin + tabHeight + chatBoxHeight;
 					float chatX = margin;
 
-					float smallGap = 12.0f * scale;
-					float expectedMinionRight = p0_minionLeft + minionPanelW;
-					if (expectedMinionRight <= 0.0f) expectedMinionRight = effectiveBottomGap(uiLayout) + (510.0f * scale);
-					float endTurnLeft = endTurnButtonRect.x > 0 ? endTurnButtonRect.x : (ofGetWidth() / 2.0f);
-					float leftBound = expectedMinionRight + smallGap;
-					float rightBound = endTurnLeft - smallGap;
+					if (g_inLobby) {
+						// Lock the global chat box perfectly inside the 3rd Lobby Pillar
+						chatX = lobbyChatPanelRect.x + 8;
+						chatY = lobbyChatPanelRect.getBottom() - 8;
+						chatMaxWidth = lobbyChatPanelRect.width - 16;
+						chatBoxHeight = lobbyChatPanelRect.height - tabHeight - 16;
+						isChatOpen = true;
+						isChatMinimized = false;
+					} else {
+						float smallGap = 12.0f * scale;
+						float expectedMinionRight = p0_minionLeft + minionPanelW;
+						if (expectedMinionRight <= 0.0f) expectedMinionRight = effectiveBottomGap(uiLayout) + (510.0f * scale);
+						float endTurnLeft = endTurnButtonRect.x > 0 ? endTurnButtonRect.x : (ofGetWidth() / 2.0f);
+						float leftBound = expectedMinionRight + smallGap;
+						float rightBound = endTurnLeft - smallGap;
 
-					bool inGameplayArea = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED);
-					if (inGameplayArea) {
-						if (rightBound - leftBound > 150.0f * scale) {
-							chatX = leftBound;
-							chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+						bool inGameplayArea = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED);
+						if (inGameplayArea) {
+							if (rightBound - leftBound > 150.0f * scale) {
+								chatX = leftBound;
+								chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+							} else {
+								chatX = margin;
+							}
 						} else {
 							chatX = margin;
 						}
-					} else {
-						chatX = margin;
-					}
 
-					float historyIconSize = 46.0f * scale;
-					float historySpacing = 8.0f * scale;
-					float maxHistoryW = 8.0f * historyIconSize + 7.0f * historySpacing;
-					float historyLeft = (ofGetWidth() / 2.0f) - (maxHistoryW / 2.0f);
-					float safetyBuffer = 10.0f * scale;
-					chatMaxWidth = std::min(chatMaxWidth, historyLeft - chatX - safetyBuffer);
+						float historyIconSize = 46.0f * scale;
+						float historySpacing = 8.0f * scale;
+						float maxHistoryW = 8.0f * historyIconSize + 7.0f * historySpacing;
+						float historyLeft = (ofGetWidth() / 2.0f) - (maxHistoryW / 2.0f);
+						float safetyBuffer = 10.0f * scale;
+						chatMaxWidth = std::min(chatMaxWidth, historyLeft - chatX - safetyBuffer);
+					}
 
 					if (isChatOpen) {
 						chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
@@ -7251,7 +7221,7 @@ void ofApp::draw() {
 				safePopStyle();
 			}
 
-			// --- ELO & GAME OVER SCREEN ---
+			// --- 4-PLAYER GAME OVER SCREEN ---
 			if (g_isGameOver) {
 				ofPushStyle();
 				ofSetColor(0, 0, 0, 230);
@@ -7261,27 +7231,24 @@ void ofApp::draw() {
 				float cx = ofGetWidth() / 2.0f;
 				float cy = ofGetHeight() / 2.0f;
 
-				std::string text = (g_winnerID == myLocalPlayerID) ? "VICTORY" : "DEFEAT";
-				if (g_isSpectator || myLocalPlayerID == 2) {
-					text = (g_winnerID == 0) ? (player0SteamName + " WINS") : (player1SteamName + " WINS");
-				}
-				if (!isMultiplayer) text = "Player " + std::to_string(g_winnerID + 1) + " Wins!";
-				if (g_winnerID == 2) text = "MATCH DRAWN";
+				std::string text = "MATCH COMPLETE";
+				if (g_winnerID == myLocalPlayerID)
+					text = "VICTORY!";
+				else if (g_winnerID == 2)
+					text = "DRAW"; // Tie
+				else if (g_isSpectator || myLocalPlayerID == 255)
+					text = getPlayerNameByID(g_winnerID) + " WINS!";
+				else
+					text = "ELIMINATED";
 
 				ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
-				if (g_isSpectator || myLocalPlayerID == 2) titleColor = ofColor::gold;
-				if (g_winnerID == 2) titleColor = ofColor::white;
-				drawPixelTextCentered(titleFont, text, cx, cy - 240.0f * uiScaleL, 2.5f * uiScaleL, titleColor);
+				if (g_winnerID == 2 || g_isSpectator) titleColor = ofColor::gold;
 
-				if (isMultiplayer && s_gameOverScreenStartTime <= 0.0f) {
-					s_gameOverScreenStartTime = ofGetElapsedTimef();
-				}
-				float progress = isMultiplayer ? ofClamp((ofGetElapsedTimef() - s_gameOverScreenStartTime) / 2.5f, 0.0f, 1.0f) : 1.0f;
-				float easedProgress = progress * (2.0f - progress);
+				drawPixelTextCentered(titleFont, text, cx, cy - 300.0f * uiScaleL, 2.5f * uiScaleL, titleColor);
 
-				float panelW = 760.0f * uiScaleL;
-				float panelH = isMultiplayer ? (440.0f * uiScaleL) : (310.0f * uiScaleL);
-				ofRectangle panel(cx - panelW / 2.0f, cy - 160.0f * uiScaleL, panelW, panelH);
+				float panelW = 900.0f * uiScaleL;
+				float panelH = 500.0f * uiScaleL;
+				ofRectangle panel(cx - panelW / 2.0f, cy - 220.0f * uiScaleL, panelW, panelH);
 
 				ofSetColor(25, 25, 32, 245);
 				ofDrawRectRounded(panel, 16.0f * uiScaleL);
@@ -7291,127 +7258,55 @@ void ofApp::draw() {
 				ofDrawRectRounded(panel, 16.0f * uiScaleL);
 				ofFill();
 
-				float leftColX = panel.x + panelW * 0.25f;
-				float rightColX = panel.x + panelW * 0.75f;
-				float avSize = 96.0f * uiScaleL;
-				float avY = panel.y + 30.0f * uiScaleL;
+				// Table Headers
+				float curY = panel.y + 40 * uiScaleL;
+				drawPixelTextCentered(uiFont, "Player", panel.x + 150 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, "Max Dmg", panel.x + 420 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, "Summons", panel.x + 580 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, "Healed", panel.x + 740 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
 
-				std::string nameLocal = isMultiplayer ? steamManager.getLocalPlayerName() : player0SteamName;
-				std::string nameOpp = isMultiplayer ? steamManager.getOpponentName() : player1SteamName;
-
-				auto drawPlaceholderAvatar = [&](std::string name, float ax, float ay, float size) {
-					ofSetColor(50, 50, 60, 255);
-					ofDrawRectRounded(ax, ay, size, size, 8.0f * uiScaleL);
-					std::string init = "";
-					if (!name.empty()) init += name[0];
-					size_t sp = name.find(' ');
-					if (sp != std::string::npos && sp + 1 < name.size()) init += name[sp + 1];
-					drawPixelTextCentered(titleFont, init, ax + size / 2.0f, ay + size / 2.0f, size / 80.0f, ofColor::white);
-				};
-
-				ofSetColor(255);
-				if (g_renderGeometryMask) { // Only draw images in geometry pass
-					if (isMultiplayer && localAvatarReady)
-						localAvatarImage.draw(leftColX - avSize / 2.0f, avY, avSize, avSize);
-					else
-						drawPlaceholderAvatar(nameLocal, leftColX - avSize / 2.0f, avY, avSize);
-
-					ofSetColor(255);
-					if (isMultiplayer && opponentAvatarReady)
-						opponentAvatarImage.draw(rightColX - avSize / 2.0f, avY, avSize, avSize);
-					else
-						drawPlaceholderAvatar(nameOpp, rightColX - avSize / 2.0f, avY, avSize);
-				}
-
-				drawPixelTextCentered(uiFont, nameLocal, leftColX, avY + avSize + 20.0f * uiScaleL, 1.0f * uiScaleL, ofColor::white);
-				drawPixelTextCentered(uiFont, nameOpp, rightColX, avY + avSize + 20.0f * uiScaleL, 1.0f * uiScaleL, ofColor::white);
-
-				drawPixelTextCentered(titleFont, "VS", cx, avY + avSize / 2.0f, 1.5f * uiScaleL, ofColor::white);
-
-				if (isMultiplayer) {
-					int localStartElo = myElo - eloChange;
-					int localCurrentElo = (int)ofLerp(localStartElo, myElo, easedProgress);
-					auto myRank = getMageRank(localCurrentElo);
-					std::string eloStr = myRank.first + " (" + std::to_string(localCurrentElo) + ")";
-					if (eloCalculated) {
-						std::string sign = (eloChange >= 0) ? "+" : "";
-						int displayedChange = (int)round(eloChange * easedProgress);
-						eloStr += " [" + sign + std::to_string(displayedChange) + "]";
-					}
-					drawPixelTextCentered(uiFont, eloStr, leftColX, avY + avSize + 45.0f * uiScaleL, 0.8f * uiScaleL, myRank.second);
-
-					int oppEloChange = -eloChange;
-					int oppFinalElo = std::max(300, opponentElo + oppEloChange);
-					int oppCurrentElo = (int)ofLerp(opponentElo, oppFinalElo, easedProgress);
-					auto oppRank = getMageRank(oppCurrentElo);
-					std::string oppEloStr = oppRank.first + " (" + std::to_string(oppCurrentElo) + ")";
-					if (eloCalculated) {
-						std::string sign = (oppEloChange >= 0) ? "+" : "";
-						int displayedOppChange = (int)round(oppEloChange * easedProgress);
-						oppEloStr += " [" + sign + std::to_string(displayedOppChange) + "]";
-					}
-					drawPixelTextCentered(uiFont, oppEloStr, rightColX, avY + avSize + 45.0f * uiScaleL, 0.8f * uiScaleL, oppRank.second);
-				}
-
-				float statsY = avY + avSize + (isMultiplayer ? 80.0f * uiScaleL : 60.0f * uiScaleL);
+				curY += 20 * uiScaleL;
 				ofSetColor(80, 80, 100, 120);
 				ofSetLineWidth(2.0f * uiScaleL);
-				ofDrawLine(panel.x + 40.0f * uiScaleL, statsY - 15.0f * uiScaleL, panel.getRight() - 40.0f * uiScaleL, statsY - 15.0f * uiScaleL);
+				ofDrawLine(panel.x + 40.0f * uiScaleL, curY, panel.getRight() - 40.0f * uiScaleL, curY);
+				curY += 40 * uiScaleL;
 
-				ofSetColor(200);
-				drawPixelTextCentered(uiFont, "Max Dmg/Turn", cx, statsY, 0.75f * uiScaleL, ofColor::lightGray);
-				drawPixelTextCentered(uiFont, "Minions Spawned", cx, statsY + 30.0f * uiScaleL, 0.75f * uiScaleL, ofColor::lightGray);
-				drawPixelTextCentered(uiFont, "Health Restored", cx, statsY + 60.0f * uiScaleL, 0.75f * uiScaleL, ofColor::lightGray);
-
-				int localStatsIdx = (myLocalPlayerID == 1) ? 1 : 0;
-				int oppStatsIdx = (myLocalPlayerID == 1) ? 0 : 1;
-
-				drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].maxDamageInOneTurn), leftColX, statsY, 0.8f * uiScaleL, ofColor::white);
-				drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].minionsSpawned), leftColX, statsY + 30.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
-				drawPixelTextCentered(titleFont, std::to_string(matchStats[localStatsIdx].totalHealing), leftColX, statsY + 60.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
-
-				drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].maxDamageInOneTurn), rightColX, statsY, 0.8f * uiScaleL, ofColor::white);
-				drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].minionsSpawned), rightColX, statsY + 30.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
-				drawPixelTextCentered(titleFont, std::to_string(matchStats[oppStatsIdx].totalHealing), rightColX, statsY + 60.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
-
-				if (isMultiplayer && s_hasCachedGameOverVisuals) {
-					float barX = panel.x + 40.0f * uiScaleL;
-					float barY = panel.getBottom() - 40.0f * uiScaleL;
-					float barW = panelW - 80.0f * uiScaleL;
-					float barH = 18.0f * uiScaleL;
-
-					long long accumulatedXP = s_startingXP + (long long)round(s_xpGained * easedProgress);
-					int tempLevel = s_startingLevel;
-					while (true) {
-						int32_t xpRequired = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
-						if (accumulatedXP >= xpRequired) {
-							accumulatedXP -= xpRequired;
-							tempLevel++;
-						} else {
-							break;
-						}
+				// Robustly build display order: 1st place at the top, down to last place.
+				std::vector<int> displayOrder;
+				for (int i = matchPlacementOrder.size() - 1; i >= 0; --i) {
+					displayOrder.push_back(matchPlacementOrder[i]);
+				}
+				// Append anyone who tied or disconnected and missed the placement array
+				int maxPlayers = isMultiplayer ? g_lobbyPlayers.size() : 2;
+				for (int pID = 0; pID < maxPlayers; pID++) {
+					if (std::find(displayOrder.begin(), displayOrder.end(), pID) == displayOrder.end()) {
+						displayOrder.push_back(pID);
 					}
-
-					int32_t xpThreshold = 500 + (tempLevel * 150) + (tempLevel * tempLevel * 10);
-					float xpPct = (float)accumulatedXP / (float)xpThreshold;
-
-					ofSetColor(20, 20, 25, 255);
-					ofDrawRectRounded(barX, barY, barW, barH, 6.0f * uiScaleL);
-					ofSetColor(0, 180, 255, 255);
-					ofDrawRectRounded(barX, barY, barW * xpPct, barH, 6.0f * uiScaleL);
-
-					ofSetColor(255);
-					std::string levelText = "Account Level " + std::to_string(tempLevel);
-					std::string progressText = std::to_string(accumulatedXP) + " / " + std::to_string(xpThreshold) + " XP";
-
-					drawPixelTextBaseline(uiFont, levelText, barX, barY - 6.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
-					ofRectangle pBox = uiFont.getStringBoundingBox(progressText, 0, 0);
-					drawPixelTextBaseline(uiFont, progressText, barX + barW - (pBox.width * 0.8f * uiScaleL), barY - 6.0f * uiScaleL, 0.8f * uiScaleL, ofColor::white);
 				}
 
+				// Draw Player Stats Rows
+				int rank = 1;
+				for (int pID : displayOrder) {
+					std::string pName = getPlayerNameByID(pID);
+					ofColor nameCol = (pID == myLocalPlayerID) ? ofColor::gold : ofColor::white;
+
+					std::string rankStr = "#" + std::to_string(rank++);
+					if (g_winnerID == 2) rankStr = "-"; // Tie game
+
+					drawPixelTextCentered(titleFont, rankStr, panel.x + 60 * uiScaleL, curY, 0.9f * uiScaleL, nameCol);
+					drawPixelTextBaseline(uiFont, pName, panel.x + 100 * uiScaleL, curY + 10 * uiScaleL, 1.0f * uiScaleL, nameCol);
+
+					drawPixelTextCentered(titleFont, std::to_string(matchStats[pID].maxDamageInOneTurn), panel.x + 420 * uiScaleL, curY, 0.9f * uiScaleL, ofColor::white);
+					drawPixelTextCentered(titleFont, std::to_string(matchStats[pID].minionsSpawned), panel.x + 580 * uiScaleL, curY, 0.9f * uiScaleL, ofColor::white);
+					drawPixelTextCentered(titleFont, std::to_string(matchStats[pID].totalHealing), panel.x + 740 * uiScaleL, curY, 0.9f * uiScaleL, ofColor::white);
+
+					curY += 80 * uiScaleL; // Space rows out to fill the 500px height nicely
+				}
+
+				// Action Buttons
 				float btnW = 240.0f * uiScaleL;
 				float btnH = 64.0f * uiScaleL;
-				float btnY = panel.getBottom() + 30.0f * uiScaleL;
+				float btnY = panel.getBottom() + 40.0f * uiScaleL;
 
 				gameOverReturnBtn.set(cx - btnW - 15.0f * uiScaleL, btnY, btnW, btnH);
 				gameOverReplayBtn.set(cx + 15.0f * uiScaleL, btnY, btnW, btnH);
@@ -7656,7 +7551,9 @@ std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 
 
 void ofApp::navigateToMenu(int screenIndex, GameState newState) {
 	targetMenuScreen = screenIndex;
-	menuTileSize = std::ceil(std::max(ofGetWidth() / 15.0f, ofGetHeight() / 11.0f));
+	float w = std::max(1.0f, (float)ofGetWidth());
+	float h = std::max(1.0f, (float)ofGetHeight());
+	menuTileSize = std::max(1.0f, std::floor(std::min(w / 15.0f, h / 11.0f)));
 
 	// Pathfind the circle seamlessly across the infinite screens to the new center
 	int targetCircleX = 6 + (screenIndex * 30);
@@ -7675,9 +7572,8 @@ void ofApp::updateMenuRects() {
 	// Standard 1080p reference baseline: 0.67 at 720p, 1.0 at 1080p, 1.33 at 1440p
 	float uiScale = std::clamp(settingsUIScale * std::min(w / 1920.0f, h / 1080.0f), 0.65f, 1.75f);
 
-	// FIX: Use 15/11 so the 13x9 board fits perfectly on screen without seeing the adjacent menus!
-	// Clamped to 1.0f to prevent fatal Division-by-Zero errors on Wayland async startups
-	menuTileSize = std::max(1.0f, std::ceil(std::max(w / 15.0f, h / 11.0f)));
+	// ASPECT-FIT: Uses std::min so the entire 13x9 dungeon room is 100% visible without any clipping!
+	menuTileSize = std::max(1.0f, std::floor(std::min(w / 15.0f, h / 11.0f)));
 	baseMenuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
 	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
 
@@ -7706,17 +7602,38 @@ void ofApp::updateMenuRects() {
 	mainMenuSettingsButton.set(mX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 	mainMenuQuitButton.set(mX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
 
-	// --- Screen -1: Online ---
+	// --- Screen -1: Online / Lobby ---
 	float oX = getScreenX(-1);
 
-	// Lock the Panels to the physical wall tiles (3x4 tiles)
-	mpLobbiesPanelRect.set(oX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, menuTileSize * 3, menuTileSize * 4);
-	mpLeaderboardPanelRect.set(oX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, menuTileSize * 3, menuTileSize * 4);
+	if (g_inLobby) {
+		// Exactly 3 Columns across the 11 inner floor tiles (x: 1 to 11)
+		float colW = menuTileSize * 3.3f;
+		float colGap = menuTileSize * 0.45f;
+		float panelH = menuTileSize * 5.2f;
+		float panelY = menuStartY + 1.1f * menuTileSize;
 
-	// Lock the Action Buttons to the bottom wall tiles
-	mpRefreshButton.set(oX + 2 * menuTileSize, menuStartY + 6 * menuTileSize, btnW, btnH);
-	mpHostButton.set(oX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
-	mpBackButton.set(oX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+		lobbyPlayersPanelRect.set(oX + 1.1f * menuTileSize, panelY, colW, panelH);
+		lobbyModifiersPanelRect.set(oX + 1.1f * menuTileSize + (colW + colGap), panelY, colW, panelH);
+		lobbyChatPanelRect.set(oX + 1.1f * menuTileSize + (colW + colGap) * 2.0f, panelY, colW, panelH);
+
+		// Bottom Action Buttons (aligned under each column)
+		float btnRowY = menuStartY + 6.7f * menuTileSize;
+		float btnRowH = menuTileSize * 1.1f;
+
+		lobbyLeaveBtn.set(lobbyPlayersPanelRect.x, btnRowY, colW, btnRowH);
+		lobbyReadyBtn.set(lobbyModifiersPanelRect.x, btnRowY, colW, btnRowH);
+		lobbyForceStartBtn.set(lobbyModifiersPanelRect.x, btnRowY, colW, btnRowH);
+		lobbyStartBtn.set(lobbyChatPanelRect.x, btnRowY, colW, btnRowH);
+	} else {
+		// Lock the Panels to the physical wall tiles (3x4 tiles)
+		mpLobbiesPanelRect.set(oX + 2 * menuTileSize, menuStartY + 1 * menuTileSize, menuTileSize * 3, menuTileSize * 4);
+		mpLeaderboardPanelRect.set(oX + 8 * menuTileSize, menuStartY + 1 * menuTileSize, menuTileSize * 3, menuTileSize * 4);
+
+		// Lock the Action Buttons to the bottom wall tiles
+		mpRefreshButton.set(oX + 2 * menuTileSize, menuStartY + 6 * menuTileSize, btnW, btnH);
+		mpHostButton.set(oX + 2 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+		mpBackButton.set(oX + 8 * menuTileSize, menuStartY + 7 * menuTileSize, btnW, btnH);
+	}
 
 	// --- Screen 1: Singleplayer ---
 	float sX = getScreenX(1);
@@ -7841,6 +7758,14 @@ void ofApp::draw2DMenuBackground() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
 
+	float w = std::max(1.0f, (float)ofGetWidth());
+	float h = std::max(1.0f, (float)ofGetHeight());
+
+	// Exact aspect-fit calculation
+	menuTileSize = std::max(1.0f, std::floor(std::min(w / 15.0f, h / 11.0f)));
+	baseMenuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
+	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
+
 	float panOffset = baseMenuStartX - currentMenuPanX;
 
 	int startX = std::floor(-panOffset / menuTileSize) - 1;
@@ -7879,34 +7804,56 @@ void ofApp::draw2DMenuBackground() {
 			float drawW = (nextTx - tx) + 1.0f;
 			float drawH = (nextTy - ty) + 1.0f;
 
-			// Map absolute infinite coordinates using a 30 tile stride!
+			// Map absolute infinite coordinates using a 30 tile stride
 			int modX = (x % 30 + 30) % 30;
 			bool isBoardY = (y >= 0 && y < BOARD_HEIGHT);
 			bool isBoardTile = (modX >= 0 && modX < BOARD_WIDTH && isBoardY);
 
+			// Screen -1 is the Online / Lobby room (x: -30 to -18)
+			bool isScreenMinus1 = (x >= -30 && x <= -18);
+
 			bool isWall = false;
 			if (isBoardTile) {
-				isWall = board[modX][y].hasWall;
+				if (isScreenMinus1 && g_inLobby) {
+					// In the active Lobby, carve out an open room with border walls
+					isWall = (modX == 0 || modX == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1);
+					// Tunnel door on the right wall
+					if (modX == BOARD_WIDTH - 1 && y == 5) isWall = false;
+				} else {
+					// Main Menu, Singleplayer, and Online Versus server browser use the full maze layout
+					isWall = board[modX][y].hasWall;
+				}
 			} else {
-				// Tunnel at y=5 is safe, BUT cap the extreme left and right ends!
+				// Outside the 13x9 rooms: the tunnel path at y=5 is open floor
 				if (y == 5 && x >= -30 && x <= 42) {
 					isWall = false;
 				} else {
-					isWall = true;
+					isWall = true; // Everything else outside the rooms is solid wall
 				}
 			}
 
 			if (isWall) {
 				bool wallAbove = false;
 				if (isBoardTile) {
-					wallAbove = (y > 0) ? board[modX][y - 1].hasWall : true;
+					if (isScreenMinus1 && g_inLobby) {
+						int ny = y - 1;
+						if (ny < 0)
+							wallAbove = true;
+						else
+							wallAbove = (ny == 0 || modX == 0 || modX == BOARD_WIDTH - 1);
+					} else {
+						wallAbove = (y > 0) ? board[modX][y - 1].hasWall : true;
+					}
 				} else {
 					wallAbove = (y - 1 != 5);
 				}
 
-				// Dim walls outside the 13x9 board, AND dim the outermost ring of the 13x9 board
-				bool isBorderWall = (isBoardTile && (modX == 0 || modX == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1));
-				int brightness = (isBoardTile && !isBorderWall) ? 255 : 40;
+				// BRIGHTNESS / ILLUMINATION LOGIC:
+				// 1. All walls inside or on the border of a 13x9 room -> BRIGHT (255)
+				// 2. The walls directly above (y=4) and below (y=6) the tunnel path -> BRIGHT (255)
+				// 3. Far distant outer void walls -> DIMMED (40)
+				bool isTunnelWall = (x >= -30 && x <= 42 && (y == 4 || y == 6));
+				int brightness = (isBoardTile || isTunnelWall) ? 255 : 40;
 
 				if (wallAbove && wallDarkTexture.isAllocated()) {
 					ofSetColor(brightness);
@@ -7919,6 +7866,7 @@ void ofApp::draw2DMenuBackground() {
 					ofDrawRectangle(tx, ty, drawW, drawH);
 				}
 			} else {
+				// Draw floor tiles (inside rooms and along the tunnel at y=5)
 				unsigned int seed = (modX * 73856093) ^ (y * 19349663);
 				if (!floorTextures.empty()) {
 					std::mt19937 tileRng(seed);
@@ -8506,52 +8454,59 @@ void ofApp::drawSaveBrowser() {
 
 void ofApp::drawLobby() {
 	draw2DMenuBackground();
-	ofSetColor(0, 0, 0, 200);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	float uiScale = getUIScaleFromHeight(ofGetHeight());
-	float cx = ofGetWidth() / 2.0f;
+	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize);
+	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
+	float titleY = std::max(ofGetHeight() * 0.08f, menuStartY - menuTileSize * 0.4f);
 
-	drawPixelTextCentered(titleFont, "GAME LOBBY", cx, 60 * uiScale, 1.5f * uiScale, ofColor::gold, 2, ofColor::black);
+	drawPixelTextCentered(titleFont, "GAME LOBBY", centerX, titleY, 1.4f, ofColor::gold, 4, ofColor::black);
 
-	// --- Players Panel (Left) ---
-	ofRectangle playersRect(cx - 600 * uiScale, 120 * uiScale, 500 * uiScale, 400 * uiScale);
-	drawMenuPlaquePanel(playersRect);
-	drawPixelTextCentered(titleFont, "Players", playersRect.getCenter().x, playersRect.y + 40 * uiScale, 1.0f * uiScale, ofColor::white);
+	// --- Column 1: Players Panel ---
+	drawMenuPlaquePanel(lobbyPlayersPanelRect);
+	drawPixelTextCentered(titleFont, "Players", lobbyPlayersPanelRect.getCenter().x, lobbyPlayersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
 
-	float py = playersRect.y + 90 * uiScale;
+	float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
+	float itemH = menuTileSize * 0.95f;
 	for (const auto & lp : g_lobbyPlayers) {
-		ofSetColor(40, 40, 50);
-		ofDrawRectRounded(playersRect.x + 20 * uiScale, py, playersRect.width - 40 * uiScale, 60 * uiScale, 8);
-		ofColor statusCol = lp.isReady ? ofColor::green : ofColor::red;
-		drawPixelTextBaseline(uiFont, lp.name, playersRect.x + 40 * uiScale, py + 40 * uiScale, 1.0f * uiScale, ofColor::white);
-		drawPixelTextBaseline(uiFont, lp.isReady ? "READY" : "NOT READY", playersRect.getRight() - 150 * uiScale, py + 40 * uiScale, 1.0f * uiScale, statusCol);
-		py += 70 * uiScale;
+		ofSetColor(40, 40, 50, 240);
+		ofDrawRectRounded(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH, 8);
+		ofNoFill();
+		ofSetLineWidth(2.0f);
+		ofSetColor(80, 80, 100);
+		ofDrawRectRounded(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH, 8);
+		ofFill();
+
+		ofColor statusCol = lp.isReady ? ofColor::green : ofColor(255, 200, 50);
+		drawPixelTextBaseline(uiFont, lp.name, lobbyPlayersPanelRect.x + 22, py + (itemH * 0.58f), 1.1f, ofColor::white);
+		drawPixelTextBaseline(uiFont, lp.isReady ? "READY" : "WAITING", lobbyPlayersPanelRect.getRight() - 110, py + (itemH * 0.58f), 0.95f, statusCol);
+
+		py += itemH + (menuTileSize * 0.1f);
 	}
 
-	// --- Modifiers Panel (Right) ---
-	ofRectangle modRect(cx + 100 * uiScale, 120 * uiScale, 500 * uiScale, 400 * uiScale);
-	drawMenuPlaquePanel(modRect);
-	drawPixelTextCentered(titleFont, "Modifiers", modRect.getCenter().x, modRect.y + 40 * uiScale, 1.0f * uiScale, ofColor::white);
-	drawPixelTextCentered(uiFont, "Coming Soon...", modRect.getCenter().x, modRect.getCenter().y, 1.0f * uiScale, ofColor(150));
+	// --- Column 2: Modifiers Panel ---
+	drawMenuPlaquePanel(lobbyModifiersPanelRect);
+	drawPixelTextCentered(titleFont, "Modifiers", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
+	drawPixelTextCentered(uiFont, "Coming Soon...", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.getCenter().y, 1.1f, ofColor(160));
 
-	// --- Action Buttons ---
+	// --- Column 3: Chat Panel (Plaque Background) ---
+	drawMenuPlaquePanel(lobbyChatPanelRect);
+
+	// --- Bottom Row: Action Buttons ---
+	drawMenuPlaqueButton(lobbyLeaveBtn, "Leave Lobby", lobbyLeaveBtn.inside(ofGetMouseX(), ofGetMouseY()));
+
 	if (isHost()) {
-		lobbyStartBtn.set(cx - 210 * uiScale, ofGetHeight() - 120 * uiScale, 200 * uiScale, 60 * uiScale);
-		lobbyForceStartBtn.set(cx + 10 * uiScale, ofGetHeight() - 120 * uiScale, 200 * uiScale, 60 * uiScale);
-
 		bool allReady = true;
 		for (const auto & lp : g_lobbyPlayers) {
 			if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
 		}
 
-		drawMenuPlaqueButton(lobbyStartBtn, "Start Game", lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
 		drawMenuPlaqueButton(lobbyForceStartBtn, "Force Start", lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()));
+		drawMenuPlaqueButton(lobbyStartBtn, "Start Game", lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
 	} else {
-		lobbyReadyBtn.set(cx - 100 * uiScale, ofGetHeight() - 120 * uiScale, 200 * uiScale, 60 * uiScale);
 		bool iAmReady = false;
-		for (const auto & lp : g_lobbyPlayers)
+		for (const auto & lp : g_lobbyPlayers) {
 			if (lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
+		}
 		drawMenuPlaqueButton(lobbyReadyBtn, iAmReady ? "Unready" : "Ready", lobbyReadyBtn.inside(ofGetMouseX(), ofGetMouseY()));
 	}
 }
@@ -8919,8 +8874,10 @@ void ofApp::setupGame() {
 	simulationAccumulator = 0.0f;
 
 	// Reset Stats & Replays
-	matchStats[0] = PlayerMatchStats();
-	matchStats[1] = PlayerMatchStats();
+	for (int i = 0; i < 4; i++) {
+		matchStats[i] = PlayerMatchStats();
+		afkStrikeCounts[i] = 0;
+	}
 	replaySavedThisMatch = false;
 
 	// Only clear the log if we aren't currently WATCHING a replay
@@ -16537,6 +16494,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				if (g_inLobby) {
 					clickedUI = true;
+
+					// ANYONE can leave the lobby
+					if (lobbyLeaveBtn.inside(x, y)) {
+						steamManager.leaveLobby();
+						g_inLobby = false;
+						g_isHostingLobby = false;
+						g_isConnectingToLobby = false;
+						isChatOpen = false;
+						return;
+					}
+
 					if (isHost()) {
 						if (lobbyStartBtn.inside(x, y)) {
 							bool allReady = true;
@@ -16985,8 +16953,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (!(isChatOpen && !isChatMinimized && currentChatTab == ChatTab::DEBUG)) {
 					return;
 				}
-			} else if (isChatOpen) {
-				// Clicking outside chat window closes it
+			} else if (isChatOpen && !g_inLobby) {
+				// Clicking outside chat window closes it (Unless we are in the lobby!)
 				isChatOpen = false;
 				isChatMinimized = true;
 				chatInput = "";
@@ -19531,26 +19499,29 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 
 	// Handle encyclopedia scrolling
 	if (currentState == STATE_ENCYCLOPEDIA) {
-		float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
+		float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 		float contentHeight = ofGetHeight() - 230 * uiScale - 30 * uiScale;
 
 		if (encyclopediaMainTab == 0) {
-			encyclopediaMainScroll -= scrollY * 45.0f * uiScale;
+			encyclopediaMainScroll -= scrollY * 50.0f * uiScale;
 			encyclopediaMainScroll = std::max(0.0f, encyclopediaMainScroll);
 		} else if (encyclopediaMainTab == 1) {
 			float itemH = 175.0f * uiScale;
-			float totalContentHeight = 10 * (itemH + 12.0f * uiScale); // 10 minions
-			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+			float totalContentHeight = 10 * (itemH + 12.0f * uiScale);
+			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight + 80.0f * uiScale);
 
-			encyclopediaMainScroll -= scrollY * 60.0f * uiScale;
+			encyclopediaMainScroll -= scrollY * 65.0f * uiScale;
 			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
 		} else if (encyclopediaMainTab == 2) {
-			float rowStep = ((((ofGetWidth() * 0.9f) - 2.0f * 8.0f * uiScale - 9 * 8.0f * uiScale) / 10.0f) * 1.4f) + 26.0f * uiScale;
+			float panelWidth = ofGetWidth() * 0.9f;
+			float cardW = std::max(12.0f, (panelWidth - 2.0f * (8.0f * uiScale) - 9 * (8.0f * uiScale)) / 10.0f);
+			float cardH = cardW * 1.4f;
+			float rowStep = cardH + (10.0f * uiScale) + (24.0f * uiScale);
 			int totalRows = (allCards.size() + 9) / 10;
-			float totalContentHeight = totalRows * rowStep;
-			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+			float totalContentHeight = (float)totalRows * rowStep;
+			float maxScroll = std::max(0.0f, totalContentHeight - contentHeight + 90.0f * uiScale);
 
-			encyclopediaMainScroll -= scrollY * rowStep;
+			encyclopediaMainScroll -= scrollY * (rowStep * 0.55f);
 			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
 		}
 		return;
@@ -19638,7 +19609,7 @@ void ofApp::keyPressed(int key) {
 	// Handle Chat Input first (highest priority)
 	// Consume keys when chat is open (regardless of minimized state) to avoid
 	// triggering global hotkeys while typing.
-	if (isChatOpen && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
+	if (isChatOpen && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || g_inLobby)) {
 		if (key == OF_KEY_RETURN) {
 			if (!chatInput.empty() && !isChatMinimized) {
 
@@ -19777,14 +19748,18 @@ void ofApp::keyPressed(int key) {
 
 			// Always close chat on Enter (whether message sent or empty)
 			chatInput = "";
-			isChatOpen = false;
-			isChatMinimized = true;
+			if (!g_inLobby) { // Keep chat open if in the lobby!
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_ESC) {
 			chatInput = "";
-			isChatOpen = false;
-			isChatMinimized = true;
+			if (!g_inLobby) { // Keep chat open if in the lobby!
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_TAB) {
@@ -23546,46 +23521,24 @@ void ofApp::simulationTick() {
 	// Run deterministic per-tick game logic (timers, auto-choices, turn flow)
 	updateGameLogic();
 
-	// Deterministic initiative resolution: use frame-counted wait inside
-	// the fixed-step simulation so timing is identical across machines.
+	// Deterministic initiative resolution: use frame-counted wait
 	if (currentState == STATE_INITIATIVE_ROLL) {
 		initiativeTimerFrames += 1;
-		const int INITIATIVE_THRESHOLD = (int)std::round(2.0f / SIMULATION_TIMESTEP); // ~120
+		const int INITIATIVE_THRESHOLD = (int)std::round(2.5f / SIMULATION_TIMESTEP); // Wait 2.5s for dice
 		if (initiativeTimerFrames >= INITIATIVE_THRESHOLD) {
-			int p1Roll = currentEffectSequence.blackboard[0];
-			int p2Roll = currentEffectSequence.blackboard[1];
-
 			activeDiceRolls.clear(); // Clear visual dice
 
-			if (p1Roll > p2Roll) {
-				draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-				draftPlayerIndex = 0;
-				beginInitiativeDrafting(0);
-				ofLogNotice("Initiative") << "Player 1 wins. Player 1 drafts first.";
-			} else if (p2Roll > p1Roll) {
-				draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-				draftPlayerIndex = 1;
-				beginInitiativeDrafting(1);
-				ofLogNotice("Initiative") << "Player 2 wins. Player 2 drafts first.";
-			} else {
-				std::vector<int> raw1, raw2;
-				int r1 = resolveDiceRollDetailed(1, 6, raw1);
-				int r2 = resolveDiceRollDetailed(1, 6, raw2);
+			// The player who won initiative drafts first!
+			currentDraftingOrderIndex = 0;
+			draftPlayerIndex = matchTurnOrder[0];
 
-				currentEffectSequence.blackboard[0] = r1;
-				currentEffectSequence.blackboard[1] = r2;
+			beginInitiativeDrafting(draftPlayerIndex);
 
-				int safeIdx0 = 0;
-				int safeIdx1 = (players.size() > 1) ? 1 : 0;
-
-				queueVisualDiceRoll(gridToWorld(players[safeIdx0].x, players[safeIdx0].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, r1, PURPOSE_DEBUG, safeIdx0, 1.2f);
-				queueVisualDiceRoll(gridToWorld(players[safeIdx1].x, players[safeIdx1].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, r2, PURPOSE_DEBUG, safeIdx1, 1.2f);
-
-				initiativeTimerFrames = 0;
-				ofLogNotice("Initiative") << "Tie! Rerolling...";
-			}
+			ofLogNotice("Initiative") << "Initiative resolved! Player " << draftPlayerIndex << " drafts first.";
+			initiativeTimerFrames = 0;
 		}
 	}
+	// <--- ERROR: This brace prematurely closes simulationTick()!
 
 	// Update active effect sequence
 	if (isProcessingEffect && !currentEffectSequence.isComplete) {
@@ -23787,21 +23740,55 @@ void ofApp::simulationTick() {
 			}
 		}
 
-		// --- GAME OVER RESOLUTION ---
-		if (p0Died && p1Died) {
-			g_isGameOver = true;
-			g_winnerID = 2; // Draw
-		} else if (p0Died) {
-			g_isGameOver = true;
-			g_winnerID = 1;
-		} else if (p1Died) {
-			g_isGameOver = true;
-			g_winnerID = 0;
-		}
+		// --- FFA ELIMINATION & GAME OVER RESOLUTION ---
+		if (!removeIndices.empty()) {
+			// First, figure out if any Main Wizards died this tick
+			for (int idx : removeIndices) {
+				if (!players[idx].isMinion) {
+					int deadPlayerID = players[idx].playerID;
 
-		if (g_isGameOver) {
-			s_pendingLocalChecksums.clear();
-			s_pendingRemoteChecksums.clear();
+					// Add to placement tracker (First to die = Last Place)
+					if (std::find(matchPlacementOrder.begin(), matchPlacementOrder.end(), deadPlayerID) == matchPlacementOrder.end()) {
+						matchPlacementOrder.push_back(deadPlayerID);
+						addGameLog(getPlayerNameByID(deadPlayerID) + " has been ELIMINATED!");
+					}
+
+					// Instantly kill ALL minions owned by this player so they vanish
+					for (auto & p : players) {
+						if (p.isMinion && p.ownerID == deadPlayerID && p.health > 0) {
+							p.health = 0; // Triggers death animation naturally on next tick
+						}
+					}
+				}
+			}
+
+			// Check how many Main Wizards are still alive
+			int totalPlayers = isMultiplayer ? g_lobbyPlayers.size() : 2;
+			int aliveCount = 0;
+			int lastAliveID = -1;
+
+			for (const auto & p : players) {
+				if (!p.isMinion && p.health > 0) {
+					aliveCount++;
+					lastAliveID = p.playerID;
+				}
+			}
+
+			// If only 1 player remains (or 0 if they tied/blew each other up), game over!
+			if (aliveCount <= 1 && totalPlayers > 1) {
+				g_isGameOver = true;
+
+				if (aliveCount == 1) {
+					g_winnerID = lastAliveID;
+					// Push the winner as the final entry in the placement order (1st Place)
+					matchPlacementOrder.push_back(lastAliveID);
+				} else {
+					g_winnerID = 2; // Draw (Everyone died simultaneously)
+				}
+
+				s_pendingLocalChecksums.clear();
+				s_pendingRemoteChecksums.clear();
+			}
 		}
 
 		// CRITICAL FIX: EffectOps are correctly shifted, so we CAN erase units mid-sequence to prevent deadlocks!
@@ -24994,23 +24981,33 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (headless) delay = 0.01f;
 
 		if (classTier <= 1) {
+			// Same player moves to Class 2
 			s_draftNextPlayerIndex = cmdDraftPlayerIdx;
 			s_draftNextStage = 1;
 			scheduleGenerateDraftOptions(2, delay);
 		} else {
-			int nextPlayerIdx = (cmdDraftPlayerIdx + 1) % 2;
+			// Player is done drafting! Move to the next player in the turn order
+			currentDraftingOrderIndex++;
 
-			// If the other player has not drafted yet, switch to them
-			if (players[nextPlayerIdx].deck.empty()) {
-				s_draftNextPlayerIndex = nextPlayerIdx;
+			// Cast to (int) to prevent compiler warnings about signed vs unsigned integers!
+			if (currentDraftingOrderIndex < (int)matchTurnOrder.size()) {
+				int nextPlayerID = matchTurnOrder[currentDraftingOrderIndex];
+				s_draftNextPlayerIndex = nextPlayerID;
 				s_draftNextStage = 0;
 				scheduleGenerateDraftOptions(1, delay);
 			} else {
-				// Both players are fully drafted! Schedule the transition to gameplay
+				// EVERYONE IS FULLY DRAFTED! Start the Match!
 				draftEndScheduled = true;
 				draftEndAt = (float)(simulationFrame + (uint32_t)(delay * turnTimerFramesPerSecond));
-				draftEndNextPlayerIndex = nextPlayerIdx;
-				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
+
+				// The First Player to act is the one who won Initiative!
+				draftEndNextPlayerIndex = matchTurnOrder[0];
+
+				// Optional: View the first player's UI automatically
+				g_viewedOpponentID = draftEndNextPlayerIndex;
+				if (g_viewedOpponentID == myLocalPlayerID) g_viewedOpponentID = matchTurnOrder[1];
+
+				ofLogNotice("Draft") << "Draft complete! Match starting. Player " << draftEndNextPlayerIndex << " goes first.";
 			}
 		}
 		break;
@@ -34494,7 +34491,7 @@ std::string ofApp::buildSnapshotString() {
 	}
 	ss << "\n";
 
-	ss << "AFK\t" << afkStrikeCounts[0] << "\t" << afkStrikeCounts[1]
+	ss << "AFK\t" << afkStrikeCounts[0] << "\t" << afkStrikeCounts[1] << "\t" << afkStrikeCounts[2] << "\t" << afkStrikeCounts[3]
 	   << "\t" << currentTurnOwnerID
 	   << "\t" << (currentTurnHadMeaningfulAction ? 1 : 0)
 	   << "\t" << (currentTurnTimeoutProcessed ? 1 : 0)
@@ -34759,7 +34756,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	bool tmpHasRngState = false;
 	uint64_t tmpGameplayRngAdvanceCount = gameplayRngAdvanceCount;
 	bool tmpHasGameplayRngAdvanceCount = false;
-	std::array<int, 2> tmpAfkStrikeCounts = afkStrikeCounts;
+	std::array<int, 4> tmpAfkStrikeCounts = afkStrikeCounts; // <--- Changed 2 to 4!
 	int tmpCurrentTurnOwnerID = currentTurnOwnerID;
 	bool tmpCurrentTurnHadMeaningfulAction = currentTurnHadMeaningfulAction;
 	bool tmpCurrentTurnTimeoutProcessed = currentTurnTimeoutProcessed;
@@ -34855,13 +34852,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 
 				player0SteamName = unescapeField(parts[1]);
 				player1SteamName = unescapeField(parts[2]);
-			} else if (parts[0] == "AFK" && parts.size() >= 6) {
-
+			} else if (parts[0] == "AFK" && parts.size() >= 8) {
 				tmpAfkStrikeCounts[0] = std::stoi(parts[1]);
 				tmpAfkStrikeCounts[1] = std::stoi(parts[2]);
-				tmpCurrentTurnOwnerID = std::stoi(parts[3]);
-				tmpCurrentTurnHadMeaningfulAction = (std::stoi(parts[4]) != 0);
-				tmpCurrentTurnTimeoutProcessed = (std::stoi(parts[5]) != 0);
+				tmpAfkStrikeCounts[2] = std::stoi(parts[3]);
+				tmpAfkStrikeCounts[3] = std::stoi(parts[4]);
+				tmpCurrentTurnOwnerID = std::stoi(parts[5]);
+				tmpCurrentTurnHadMeaningfulAction = (std::stoi(parts[6]) != 0);
+				tmpCurrentTurnTimeoutProcessed = (std::stoi(parts[7]) != 0);
 			}
 			if (parts[0] == "STATE" && parts.size() >= 13) {
 				tmpCurrentState = (GameState)std::stoi(parts[1]);
@@ -39432,21 +39430,18 @@ void ofApp::cancelMagicHand() {
 }
 
 void ofApp::drawEncyclopediaState() {
-	// Draw the exact same moving background so it looks like an overlay
 	draw2DMenuBackground();
-	drawMainMenu(); // Draw the buttons underneath the overlay
+	drawMainMenu();
 
-	ofSetColor(0, 0, 0, 240); // Darker overlay blocks out the board entirely
+	ofSetColor(0, 0, 0, 240);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	// Full native 1080p baseline for overlay menus
 	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
-	float eX_center = ofGetWidth() / 2.0f;
-	float cx = eX_center;
+	float cx = ofGetWidth() / 2.0f;
 
 	drawPixelTextCentered(titleFont, "RULES & CARDS", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
 
-	// Tabs: 0 = HOW TO PLAY (Default), 1 = MINIONS, 2 = ALL CARDS
+	// Tabs: 0 = HOW TO PLAY, 1 = MINIONS, 2 = ALL CARDS
 	auto drawTab = [&](ofRectangle r, string label, int index) {
 		bool active = (encyclopediaMainTab == index);
 		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
@@ -39465,7 +39460,7 @@ void ofApp::drawEncyclopediaState() {
 	bool backHover = encyBtnBack.inside(ofGetMouseX(), ofGetMouseY());
 	drawMenuPlaqueButton(encyBtnBack, "Back", backHover);
 
-	float contentY = 230 * uiScale; // Safely clears the tabs
+	float contentY = 230 * uiScale;
 	float contentBottom = ofGetHeight() - 30 * uiScale;
 
 	float panelWidth = ofGetWidth() * 0.9f;
@@ -39474,16 +39469,14 @@ void ofApp::drawEncyclopediaState() {
 
 	if (encyclopediaMainTab == 0) {
 		// =====================================================================
-		// TAB 0: HOW TO PLAY (2-Column Guide & In-Game Colored Reference)
+		// TAB 0: HOW TO PLAY (Underlined Headers & Sub-Headers)
 		// =====================================================================
 		float colW = (panelWidth - 60.0f * uiScale) * 0.5f;
 		float leftColX = cx - (panelWidth * 0.5f) + 20.0f * uiScale;
 		float rightColX = leftColX + colW + 20.0f * uiScale;
 		float visibleH = contentBottom - contentY;
 
-		// -------------------------------------------------------------
-		// LEFT COLUMN: Match Flow & Core Mechanics Guide
-		// -------------------------------------------------------------
+		// --- LEFT COLUMN ---
 		{
 			ofRectangle leftBox(leftColX, contentY, colW, visibleH);
 			ofSetColor(22, 24, 32, 235);
@@ -39494,14 +39487,22 @@ void ofApp::drawEncyclopediaState() {
 			ofDrawRectRounded(leftBox, 10 * uiScale);
 			ofFill();
 
-			// Main Title in Brilliant Gold
+			// Main Title + Underline
 			float curY = leftBox.y + 36 * uiScale;
 			drawPixelTextCentered(titleFont, "HOW TO PLAY", leftBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
-			curY += 46 * uiScale;
+			float mainTitleW = titleFont.getStringBoundingBox("HOW TO PLAY", 0, 0).width * 1.1f * uiScale;
+			ofSetColor(ofColor::gold);
+			ofDrawRectangle(leftBox.getCenter().x - mainTitleW * 0.5f, curY + 8 * uiScale, mainTitleW, 2.5f * uiScale);
 
-			// Subheadings in Crisp Arcane Cyan
+			curY += 50 * uiScale;
+
+			// Subheadings + Underlines
 			auto drawGuideBlock = [&](const std::string & heading, const std::vector<std::string> & bullets, ofColor headCol = ofColor(100, 215, 255)) {
 				drawPixelTextBaseline(titleFont, heading, leftBox.x + 18 * uiScale, curY, 0.85f * uiScale, headCol, 2, ofColor::black);
+				float hWidth = titleFont.getStringBoundingBox(heading, 0, 0).width * 0.85f * uiScale;
+				ofSetColor(headCol);
+				ofDrawRectangle(leftBox.x + 18 * uiScale, curY + 4 * uiScale, hWidth, 2.0f * uiScale);
+
 				curY += 28 * uiScale;
 				float textDrawScale = 0.95f * uiScale;
 				float wrapMaxW = leftBox.width - 36 * uiScale;
@@ -39518,18 +39519,13 @@ void ofApp::drawEncyclopediaState() {
 				curY += 16 * uiScale;
 			};
 
-			drawGuideBlock("1. Initiative & Drafting", { "- Start of Match: Both wizards roll 1d6. The highest roll wins initiative, drafts first, and takes the first turn.", "- Initial Draft: Pick 2 Class 1 cards from your choices (get 2 copies of each), then pick 1 Class 2 card.", "- The other player drafts their cards in the same sequence before the match begins." });
-
-			drawGuideBlock("2. Turn Structure & AP", { "- AP Roll: Roll your Action Point dice at turn start (standard wizards roll 1d6; minions roll species dice).", "- Drawing Cards: Drawing is optional on your turn (click your deck). If you draw, you draw 2 cards by default (Demons draw 3)." });
-
-			drawGuideBlock("3. Actions & Movement", { "- Movement: Click your wizard/minion on the board to reveal green paths, then click destination (costs 1 AP per tile).", "- Playing Cards: Drag cards upward out of your hand into the arena, then click a valid target tile/enemy if prompted." });
-
-			drawGuideBlock("4. Floating Keys & Victory", { "- Keys: Moving onto keys grants instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3.", "- Victory: Reduce the enemy wizard to 0 HP, or eliminate them when they run out of all cards (Exhaustion)." });
+			drawGuideBlock("1. Initiative & Drafting", { "- Start of Match: All wizards roll initiative. The highest roll drafts first and takes the first turn.", "- Initial Draft: Pick 2 Class 1 cards (get 2 copies each), then pick 1 Class 2 card.", "- All wizards draft in turn order before the battle commences." });
+			drawGuideBlock("2. Turn Structure & AP", { "- AP Roll: Roll Action Point dice at turn start (wizards roll 1d6; minions roll species dice).", "- Drawing Cards: Drawing is optional on your turn (click your deck). Standard draw gives 2 cards (Demons draw 3)." });
+			drawGuideBlock("3. Actions & Movement", { "- Movement: Click your wizard/minion on the board to reveal green paths (costs 1 AP per tile).", "- Playing Cards: Drag cards upward out of your hand into the arena, then click target tile/unit." });
+			drawGuideBlock("4. Floating Keys & Victory", { "- Keys: Moving onto keys grants instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3.", "- Victory: Be the last wizard standing! Defeat enemy wizards by reducing their HP to 0 or through card Exhaustion." });
 		}
 
-		// -------------------------------------------------------------
-		// RIGHT COLUMN: Scrollable Combat & Keyword Reference
-		// -------------------------------------------------------------
+		// --- RIGHT COLUMN ---
 		{
 			ofRectangle rightBox(rightColX, contentY, colW, visibleH);
 			ofSetColor(22, 24, 32, 235);
@@ -39564,19 +39560,18 @@ void ofApp::drawEncyclopediaState() {
 			float wrapMaxW = rightBox.width - 36 * uiScale;
 			float lineStep = std::max(22.0f * uiScale, uiFont.getLineHeight() * quantizePixelTextScale(textDrawScale) * 0.92f);
 
-			// --- ACCURATE TOTAL HEIGHT CALCULATION ---
 			float totalRefH = 30.0f * uiScale;
 			for (const auto & sec : sections) {
-				totalRefH += 38.0f * uiScale; // Section Header
+				totalRefH += 38.0f * uiScale;
 				for (const auto & itm : sec.entries) {
-					totalRefH += 28.0f * uiScale; // Subtitle
+					totalRefH += 28.0f * uiScale;
 					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
 					totalRefH += (float)lines.size() * lineStep + (16.0f * uiScale);
 				}
 				totalRefH += 34.0f * uiScale;
 			}
 
-			float maxRefScroll = std::max(0.0f, totalRefH - (visibleH - 20 * uiScale));
+			float maxRefScroll = std::max(0.0f, totalRefH - (visibleH - 20 * uiScale) + 60.0f * uiScale);
 			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxRefScroll);
 
 			ofPushStyle();
@@ -39591,32 +39586,35 @@ void ofApp::drawEncyclopediaState() {
 			for (size_t si = 0; si < sections.size(); ++si) {
 				const auto & sec = sections[si];
 
-				// Section Header
+				// Section Header + Underline
 				drawPixelTextBaseline(titleFont, sec.title, rightBox.x + 18 * uiScale, curY, 0.90f * uiScale, sec.titleColor, 2, ofColor::black);
+				float secTitleW = titleFont.getStringBoundingBox(sec.title, 0, 0).width * 0.90f * uiScale;
+				ofSetColor(sec.titleColor);
+				ofDrawRectangle(rightBox.x + 18 * uiScale, curY + 4 * uiScale, secTitleW, 2.0f * uiScale);
 				curY += 38 * uiScale;
 
 				for (const auto & itm : sec.entries) {
-					// Subtitle with specific in-game color & outline
+					// Sub-header + Underline
 					drawPixelTextBaseline(titleFont, itm.name, rightBox.x + 18 * uiScale, curY, 0.85f * uiScale, itm.nameColor, 2, itm.outlineColor);
+					float subTitleW = titleFont.getStringBoundingBox(itm.name, 0, 0).width * 0.85f * uiScale;
+					ofSetColor(itm.nameColor);
+					ofDrawRectangle(rightBox.x + 18 * uiScale, curY + 3 * uiScale, subTitleW, 1.5f * uiScale);
 					curY += 28 * uiScale;
 
-					// Description body
 					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
 					for (const auto & l : lines) {
 						drawPixelTextBaseline(uiFont, l, rightBox.x + 22 * uiScale, curY, textDrawScale, ofColor(215, 220, 235));
 						curY += lineStep;
 					}
-					curY += 16 * uiScale; // Spacing after each item
+					curY += 16 * uiScale;
 				}
 
-				// Generous break before next major header
 				curY += 34 * uiScale;
 			}
 
 			glDisable(GL_SCISSOR_TEST);
 			safePopStyle();
 
-			// Scrollbar for Right Reference Panel
 			if (maxRefScroll > 0.0f) {
 				float barH = std::max(28.0f * uiScale, visibleH * (visibleH / totalRefH));
 				float barY = contentY + (encyclopediaMainScroll / maxRefScroll) * (visibleH - barH);
@@ -39627,23 +39625,19 @@ void ofApp::drawEncyclopediaState() {
 
 	} else if (encyclopediaMainTab == 1) {
 		// =====================================================================
-		// TAB 1: MINIONS (2-Column Split: Card Diagram Left + 3D Minion List Right)
+		// TAB 1: MINIONS (Expanded Bottom Clearance)
 		// =====================================================================
 		float leftColumnW = panelWidth * 0.35f;
 		float leftColumnX = cx - (panelWidth * 0.5f) + 20 * uiScale;
 		float rightColumnW = panelWidth * 0.61f;
 		float rightColumnX = leftColumnX + leftColumnW + 24 * uiScale;
 
-		// -------------------------------------------------------------
-		// LEFT COLUMN: Large Minion Card Anatomy & Direct Chip Arrows
-		// -------------------------------------------------------------
+		// --- LEFT COLUMN ---
 		{
 			float totalLeftHeight = contentBottom - contentY;
-			// Expanded card size for maximum visibility and presence
 			float cardDisplayW = std::min(leftColumnW - 20.0f * uiScale, 375.0f * uiScale);
 			float cardDisplayH = cardDisplayW * 1.388f;
 
-			// Ensure the rules box below maintains ample vertical space
 			if (cardDisplayH > totalLeftHeight * 0.56f) {
 				cardDisplayH = totalLeftHeight * 0.56f;
 				cardDisplayW = cardDisplayH / 1.388f;
@@ -39652,7 +39646,6 @@ void ofApp::drawEncyclopediaState() {
 			float cardDisplayX = leftColumnX + (leftColumnW - cardDisplayW) * 0.5f;
 			float cardDisplayY = contentY + 2 * uiScale;
 
-			// Find Raise Dead or Fallback Minion Card
 			const Card * sampleCard = nullptr;
 			for (const auto & c : allCards) {
 				if (c.type == CARD_RAISE_DEAD) {
@@ -39666,7 +39659,6 @@ void ofApp::drawEncyclopediaState() {
 				ofSetColor(255);
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, *sampleCard, cardDisplayX, cardDisplayY, cardDisplayW, cardDisplayH, nullptr);
 
-				// --- DRAW POINTING ARROWS DIRECTLY TO GREEN/RED CHIPS ---
 				float apTargetX = cardDisplayX + cardDisplayW * 0.44f;
 				float apTargetY = cardDisplayY + cardDisplayH - 3 * uiScale;
 				float hpTargetX = cardDisplayX + cardDisplayW * 0.56f;
@@ -39682,7 +39674,6 @@ void ofApp::drawEncyclopediaState() {
 					ofSetLineWidth(3.0f * scale);
 					ofDrawLine(startX, startY, endX, endY);
 
-					// Arrow Head
 					glm::vec2 dir = glm::normalize(glm::vec2(endX - startX, endY - startY));
 					glm::vec2 perp(-dir.y, dir.x);
 					float headSize = 9.0f * scale;
@@ -39690,7 +39681,6 @@ void ofApp::drawEncyclopediaState() {
 						endX - dir.x * headSize + perp.x * (headSize * 0.6f), endY - dir.y * headSize + perp.y * (headSize * 0.6f),
 						endX - dir.x * headSize - perp.x * (headSize * 0.6f), endY - dir.y * headSize - perp.y * (headSize * 0.6f));
 
-					// Label below arrow base
 					drawPixelTextCentered(font, label, startX, startY + 16 * scale, 0.95f * scale, col, 2, ofColor::black);
 					safePopStyle();
 				};
@@ -39699,7 +39689,6 @@ void ofApp::drawEncyclopediaState() {
 				drawArrow(hpBaseX, arrowBaseY, hpTargetX, hpTargetY, ofColor(240, 60, 60), "HEALTH (HP)", uiFont, uiScale);
 			}
 
-			// Instruction & Rules Box taking the bottom space with clear separation
 			float annotY = cardDisplayY + cardDisplayH + 54 * uiScale;
 			float annotH = contentBottom - annotY;
 			ofRectangle annotBox(leftColumnX, annotY, leftColumnW, annotH);
@@ -39712,11 +39701,12 @@ void ofApp::drawEncyclopediaState() {
 			ofDrawRectRounded(annotBox, 10 * uiScale);
 			ofFill();
 
-			// Large Title inside the box
 			float curY = annotBox.y + 32 * uiScale;
 			drawPixelTextCentered(titleFont, "MINION RULES", annotBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
+			float rTitleW = titleFont.getStringBoundingBox("MINION RULES", 0, 0).width * 1.1f * uiScale;
+			ofSetColor(ofColor::gold);
+			ofDrawRectangle(annotBox.getCenter().x - rTitleW * 0.5f, curY + 6 * uiScale, rTitleW, 2.5f * uiScale);
 
-			// Larger gap between Title and body text
 			curY += 46 * uiScale;
 
 			std::vector<std::string> rulesParagraphs = {
@@ -39738,9 +39728,7 @@ void ofApp::drawEncyclopediaState() {
 			}
 		}
 
-		// -------------------------------------------------------------
-		// RIGHT COLUMN: Scrollable 3D Minion List & Cleaned Stats
-		// -------------------------------------------------------------
+		// --- RIGHT COLUMN ---
 		struct MinionEntryData {
 			std::string name;
 			std::string ap;
@@ -39770,7 +39758,9 @@ void ofApp::drawEncyclopediaState() {
 		float itemGap = 12.0f * uiScale;
 		float totalContentH = (float)minionList.size() * (itemH + itemGap);
 		float visibleH = contentBottom - contentY;
-		float maxScroll = std::max(0.0f, totalContentH - visibleH);
+
+		// Generous bottom clearance (+ 80 * uiScale) guarantees full scroll down to the last item
+		float maxScroll = std::max(0.0f, totalContentH - visibleH + 80.0f * uiScale);
 		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
 
 		ofPushStyle();
@@ -39782,11 +39772,10 @@ void ofApp::drawEncyclopediaState() {
 
 		for (size_t mi = 0; mi < minionList.size(); ++mi) {
 			float itemY = contentY + mi * (itemH + itemGap) - encyclopediaMainScroll;
-			if (itemY + itemH < contentY || itemY > contentBottom) continue;
+			if (itemY + itemH < contentY || itemY > contentBottom + 80 * uiScale) continue;
 
 			ofRectangle itemRect(rightColumnX, itemY, rightColumnW - 12 * uiScale, itemH);
 
-			// Item Plaque Background
 			ofSetColor(26, 28, 36, 240);
 			ofDrawRectRounded(itemRect, 10 * uiScale);
 			ofNoFill();
@@ -39795,7 +39784,6 @@ void ofApp::drawEncyclopediaState() {
 			ofDrawRectRounded(itemRect, 10 * uiScale);
 			ofFill();
 
-			// 3D Model Viewport Area
 			float modelBoxSize = itemH - 16 * uiScale;
 			float modelBoxX = itemRect.x + 8 * uiScale;
 			float modelBoxY = itemRect.y + 8 * uiScale;
@@ -39803,7 +39791,6 @@ void ofApp::drawEncyclopediaState() {
 			ofSetColor(18, 18, 24, 255);
 			ofDrawRectRounded(modelBoxX, modelBoxY, modelBoxSize, modelBoxSize, 8 * uiScale);
 
-			// Render 3D Spinning Model - Placed uniformly at the very bottom edge of the square
 			if (minionList[mi].model && minionList[mi].model->getMeshCount() > 0) {
 				ofEnableDepthTest();
 				glClear(GL_DEPTH_BUFFER_BIT);
@@ -39860,16 +39847,13 @@ void ofApp::drawEncyclopediaState() {
 				ofSetColor(255);
 			}
 
-			// Text Details on the right of the model (shifted down to sit comfortably inside the box)
 			float textLeft = modelBoxX + modelBoxSize + 16 * uiScale;
 			float textMaxW = itemRect.getRight() - textLeft - 12 * uiScale;
 			float lineY = itemRect.y + 46 * uiScale;
 
-			// Minion Name
 			drawPixelTextBaseline(titleFont, minionList[mi].name, textLeft, lineY, 0.85f * uiScale, ofColor::gold, 2, ofColor::black);
 			lineY += 28 * uiScale;
 
-			// AP (Green), Separator (Black), and HP (Red)
 			std::string apText = "AP: " + minionList[mi].ap;
 			std::string pipeText = "  |  ";
 			std::string hpText = "HP: " + minionList[mi].hp;
@@ -39885,12 +39869,10 @@ void ofApp::drawEncyclopediaState() {
 			drawPixelTextBaseline(uiFont, hpText, curStatX, lineY, statsScale, ofColor(255, 90, 90));
 			lineY += 24 * uiScale;
 
-			// Deck Line
 			std::string deckLine = "Deck: " + minionList[mi].deck;
 			drawPixelTextBaseline(uiFont, deckLine, textLeft, lineY, 0.82f * uiScale, ofColor(180, 220, 255));
 			lineY += 24 * uiScale;
 
-			// Traits & Passives
 			auto traitLines = wrapTextScaled(uiFont, minionList[mi].traits, textMaxW, 0.80f * uiScale);
 			for (const auto & tl : traitLines) {
 				drawPixelTextBaseline(uiFont, tl, textLeft, lineY, 0.80f * uiScale, ofColor(220, 220, 230));
@@ -39901,7 +39883,6 @@ void ofApp::drawEncyclopediaState() {
 		glDisable(GL_SCISSOR_TEST);
 		safePopStyle();
 
-		// Minion Scrollbar
 		if (maxScroll > 0.0f) {
 			float scrollBarH = std::max(28.0f * uiScale, visibleH * (visibleH / totalContentH));
 			float scrollBarY = contentY + (encyclopediaMainScroll / maxScroll) * (visibleH - scrollBarH);
@@ -39911,7 +39892,7 @@ void ofApp::drawEncyclopediaState() {
 
 	} else if (encyclopediaMainTab == 2) {
 		// =====================================================================
-		// TAB 2: ALL CARDS
+		// TAB 2: ALL CARDS (Expanded Bottom Clearance)
 		// =====================================================================
 		const int cols = 10;
 		const float padX = 8.0f * uiScale;
@@ -39925,10 +39906,17 @@ void ofApp::drawEncyclopediaState() {
 
 		float startX = cx - gridWidth / 2.0f;
 
+		int totalRows = (allCards.size() + cols - 1) / cols;
+		float totalContentHeight = (float)totalRows * rowStep;
+		float contentH = contentBottom - contentY;
+
+		// Generous bottom padding (+ 90 * uiScale) ensures row 7 and its names are 100% visible
+		float maxScroll = std::max(0.0f, totalContentHeight - contentH + 90.0f * uiScale);
+		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
+
 		ofPushStyle();
 		glEnable(GL_SCISSOR_TEST);
 
-		float contentH = contentBottom - contentY;
 		int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
 		glScissor((int)startX, scY, (int)gridWidth, (int)contentH);
 
@@ -39949,7 +39937,7 @@ void ofApp::drawEncyclopediaState() {
 				hDrawY = drawY;
 				hCard = allCards[i];
 			} else {
-				if (drawY + cardH > contentY && drawY < contentBottom) {
+				if (drawY + cardH + nameBand > contentY && drawY < contentBottom + 90 * uiScale) {
 					ofSetColor(255);
 					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, allCards[i], drawX, drawY, cardW, cardH, nullptr);
 
@@ -39993,9 +39981,6 @@ void ofApp::drawEncyclopediaState() {
 		}
 	}
 }
-
-// resolveMagicHandPull and resolveMagicHandPush have been inlined at their call sites
-// in CARD_GIANT_MAGIC_HAND handling. Legacy helpers removed.
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
 	ofLogNotice("Draft") << "generateDraftOptions called: classTier=" << classTier << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " draftGenerationCounter=" << draftGenerationCounter;
@@ -40378,51 +40363,35 @@ void ofApp::drawInitiativeRoll() {
 	if (lastDrawFrame == currentDrawFrame) return;
 	lastDrawFrame = currentDrawFrame;
 
-	if (activeDiceRolls.size() >= 2) {
+	if (activeDiceRolls.size() > 0) {
+		ofCamera & activeCam = getActiveCamera();
 
-		// Position labels so that the local player is always on the left
-		glm::vec3 leftPos(-6.0f, 11.0f, 0.0f);
-		glm::vec3 rightPos(6.0f, 11.0f, 0.0f);
+		for (const auto & roll : activeDiceRolls) {
+			if (roll.purpose != PURPOSE_DEBUG) continue;
 
-		// Player 0 is die index 0, player 1 is die index 1
-		bool player0OnLeft = (myLocalPlayerID == 0);
-		glm::vec3 player0Pos = player0OnLeft ? leftPos : rightPos;
-		glm::vec3 player1Pos = player0OnLeft ? rightPos : leftPos;
+			// Get screen position of the die
+			glm::vec3 worldPos = gridToWorld(players[roll.associatedUnit].x, players[roll.associatedUnit].y);
+			glm::vec2 screenPos = activeCam.worldToScreen(worldPos + glm::vec3(0, 2.0f, 0));
 
-		glm::vec2 localScreen = getActiveCamera().worldToScreen((myLocalPlayerID == 0) ? player0Pos : player1Pos);
-		glm::vec2 opponentScreen = getActiveCamera().worldToScreen((myLocalPlayerID == 0) ? player1Pos : player0Pos);
+			std::string pName = getPlayerNameByID(roll.associatedUnit);
+			ofColor pColor = (roll.associatedUnit == myLocalPlayerID) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
 
-		// Standardized Text Drawer (Smaller scale)
-		auto drawLabel = [&](string text, float x, float y, ofColor col) {
-			float fontScale = 0.7f; // Smaller size
-			drawPixelTextCentered(titleFont, text, x, y, fontScale, col, 1, ofColor(0, 0, 0, 255));
-		};
+			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y, 0.7f, pColor, 1, ofColor(0, 0, 0, 255));
+		}
 
-		// Draw local player on left, opponent on right
-		ofColor localPlayerColor = (myLocalPlayerID == 0) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
-		ofColor opponentColor = (myLocalPlayerID == 0) ? ofColor(255, 80, 80) : ofColor(70, 160, 255);
-		string localPlayerName = (myLocalPlayerID == 0) ? getPlayerSteamName(0) : getPlayerSteamName(1);
-		string opponentPlayerName = (myLocalPlayerID == 0) ? getPlayerSteamName(1) : getPlayerSteamName(0);
+		// Draw Result Message once all dice stop
+		bool allDone = true;
+		for (const auto & roll : activeDiceRolls) {
+			if (!roll.isFinishedVisual) allDone = false;
+		}
 
-		drawLabel(localPlayerName, localScreen.x, localScreen.y, localPlayerColor);
-		drawLabel(opponentPlayerName, opponentScreen.x, opponentScreen.y, opponentColor);
-
-		// Draw Result Message
-		if (activeDiceRolls[0].isFinishedVisual && activeDiceRolls[1].isFinishedVisual) {
-			string msg = "";
-
-			if (activeDiceRolls[0].result > activeDiceRolls[1].result)
-				msg = getPlayerSteamName(0) + " goes first.";
-			else if (activeDiceRolls[1].result > activeDiceRolls[0].result)
-				msg = getPlayerSteamName(1) + " goes first.";
-			else
-				msg = "Tie! Rerolling...";
+		if (allDone && !matchTurnOrder.empty()) {
+			std::string winnerName = getPlayerNameByID(matchTurnOrder[0]);
+			string msg = winnerName + " won Initiative! They draft first.";
 
 			// Draw in Instruction Area (Top Center)
 			ofRectangle mBox = titleFont.getStringBoundingBox(msg, 0, 0);
 			float tx = (ofGetWidth() / 2.0f) - (mBox.width / 2.0f);
-
-			// FIX: Push this text down slightly so it doesn't overlap the Dice result text!
 			float ty = ofGetHeight() * 0.35f;
 
 			ofSetColor(0, 0, 0, 255);
