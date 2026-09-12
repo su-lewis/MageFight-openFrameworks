@@ -6051,7 +6051,7 @@ void ofApp::update() {
 
 				// RECONNECT / WAKE-UP PING: Actively send our seed to the Host to provoke a handshake
 				static float lastClientPingTime = 0.0f;
-				if (ofGetElapsedTimef() - lastClientPingTime > 1.0f) {
+				if (ofGetElapsedTimef() - lastClientPingTime > 0.5f) {
 					lastClientPingTime = ofGetElapsedTimef();
 
 					if (localSeedComponent == 0) {
@@ -6062,7 +6062,7 @@ void ofApp::update() {
 
 					HandshakePacket pkt = {};
 					pkt.type = PKT_HANDSHAKE;
-					pkt.playerID = 1;
+					pkt.playerID = (myLocalPlayerID == 255) ? 255 : myLocalPlayerID;
 					pkt.seq = 1002;
 					pkt.seed = localSeedComponent;
 					pkt.elo = myElo;
@@ -8476,7 +8476,20 @@ void ofApp::drawLobby() {
 		ofDrawRectRounded(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH, 8);
 		ofFill();
 
+		ofRectangle readyStatusRect(lobbyPlayersPanelRect.getRight() - 130, py, 120, itemH);
+		bool isMyRow = (lp.playerID == myLocalPlayerID);
+		bool isHoveredStatus = isMyRow && readyStatusRect.inside(ofGetMouseX(), ofGetMouseY());
+		if (isHoveredStatus) {
+			ofPushStyle();
+			ofSetColor(255, 255, 255, 40);
+			ofDrawRectRounded(readyStatusRect, 6);
+			safePopStyle();
+			g_hoveredButtonId = "lobby_ready_status";
+		}
+
 		ofColor statusCol = lp.isReady ? ofColor::green : ofColor(255, 200, 50);
+		if (isHoveredStatus) statusCol = ofColor::white;
+
 		drawPixelTextBaseline(uiFont, lp.name, lobbyPlayersPanelRect.x + 22, py + (itemH * 0.58f), 1.1f, ofColor::white);
 		drawPixelTextBaseline(uiFont, lp.isReady ? "READY" : "WAITING", lobbyPlayersPanelRect.getRight() - 110, py + (itemH * 0.58f), 0.95f, statusCol);
 
@@ -16511,8 +16524,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 						g_inLobby = false;
 						g_isHostingLobby = false;
 						g_isConnectingToLobby = false;
+						g_lobbyPlayers.clear();
 						isChatOpen = false;
+						isChatMinimized = true;
 						return;
+					}
+
+					// Click on player's row / ready status to toggle Ready
+					float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
+					float itemH = menuTileSize * 0.95f;
+					for (auto & lp : g_lobbyPlayers) {
+						ofRectangle rowRect(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH);
+						if (rowRect.inside(x, y) && lp.playerID == myLocalPlayerID) {
+							lp.isReady = !lp.isReady;
+							if (isHost()) {
+								broadcastLobbyState(steamManager);
+							} else {
+								ClientReadyPacket cr = {};
+								cr.type = PKT_CLIENT_READY;
+								cr.playerID = myLocalPlayerID;
+								cr.ready = lp.isReady ? 1 : 0;
+								steamManager.sendPacket(&cr, sizeof(cr));
+							}
+							return;
+						}
+						py += itemH + (menuTileSize * 0.1f);
 					}
 
 					if (isHost()) {
@@ -16558,6 +16594,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							cr.playerID = myLocalPlayerID;
 							cr.ready = isReady ? 1 : 0;
 							steamManager.sendPacket(&cr, sizeof(cr));
+							return;
 						}
 					}
 					return;
@@ -16907,11 +16944,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// Handle chat clicking (if chat is visible)
+	// Handle chat clicking (if chat is visible or in lobby)
 	// Do not intercept clicks while modal card-selection overlays are active.
-	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && button == OF_MOUSE_BUTTON_LEFT && !(cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA)) {
+	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || g_inLobby) && button == OF_MOUSE_BUTTON_LEFT && !(cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA)) {
 		float currentTime = ofGetElapsedTimef();
-		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
+		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration) || g_inLobby;
 
 		if (shouldShowChat) {
 			// Check if clicking inside chat window
@@ -19801,16 +19838,15 @@ void ofApp::keyPressed(int key) {
 		return; // Consume all keys when chat is open
 	}
 
-	// Open/Close chat with Enter key (in gameplay and drafting)
-	if (key == OF_KEY_RETURN && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && !isCardSpawnerOpen) {
+	// Open/Close chat with Enter key (in gameplay, drafting, and lobby)
+	if (key == OF_KEY_RETURN && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || g_inLobby) && !isCardSpawnerOpen) {
 		if (!isChatOpen) {
 			isChatOpen = true;
 			isChatMinimized = false; // Open in full mode for typing
 			chatInput = "";
 			currentChatTab = ChatTab::CHAT; // Reset to chat tab when opening
 			chatScrollOffset = 0; // Reset scroll to bottom
-		} else if (currentChatTab == ChatTab::CHAT) {
-			// If already open and in Chat tab, Enter closes it (handled in block above, but acts as safety here)
+		} else if (currentChatTab == ChatTab::CHAT && !g_inLobby) {
 			isChatOpen = false;
 			isChatMinimized = true;
 		}
@@ -41417,11 +41453,11 @@ void ofApp::processNetworkPackets() {
 
 				// 1. HOST RECEIVES HANDSHAKE
 				if (steamManager.isHost()) {
-					if (pkt->playerID == 255) { // Unassigned Client connecting
+					if (pkt->playerID == 255 || pkt->playerID == 1) { // Unassigned or connecting Client
 						int assignedID = -1;
 						// Reconnect check by seed
 						for (auto & lp : g_lobbyPlayers) {
-							if (lp.seed == pkt->seed) {
+							if (lp.seed == pkt->seed && lp.playerID != 0) {
 								assignedID = lp.playerID;
 								break;
 							}
@@ -41430,7 +41466,7 @@ void ofApp::processNetworkPackets() {
 						// Assign new ID
 						if (assignedID == -1) {
 							if (g_lobbyPlayers.size() < 4) { // Max 4 Players
-								assignedID = g_lobbyPlayers.size();
+								assignedID = (int)g_lobbyPlayers.size();
 								LobbyPlayer lp;
 								lp.playerID = assignedID;
 								lp.seed = pkt->seed;
@@ -41442,7 +41478,7 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 
-						// Echo seed and send ID back to specific client
+						// Echo seed and send assigned ID back to client
 						HandshakePacket reply = {};
 						reply.type = PKT_HANDSHAKE;
 						reply.playerID = assignedID;
@@ -41454,7 +41490,7 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 				// 2. CLIENT RECEIVES ASSIGNED ID FROM HOST
-				else if (!steamManager.isHost() && pkt->seed == localSeedComponent && myLocalPlayerID == 255) {
+				else if (!steamManager.isHost() && pkt->seed == localSeedComponent && (myLocalPlayerID == 255 || myLocalPlayerID == 1)) {
 					myLocalPlayerID = pkt->playerID;
 					if (myLocalPlayerID == 255) g_isSpectator = true;
 
@@ -41462,14 +41498,24 @@ void ofApp::processNetworkPackets() {
 					gameplaySeededByHost = true;
 					g_isConnectingToLobby = false;
 
-					if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
-						g_inLobby = true;
-						currentState = STATE_MULTIPLAYER_MENU;
-						isChatOpen = true;
-						isChatMinimized = false;
-					}
+					// Open the lobby view
+					g_inLobby = true;
+					currentState = STATE_MULTIPLAYER_MENU;
+					isChatOpen = true;
+					isChatMinimized = false;
 
 					SendLocalAuthSessionTicket(steamManager, myLocalPlayerID);
+
+					// Sync our Steam name with the host
+					std::string myName = steamManager.getLocalPlayerName();
+					if (myName.empty()) myName = "Player " + std::to_string(myLocalPlayerID + 1);
+					ChatMessagePacket syncPkt = {};
+					syncPkt.type = PKT_CHAT_MESSAGE;
+					syncPkt.playerID = myLocalPlayerID;
+					std::string payload = "\aSYNC_NAME:" + myName;
+					strncpy(syncPkt.message, payload.c_str(), sizeof(syncPkt.message) - 1);
+					syncPkt.message[sizeof(syncPkt.message) - 1] = '\0';
+					steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
 				}
 				continue;
 			}
@@ -41494,6 +41540,26 @@ void ofApp::processNetworkPackets() {
 				if (buffer.size() < sizeof(ChatMessagePacket)) continue;
 				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
 				pkt->message[sizeof(pkt->message) - 1] = '\0';
+
+				// Handle internal name synchronization
+				if (strncmp(pkt->message, "\aSYNC_NAME:", 11) == 0) {
+					std::string newName = std::string(pkt->message + 11);
+					if (!newName.empty()) {
+						for (auto & lp : g_lobbyPlayers) {
+							if (lp.playerID == pkt->playerID) {
+								lp.name = newName;
+								break;
+							}
+						}
+						if (pkt->playerID == 0) player0SteamName = newName;
+						if (pkt->playerID == 1) player1SteamName = newName;
+
+						if (isHost()) {
+							broadcastLobbyState(steamManager);
+						}
+					}
+					continue; // Do not add sync commands to chat history!
+				}
 
 				// Re-broadcast if Host received from Client
 				if (isHost() && header->playerID != myLocalPlayerID) {
