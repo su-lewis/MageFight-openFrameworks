@@ -6047,10 +6047,9 @@ void ofApp::update() {
 					steamManager.sendPacket(&pkt, sizeof(pkt));
 				}
 
-				// If we chose to spectate OR the host has already started the match:
-				if (g_isSpectator || steamManager.isMatchStarted()) {
-					ofLogNotice("Spectator") << "Match already in progress! Transitioning to Spectator and requesting snapshot...";
-					g_isSpectator = true;
+				// Only transition to Spectator if we explicitly joined as a spectator from the menu
+				if (g_isSpectator) {
+					ofLogNotice("Spectator") << "Joining as spectator and requesting snapshot...";
 					myLocalPlayerID = 2; // Spectator ID
 					isMultiplayer = true;
 					hasReceivedHandshake = true;
@@ -7506,13 +7505,10 @@ void ofApp::draw() {
 		static std::string lastHoveredButtonId = "";
 		if (g_hoveredButtonId != lastHoveredButtonId) {
 			if (!g_hoveredButtonId.empty()) {
-				// Use the first footstep sound heavily pitched down to create a soft, organic wooden "tock"
-				// instead of the annoying digital button hover sound!
-				if (!footstepSounds.empty() && footstepSounds[0].isLoaded()) {
-					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.2f, 0.0f, 1.0f);
-					footstepSounds[0].setVolume(sfxVol);
-					footstepSounds[0].setSpeed(0.4f); // Pitch way down to make it a deep UI 'thud'
-					footstepSounds[0].play();
+				if (s_sfxHoverButton.isLoaded()) {
+					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.25f, 0.0f, 1.0f);
+					s_sfxHoverButton.setVolume(sfxVol);
+					s_sfxHoverButton.play();
 				}
 			}
 			lastHoveredButtonId = g_hoveredButtonId;
@@ -34330,7 +34326,8 @@ std::string ofApp::buildSnapshotString() {
 		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
 		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.storedDarkShieldDice << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
 		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t" << p.nextTurnExtraDrawSetOnCycle << "\t"
-		   << p.fireApplierPlayerID << "\t" << p.poisonApplierPlayerID << "\t" << p.defenseCycle << "\t";
+		   << p.fireApplierPlayerID << "\t" << p.poisonApplierPlayerID << "\t" << p.defenseCycle << "\t"
+		   << p.ap << "\t" << (p.hasDrawnThisTurn ? 1 : 0) << "\t";
 
 		auto encodeCards = [&](const std::vector<Card> & cards) {
 			std::string out;
@@ -34835,6 +34832,16 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				} else {
 					p.defenseCycle = -1;
 				}
+				if (idx < (int)parts.size() && parts[idx] != "DECK") {
+					p.ap = std::stoi(parts[idx++]);
+				} else {
+					p.ap = 0;
+				}
+				if (idx < (int)parts.size() && parts[idx] != "DECK") {
+					p.hasDrawnThisTurn = (std::stoi(parts[idx++]) != 0);
+				} else {
+					p.hasDrawnThisTurn = false;
+				}
 
 				auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
 					outVec.clear();
@@ -35104,6 +35111,12 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	queuedCommandKeys.clear();
 	executedCommandKeys.clear();
 	skippedOptimisticCommands.clear();
+
+	// CRITICAL FIX: Wipe out any pending checksums from before the snapshot was applied!
+	// This prevents the game from evaluating a stale mismatch and initiating an infinite "refreshing tab" desync loop!
+	s_pendingLocalChecksums.clear();
+	s_pendingRemoteChecksums.clear();
+
 	// lastProcessedCommandId and nextCommandId will be restored from the CMD_SEQ tag below,
 	// or synchronized to the incoming stream.
 
@@ -35155,20 +35168,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	hoveredUnitIndex = -1;
 	hoveredPilePlayerIndex = -1;
 
-	// Reset camera to a stable position after restore
-	cameraTargetZoom = 37.0f;
-	cameraCurrentZoom = 37.0f;
-	cameraTargetPan = glm::vec3(0, 0, 0);
-	cameraCurrentPan = glm::vec3(0, 0, 0);
-	isTopDownView = false;
-	cam.setPosition(0, cameraCurrentZoom * 1.35f, cameraCurrentZoom * 0.60f);
-	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.35f, -(cameraCurrentZoom * 0.60f));
-	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
-	cameraCurrentPos = cam.getPosition();
-	cameraCurrentPos2 = cam2.getPosition();
-	cameraCurrentLookAt = cameraCurrentPan;
-	cameraCurrentLookAt2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
+	// Camera zoom and pan are local view states; do not reset them on state restore
 
 	// Swap parsed structures into live state
 	currentState = tmpCurrentState;
@@ -35180,8 +35180,18 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	draftPlayerIndex = tmpDraftPlayerIndex;
 	draftPicksRemaining = tmpDraftPicksRemaining;
 	currentDraftClassTier = tmpCurrentDraftClassTier;
-	hasDrawnCardsThisTurn = tmpHasDrawnCardsThisTurn;
-	opponentHasDrawnCardsThisTurn = tmpOpponentHasDrawnCardsThisTurn;
+
+	// Perspective-aware draw flags (parts[9] is P0, parts[10] is P1)
+	bool p0Drawn = tmpHasDrawnCardsThisTurn;
+	bool p1Drawn = tmpOpponentHasDrawnCardsThisTurn;
+	if (myLocalPlayerID == 0) {
+		hasDrawnCardsThisTurn = p0Drawn;
+		opponentHasDrawnCardsThisTurn = p1Drawn;
+	} else {
+		hasDrawnCardsThisTurn = p1Drawn;
+		opponentHasDrawnCardsThisTurn = p0Drawn;
+	}
+
 	currentAP = tmpCurrentAP;
 	lastAPDiceNum = tmpLastAPDiceNum;
 	lastAPDiceSides = tmpLastAPDiceSides;
@@ -35229,7 +35239,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	}
 
 	networkPending.draftQueue = tmpPendingDraftQueue;
-	g_opponentDecisionQueue = tmpOppDecisionQueue; // <--- Add this!
+	g_opponentDecisionQueue = tmpOppDecisionQueue;
 
 	// copy board cells
 	for (int x = 0; x < BOARD_WIDTH; ++x)
@@ -35259,6 +35269,18 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	draftAcceptUI.hidden = false;
 
 	players = tmpPlayers;
+
+	// Ensure each player's drawn flag and the active player's AP match the authoritative state
+	for (auto & p : players) {
+		if (!p.isMinion) {
+			if (p.playerID == 0) p.hasDrawnThisTurn = p0Drawn;
+			if (p.playerID == 1) p.hasDrawnThisTurn = p1Drawn;
+		}
+	}
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		players[currentPlayerIndex].ap = currentAP;
+	}
+
 	graveyard = tmpGraveyard;
 	floatingKeyInstances = tmpFloatingKeys;
 
@@ -41318,11 +41340,10 @@ void ofApp::processNetworkPackets() {
 					continue;
 				}
 
-				// 1. HOST RECEIVES CLIENT REPLY (OR RECONNECT REQUEST)
+				// 1. HOST RECEIVES CLIENT HANDSHAKE
 				if (steamManager.isHost() && pkt->playerID == 1) {
 					if (!hasReceivedHandshake) {
 						opponentElo = pkt->elo;
-						// FIX: Host natively uses the EXACT seed provided by the Client to ensure zero drift
 						currentMapSeed = localSeedComponent ^ pkt->seed;
 
 						ofLogNotice("Network") << "Host received Client Handshake. Final Seed: " << currentMapSeed;
@@ -41341,26 +41362,15 @@ void ofApp::processNetworkPackets() {
 
 						setupGame();
 					} else {
-						// RECONNECT: Client restarted game and needs the established seed!
-						ofLogNotice("Network") << "Host: Received reconnect handshake. Sending established seed.";
-						HandshakePacket ack = {};
-						ack.type = PKT_HANDSHAKE;
-						ack.playerID = 0;
-						ack.seq = 1002;
-						// Send back a seed that perfectly reconstructs the Host's existing currentMapSeed
-						ack.seed = currentMapSeed ^ pkt->seed;
-						ack.elo = myElo;
-						steamManager.sendPacket(&ack, sizeof(ack));
-
-						// Legitimate reconnect recovery: pass true.
-						sendSnapshotToClient(true);
+						// Handshake already completed. Ignore duplicate packet to prevent snapshot loop!
+						ofLogNotice("Network") << "Host: Duplicate handshake from client ignored.";
 					}
 				}
-				// 2. CLIENT RECEIVES HOST REQUEST (OR RECONNECT REPLY)
+				// 2. CLIENT RECEIVES HOST HANDSHAKE
 				else if (!steamManager.isHost() && pkt->playerID == 0) {
-					opponentElo = pkt->elo;
-
 					if (!hasReceivedHandshake) {
+						opponentElo = pkt->elo;
+
 						if (localSeedComponent == 0) {
 							std::random_device rd;
 							localSeedComponent = rd();
@@ -41390,25 +41400,28 @@ void ofApp::processNetworkPackets() {
 						if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU) {
 							setupGame();
 						}
+
+						// Send the Handshake ACK back to the Host ONCE only
+						HandshakePacket ack = {};
+						ack.type = PKT_HANDSHAKE;
+						ack.playerID = 1;
+						ack.seq = 1002;
+						ack.seed = localSeedComponent;
+						ack.elo = myElo;
+						steamManager.sendPacket(&ack, sizeof(ack));
+
+						SendLocalAuthSessionTicket(steamManager, 1);
+
+						ClientReadyPacket r = {};
+						r.type = PKT_CLIENT_READY;
+						r.playerID = myLocalPlayerID;
+						r.ready = 1;
+						steamManager.sendPacket(&r, sizeof(r));
+						clientSentReady = true;
+					} else {
+						// Handshake already completed. Ignore duplicate packet to prevent snapshot loop!
+						ofLogNotice("Network") << "Client: Duplicate handshake from host ignored.";
 					}
-
-					// Send the Handshake ACK back to the Host
-					HandshakePacket ack = {};
-					ack.type = PKT_HANDSHAKE;
-					ack.playerID = 1;
-					ack.seq = 1002;
-					ack.seed = localSeedComponent;
-					ack.elo = myElo;
-					steamManager.sendPacket(&ack, sizeof(ack));
-
-					SendLocalAuthSessionTicket(steamManager, 1);
-
-					ClientReadyPacket r = {};
-					r.type = PKT_CLIENT_READY;
-					r.playerID = myLocalPlayerID;
-					r.ready = 1;
-					steamManager.sendPacket(&r, sizeof(r));
-					clientSentReady = true;
 				}
 				continue;
 			}
@@ -41720,50 +41733,51 @@ void ofApp::processNetworkPackets() {
 			ofBufferToFile(dumpName, dumpBuf);
 			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "Dumped full diverging state to: " + dumpName);
 
-			// --- FULL MATCH LOG SAVING (DESYNC) ---
-			std::string matchLog = "=== MATCH SUMMARY ===\n";
-			matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
-			matchLog += "Event: Desync Rollback\n";
-			matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
-			matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n\n";
-			matchLog += "--- PLAYERS ---\n";
-			matchLog += "Player 0: " + player0SteamName + "\n";
-			matchLog += "Player 1: " + player1SteamName + "\n\n";
-			matchLog += "--- EVENT LOG ---\n";
-			for (const auto & line : s_fullMatchLog) {
-				matchLog += line + "\n";
+			// Rate limit desync reporting so it only sends once per 10 seconds, and ONLY from the Host
+			static float lastDesyncReportTime = 0.0f;
+			float nowTime = ofGetElapsedTimef();
+			if (steamManager.isHost() && (nowTime - lastDesyncReportTime > 10.0f)) {
+				lastDesyncReportTime = nowTime;
+
+				// --- FULL MATCH LOG SAVING (DESYNC) ---
+				std::string matchLog = "=== MATCH SUMMARY ===\n";
+				matchLog += "Timestamp: " + ofGetTimestampString("%Y-%m-%d %H:%M:%S") + "\n";
+				matchLog += "Event: Desync Rollback\n";
+				matchLog += "Seed: " + std::to_string(currentMapSeed) + "\n";
+				matchLog += "Turns: " + std::to_string(globalTurnCounter) + "\n\n";
+				matchLog += "--- PLAYERS ---\n";
+				matchLog += "Player 0: " + player0SteamName + "\n";
+				matchLog += "Player 1: " + player1SteamName + "\n\n";
+				matchLog += "--- EVENT LOG ---\n";
+				for (const auto & line : s_fullMatchLog) {
+					matchLog += line + "\n";
+				}
+				matchLog += "=====================\n";
+
+				std::string logFilename = getSavesDirPath().string() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
+				ofFile f(logFilename, ofFile::WriteOnly);
+				f << matchLog;
+				f.close();
+
+				// --- SEND DISCORD WEBHOOK (HOST ONLY) ---
+				std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
+				std::string myName = steamManager.getLocalPlayerName().empty() ? "Host" : steamManager.getLocalPlayerName();
+				std::string oppName = steamManager.getOpponentName().empty() ? "Client" : steamManager.getOpponentName();
+
+				std::string msg = "🚨 **DESYNC DETECTED - INITIATING ROLLBACK** 🚨\n";
+				msg += "**Players:** " + myName + " vs " + oppName + "\n";
+				msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
+				msg += "**Checksums:** Host [" + std::to_string(localSum) + "] | Client [" + std::to_string(remoteSum) + "]\n\n";
+				msg += "**Last Actions Before Desync:**\n```text\n";
+				int startIdx = std::max(0, (int)s_fullMatchLog.size() - 25);
+				for (size_t i = startIdx; i < s_fullMatchLog.size(); ++i) {
+					msg += s_fullMatchLog[i] + "\n";
+				}
+				msg += "```";
+
+				std::vector<std::string> uploadFiles = { logFilename, dumpName };
+				sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
 			}
-			matchLog += "=====================\n";
-
-			std::string logFilename = getSavesDirPath().string() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
-			ofFile f(logFilename, ofFile::WriteOnly);
-			f << matchLog;
-			f.close();
-			ofLogNotice("MatchLog") << "Saved full match log to " << logFilename;
-
-			// --- SEND DISCORD WEBHOOK WITH FILE ATTACHMENTS ---
-			std::string webhookURL = "https://discord.com/api/webhooks/1521578853904941208/AFp-keJub945lhJcOlg3H8WtYw7QKY7AIDxvhxBQ5STHNstNbUSmypRGDuVI33rPdWTa";
-
-			std::string myName = steamManager.getLocalPlayerName();
-			if (myName.empty()) myName = "A Mage";
-			std::string oppName = steamManager.getOpponentName();
-			if (oppName.empty()) oppName = "Opponent";
-
-			std::string msg = "🚨 **DESYNC DETECTED - INITIATING ROLLBACK** 🚨\n";
-			msg += "**Players:** " + myName + " vs " + oppName + "\n";
-			msg += "**Turn:** " + std::to_string(globalTurnCounter) + "\n";
-			msg += "**Role:** " + (steamManager.isHost() ? std::string("Host") : std::string("Client")) + "\n";
-			msg += "**Checksums:** Local [" + std::to_string(localSum) + "] | Remote [" + std::to_string(remoteSum) + "]\n\n";
-
-			msg += "**Last Actions Before Desync:**\n```text\n";
-			int startIdx = std::max(0, (int)s_fullMatchLog.size() - 25);
-			for (size_t i = startIdx; i < s_fullMatchLog.size(); ++i) {
-				msg += s_fullMatchLog[i] + "\n";
-			}
-			msg += "```\n*Attached are the Human-Readable Action Log and the Raw State Dump.*";
-
-			std::vector<std::string> uploadFiles = { logFilename, dumpName };
-			sendDiscordFileWebhook(webhookURL, msg, uploadFiles);
 
 			glm::vec3 textPos = glm::vec3(0, 5, 0);
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -41775,8 +41789,6 @@ void ofApp::processNetworkPackets() {
 				sendSnapshotToClient(true);
 				queueFloatingTextVisual(textPos, "Resyncing Client...", ofColor::yellow);
 			} else {
-				// The host detects the exact same checksum mismatch on this frame
-				// and is already sending the snapshot. Avoid spamming a duplicate request.
 				ofLogNotice("Net") << "Client: Desync detected. Awaiting authoritative host snapshot.";
 				queueFloatingTextVisual(textPos, "Resyncing with Host...", ofColor::orange);
 			}
