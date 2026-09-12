@@ -5349,7 +5349,7 @@ void ofApp::updateStateMachine() {
 				}
 			}
 			if (steamManager.isHost()) {
-				sendSnapshotToClient(false, true);
+				sendSnapshotToClient(true);
 			}
 		}
 	}
@@ -34448,6 +34448,18 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	isCardSpawnerOpen = false;
 	isCardEncyclopediaOpen = false;
 
+	// Preserve any active rolling dice and the current piece selection when a
+	// recovery snapshot arrives mid-turn. These are local visuals, not authoritative state.
+	std::vector<DiceRoll> preservedDice;
+	for (const auto & roll : activeDiceRolls) {
+		if (!roll.isFinishedVisual) {
+			preservedDice.push_back(roll);
+		}
+	}
+	int savedSelectedX = selectedPieceGridX;
+	int savedSelectedY = selectedPieceGridY;
+	PlayerActionState savedAction = playerAction;
+
 	// Clear ALL transient visual queues and in-flight animations
 	activeDiceRolls.clear();
 	activeFloatingTexts.clear();
@@ -34461,6 +34473,19 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	activeDraftPickedMoves.clear();
 	pendingVisualKeyDraftQueue.clear();
 	deckFlashStartFrame = 0;
+
+	// Restore active dice and in-progress local selection after the authoritative
+	// snapshot has been parsed.
+	activeDiceRolls = preservedDice;
+	if (savedAction == PIECE_SELECTED && savedSelectedX >= 0 && savedSelectedY >= 0) {
+		playerAction = savedAction;
+		selectedPieceGridX = savedSelectedX;
+		selectedPieceGridY = savedSelectedY;
+	} else {
+		playerAction = NONE;
+		selectedPieceGridX = -1;
+		selectedPieceGridY = -1;
+	}
 
 	// Temporary holders
 	GameState tmpCurrentState = currentState;
@@ -35339,12 +35364,12 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 }
 
 //--------------------------------------------------------------
-void ofApp::sendSnapshotToClient(bool useTurnStartBackup, bool force) {
+void ofApp::sendSnapshotToClient(bool isRecoveryOrReconnect) {
 	if (!isMultiplayer || !steamManager.isHost()) return;
 
-	// Only send full snapshots during authoritative resync/reconnect windows.
-	// Live gameplay should never reset the opponent's UI by reapplying a full snapshot.
-	if (!force && currentState != STATE_DESYNC && !waitingForReconnect && !g_isSpectator) {
+	// STRICT GATE: never send full snapshots during active live gameplay
+	// unless this is an actual reconnect or desync recovery.
+	if (!isRecoveryOrReconnect) {
 		ofLogNotice("Snapshot") << "Suppressing live snapshot send outside reconnect/desync recovery.";
 		return;
 	}
@@ -41245,8 +41270,8 @@ void ofApp::processNetworkPackets() {
 
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
-				// Allow remaining peer to respond with current snapshot on reconnect/resync.
-				sendSnapshotToClient(false, true);
+				// Legitimate reconnect/resync response.
+				sendSnapshotToClient(true);
 				ofLogNotice("Network") << "Sent current snapshot to reconnected peer " << rp->playerID;
 				continue;
 			}
@@ -41326,8 +41351,8 @@ void ofApp::processNetworkPackets() {
 						ack.elo = myElo;
 						steamManager.sendPacket(&ack, sizeof(ack));
 
-						// Trigger a snapshot send so they get the board on reconnect.
-						sendSnapshotToClient(false, true);
+						// Legitimate reconnect recovery: pass true.
+						sendSnapshotToClient(true);
 					}
 				}
 				// 2. CLIENT RECEIVES HOST REQUEST (OR RECONNECT REPLY)
@@ -41746,7 +41771,7 @@ void ofApp::processNetworkPackets() {
 
 			if (steamManager.isHost()) {
 				ofLogNotice("Net") << "Host: Sending authoritative snapshot to force client rollback.";
-				sendSnapshotToClient(false, true);
+				sendSnapshotToClient(true);
 				queueFloatingTextVisual(textPos, "Resyncing Client...", ofColor::yellow);
 			} else {
 				// The host detects the exact same checksum mismatch on this frame

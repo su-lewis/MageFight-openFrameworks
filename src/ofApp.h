@@ -1123,7 +1123,7 @@ public:
 	bool harnessLoadAndPrintChecksum(const std::string & path);
 	void harnessAutoAdvanceTurns(int turns);
 
-	void sendSnapshotToClient(bool useTurnStartBackup = false, bool force = false);
+	void sendSnapshotToClient(bool isRecoveryOrReconnect = false);
 	std::string buildSnapshotString();
 	void applySnapshotString(const std::string & data, bool fromNetworkSnapshot = true);
 
