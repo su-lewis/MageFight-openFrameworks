@@ -23149,31 +23149,16 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			lastSentActionTime = ofGetElapsedTimef();
 			lastSentActionResendCount = 0;
 
+			// Send intent to host; do NOT predict locally.
+			// The host sequences the command and echoes it back in ~20ms,
+			// ensuring both peers execute identically with zero rollback desyncs.
 			steamManager.sendPacket(&cmd, sizeof(cmd));
-
-			if (applyLocally) {
-				// We CAN do optimistic execution because we have Rollback!
-				if (isMultiplayer && isClient() && !isAIvsAI) {
-					// Save snapshot BEFORE executing optimistically
-					std::string snap = buildSnapshotString();
-					provisionalSnapshots[cmd.clientActionID] = snap;
-					provisionalCommands[cmd.clientActionID] = cmd;
-				}
-
-				// SYNTHETIC KEY FIX: The network packet sent to the host has commandId = 0,
-				// but local client prediction MUST queue with (0xFFFFFFFF - clientActionID).
-				// This guarantees unique keys so rapid consecutive client inputs are never dropped as duplicates!
-				InputCommandPacket localCmd = cmd;
-				localCmd.commandId = 0xFFFFFFFF - cmd.clientActionID;
-				queueInputCommand(localCmd);
-				processCommandQueue();
-			}
 			return true;
 		} else if (isHost()) {
 			cmd.seq = ++watchdogClientActionCounter;
-			cmd.commandId = nextCommandId++; // <-- RESTORE THIS: Host assigns official ID
+			cmd.commandId = nextCommandId++; // Host assigns official ID
 
-			steamManager.sendPacket(&cmd, sizeof(cmd)); // CRITICAL FIX: Send BEFORE queuing
+			steamManager.sendPacket(&cmd, sizeof(cmd)); // Send to client
 
 			if (applyLocally) {
 				queueInputCommand(cmd);
@@ -34190,6 +34175,7 @@ std::string ofApp::buildSnapshotString() {
 	std::ostringstream ss;
 	ss << "V\t1\n";
 	ss << "SAVE_TIME\t" << (int64_t)std::time(nullptr) << "\n";
+	ss << "CMD_SEQ\t" << lastProcessedCommandId << "\t" << nextCommandId << "\n";
 	ss << "SEED\t" << currentMapSeed << "\n";
 	ss << "RNG\t" << gameplayRNG << "\n";
 	ss << "RNGPOS\t" << gameplayRngAdvanceCount << "\n";
@@ -34472,13 +34458,19 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	isCardSpawnerOpen = false;
 	isCardEncyclopediaOpen = false;
 
-	// Clear transient visual queues
+	// Clear ALL transient visual queues and in-flight animations
 	activeDiceRolls.clear();
 	activeFloatingTexts.clear();
 	activeCardDisplays.clear();
 	activePlayedCardAnimations.clear();
 	activeRemovedCardAnimations.clear();
 	activeStolenCardAnimations.clear();
+	activeDrawCardAnimations.clear();
+	activeDiscardCardAnimations.clear();
+	activeShuffleAnimations.clear();
+	activeDraftPickedMoves.clear();
+	pendingVisualKeyDraftQueue.clear();
+	deckFlashStartFrame = 0;
 
 	// Temporary holders
 	GameState tmpCurrentState = currentState;
@@ -34587,10 +34579,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 			} else if (parts[0] == "RNG" && parts.size() >= 2) {
 				tmpRngState = parts[1];
 				tmpHasRngState = true;
+			} else if (parts[0] == "CMD_SEQ" && parts.size() >= 3) {
+				lastProcessedCommandId = (uint32_t)std::stoul(parts[1]);
+				nextCommandId = (uint32_t)std::stoul(parts[2]);
 			} else if (parts[0] == "RNGPOS" && parts.size() >= 2) {
 				tmpGameplayRngAdvanceCount = (uint64_t)std::stoull(parts[1]);
 				tmpHasGameplayRngAdvanceCount = true;
 			} else if (parts[0] == "NAMES" && parts.size() >= 3) {
+
 				player0SteamName = unescapeField(parts[1]);
 				player1SteamName = unescapeField(parts[2]);
 			} else if (parts[0] == "AFK" && parts.size() >= 6) {
@@ -35090,9 +35086,10 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	provisionalCommands.clear();
 	provisionalSnapshots.clear();
 	queuedCommandKeys.clear();
-	executedCommandKeys.clear(); // FIX: Allow reconnected players to accept all future command IDs!
+	executedCommandKeys.clear();
 	skippedOptimisticCommands.clear();
-	lastProcessedCommandId = 0; // FIX: Reset lockstep sequence trackers to accept incoming commands immediately
+	// lastProcessedCommandId and nextCommandId will be restored from the CMD_SEQ tag below,
+	// or synchronized to the incoming stream.
 
 	// Clear all transient dice visuals when applying a full snapshot
 	// Only remove any lingering AP visuals — keep unrelated dice (e.g., summoned HP)
@@ -35248,9 +35245,18 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 	}
 
-	// Sync visual positions for ALL players (critical for multiplayer)
+	// Sync visual positions for ALL players and snap restored hand cards
 	for (auto & p : players) {
 		p.visualPos = gridToWorld(p.x, p.y);
+		HandLayout layout = computeHandLayout(p.hand.size(), (float)ofGetWidth(), (float)ofGetHeight());
+		for (size_t i = 0; i < p.hand.size(); ++i) {
+			float cardCenterX = layout.startX + (float)i * (layout.cardW + layout.spacing) + (layout.cardW * 0.5f);
+			p.hand[i].targetPos = ofVec2f(cardCenterX, layout.restY);
+			p.hand[i].currentPos = p.hand[i].targetPos;
+			p.hand[i].currentScale = 1.0f;
+			p.hand[i].targetScale = 1.0f;
+			p.hand[i].isAnimating = false;
+		}
 	}
 
 	// Keep draft camera consistent after restore
@@ -35329,7 +35335,15 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 void ofApp::sendSnapshotToClient(bool useTurnStartBackup) {
 	if (!isMultiplayer) return;
 
-	// In a strict deterministic model, we send the exact current state.
+	// Rate-limit outgoing snapshots to prevent chunk collision and buffer corruption
+	static float lastSendTime = 0.0f;
+	float now = ofGetElapsedTimef();
+	if (now - lastSendTime < 1.0f) {
+		ofLogWarning("Snapshot") << "Suppressed duplicate snapshot send (sent less than 1.0s ago).";
+		return;
+	}
+	lastSendTime = now;
+
 	std::string data = buildSnapshotString();
 	uint32_t snapshotId = ++lastSnapshotId;
 
@@ -41405,68 +41419,21 @@ void ofApp::processNetworkPackets() {
 				if (isHost()) {
 					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
 						// Host receives client intent. Assign official ID, execute, and echo.
-						cmd->commandId = nextCommandId++; // <-- RESTORE THIS
-						steamManager.sendPacket(cmd, sizeof(InputCommandPacket)); // CRITICAL FIX: Send BEFORE queuing
+						cmd->commandId = nextCommandId++;
+						steamManager.sendPacket(cmd, sizeof(InputCommandPacket)); // Send sequenced command to client
 						queueInputCommand(*cmd);
+						processCommandQueue();
 					}
 				} else {
 					// Client receives officially sequenced command from Host.
 					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID != 0) {
-						// Always immediately disarm the resend watchdog on echo
 						if (cmd->clientActionID == lastSentActionPacket.clientActionID) {
 							lastSentActionValid = false;
 						}
-
-						// This is the Host echoing the command we already predicted!
-						if (provisionalSnapshots.find(cmd->clientActionID) != provisionalSnapshots.end()) {
-							ofLogNotice("Lockstep") << "Dropping echoed optimistic command clientActionID=" << cmd->clientActionID;
-							provisionalSnapshots.erase(cmd->clientActionID);
-							provisionalCommands.erase(cmd->clientActionID);
-
-							// Sync local command ID counter to match Host's numbering
-							if (cmd->commandId >= nextCommandId) {
-								nextCommandId = cmd->commandId + 1;
-							}
-							// FIX 5: Clean up the fake command key from the executed set so it doesn't pollute memory
-							uint64_t fakeKey = (uint64_t(cmd->playerID) << 32) | uint64_t(0xFFFFFFFF - cmd->clientActionID);
-							executedCommandKeys.erase(fakeKey);
-
-							// CRITICAL FIX: Mark the real key as an optimistic skip so the queue advances the counter
-							uint64_t realKey = (uint64_t(cmd->playerID) << 32) | uint64_t(cmd->commandId);
-							skippedOptimisticCommands.insert(realKey);
-
-						} else {
-							// ROLLBACK RECOVERY: The snapshot was cleared by a rollback! Treat this echoed command as a normal command to execute.
-							queueInputCommand(*cmd);
-						}
-					} else {
-						// ROLLBACK NETCODE: If it's a command from the opponent/server and we have unconfirmed optimistic actions...
-						if (!provisionalSnapshots.empty()) {
-							ofLogWarning("Lockstep") << "CONFLICT: Unpredicted host command received! Rolling back optimistic UI...";
-
-							// 1. Get the oldest snapshot (the state BEFORE we optimistically played our card)
-							auto oldest = provisionalSnapshots.begin();
-							std::string safeSnapshot = oldest->second;
-
-							// 2. Cache the command IDs so we don't break the timeline
-							uint32_t cachedLastProcessed = lastProcessedCommandId;
-							uint32_t cachedNextCommand = nextCommandId;
-
-							// 3. Restore state to BEFORE we optimistically played the card
-							applySnapshotString(safeSnapshot, true);
-
-							// 4. Restore the timeline integers that applySnapshotString doesn't touch
-							lastProcessedCommandId = cachedLastProcessed;
-							nextCommandId = cachedNextCommand;
-
-							// 5. Clear the optimistic tracker. When our echoed command arrives later, it will execute normally.
-							provisionalSnapshots.clear();
-							provisionalCommands.clear();
-						}
-
-						// It's the opponent's command, or a command we didn't predict. Execute it.
-						queueInputCommand(*cmd);
 					}
+					// Always queue and process in strict host-authoritative order.
+					queueInputCommand(*cmd);
+					processCommandQueue();
 				}
 				continue;
 			}
@@ -41781,13 +41748,10 @@ void ofApp::processNetworkPackets() {
 				sendSnapshotToClient(false);
 				queueFloatingTextVisual(textPos, "Resyncing Client...", ofColor::yellow);
 			} else {
-				ofLogNotice("Net") << "Client: Requesting authoritative snapshot for rollback.";
-				SnapshotRequestPacket req = {};
-				req.type = PKT_SNAPSHOT_REQUEST;
-				req.playerID = myLocalPlayerID;
-				req.requestedTurn = globalTurnCounter;
-				steamManager.sendPacket(&req, sizeof(req));
-				queueFloatingTextVisual(textPos, "Desync! Rolling Back...", ofColor::orange);
+				// The host detects the exact same checksum mismatch on this frame
+				// and is already sending the snapshot. Avoid spamming a duplicate request.
+				ofLogNotice("Net") << "Client: Desync detected. Awaiting authoritative host snapshot.";
+				queueFloatingTextVisual(textPos, "Resyncing with Host...", ofColor::orange);
 			}
 
 			// Clear pending checksums so we don't spam desync requests
