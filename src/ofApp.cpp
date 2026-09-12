@@ -5349,6 +5349,7 @@ void ofApp::updateStateMachine() {
 				}
 			}
 			if (steamManager.isHost()) {
+				// Legit reconnect recovery: pass true
 				sendSnapshotToClient(true);
 			}
 		}
