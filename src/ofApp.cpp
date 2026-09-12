@@ -566,15 +566,17 @@ static float g_mpLobbyScroll = 0.0f;
 static float g_mpLeaderboardScroll = 0.0f;
 static ofSoundPlayer g_gameMusic;
 static std::vector<std::string> s_ambienceTracks = {
-	"Sounds/Music/Ambience1.ogg",
-	"Sounds/Music/Ambience2.mp3",
-	"Sounds/Music/Ambience3.mp3",
-	"Sounds/Music/Ambience4.mp3",
-	"Sounds/Music/Ambience5.mp3",
-	"Sounds/Music/Ambience6.mp3",
-	"Sounds/Music/Ambience7.mp3",
-	"Sounds/Music/Ambience8.mp3",
-	"Sounds/Music/Ambience9.mp3"
+	"Sounds/Music/c4.mp3",
+	"Sounds/Music/DinWoahGoo.mp3",
+	"Sounds/Music/Each_Way_Out_Is_Your_Own.mp3",
+	"Sounds/Music/eerie.mp3",
+	"Sounds/Music/f4124.mp3",
+	"Sounds/Music/Forbidden_Zone.mp3",
+	"Sounds/Music/gilweed_pomengranete.mp3",
+	"Sounds/Music/hatetrees.mp3",
+	"Sounds/Music/ihatewalls.mp3",
+	"Sounds/Music/Ramen_Numeral.mp3",
+	"Sounds/Music/Skeleton_Realm.mp3"
 };
 static std::vector<int> s_ambiencePlaylist;
 static float savedGameMusicVolume = 0.0f;
@@ -4367,14 +4369,14 @@ void ofApp::setup() {
 		}
 
 		// Load main menu music (data path: bin/data/Sounds/Music/...)
-		mainMenuMusic.load("Sounds/Music/MainMenu.mp3");
+		mainMenuMusic.load("Sounds/Music/Skeleton_Realm.mp3");
 		mainMenuMusic.setLoop(true);
 		mainMenuMusic.setVolume(1.0f);
 		mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
 		ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
 
 		// Game music is now a dynamic playlist handled in update()
-		ofLogNotice("Audio") << "Game music playlist initialized with 9 tracks.";
+		ofLogNotice("Audio") << "Game music playlist initialized with " << s_ambienceTracks.size() << " tracks.";
 
 		// --- LOAD NEW SFX ---
 		s_sfxD6Roll.load("Sounds/SFX/DiceCoin/D6Roll.ogg");
@@ -5937,7 +5939,7 @@ void ofApp::update() {
 				g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				g_gameMusic.play();
 
-				ofLogNotice("Audio") << "Now playing ambient track: " << s_ambienceTracks[nextTrack];
+				ofLogNotice("Audio") << "Now playing track: " << s_ambienceTracks[nextTrack];
 			}
 		}
 	}
