@@ -8488,13 +8488,17 @@ void ofApp::drawLobby() {
 	drawPixelTextCentered(titleFont, "Modifiers", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
 	drawPixelTextCentered(uiFont, "Coming Soon...", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.getCenter().y, 1.1f, ofColor(160));
 
-	// --- Column 3: Chat Panel (Plaque Background) ---
+	// --- Column 3: Chat Panel Background ---
 	drawMenuPlaquePanel(lobbyChatPanelRect);
 
 	// --- Bottom Row: Action Buttons ---
 	drawMenuPlaqueButton(lobbyLeaveBtn, "Leave Lobby", lobbyLeaveBtn.inside(ofGetMouseX(), ofGetMouseY()));
 
-	if (isHost()) {
+	// Bulletproof Host Check: Player 0 or Host flag
+	bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
+
+	if (isLobbyHost) {
+		// Host has Force Start (Middle) and Start Game (Right)
 		bool allReady = true;
 		for (const auto & lp : g_lobbyPlayers) {
 			if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
@@ -8503,11 +8507,17 @@ void ofApp::drawLobby() {
 		drawMenuPlaqueButton(lobbyForceStartBtn, "Force Start", lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()));
 		drawMenuPlaqueButton(lobbyStartBtn, "Start Game", lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
 	} else {
+		// Client has Ready / Unready (Middle)
 		bool iAmReady = false;
 		for (const auto & lp : g_lobbyPlayers) {
 			if (lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
 		}
 		drawMenuPlaqueButton(lobbyReadyBtn, iAmReady ? "Unready" : "Ready", lobbyReadyBtn.inside(ofGetMouseX(), ofGetMouseY()));
+
+		// Client sees status plaque on Column 3
+		ofSetColor(25, 25, 32, 200);
+		ofDrawRectRounded(lobbyStartBtn, 8);
+		drawPixelTextCentered(uiFont, "Waiting for Host...", lobbyStartBtn.getCenter().x, lobbyStartBtn.getCenter().y, 1.0f, ofColor(160));
 	}
 }
 

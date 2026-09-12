@@ -335,7 +335,14 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 	}
 
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
-	if (m_bIsHost) return;
+
+	// BULLETPROOF HOST FIX:
+	// If we initiated the lobby creation, we are 100% the Host. Never let Steam demote us!
+	if (m_bIsHost || g_isHostingLobby) {
+		m_bIsHost = true;
+		ofLogNotice("Steam") << "Entered our own lobby as authoritative Host.";
+		return;
+	}
 
 	CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 	if (owner == m_LocalID) {
