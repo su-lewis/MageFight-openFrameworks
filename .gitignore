@@ -51,3 +51,5 @@ Release/
 *.VC.db
 *.VC.opendb
 *.aps
+Saves/autosave*.json
+bin/data/Config/settings.json

@@ -5349,7 +5349,7 @@ void ofApp::updateStateMachine() {
 				}
 			}
 			if (steamManager.isHost()) {
-				sendSnapshotToClient();
+				sendSnapshotToClient(false, true);
 			}
 		}
 	}
@@ -5886,21 +5886,9 @@ void ofApp::update() {
 	// Redundant manual resends are disabled to prevent duplicate packet floods.
 	lastSentActionValid = false;
 
-	// If client is waiting for authoritative DraftOptions for too long, request a snapshot
-	// FIX: Do not run this check in headless mode (no visual draft)
-	if (!headless && isClient() && waitingForDraftOptionsStartTime > 0.0f) {
-		float now = ofGetElapsedTimef();
-		if (now - waitingForDraftOptionsStartTime > waitingForDraftOptionsTimeout) {
-			ofLogWarning("Draft") << "Client: waiting for DraftOptions timed out. Requesting authoritative snapshot.";
-			SnapshotRequestPacket req = {};
-			req.type = PKT_SNAPSHOT_REQUEST;
-			req.playerID = myLocalPlayerID;
-			req.requestedTurn = globalTurnCounter;
-			steamManager.sendPacket(&req, sizeof(req));
-			// Bump start time to avoid spamming
-			waitingForDraftOptionsStartTime = now;
-		}
-	}
+	// In deterministic lockstep, draft options are generated synchronously on both machines.
+	// Removed the legacy timer-based snapshot request that spammed the host.
+	waitingForDraftOptionsStartTime = 0.0f;
 
 	// --- CONTINUOUS AUDIO & PLAYLIST MANAGER ---
 	if (!headless) {
@@ -35227,6 +35215,23 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 		draftOptions.push_back(c);
 	selectedDraftIndices = tmpSelectedDraftIndices;
 
+	// Guarantee draft cards and accept buttons are immediately visible and unhidden
+	draftOptionUI.clear();
+	draftOptionUI.resize(draftOptions.size());
+	for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
+		draftOptionUI[ai].startScale = 1.0f;
+		draftOptionUI[ai].currentScale = 1.0f;
+		draftOptionUI[ai].targetScale = 1.0f;
+		draftOptionUI[ai].startFrame = (int)simulationFrame;
+		draftOptionUI[ai].state = DRAFT_ANIM_IDLE;
+		draftOptionUI[ai].hidden = false;
+	}
+	draftAcceptUI.startScale = 1.0f;
+	draftAcceptUI.currentScale = 1.0f;
+	draftAcceptUI.targetScale = 1.0f;
+	draftAcceptUI.state = DRAFT_ANIM_IDLE;
+	draftAcceptUI.hidden = false;
+
 	players = tmpPlayers;
 	graveyard = tmpGraveyard;
 	floatingKeyInstances = tmpFloatingKeys;
@@ -35334,8 +35339,15 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 }
 
 //--------------------------------------------------------------
-void ofApp::sendSnapshotToClient(bool useTurnStartBackup) {
-	if (!isMultiplayer) return;
+void ofApp::sendSnapshotToClient(bool useTurnStartBackup, bool force) {
+	if (!isMultiplayer || !steamManager.isHost()) return;
+
+	// Only send full snapshots during authoritative resync/reconnect windows.
+	// Live gameplay should never reset the opponent's UI by reapplying a full snapshot.
+	if (!force && currentState != STATE_DESYNC && !waitingForReconnect && !g_isSpectator) {
+		ofLogNotice("Snapshot") << "Suppressing live snapshot send outside reconnect/desync recovery.";
+		return;
+	}
 
 	// Rate-limit outgoing snapshots to prevent chunk collision and buffer corruption
 	static float lastSendTime = 0.0f;
@@ -39793,11 +39805,12 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	draftOptionUI.clear();
 	draftOptionUI.resize(draftOptions.size());
 	for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
-		draftOptionUI[ai].startScale = 0.0f; // start fully shrunk
-		draftOptionUI[ai].currentScale = 0.0f;
+		// In-game key drafts appear instantly without hiding the cards
+		draftOptionUI[ai].startScale = isInGameDraft ? 1.0f : 0.0f;
+		draftOptionUI[ai].currentScale = isInGameDraft ? 1.0f : 0.0f;
 		draftOptionUI[ai].targetScale = 1.0f;
 		draftOptionUI[ai].startFrame = (int)simulationFrame;
-		draftOptionUI[ai].state = DRAFT_ANIM_APPEARING;
+		draftOptionUI[ai].state = isInGameDraft ? DRAFT_ANIM_IDLE : DRAFT_ANIM_APPEARING;
 		draftOptionUI[ai].hidden = false;
 	}
 
@@ -40234,10 +40247,11 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 
-		// Calculate Y positions from the bottom up so they cannot overlap.
-		float lineHeight = titleFont.getLineHeight() * scale;
-		float textSpacing = 15.0f * uiScale;
-		float currentY = startY - std::clamp(20.0f * uiScale, 15.0f, 40.0f) - lineHeight;
+		// Position text comfortably between the top bar and the draft cards
+		float topMargin = (turnTimerEnabled ? (8.0f * uiScale + 20.0f * uiScale) : 30.0f * uiScale);
+		float ty = std::max(topMargin, startY - 110.0f * uiScale);
+		float instrTy = ty + 38.0f * uiScale;
+		float classTy = instrTy + 32.0f * uiScale;
 
 		// --- MINI DECISION TIMER FOR OPPONENT DRAFTS ---
 		if (opponentDecisionTimerActive) {
@@ -40247,35 +40261,22 @@ void ofApp::drawDraftScreen() {
 			float barW = 240.0f * uiScale;
 			float barH = 14.0f * uiScale;
 			float barX = ofGetWidth() * 0.5f - barW * 0.5f;
+			float timerY = ty - 24.0f * uiScale;
 
-			// Draw timer bar
 			ofSetColor(20, 20, 30, 220 * g_menuAlphaMult);
-			ofDrawRectRounded(barX - 4.0f, currentY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+			ofDrawRectRounded(barX - 4.0f, timerY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
 			ofSetColor(60, 60, 70, 255 * g_menuAlphaMult);
-			ofDrawRectRounded(barX, currentY, barW, barH, 4.0f);
+			ofDrawRectRounded(barX, timerY, barW, barH, 4.0f);
 			ofColor fillC = ofColor::fromHsb(120 * pct, 200, 220);
 			ofSetColor(fillC.r, fillC.g, fillC.b, 255 * g_menuAlphaMult);
-			ofDrawRectRounded(barX, currentY, barW * pct, barH, 4.0f);
+			ofDrawRectRounded(barX, timerY, barW * pct, barH, 4.0f);
 
 			int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
 			std::string secsText = "Decision " + ofToString(secs) + "s";
 			ofSetColor(255, 255, 255, 255 * g_menuAlphaMult);
 			ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
-			SafeDrawText(uiFont, secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, currentY - 6.0f);
-
-			currentY -= (barH + textSpacing + 12.0f * uiScale); // shift text up
+			SafeDrawText(uiFont, secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, timerY - 6.0f);
 		}
-
-		float classTy = 0.0f;
-		if (!classTierText.empty()) {
-			classTy = currentY;
-			currentY -= (lineHeight + textSpacing);
-		}
-
-		float instrTy = currentY;
-		currentY -= (lineHeight + textSpacing);
-
-		float ty = currentY;
 
 		ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
 		float scaledW = headerBox.width * scale;
@@ -41244,8 +41245,8 @@ void ofApp::processNetworkPackets() {
 
 				SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
 				ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
-				// FIX: Allow remaining peer to respond with current snapshot on reconnect
-				sendSnapshotToClient(false);
+				// Allow remaining peer to respond with current snapshot on reconnect/resync.
+				sendSnapshotToClient(false, true);
 				ofLogNotice("Network") << "Sent current snapshot to reconnected peer " << rp->playerID;
 				continue;
 			}
@@ -41325,8 +41326,8 @@ void ofApp::processNetworkPackets() {
 						ack.elo = myElo;
 						steamManager.sendPacket(&ack, sizeof(ack));
 
-						// Trigger a snapshot send so they get the board!
-						sendSnapshotToClient(false);
+						// Trigger a snapshot send so they get the board on reconnect.
+						sendSnapshotToClient(false, true);
 					}
 				}
 				// 2. CLIENT RECEIVES HOST REQUEST (OR RECONNECT REPLY)
@@ -41534,14 +41535,12 @@ void ofApp::processNetworkPackets() {
 					continue;
 				}
 
-				// SECURITY FIX: Ignore checksums that are ridiculously far from the current turn
-				if (std::abs((int)pkt->turnNumber - (int)globalTurnCounter) > 100) {
+				// Unpack the turn cycle from the upper 16 bits of uniqueTurnId
+				int pktTurn = (pkt->turnNumber >> 16) & 0x7FFF;
+				if (std::abs(pktTurn - (int)globalTurnCounter) > 10) {
 					continue;
 				}
 
-				// DO NOT drop checksums from different turns!
-				// Visual animations can cause a peer to start a turn slightly later/earlier than the other.
-				// Just store it in the map and it will be safely evaluated when the local turn perfectly matches!
 				s_pendingRemoteChecksums[pkt->turnNumber] = pkt->checksum;
 				continue;
 			}
@@ -41747,7 +41746,7 @@ void ofApp::processNetworkPackets() {
 
 			if (steamManager.isHost()) {
 				ofLogNotice("Net") << "Host: Sending authoritative snapshot to force client rollback.";
-				sendSnapshotToClient(false);
+				sendSnapshotToClient(false, true);
 				queueFloatingTextVisual(textPos, "Resyncing Client...", ofColor::yellow);
 			} else {
 				// The host detects the exact same checksum mismatch on this frame

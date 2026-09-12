@@ -1,0 +1,40 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-12 18:36:59
+End Reason: Victory
+Seed: 0
+Turns: 2
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Opponent
+Player 1: planetlewis
+
+--- EVENT LOG ---
+[18:36:21] --- MATCH STARTED ---
+[18:36:24] Turn 0: planetlewis's turn
+[18:36:26] planetlewis moved to (12,1)
+[18:36:26] Turn 1: Opponent's turn
+[18:36:28] Opponent moved to (0,7)
+[18:36:28] Turn 1: planetlewis's turn
+[18:36:36] planetlewis played Summon Magic Wall targeting (11,1)
+[18:36:37] planetlewis moved to (12,2)
+[18:36:38] Turn 2: Opponent's turn
+[18:36:40] Opponent moved to (0,6)
+[18:36:41] Opponent moved to (0,5)
+[18:36:41] Opponent moved to (0,4)
+[18:36:44] Opponent moved to (0,3)
+[18:36:45] Turn 2: planetlewis's turn
+[18:36:59] Opponent win by forfeit (conceded). You lose.
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 1
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
