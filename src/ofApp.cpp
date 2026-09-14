@@ -6885,9 +6885,11 @@ void ofApp::draw() {
 			}
 
 			// --- CENTRALIZED TARGETING INSTRUCTION TEXT ---
-			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
-				Card & interactionCard = players[currentPlayerIndex].hand[interactingCardIndex];
-				string msg = interactionCard.name + ": Choose target";
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+				string msg = "";
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+					msg = players[currentPlayerIndex].hand[interactingCardIndex].name + ": Choose target";
+				}
 
 				if (interactingCardType == CARD_TELEPORT)
 					msg = "Teleport: Choose destination (Range: " + ofToString(interactionDiceRoll) + " ft)";
@@ -6916,7 +6918,28 @@ void ofApp::draw() {
 				else if (interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE)
 					msg = "Pushed by Giant Magic Hand: Choose an empty tile to move to";
 
-				drawInstructionText(msg);
+				if (!msg.empty()) drawInstructionText(msg);
+
+				if (opponentDecisionTimerActive) {
+					float elapsed = (float)((int)(simulationFrame - opponentDecisionStartFrame));
+					float remaining = std::max(0.0f, (float)opponentDecisionDurationFrames - elapsed);
+					float pct = (opponentDecisionDurationFrames > 0) ? (remaining / (float)opponentDecisionDurationFrames) : 0.0f;
+					float barW = 240.0f * scale;
+					float barH = 12.0f * scale;
+					float barX = ofGetWidth() * 0.5f - barW * 0.5f;
+					float barY = ofGetHeight() * 0.25f + 25.0f * scale;
+
+					ofSetColor(20, 20, 30, 220);
+					ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+					ofSetColor(60, 60, 70, 255);
+					ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
+					ofColor fillC = ofColor::fromHsb(120 * pct, 200, 220);
+					ofSetColor(fillC);
+					ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
+
+					int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
+					drawPixelTextCentered(uiFont, "Decision " + ofToString(secs) + "s", ofGetWidth() * 0.5f, barY + barH + 14.0f * scale, 1.0f * scale, ofColor::white, 2, ofColor::black);
+				}
 			}
 
 			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DEATH) drawInstructionText("Death: Choose target");
@@ -16515,7 +16538,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						py += itemH + (menuTileSize * 0.1f);
 					}
 
-					if (isHost()) {
+					bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
+					if (isLobbyHost) {
 						if (lobbyStartBtn.inside(x, y)) {
 							bool allReady = true;
 							for (const auto & lp : g_lobbyPlayers) {
@@ -24476,6 +24500,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toY = dest.y;
 			queueEffect(mv);
 
+			resumeTurnTimerIfPausedForOpponent(tgt);
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
 			resetCardInteraction();
 			magicHandRelocateChoices.clear();
@@ -25655,6 +25680,9 @@ bool ofApp::isEffectSequenceComplete() const {
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
 		return false;
 	}
+	if ((cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) || (opponentInteraction.open && opponentInteraction.type == MENU_MAGIC_HAND_RELOCATE)) {
+		return false;
+	}
 	return currentEffectSequence.isComplete;
 }
 
@@ -25889,27 +25917,24 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 				// If unit survived damage, gather valid escape tiles for them to choose
 				if (players[magicHandPushedUnitIndex].health > 0) {
-					glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
-					glm::ivec2 side1 = wallNewPos;
-					glm::ivec2 side2 = wallNewPos;
-					if (magicHandPushDir.x != 0) {
-						side1 = wallNewPos + glm::ivec2(0, 1);
-						side2 = wallNewPos + glm::ivec2(0, -1);
-					} else {
-						side1 = wallNewPos + glm::ivec2(1, 0);
-						side2 = wallNewPos + glm::ivec2(-1, 0);
-					}
-
-					auto isValid = [&](glm::ivec2 p) {
-						if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
-						if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
-						return true;
-					};
-
 					magicHandRelocateChoices.clear();
-					if (isValid(pushDest1)) magicHandRelocateChoices.push_back(pushDest1);
-					if (isValid(side1)) magicHandRelocateChoices.push_back(side1);
-					if (isValid(side2)) magicHandRelocateChoices.push_back(side2);
+					glm::ivec2 dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+					for (const auto & d : dirs) {
+						glm::ivec2 cand = wallNewPos + d;
+						if (cand == wallOldPos) continue; // Caster is moving into wallOldPos
+						if (cand.x >= 0 && cand.x < BOARD_WIDTH && cand.y >= 0 && cand.y < BOARD_HEIGHT) {
+							bool hasOtherPlayer = false;
+							for (const auto & p : players) {
+								if (p.health > 0 && p.x == cand.x && p.y == cand.y && &p != &players[magicHandPushedUnitIndex]) {
+									hasOtherPlayer = true;
+									break;
+								}
+							}
+							if (!board[cand.x][cand.y].hasWall && !hasOtherPlayer) {
+								magicHandRelocateChoices.push_back(cand);
+							}
+						}
+					}
 
 					if (!magicHandRelocateChoices.empty()) {
 						magicHandRelocateTargetIndex = magicHandPushedUnitIndex;
@@ -25918,14 +25943,23 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						bool isHumanVictim = false;
 						if (isVsAI) {
 							isHumanVictim = (victimOwner == 0); // Only human if Player 0 was pushed!
-						} else if (!isMultiplayer) {
-							isHumanVictim = true;
-						} else {
+						} else if (isMultiplayer) {
 							isHumanVictim = (victimOwner == myLocalPlayerID);
+						} else {
+							isHumanVictim = true;
 						}
 
-						if (isHumanVictim) {
-							// Human chooses their escape tile
+						if (isMultiplayer) {
+							pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
+							if (isHumanVictim) {
+								updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
+								calculateTargetHighlights(-1);
+							} else {
+								opponentInteraction.open = true;
+								opponentInteraction.type = MENU_MAGIC_HAND_RELOCATE;
+								opponentInteraction.targetIndex = magicHandPushedUnitIndex;
+							}
+						} else if (isHumanVictim) {
 							updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
 							calculateTargetHighlights(-1);
 						} else {
@@ -27163,7 +27197,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			if (targetIdx != -1) {
 				magicBlastTargetPlayerIndex = players[targetIdx].playerID;
-				magicBlastChoicesRemaining = 1;
+				magicBlastChoicesRemaining = 3;
 			} else {
 				magicBlastTargetPlayerIndex = -1;
 				magicBlastChoicesRemaining = 0;
@@ -30218,7 +30252,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 	}
 
-	if (playedCard.targeting != TARGET_NONE) {
+	if (playedCard.targeting != TARGET_NONE && playedCard.type != CARD_TELEPORT) {
 		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
 		if (rangeDiceNum > 0 && rangeDiceSides > 0) {
 			float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
@@ -37296,6 +37330,19 @@ void ofApp::drawOpponentMenu() {
 	} else if (opponentInteraction.type == 6) { // <--- ADD THIS BLOCK
 		string title = "Renewed Inspiration";
 		string desc = "Waiting for player to select cards...";
+		float fw = 520, fh = 200;
+		float fx = ofGetWidth() / 2 - fw / 2, fy = ofGetHeight() / 2 - fh / 2;
+		ofRectangle mRect(fx, fy, fw, fh);
+		ofSetColor(30, 30, 40, 240);
+		ofDrawRectRounded(mRect, 12);
+		ofSetColor(ofColor::white);
+		ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
+		SafeDrawText(uiFont, title, mRect.getCenter().x - tbox.getWidth() / 2, mRect.y + 48);
+		ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
+		SafeDrawText(uiFont, desc, mRect.getCenter().x - dbox.getWidth() / 2, mRect.y + 88);
+	} else if (opponentInteraction.type == MENU_MAGIC_HAND_RELOCATE) {
+		string title = "Pushed by Magic Hand";
+		string desc = "Waiting for opponent to choose an escape tile...";
 		float fw = 520, fh = 200;
 		float fx = ofGetWidth() / 2 - fw / 2, fy = ofGetHeight() / 2 - fh / 2;
 		ofRectangle mRect(fx, fy, fw, fh);
