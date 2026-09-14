@@ -707,7 +707,7 @@ ofRectangle lobbyForceStartBtn;
 ofRectangle lobbyReadyBtn;
 ofRectangle lobbyLeaveBtn;
 
-static const uint8_t PKT_LOBBY_UPDATE = 250;
+static const uint8_t PKT_LOBBY_UPDATE = 245; // Fixed: Unique ID to prevent collision with PKT_AUTH_TICKET (250)
 #pragma pack(push, 1)
 struct LobbyUpdatePacket {
 	PacketHeader header;
@@ -2894,10 +2894,10 @@ void ofApp::startInitiativePhase() {
 	};
 	std::vector<PlayerRoll> rolls;
 
-	// Roll 1d20 for each player, and a hidden tie-breaker
+	// Roll 1d6 for each player, and a hidden tie-breaker
 	for (int i = 0; i < numPlayers; i++) {
 		std::vector<int> raw;
-		int r = resolveDiceRollDetailed(1, 20, raw);
+		int r = resolveDiceRollDetailed(1, 6, raw);
 
 		// Use getGameRandom for a deterministic invisible tiebreaker (1 to 1000)
 		int tb = getGameRandom(1, 1000);
@@ -2908,7 +2908,7 @@ void ofApp::startInitiativePhase() {
 		// Find where this player is standing to spawn the die
 		for (const auto & p : players) {
 			if (!p.isMinion && p.playerID == i) {
-				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, r, PURPOSE_DEBUG, i, 1.5f);
+				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, r, PURPOSE_DEBUG, i, 1.5f);
 				break;
 			}
 		}
@@ -9210,6 +9210,7 @@ void ofApp::setupGame() {
 	// --- PLAYER CREATION ---
 	players.clear();
 	if (isMultiplayer && g_lobbyPlayers.size() > 0) {
+		int numLobbyPlayers = (int)g_lobbyPlayers.size();
 		for (size_t i = 0; i < g_lobbyPlayers.size(); i++) {
 			Player p = {};
 			p.playerID = g_lobbyPlayers[i].playerID;
@@ -9218,23 +9219,34 @@ void ofApp::setupGame() {
 			p.summonedOnTurnCycle = -1; // Main players do not suffer from summoning sickness!
 			p.deck.clear();
 
-			// 4 Corners Generation
-			if (p.playerID == 0) {
-				p.x = 0;
-				p.y = BOARD_HEIGHT - 1;
-			} // Bottom Left
-			else if (p.playerID == 1) {
-				p.x = 0;
-				p.y = 0;
-			} // Top Left
-			else if (p.playerID == 2) {
-				p.x = BOARD_WIDTH - 1;
-				p.y = 0;
-			} // Top Right
-			else if (p.playerID == 3) {
-				p.x = BOARD_WIDTH - 1;
-				p.y = BOARD_HEIGHT - 1;
-			} // Bottom Right
+			// Corner Placement: 2-Player matches place P1 at Top-Right (opposite corner)
+			if (numLobbyPlayers <= 2) {
+				if (p.playerID == 0) {
+					p.x = 0;
+					p.y = BOARD_HEIGHT - 1;
+				} // Bottom Left
+				else {
+					p.x = BOARD_WIDTH - 1;
+					p.y = 0;
+				} // Top Right
+			} else {
+				if (p.playerID == 0) {
+					p.x = 0;
+					p.y = BOARD_HEIGHT - 1;
+				} // Bottom Left
+				else if (p.playerID == 1) {
+					p.x = 0;
+					p.y = 0;
+				} // Top Left
+				else if (p.playerID == 2) {
+					p.x = BOARD_WIDTH - 1;
+					p.y = 0;
+				} // Top Right
+				else if (p.playerID == 3) {
+					p.x = BOARD_WIDTH - 1;
+					p.y = BOARD_HEIGHT - 1;
+				} // Bottom Right
+			}
 
 			p.visualPos = gridToWorld(p.x, p.y);
 			board[p.x][p.y].hasPlayer = true;
@@ -10436,7 +10448,9 @@ void ofApp::updateGameLogic() {
 				}
 
 				if (timerState == STATE_DRAFTING) {
-					if (!draftAcceptLocked) {
+					int draftOwner = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? (players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID) : draftPlayerIndex;
+
+					if ((isLocalDraftingPlayer(draftPlayerIndex) || isHost()) && !draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 						while ((int)selectedDraftIndices.size() < requiredPicks) {
 							std::vector<int> candidates;
@@ -10461,7 +10475,7 @@ void ofApp::updateGameLogic() {
 
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
-							cmd.playerID = myLocalPlayerID;
+							cmd.playerID = draftOwner; // Authorized player ID for drafting unit
 							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_ACCEPT_DRAFT;
@@ -10477,13 +10491,13 @@ void ofApp::updateGameLogic() {
 							if (isInGameDraft) {
 								InputCommandPacket endCmd = {};
 								endCmd.type = PKT_INPUT_COMMAND;
-								endCmd.playerID = myLocalPlayerID;
+								endCmd.playerID = draftOwner;
 								endCmd.commandId = 0;
 								endCmd.turnNumber = globalTurnCounter;
 								endCmd.commandType = CMD_END_TURN;
 								sendInputCommand(endCmd, true);
 							}
-							ofLogNotice("Timer") << "Host: Draft timeout processed.";
+							ofLogNotice("Timer") << "Draft timeout processed for player " << draftOwner;
 						} else {
 							turnStartFrame = (int)simulationFrame;
 						}
@@ -24823,9 +24837,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		// SECURITY FIX: Ensure the sender owns the drafting unit
+		// SECURITY FIX: Ensure the sender owns the drafting unit or is the host issuing a timeout
 		int draftOwner = players[cmdDraftPlayerIdx].isMinion ? players[cmdDraftPlayerIdx].ownerID : players[cmdDraftPlayerIdx].playerID;
-		if (isMultiplayer && draftOwner != (int)cmd.playerID) {
+		if (isMultiplayer && draftOwner != (int)cmd.playerID && !isHost()) {
 			ofLogWarning("Security") << "Draft command spoofing attempt blocked. Sender: " << cmd.playerID;
 			break;
 		}
@@ -40427,8 +40441,12 @@ void ofApp::drawInitiativeRoll() {
 		for (const auto & roll : activeDiceRolls) {
 			if (roll.purpose != PURPOSE_DEBUG) continue;
 
-			// Get screen position of the die
-			glm::vec3 worldPos = gridToWorld(players[roll.associatedUnit].x, players[roll.associatedUnit].y);
+			// Fix: roll.associatedUnit is a playerID, not an array index!
+			int pIdx = findPlayerIndexByID(roll.associatedUnit);
+			if (pIdx < 0 || pIdx >= (int)players.size()) continue;
+
+			// Get screen position of the die safely
+			glm::vec3 worldPos = gridToWorld(players[pIdx].x, players[pIdx].y);
 			glm::vec2 screenPos = activeCam.worldToScreen(worldPos + glm::vec3(0, 2.0f, 0));
 
 			std::string pName = getPlayerNameByID(roll.associatedUnit);
@@ -41439,14 +41457,25 @@ void ofApp::processNetworkPackets() {
 				if (!isHost()) {
 					LobbyUpdatePacket * lup = (LobbyUpdatePacket *)header;
 					g_lobbyPlayers.clear();
-					for (int i = 0; i < lup->numPlayers; i++) {
+					int safePlayerCount = std::min((int)lup->numPlayers, 4); // Clamped to struct array limit
+					for (int i = 0; i < safePlayerCount; i++) {
 						LobbyPlayer lp;
 						lp.playerID = lup->players[i].playerID;
 						lp.isReady = (lup->players[i].isReady == 1);
-						lp.name = std::string(lup->players[i].name);
+
+						// Guarantee null-termination before string construction to prevent crash
+						char safeName[33] = { 0 };
+						memcpy(safeName, lup->players[i].name, 32);
+						lp.name = std::string(safeName);
+
 						g_lobbyPlayers.push_back(lp);
 					}
 				}
+				continue;
+			}
+
+			// Safely drop auth ticket packets in network loop if unneeded
+			if (header->type == PKT_AUTH_TICKET) {
 				continue;
 			}
 
@@ -41475,18 +41504,29 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 
-						// Assign new ID
+						// Assign new ID or reuse stale unready placeholder
 						if (assignedID == -1) {
-							if (g_lobbyPlayers.size() < 4) { // Max 4 Players
-								assignedID = (int)g_lobbyPlayers.size();
-								LobbyPlayer lp;
-								lp.playerID = assignedID;
-								lp.seed = pkt->seed;
-								lp.isReady = false;
-								lp.name = "Player " + std::to_string(assignedID + 1);
-								g_lobbyPlayers.push_back(lp);
-							} else {
-								assignedID = 255; // Spectator
+							// Check if an unready placeholder slot exists to reuse before creating a new slot
+							for (size_t i = 1; i < g_lobbyPlayers.size(); i++) {
+								if (g_lobbyPlayers[i].name.rfind("Player ", 0) == 0 && !g_lobbyPlayers[i].isReady) {
+									assignedID = g_lobbyPlayers[i].playerID;
+									g_lobbyPlayers[i].seed = pkt->seed;
+									break;
+								}
+							}
+
+							if (assignedID == -1) {
+								if (g_lobbyPlayers.size() < 4) { // Max 4 Players
+									assignedID = (int)g_lobbyPlayers.size();
+									LobbyPlayer lp;
+									lp.playerID = assignedID;
+									lp.seed = pkt->seed;
+									lp.isReady = false;
+									lp.name = "Player " + std::to_string(assignedID + 1);
+									g_lobbyPlayers.push_back(lp);
+								} else {
+									assignedID = 255; // Spectator
+								}
 							}
 						}
 
