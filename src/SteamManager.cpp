@@ -19,6 +19,7 @@ int SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, uint64_t
 int SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit(intptr_t instancePtr, uint64_t steamIDLobby);
 
 const char * SteamAPI_ISteamFriends_GetPersonaName(intptr_t instancePtr);
+#include <algorithm>
 const char * SteamAPI_ISteamFriends_GetFriendPersonaName(intptr_t instancePtr, uint64_t steamIDFriend);
 int SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
 int SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
@@ -363,7 +364,23 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 	switch (pInfo->m_info.m_eState) {
 	case k_ESteamNetworkingConnectionState_ClosedByPeer:
 	case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-		if (pInfo->m_hConn == m_hConnection) {
+		if (m_bIsHost) {
+			auto removeConnection = [&](std::vector<HSteamNetConnection> & connections) {
+				auto newEnd = std::remove(connections.begin(), connections.end(), pInfo->m_hConn);
+				bool removed = (newEnd != connections.end());
+				connections.erase(newEnd, connections.end());
+				return removed;
+			};
+
+			bool removedClient = removeConnection(g_activeClientConnections);
+			bool removedSpectator = removeConnection(g_spectatorConnections);
+			if (removedClient || removedSpectator) {
+				opponentDisconnected = true;
+				if (g_activeClientConnections.empty() && g_spectatorConnections.empty()) {
+					m_OpponentID = CSteamID();
+				}
+			}
+		} else if (pInfo->m_hConn == m_hConnection) {
 			opponentDisconnected = true;
 			m_hConnection = k_HSteamNetConnection_Invalid;
 		}
