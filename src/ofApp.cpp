@@ -6543,10 +6543,11 @@ void ofApp::draw() {
 
 					if (g_inLobby) {
 						// Lock the global chat box perfectly inside the 3rd Lobby Pillar
-						chatX = lobbyChatPanelRect.x + 8;
-						chatY = lobbyChatPanelRect.getBottom() - 8;
-						chatMaxWidth = lobbyChatPanelRect.width - 16;
-						chatBoxHeight = lobbyChatPanelRect.height - tabHeight - 16;
+						chatX = lobbyChatPanelRect.x + 8.0f;
+						chatMaxWidth = lobbyChatPanelRect.width - 16.0f;
+						chatBoxHeight = lobbyChatPanelRect.height - tabHeight - 16.0f;
+						// Anchor chatY to the bottom of the content area so (ofGetHeight() - chatY) maps correctly
+						chatY = lobbyChatPanelRect.y + tabHeight + chatBoxHeight;
 						isChatOpen = true;
 						isChatMinimized = false;
 					} else {
@@ -16568,6 +16569,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								startCmd.commandType = CMD_PSEUDO_ACTION;
 								startCmd.params[0] = currentMapSeed;
 								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
 								sendInputCommand(startCmd, true);
 							}
 						} else if (lobbyForceStartBtn.inside(x, y)) {
@@ -16579,22 +16581,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 							startCmd.commandType = CMD_PSEUDO_ACTION;
 							startCmd.params[0] = currentMapSeed;
 							strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+							startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
 							sendInputCommand(startCmd, true);
 						}
 					} else {
 						if (lobbyReadyBtn.inside(x, y)) {
-							bool isReady = false;
+							bool nextReady = false;
 							for (auto & lp : g_lobbyPlayers) {
 								if (lp.playerID == myLocalPlayerID) {
 									lp.isReady = !lp.isReady;
-									isReady = lp.isReady;
+									nextReady = lp.isReady;
 									break;
 								}
 							}
 							ClientReadyPacket cr = {};
 							cr.type = PKT_CLIENT_READY;
 							cr.playerID = myLocalPlayerID;
-							cr.ready = isReady ? 1 : 0;
+							cr.ready = nextReady ? 1 : 0;
 							steamManager.sendPacket(&cr, sizeof(cr));
 							return;
 						}
@@ -41413,8 +41416,8 @@ void ofApp::processNetworkPackets() {
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
 
-		// Drop unexpected packets if disconnected or desynced
-		if (!isMultiplayer || currentState == STATE_DESYNC) {
+		// Drop unexpected packets if disconnected or desynced (allow lobby packets through while in lobby)
+		if ((!isMultiplayer && !g_inLobby) || currentState == STATE_DESYNC) {
 			if (header->type != PKT_HANDSHAKE && header->type != PKT_CLIENT_READY && header->type != PKT_LOBBY_UPDATE) {
 				continue;
 			}
@@ -41530,6 +41533,12 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 
+						// Ensure Host's own Steam name is saved in lobby entry 0
+						if (!g_lobbyPlayers.empty() && g_lobbyPlayers[0].playerID == 0) {
+							std::string hostName = steamManager.getLocalPlayerName();
+							if (!hostName.empty()) g_lobbyPlayers[0].name = hostName;
+						}
+
 						// Echo seed and send assigned ID back to client
 						HandshakePacket reply = {};
 						reply.type = PKT_HANDSHAKE;
@@ -41576,8 +41585,9 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
 				ClientReadyPacket * cr = (ClientReadyPacket *)header;
 				if (isHost()) {
+					uint32_t senderID = cr->playerID;
 					for (auto & lp : g_lobbyPlayers) {
-						if (lp.playerID == cr->playerID) {
+						if (lp.playerID == senderID) {
 							lp.isReady = (cr->ready == 1);
 							break;
 						}
@@ -41597,15 +41607,18 @@ void ofApp::processNetworkPackets() {
 				if (strncmp(pkt->message, "\aSYNC_NAME:", 11) == 0) {
 					std::string newName = std::string(pkt->message + 11);
 					if (!newName.empty()) {
+						bool found = false;
 						for (auto & lp : g_lobbyPlayers) {
 							if (lp.playerID == pkt->playerID) {
 								lp.name = newName;
+								found = true;
 								break;
 							}
 						}
 						if (pkt->playerID == 0) player0SteamName = newName;
 						if (pkt->playerID == 1) player1SteamName = newName;
 
+						// Host must re-broadcast the lobby state so all players receive the real name
 						if (isHost()) {
 							broadcastLobbyState(steamManager);
 						}

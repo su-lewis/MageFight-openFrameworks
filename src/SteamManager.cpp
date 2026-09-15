@@ -34,6 +34,7 @@ bool SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pc
 bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
 bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
 uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardUploadScoreMethod, int32_t nScore, const int32_t * pScoreDetails, int cScoreDetailsCount);
+int SteamAPI_ISteamApps_GetLaunchCommandLine(intptr_t instancePtr, char * pszCommandLine, int cubCommandLine);
 }
 
 #ifdef _WIN32
@@ -80,6 +81,33 @@ void SteamManager::setup() {
 		m_LocalID = CSteamID((uint64)SteamAPI_ISteamUser_GetSteamID((intptr_t)SteamUser()));
 		SteamNetworkingUtils()->InitRelayNetworkAccess();
 		ofLogNotice("Steam") << "Initialized. LocalID: " << m_LocalID.ConvertToUint64();
+
+		// Handle Cold-Boot Invites (+connect_lobby)
+		if (SteamApps()) {
+			char cmdLine[1024] = { 0 };
+			SteamAPI_ISteamApps_GetLaunchCommandLine((intptr_t)SteamApps(), cmdLine, sizeof(cmdLine));
+			std::string cmdStr(cmdLine);
+			size_t pos = cmdStr.find("+connect_lobby");
+			if (pos != std::string::npos) {
+				std::string lobbyIdStr = cmdStr.substr(pos + 14); // Length of "+connect_lobby"
+				// Trim leading spaces
+				lobbyIdStr.erase(0, lobbyIdStr.find_first_not_of(" \t"));
+				// Trim trailing garbage data
+				size_t endPos = lobbyIdStr.find_first_of(" \t");
+				if (endPos != std::string::npos) lobbyIdStr.erase(endPos);
+
+				try {
+					uint64_t id = std::stoull(lobbyIdStr);
+					if (id > 0) {
+						ofLogNotice("Steam") << "Cold-boot invite detected! Auto-joining lobby: " << id;
+						joinLobbyByID(CSteamID((uint64)id));
+						g_isConnectingToLobby = true; // Tell UI to show "Connecting" screen
+					}
+				} catch (...) {
+					ofLogError("Steam") << "Failed to parse cold-boot lobby ID.";
+				}
+			}
+		}
 	} else {
 		ofLogError("Steam") << "Failed to init Steam API. Is Steam running?";
 	}
@@ -421,15 +449,21 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 void SteamManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback) {
 	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), pCallback->m_steamIDLobby.ConvertToUint64());
 	m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
+	g_isConnectingToLobby = true; // Tell UI to show "Connecting" screen
 }
 
 void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallback) {
 	std::string cmd = pCallback->m_rgchConnect;
-	size_t split = cmd.find(" ");
+	size_t split = cmd.find("+connect_lobby ");
 	if (split != std::string::npos) {
-		CSteamID id(std::stoull(cmd.substr(split + 1)));
-		SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), id.ConvertToUint64());
-		m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
+		try {
+			CSteamID id(std::stoull(cmd.substr(split + 15))); // +15 steps past "+connect_lobby "
+			SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), id.ConvertToUint64());
+			m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
+			g_isConnectingToLobby = true; // Tell UI to show "Connecting" screen
+		} catch (...) {
+			ofLogError("Steam") << "Failed to parse Rich Presence lobby ID.";
+		}
 	}
 }
 
