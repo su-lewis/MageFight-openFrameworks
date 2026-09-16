@@ -6352,10 +6352,12 @@ void ofApp::draw() {
 	const bool applyPostToUI = (usePixelPass || useC64Pass || useBlurPass);
 
 	if (applyPostToUI) {
-		if (!g_uiPostFbo.isAllocated() || g_uiPostFbo.getWidth() != ofGetWidth() || g_uiPostFbo.getHeight() != ofGetHeight()) {
+		int safeW = std::max(2, ofGetWidth());
+		int safeH = std::max(2, ofGetHeight());
+		if (!g_uiPostFbo.isAllocated() || g_uiPostFbo.getWidth() != safeW || g_uiPostFbo.getHeight() != safeH) {
 			ofFbo::Settings s;
-			s.width = ofGetWidth();
-			s.height = ofGetHeight();
+			s.width = safeW;
+			s.height = safeH;
 			s.internalformat = GL_RGBA8;
 			s.textureTarget = GL_TEXTURE_2D;
 			s.useDepth = true;
@@ -6363,7 +6365,7 @@ void ofApp::draw() {
 			s.depthStencilAsTexture = false;
 			g_uiPostFbo.allocate(s);
 
-			g_textFbo.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA8);
+			g_textFbo.allocate(safeW, safeH, GL_RGBA8);
 
 			if (enablePixelArt || enableC64Shader) {
 				g_uiPostFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -8735,7 +8737,11 @@ void ofApp::applySettings() {
 		GLFWmonitor * monitor = glfwGetPrimaryMonitor();
 		if (monitor) {
 			const GLFWvidmode * mode = glfwGetVideoMode(monitor);
-			ofSetWindowPosition(0, 0);
+
+			// CRITICAL FIX: Wayland compositor crashes/black-screens if apps force their own position!
+			if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
+				ofSetWindowPosition(0, 0);
+			}
 			ofSetWindowShape(mode->width, mode->height);
 		}
 		isFullscreen = true;
