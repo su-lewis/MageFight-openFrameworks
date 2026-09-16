@@ -41716,7 +41716,7 @@ void ofApp::processNetworkPackets() {
 				InputCommandPacket * cmd = (InputCommandPacket *)header;
 				cmd->stringData[sizeof(cmd->stringData) - 1] = '\0';
 
-				if (isHost()) {
+				if (steamManager.isHost()) {
 					if (cmd->playerID != (uint32_t)myLocalPlayerID) {
 						// Host stamps official ID and FORWARDS the action to EVERYONE (Star Topology)
 						cmd->commandId = nextCommandId++;
@@ -41725,6 +41725,13 @@ void ofApp::processNetworkPackets() {
 						processCommandQueue();
 					}
 				} else {
+					// CRITICAL FIX: Identify the echoed optimistic command from the Host
+					// If this is our own command returning, mark it as skipped so we don't execute it twice!
+					if (cmd->playerID == (uint32_t)myLocalPlayerID && cmd->clientActionID > 0) {
+						uint64_t officialKey = (uint64_t(cmd->playerID) << 32) | uint64_t(cmd->commandId);
+						skippedOptimisticCommands.insert(officialKey);
+					}
+
 					queueInputCommand(*cmd);
 					processCommandQueue();
 				}
