@@ -1020,7 +1020,7 @@ static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) 
 	ui.stackVerticalGap = 20.0f * scale;
 	ui.minionEntryGapUnscaled = 20.0f;
 	ui.minionIconGap = 6.0f * scale;
-	ui.timerBarHeight = turnTimerEnabled ? (8.0f * scale) : 0.0f;
+	ui.timerBarHeight = turnTimerEnabled ? (16.0f * scale) : 0.0f;
 	ui.chatInset = 8.0f * scale;
 	ui.healthBarSideGap = 8.0f * scale;
 	ui.healthBarInwardNudge = 12.0f * scale;
@@ -6328,7 +6328,7 @@ void ofApp::draw() {
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 		float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-		float startY = 12.0f * scale;
+		float startY = turnTimerEnabled ? (16.0f * scale + 12.0f * scale) : (12.0f * scale);
 		for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 			ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
 			if (iconRect.inside(ofGetMouseX(), ofGetMouseY())) {
@@ -7082,7 +7082,9 @@ void ofApp::draw() {
 				float spacing = 8.0f * scale;
 				float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
 				float startX = (ofGetWidth() / 2.0f) - totalW / 2.0f;
-				float startY = 12.0f * scale;
+
+				bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && (!draftOptions.empty() || isInGameDraft));
+				float startY = (turnTimerEnabled && timerStateVisible) ? (16.0f * scale + 12.0f * scale) : (12.0f * scale);
 
 				for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 					ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
@@ -13629,7 +13631,7 @@ void ofApp::drawGame() {
 		float progress = std::min(1.0f, elapsedSeconds / durationSeconds); // 0 to 1
 
 		// Bar dimensions: stretch from left to right, thin at top
-		float barHeight = 8 * scale;
+		float barHeight = 16.0f * scale;
 		float barWidth = ofGetWidth();
 		float barY = 0;
 
@@ -13668,7 +13670,7 @@ void ofApp::drawGame() {
 	// --- DRAW PLAYER PROFILES (Top Corners) ---
 	float profileW = 250.0f * scale;
 	float profileH = 56.0f * scale;
-	float profileY = (turnTimerEnabled && timerStateVisible && shouldShowTopTimer) ? (8.0f * scale + 12.0f * scale) : (12.0f * scale);
+	float profileY = (turnTimerEnabled && timerStateVisible && shouldShowTopTimer) ? (16.0f * scale + 12.0f * scale) : (12.0f * scale);
 
 	// Match Minion UI edge positioning
 	float p0_profileX = sideInset;
@@ -13710,9 +13712,10 @@ void ofApp::drawGame() {
 		p.setStrokeColor(strokeColor);
 		p.draw();
 
-		float avatarSize = h - 16.0f * scale;
-		float avatarX = isLocal ? (x + 8.0f * scale) : (x + w - avatarSize - 8.0f * scale);
-		float avatarY = y + 8.0f * scale;
+		float borderPadding = 3.0f * scale;
+		float avatarSize = h - (borderPadding * 2.0f);
+		float avatarX = isLocal ? (x + borderPadding) : (x + w - avatarSize - borderPadding);
+		float avatarY = y + borderPadding;
 
 		ofSetColor(40, 40, 50, 255);
 		ofDrawRectangle(avatarX, avatarY, avatarSize, avatarSize); // Non-rounded avatar
@@ -29706,6 +29709,13 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = (int)validSelections.size();
 				cmd.params[2] = interactingCardIndex;
 
+				// CRITICAL FIX: Ensure the client assigns an action ID so the Optimistic UI can track it!
+				// Without this, the Host's echoed command causes a duplicate execution crash!
+				if (isClient()) {
+					cmd.seq = ++watchdogClientActionCounter;
+					cmd.clientActionID = cmd.seq;
+				}
+
 				uint32_t maskLow = 0;
 				uint32_t maskHigh = 0;
 				for (int idx : validSelections) {
@@ -40643,7 +40653,7 @@ void ofApp::drawDraftScreen() {
 		}
 
 		// Position text comfortably between the top bar and the draft cards
-		float topMargin = (turnTimerEnabled ? (8.0f * uiScale + 20.0f * uiScale) : 30.0f * uiScale);
+		float topMargin = (turnTimerEnabled ? (16.0f * uiScale + 20.0f * uiScale) : 30.0f * uiScale);
 		float ty = std::max(topMargin, startY - 110.0f * uiScale);
 		float instrTy = ty + 38.0f * uiScale;
 		float classTy = instrTy + 32.0f * uiScale;
