@@ -1,0 +1,66 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-16 23:57:01
+End Reason: Victory
+Seed: 0
+Turns: 5
+Winner ID: 0
+
+--- PLAYERS ---
+
+--- EVENT LOG ---
+[23:54:01] --- MATCH STARTED ---
+[23:54:06] Turn 0: planetlewis's turn
+[23:54:11] planetlewis moved to (12,3)
+[23:54:12] Turn 1: Opponent's turn
+[23:54:13] Opponent played Dispel targeting (0,8)
+[23:54:14] Opponent moved to (0,7)
+[23:54:15] Opponent played Dispel targeting (0,7)
+[23:54:15] Opponent moved to (0,6)
+[23:54:16] Opponent played Dispel targeting (0,6)
+[23:54:17] Opponent moved to (0,5)
+[23:54:18] Opponent moved to (0,4)
+[23:54:20] Turn 1: planetlewis's turn
+[23:54:23] planetlewis moved to (11,3)
+[23:54:25] planetlewis moved to (10,3)
+[23:54:26] planetlewis moved to (9,3)
+[23:54:33] Turn 2: Opponent's turn
+[23:54:35] Opponent moved to (0,3)
+[23:54:36] Opponent moved to (1,3)
+[23:54:39] Opponent moved to (2,3)
+[23:54:39] Opponent moved to (3,3)
+[23:54:40] Opponent moved to (4,3)
+[23:54:41] Opponent moved to (4,4)
+[23:54:44] Turn 2: planetlewis's turn
+[23:54:47] planetlewis moved to (8,3)
+[23:54:47] Turn 3: Opponent's turn
+[23:54:49] Opponent played Dispel targeting (4,4)
+[23:54:50] Opponent moved to (4,3)
+[23:54:51] Opponent played Dispel targeting (4,3)
+[23:54:54] Opponent moved to (5,3)
+[23:54:55] Opponent played Dispel targeting (5,3)
+[23:54:56] Opponent moved to (5,2)
+[23:54:56] Opponent played Dispel targeting (5,2)
+[23:54:57] Opponent moved to (6,2)
+[23:54:58] Opponent played Dispel targeting (6,2)
+[23:54:58] Opponent moved to (6,1)
+[23:55:01] Opponent moved to (7,1)
+[23:55:02] Turn 3: planetlewis's turn
+[23:55:05] planetlewis moved to (8,4)
+[23:55:09] planetlewis moved to (7,5)
+[23:55:09] Turn 4: Opponent's turn
+[23:55:11] Opponent played Hasten targeting (7,1)
+[23:55:12] Opponent moved to (7,0)
+[23:55:13] Opponent moved to (8,0)
+[23:55:15] Opponent moved to (9,0)
+[23:55:16] Opponent moved to (10,0)
+[23:55:17] Opponent moved to (11,0)
+[23:55:18] Turn 4: planetlewis's turn
+[23:55:36] Turn 5: Opponent's turn
+[23:55:38] Opponent moved to (10,0)
+[23:55:39] Opponent moved to (9,0)
+[23:55:40] Opponent moved to (8,0)
+[23:55:41] Turn 5: planetlewis's turn
+[23:57:01] Opponent win by forfeit (conceded). You lose.
+
+--- STATS ---
+=====================

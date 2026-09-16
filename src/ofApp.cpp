@@ -9562,8 +9562,14 @@ void ofApp::prepareGameVisualState() {
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
 	float uiScale = getUIScaleFromHeight(ofGetHeight());
+	float scale1080 = (float)ofGetHeight() / 1080.0f;
 	float btnWidth = 260 * uiScale;
-	float visibleY = 92.0f * uiScale;
+
+	// History Y is at 16 (timer) + 12 (margin) = 28 * scale1080
+	// History H is 46 * scale1080
+	// History Bottom = 74 * scale1080
+	// Provide a nice 12px gap below history
+	float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
 
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
@@ -14076,6 +14082,42 @@ void ofApp::drawGame() {
 		const bool hoverP1Deck = canDrawPileHover && p1_deckRect.inside(hoverMouseX, hoverMouseY);
 		const bool hoverP1Discard = canDrawPileHover && p1_discardRect.inside(hoverMouseX, hoverMouseY);
 
+		// Compute whether the players should be allowed to draw from the main deck
+		bool isLocalPlayersTurnForMainDeck = false;
+		bool activeMainDeckAlreadyDrawn = false;
+		bool isOpponentPlayersTurnForMainDeck = false;
+		if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+			Player & activePlayer = players[currentPlayerIndex];
+			if (isMultiplayer) {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+				isOpponentPlayersTurnForMainDeck = (activePlayer.playerID != myLocalPlayerID && !activePlayer.isMinion);
+			} else {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
+				isOpponentPlayersTurnForMainDeck = (activePlayer.playerID != 0 && !activePlayer.isMinion);
+			}
+			activeMainDeckAlreadyDrawn = activePlayer.hasDrawnThisTurn;
+		}
+
+		// Draw "Able to Draw" Highlight BEFORE the local deck so it acts as a glow behind it
+		if (isLocalPlayersTurnForMainDeck && !activeMainDeckAlreadyDrawn) {
+			ofPushStyle();
+			float pulse = 1.0f + 0.15f * sin(ofGetElapsedTimef() * 4.0f);
+			float glowW = p0_deckRect.width + (12.0f * scale * pulse);
+			float glowH = p0_deckRect.height + (12.0f * scale * pulse);
+			float glowX = p0_deckRect.getCenter().x - glowW / 2.0f;
+			float glowY = p0_deckRect.getCenter().y - glowH / 2.0f;
+
+			ofSetColor(255, 255, 0, 150); // Yellow glow
+			ofFill();
+			ofDrawRectRounded(glowX, glowY, glowW, glowH, 12 * scale);
+
+			ofSetColor(255, 255, 100, 255); // Inner brighter rim
+			ofNoFill();
+			ofSetLineWidth(3 * scale);
+			ofDrawRectRounded(glowX, glowY, glowW, glowH, 12 * scale);
+			safePopStyle();
+		}
+
 		// P0 Deck (LOCAL player's deck)
 		if (!localPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
@@ -14090,31 +14132,6 @@ void ofApp::drawGame() {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(255, 255, 255, 200);
-			ofSetLineWidth(4 * scale);
-			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
-			ofDrawRectangle(hoverRect);
-			safePopStyle();
-		}
-
-		// Compute whether the local player should be allowed to draw from the main deck
-		bool isLocalPlayersTurnForMainDeck = false;
-		bool activeMainDeckAlreadyDrawn = false;
-		if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
-			Player & activePlayer = players[currentPlayerIndex];
-			if (isMultiplayer) {
-				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
-			} else {
-				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
-			}
-			// Determine which drawn flag applies to the active player
-			activeMainDeckAlreadyDrawn = activePlayer.hasDrawnThisTurn;
-		}
-
-		// Only highlight deck if it's the active main-deck turn and that active player hasn't drawn yet
-		if (isLocalPlayersTurnForMainDeck && !activeMainDeckAlreadyDrawn) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
 			ofDrawRectangle(hoverRect);
@@ -14160,6 +14177,26 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
 		}
 
+		// Draw "Able to Draw" Highlight BEFORE the opponent deck so it acts as a glow behind it
+		if (isOpponentPlayersTurnForMainDeck && !opponentHasDrawnCardsThisTurn) {
+			ofPushStyle();
+			float pulse = 1.0f + 0.15f * sin(ofGetElapsedTimef() * 4.0f);
+			float glowW = p1_deckRect.width + (12.0f * scale * pulse);
+			float glowH = p1_deckRect.height + (12.0f * scale * pulse);
+			float glowX = p1_deckRect.getCenter().x - glowW / 2.0f;
+			float glowY = p1_deckRect.getCenter().y - glowH / 2.0f;
+
+			ofSetColor(255, 255, 0, 150); // Yellow glow
+			ofFill();
+			ofDrawRectRounded(glowX, glowY, glowW, glowH, 12 * scale);
+
+			ofSetColor(255, 255, 100, 255); // Inner brighter rim
+			ofNoFill();
+			ofSetLineWidth(3 * scale);
+			ofDrawRectRounded(glowX, glowY, glowW, glowH, 12 * scale);
+			safePopStyle();
+		}
+
 		// P1 Deck (OPPONENT player's deck)
 		if (!opponentPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
@@ -14190,27 +14227,6 @@ void ofApp::drawGame() {
 			} else {
 				ofDrawRectangle(p1_discardRect);
 			}
-			safePopStyle();
-		}
-
-		// Show outline for opponent's deck when it's their main-deck turn and they haven't drawn yet
-		bool isOpponentPlayersTurnForMainDeck = false;
-		if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
-			Player & activePlayer = players[currentPlayerIndex];
-			if (isMultiplayer) {
-				isOpponentPlayersTurnForMainDeck = (activePlayer.playerID != myLocalPlayerID && !activePlayer.isMinion);
-			} else {
-				isOpponentPlayersTurnForMainDeck = (activePlayer.playerID != 0 && !activePlayer.isMinion);
-			}
-		}
-
-		if (isOpponentPlayersTurnForMainDeck && !opponentHasDrawnCardsThisTurn) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(ofColor::yellow);
-			ofSetLineWidth(4 * scale);
-			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
-			ofDrawRectangle(hoverRect);
 			safePopStyle();
 		}
 
@@ -14515,7 +14531,8 @@ void ofApp::drawGame() {
 	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
 		float btnWidth_tmp = 260 * uiScaleBtn; // CHANGED: Increased from 250
-		float visibleY = 92 * uiScaleBtn;
+		float scale1080 = (float)ofGetHeight() / 1080.0f;
+		float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
 		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
 		// Ensure extra room for stroke/glow so top outlines aren't clipped
 		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
@@ -20330,8 +20347,11 @@ void ofApp::windowResized(int w, int h) {
 
 	// 1. Snap End Turn Button
 	float scale = getUIScaleFromHeight(h);
+	float scale1080 = (float)h / 1080.0f;
 	float btnWidth = 260 * scale; // CHANGED: Increased from 250
-	float visibleY = 92.0f * scale;
+
+	// Dynamically sit below the new card history + timer height
+	float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
 
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
