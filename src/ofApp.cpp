@@ -23452,10 +23452,16 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			lastSentActionTime = ofGetElapsedTimef();
 			lastSentActionResendCount = 0;
 
-			// Send intent to host; do NOT predict locally.
-			// The host sequences the command and echoes it back in ~20ms,
-			// ensuring both peers execute identically with zero rollback desyncs.
 			steamManager.sendPacket(&cmd, sizeof(cmd));
+
+			// CRITICAL FIX: Restore Optimistic UI for the Client!
+			// Apply the action locally immediately so there is zero input lag.
+			if (applyLocally) {
+				// Assign a massive fake ID so the local lockstep queue processes it instantly
+				cmd.commandId = 0x7FFFFFFF + cmd.seq;
+				queueInputCommand(cmd);
+				processCommandQueue();
+			}
 			return true;
 		} else if (steamManager.isHost()) {
 			cmd.seq = ++watchdogClientActionCounter;
