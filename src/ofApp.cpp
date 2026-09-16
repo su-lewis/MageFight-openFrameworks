@@ -749,10 +749,8 @@ std::string getPlayerNameByID(int id) {
 
 float getCameraAngleForPlayer(int playerID) {
 	// Rotates the camera perfectly around the center of the board
-	if (playerID == 0) return 0.0f; // Bottom-Left
-	if (playerID == 1) return -90.0f; // Top-Left
-	if (playerID == 2) return 180.0f; // Top-Right
-	if (playerID == 3) return 90.0f; // Bottom-Right
+	if (playerID == 0 || playerID == 2) return 0.0f; // Normal View
+	if (playerID == 1 || playerID == 3) return 180.0f; // Flipped View
 	return 0.0f; // Spectators default to P0 view
 }
 // ------------------------------
@@ -2901,13 +2899,18 @@ void ofApp::startInitiativePhase() {
 
 		// Use getGameRandom for a deterministic invisible tiebreaker (1 to 1000)
 		int tb = getGameRandom(1, 1000);
-		rolls.push_back({ i, r, tb });
+
+		// CRITICAL FIX: Extract the exact Player ID, do not rely on the loop index!
+		int realPlayerID = i;
+		if (i < players.size()) realPlayerID = players[i].playerID;
+
+		rolls.push_back({ realPlayerID, r, tb });
 
 		currentEffectSequence.blackboard[i] = r; // Store for visual UI
 
 		// Find where this player is standing to spawn the die
 		for (const auto & p : players) {
-			if (!p.isMinion && p.playerID == i) {
+			if (!p.isMinion && p.playerID == realPlayerID) {
 				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, r, PURPOSE_DEBUG, i, 1.5f);
 				break;
 			}
@@ -23432,7 +23435,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 
 	if (isMultiplayer || g_inLobby) {
 		// In AI-vs-AI, we are BOTH the host and the client. Bypass the isClient() check!
-		bool isClientRole = (!isHost());
+		bool isClientRole = (!steamManager.isHost());
 		if (isClientRole && !isAIvsAI) {
 			cmd.seq = ++watchdogClientActionCounter;
 			cmd.clientActionID = cmd.seq; // Tag with local prediction ID
@@ -23448,7 +23451,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 			// ensuring both peers execute identically with zero rollback desyncs.
 			steamManager.sendPacket(&cmd, sizeof(cmd));
 			return true;
-		} else if (isHost()) {
+		} else if (steamManager.isHost()) {
 			cmd.seq = ++watchdogClientActionCounter;
 			cmd.commandId = nextCommandId++; // Host assigns official ID
 
@@ -25172,6 +25175,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			// Call setupGame() which will read the lobby players and roll initiative
 			setupGame();
+
+			// CRITICAL FIX: Restore the sequence counters so the queue doesn't swallow the next commands!
+			nextCommandId = cmd.commandId + 1;
+			lastProcessedCommandId = cmd.commandId;
 			break;
 		}
 
