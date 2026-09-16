@@ -6002,11 +6002,15 @@ void ofApp::update() {
 					lastHandshakeSendTime = ofGetElapsedTimef();
 
 					if (!waitingForClientHandshake) {
-						ofLogNotice("Network") << "Host: Opponent found. Initiating XOR Handshake.";
+						ofLogNotice("Network") << "Host: Opponent found. Initiating Handshake.";
 						waitingForClientHandshake = true;
 						std::random_device rd;
 						localSeedComponent = rd();
 						myElo = steamManager.getLocalElo();
+
+						// FIX: Only generate and send the heavy Auth Session Ticket ONCE!
+						// Generating a crypto ticket every 1 second caused massive mouse stuttering.
+						SendLocalAuthSessionTicket(steamManager, 0);
 					} else {
 						ofLogNotice("Network") << "Host: Handshake retry sent...";
 					}
@@ -6018,9 +6022,6 @@ void ofApp::update() {
 					pkt.seed = localSeedComponent;
 					pkt.elo = myElo;
 					steamManager.sendPacket(&pkt, sizeof(pkt));
-
-					// Send Steam Auth Session Ticket to client for backend verification
-					SendLocalAuthSessionTicket(steamManager, 0);
 				}
 			}
 		}
@@ -6107,7 +6108,7 @@ void ofApp::update() {
 	case STATE_DESYNC:
 		break;
 	case STATE_MULTIPLAYER_MENU:
-		if (!g_isHostingLobby && !g_isConnectingToLobby) {
+		if (!g_inLobby && !g_isHostingLobby && !g_isConnectingToLobby) {
 			float now = ofGetElapsedTimef();
 			if (now - g_lastLobbyRefreshTime > 2.0f) {
 				steamManager.refreshLobbies();
@@ -6444,7 +6445,7 @@ void ofApp::draw() {
 			this->drawActiveDraftPickedMoves();
 		}
 
-		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_DESYNC || (currentState == STATE_PAUSED && (pausedFromState == STATE_GAMEPLAY || pausedFromState == STATE_DRAFTING || pausedFromState == STATE_INITIATIVE_ROLL)) || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DESYNC || stateBeforeSettings == STATE_PAUSED))) {
+		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_DESYNC || (currentState == STATE_PAUSED && (pausedFromState == STATE_GAMEPLAY || pausedFromState == STATE_DRAFTING || pausedFromState == STATE_INITIATIVE_ROLL)) || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_GAMEPLAY || stateBeforeSettings == STATE_DRAFTING || stateBeforeSettings == STATE_INITIATIVE_ROLL || stateBeforeSettings == STATE_DESYNC || stateBeforeSettings == STATE_PAUSED)) || g_inLobby) {
 
 			ofPushStyle();
 			ofDisableDepthTest();
@@ -23401,7 +23402,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	cmd.turnNumber = globalTurnCounter;
 
 	// In simulated mode, let the AI send with ID 0 and you with ID 1
-	if (!g_isSimulatedMultiplayer && isMultiplayer && !isAIvsAI) {
+	if (!g_isSimulatedMultiplayer && (isMultiplayer || g_inLobby) && !isAIvsAI) {
 		cmd.playerID = myLocalPlayerID;
 	}
 
@@ -23413,9 +23414,10 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 		return true;
 	}
 
-	if (isMultiplayer) {
+	if (isMultiplayer || g_inLobby) {
 		// In AI-vs-AI, we are BOTH the host and the client. Bypass the isClient() check!
-		if (isClient() && !isAIvsAI) {
+		bool isClientRole = (!isHost());
+		if (isClientRole && !isAIvsAI) {
 			cmd.seq = ++watchdogClientActionCounter;
 			cmd.clientActionID = cmd.seq; // Tag with local prediction ID
 			cmd.commandId = 0; // Host assigns the official ID
@@ -41551,7 +41553,7 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 				// 2. CLIENT RECEIVES ASSIGNED ID FROM HOST
-				else if (!steamManager.isHost() && pkt->seed == localSeedComponent && (myLocalPlayerID == 255 || myLocalPlayerID == 1)) {
+				else if (!steamManager.isHost() && pkt->seed == localSeedComponent && !hasReceivedHandshake) {
 					myLocalPlayerID = pkt->playerID;
 					if (myLocalPlayerID == 255) g_isSpectator = true;
 
