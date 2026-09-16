@@ -20769,8 +20769,8 @@ void ofApp::startNewTurn() {
 
 		if (startingPlayer.health <= 0) skipTurn = true;
 
-		// 3. Paralysis
-		if (!skipTurn && startingPlayer.isParalyzed) {
+		// 3. Paralysis (Bypassed if currently Sleeping)
+		if (!skipTurn && startingPlayer.isParalyzed && startingPlayer.sleepTurnsRemaining <= 0) {
 			std::vector<int> rawFlip;
 			int flip = resolveDiceRollDetailed(1, 2, rawFlip);
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
