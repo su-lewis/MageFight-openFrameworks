@@ -16609,6 +16609,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 									break;
 								}
 							}
+
+							// CRITICAL FIX: The client should immediately see their own Ready state change!
 							ClientReadyPacket cr = {};
 							cr.type = PKT_CLIENT_READY;
 							cr.playerID = myLocalPlayerID;
@@ -23525,7 +23527,8 @@ void ofApp::processCommandQueue() {
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
-				if (actionName != "Forfeit" && actionName != "Desync" && actionName != "ToggleUnlimitedAP" && actionName != "ToggleUnlimitedTime") {
+				// CRITICAL FIX: Whitelist "StartMatch" so it is never paused by lingering menu states!
+				if (actionName != "Forfeit" && actionName != "Desync" && actionName != "ToggleUnlimitedAP" && actionName != "ToggleUnlimitedTime" && actionName != "StartMatch") {
 					break; // PAUSE THE QUEUE
 				}
 			}
@@ -41521,7 +41524,8 @@ void ofApp::processNetworkPackets() {
 
 				// 1. HOST RECEIVES HANDSHAKE
 				if (steamManager.isHost()) {
-					if (pkt->playerID == 255 || pkt->playerID == 1) { // Unassigned or connecting Client
+					// CRITICAL FIX: Accept ID 0 (fresh clients defaulting to singleplayer ID)
+					if (pkt->playerID == 255 || pkt->playerID == 1 || pkt->playerID == 0) {
 						int assignedID = -1;
 						// Reconnect check by seed
 						for (auto & lp : g_lobbyPlayers) {
