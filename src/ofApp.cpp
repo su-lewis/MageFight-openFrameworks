@@ -6624,6 +6624,10 @@ void ofApp::draw() {
 						float contentTop = chatY - chatBoxHeight + contentPadding;
 						float contentBottom = chatY - contentPadding;
 
+						// CRITICAL FIX: Force text rendering ON for the Chat UI even if shaders are processing!
+						bool oldRenderText = g_renderText;
+						g_renderText = true;
+
 						if (currentChatTab == ChatTab::CHAT) {
 							string charCount = ofToString(chatInput.length()) + " / " + ofToString(maxChatInputLength);
 							ofRectangle countBox = uiFont.getStringBoundingBox(charCount, 0, 0);
@@ -6825,11 +6829,19 @@ void ofApp::draw() {
 							drawChatDebugButton(debugSpawnUnitButton, "SpawnPlayer", true, debugSpawnMode == DEBUG_SPAWN_FULL_DECK);
 						}
 
+						// CRITICAL FIX: Restore previous text rendering state
+						g_renderText = oldRenderText;
+
 						if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 						safePopStyle();
 
 					} else {
 						chatWindowRect.set(0, 0, 0, 0);
+
+						// CRITICAL FIX: Force text rendering ON for lingering messages!
+						bool oldRenderText = g_renderText;
+						g_renderText = true;
+
 						float closedContentTop = margin + contentPadding;
 						float closedContentBottom = ofGetHeight();
 						float messageY = closedContentTop + messageHeight * 0.8f;
@@ -6847,6 +6859,8 @@ void ofApp::draw() {
 								messageY += messageHeight;
 							}
 						}
+
+						g_renderText = oldRenderText;
 					}
 				}
 			}
@@ -38512,6 +38526,14 @@ void ofApp::cleanupGame() {
 	activeStolenCardAnimations.clear();
 	activePlayedCardAnimations.clear();
 	activeRemovedCardAnimations.clear();
+
+	// CRITICAL FIX: Reset all logical locking flags so the next lobby doesn't freeze!
+	isProcessingEffect = false;
+	isEarthquakeActive = false;
+	cardPlayState = CARD_PLAY_STATE_IDLE;
+	s_playerDeathDelayMap.clear();
+	lastProcessedCommandId = 0;
+	nextCommandId = 1;
 
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
