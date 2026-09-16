@@ -3311,7 +3311,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 	// TRACK STATS: Damage Dealt
 	if (finalDamageTaken > 0 && attackerIndex >= 0 && attackerIndex < (int)players.size()) {
 		int owner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
-		if (owner == 0 || owner == 1) {
+		if (owner >= 0 && owner <= 3) {
 			matchStats[owner].totalDamageDealt += finalDamageTaken;
 			matchStats[owner].currentTurnDamage += finalDamageTaken;
 		}
@@ -4011,7 +4011,7 @@ int ofApp::getNormalTurnDurationFramesForActorIndex(int actorIndex) const {
 
 void ofApp::markMeaningfulActionOnCurrentTurn() {
 	if (currentState != STATE_GAMEPLAY) return;
-	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) return;
+	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 3) return;
 	if (currentTurnHadMeaningfulAction) return;
 
 	currentTurnHadMeaningfulAction = true;
@@ -4046,23 +4046,26 @@ void ofApp::handleOwnerForfeit(int loserOwnerId, const std::string & reason) {
 	// FIX: Never award a forfeit if the game has already mathematically ended!
 	if (g_isGameOver) return;
 
-	if (loserOwnerId < 0 || loserOwnerId > 1) return;
-	int winnerOwnerId = (loserOwnerId == 0) ? 1 : 0;
+	if (loserOwnerId < 0 || loserOwnerId > 3) return;
 
-	std::string winnerText = (winnerOwnerId == myLocalPlayerID) ? "You" : "Opponent";
-	std::string loserText = (loserOwnerId == myLocalPlayerID) ? "You" : "Opponent";
-	std::string msg = winnerText + " win by forfeit (" + reason + "). " + loserText + " lose.";
+	std::string loserName = getPlayerNameByID(loserOwnerId);
+	std::string msg = loserName + " forfeited (" + reason + ").";
 
 	addGameLog(msg);
 	ofLogNotice("Forfeit") << msg;
 
-	// Instead of kicking to menu, trigger the beautiful Game Over screen
-	g_isGameOver = true;
-	g_winnerID = winnerOwnerId;
+	// Instantly kill all of their units to trigger standard elimination naturally
+	for (auto & p : players) {
+		int owner = p.isMinion ? p.ownerID : p.playerID;
+		if (owner == loserOwnerId && p.health > 0) {
+			p.health = 0;
+		}
+	}
 
-	// Force the game out of draft/initiative states so the Game Over screen draws correctly
+	// Force the game out of draft/initiative states so gameplay can resume (or end)
 	if (currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL) {
 		currentState = STATE_GAMEPLAY;
+		requestStartNewTurn();
 	}
 }
 
@@ -4071,7 +4074,7 @@ void ofApp::registerAfkTimeoutForCurrentOwner() {
 	if (currentTurnTimeoutProcessed) return;
 	currentTurnTimeoutProcessed = true;
 
-	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) return;
+	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 3) return;
 	if (currentTurnHadMeaningfulAction) return;
 
 	// FIX: Do not apply AFK penalties to the AI or in headless training mode!
@@ -10353,8 +10356,21 @@ void ofApp::updateGameLogic() {
 	if (turnTimerEnabled && opponentDecisionTimerActive && (isMagicBlastActive || isGhostRelocActive || isMagicHandRelocActive || isOpponentDraftActive)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
 
-		// FIX: Pure lockstep timeout — BOTH peers execute the identical decision natively on frame N!
+		// CRITICAL FIX: In Multiplayer, ONLY the Host generates timeouts to prevent duplicate packets crashing the queue!
 		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
+			bool canGenerateTimeout = false;
+			if (isMultiplayer) {
+				if (steamManager.isHost()) canGenerateTimeout = true;
+			} else {
+				canGenerateTimeout = true;
+			}
+
+			if (!canGenerateTimeout) {
+				// Just wait for the host's packet to arrive
+				opponentDecisionStartFrame = (int)simulationFrame;
+				return;
+			}
+
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
@@ -10483,7 +10499,15 @@ void ofApp::updateGameLogic() {
 				if (timerState == STATE_DRAFTING) {
 					int draftOwner = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? (players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID) : draftPlayerIndex;
 
-					if ((isLocalDraftingPlayer(draftPlayerIndex) || isHost()) && !draftAcceptLocked) {
+					// CRITICAL FIX: In Multiplayer, ONLY the Host generates timeouts to prevent duplicate packets skipping players!
+					bool canGenerateTimeout = false;
+					if (isMultiplayer) {
+						if (steamManager.isHost()) canGenerateTimeout = true;
+					} else {
+						if (isLocalDraftingPlayer(draftPlayerIndex)) canGenerateTimeout = true;
+					}
+
+					if (canGenerateTimeout && !draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 						while ((int)selectedDraftIndices.size() < requiredPicks) {
 							std::vector<int> candidates;
@@ -10541,6 +10565,21 @@ void ofApp::updateGameLogic() {
 					bool isOpponentMenu = (opponentInteraction.open && opponentInteraction.type != 0 && opponentInteraction.type != 5 && opponentInteraction.type != 99);
 
 					if (isLocalMenu || isOpponentMenu) {
+
+						// CRITICAL FIX: In Multiplayer, ONLY the Host generates timeouts to prevent duplicate packets firing spells twice!
+						bool canGenerateTimeout = false;
+						if (isMultiplayer) {
+							if (steamManager.isHost()) canGenerateTimeout = true;
+						} else {
+							canGenerateTimeout = true;
+						}
+
+						if (!canGenerateTimeout) {
+							// Just wait for the host's packet to arrive
+							turnStartFrame = (int)simulationFrame;
+							return;
+						}
+
 						int cType = 0;
 						int cIdx = -1;
 						int tIdx = -1;
@@ -10621,6 +10660,20 @@ void ofApp::updateGameLogic() {
 					}
 
 					if (!endTurnLocked) {
+						// CRITICAL FIX: In Multiplayer, ONLY the Host generates timeouts to prevent duplicate packets ending the turn twice!
+						bool canGenerateTimeout = false;
+						if (isMultiplayer) {
+							if (steamManager.isHost()) canGenerateTimeout = true;
+						} else {
+							canGenerateTimeout = true;
+						}
+
+						if (!canGenerateTimeout) {
+							// Just wait for the host's packet to arrive
+							turnStartFrame = (int)simulationFrame;
+							return;
+						}
+
 						endTurnLocked = true;
 						bool needsReloc = false;
 						CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
@@ -17891,7 +17944,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (pauseMenuQuitButton.inside(x, y)) {
-			if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 2) {
+			if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
@@ -19762,7 +19815,7 @@ void ofApp::keyPressed(int key) {
 					errorMsg.timestamp = ofGetElapsedTimef();
 					chatHistory.push_back(errorMsg);
 
-					if ((isMultiplayer && !steamManager.isHost()) || (steamManager.isHost() && myLocalPlayerID != 2)) {
+					if ((isMultiplayer && !steamManager.isHost()) || (steamManager.isHost() && myLocalPlayerID != 255)) {
 						InputCommandPacket cmd = {};
 						cmd.type = PKT_INPUT_COMMAND;
 						cmd.playerID = myLocalPlayerID;
@@ -19804,7 +19857,7 @@ void ofApp::keyPressed(int key) {
 
 				// Prepare payload
 				std::string payload = chatInput;
-				if (isMultiplayer && myLocalPlayerID == 2) {
+				if (isMultiplayer && myLocalPlayerID == 255) {
 					std::string myName = steamManager.getLocalPlayerName();
 					if (myName.empty()) myName = "Spectator";
 					payload = myName + "\a" + chatInput;
@@ -19826,15 +19879,15 @@ void ofApp::keyPressed(int key) {
 				// Add to local chat history (singleplayer or multiplayer)
 				ChatMessage msg;
 				if (isMultiplayer) {
-					if (myLocalPlayerID == 2) {
+					if (myLocalPlayerID == 255) {
 						std::string myName = steamManager.getLocalPlayerName();
 						if (myName.empty()) myName = "Spectator";
 						msg.playerName = myName + " [Spectating]";
 					} else {
-						msg.playerName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
+						msg.playerName = getPlayerNameByID(myLocalPlayerID);
 					}
 				} else {
-					msg.playerName = (myLocalPlayerID == 0) ? "Player 1" : "Player 2";
+					msg.playerName = "Player " + ofToString(myLocalPlayerID + 1);
 				}
 				msg.message = chatInput;
 				msg.timestamp = ofGetElapsedTimef();
@@ -20870,7 +20923,7 @@ void ofApp::startNewTurn() {
 			if (!isProcessingEffect) beginEffectSequence();
 
 			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
-			if (isMultiplayer && myLocalPlayerID != 2) {
+			if (isMultiplayer && myLocalPlayerID != 255) {
 				int uniqueTurnId = ((globalTurnCounter & 0x7FFF) << 16) | ((currentPlayerIndex & 0xFF) << 8) | (players[currentPlayerIndex].bonusTurns & 0xFF);
 				long long mySum = calculateChecksum();
 				s_pendingLocalChecksums[uniqueTurnId] = mySum;
@@ -23638,7 +23691,9 @@ void ofApp::simulationTick() {
 
 			// The player who won initiative drafts first!
 			currentDraftingOrderIndex = 0;
-			draftPlayerIndex = matchTurnOrder[0];
+			// CRITICAL FIX: Convert the Player ID back into an Array Index safely!
+			draftPlayerIndex = findPlayerIndexByID(matchTurnOrder[0]);
+			if (draftPlayerIndex < 0) draftPlayerIndex = 0; // Failsafe
 
 			beginInitiativeDrafting(draftPlayerIndex);
 
@@ -24892,6 +24947,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int pick1 = cmd.params[4];
 		int pick2 = cmd.params[5];
 
+		// CRITICAL FIX: Drop duplicate/stale draft commands so players don't get skipped!
+		if (cmdDraftPlayerIdx != draftPlayerIndex || classTier != currentDraftClassTier) {
+			ofLogNotice("Lockstep") << "Dropped stale CMD_ACCEPT_DRAFT: expected player " << draftPlayerIndex << " tier " << currentDraftClassTier << ", got player " << cmdDraftPlayerIdx << " tier " << classTier;
+			break;
+		}
+
 		if (cmdDraftPlayerIdx < 0 || cmdDraftPlayerIdx >= (int)players.size()) {
 			ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: invalid draftPlayerIndex=" << cmdDraftPlayerIdx;
 			break;
@@ -25101,7 +25162,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// Cast to (int) to prevent compiler warnings about signed vs unsigned integers!
 			if (currentDraftingOrderIndex < (int)matchTurnOrder.size()) {
 				int nextPlayerID = matchTurnOrder[currentDraftingOrderIndex];
-				s_draftNextPlayerIndex = nextPlayerID;
+				// CRITICAL FIX: Convert the Player ID into an Array Index safely!
+				s_draftNextPlayerIndex = findPlayerIndexByID(nextPlayerID);
+				if (s_draftNextPlayerIndex < 0) s_draftNextPlayerIndex = 0; // Failsafe
+
 				s_draftNextStage = 0;
 				scheduleGenerateDraftOptions(1, delay);
 			} else {
@@ -28401,7 +28465,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 					// TRACK STATS: Minions Spawned
 					int owner = op.data.spawnUnit.ownerPlayerID;
-					if (owner == 0 || owner == 1) matchStats[owner].minionsSpawned++;
+					if (owner >= 0 && owner <= 3) matchStats[owner].minionsSpawned++;
 					int newIdx = findPlayerIndexByID(spawned->playerID);
 					// Deterministic key pickup check for spawn-on-key scenarios
 					// (e.g., Raise Dead / Call for Wolves spawning directly on a key tile).
@@ -28490,7 +28554,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				// TRACK STATS: Healing
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 					int owner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-					if (owner == 0 || owner == 1) matchStats[owner].totalHealing += healed;
+					if (owner >= 0 && owner <= 3) matchStats[owner].totalHealing += healed;
 				}
 				EffectOp healOp = {};
 				healOp.type = EffectOpType::MODIFY_STAT;
@@ -34425,9 +34489,9 @@ std::string ofApp::getPlayerSteamName(int playerIndex) {
 	int ownerID = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
 
 	if (isMultiplayer) {
-		return (ownerID == 0) ? player0SteamName : player1SteamName;
+		return getPlayerNameByID(ownerID);
 	} else {
-		return (ownerID == 0) ? "Player 1" : "Player 2";
+		return "Player " + ofToString(ownerID + 1);
 	}
 }
 
@@ -34450,7 +34514,7 @@ const Card * ofApp::findCardByName(const std::string & name) const {
 
 //--------------------------------------------------------------
 bool ofApp::isMyTurn() const {
-	if (g_isSpectator || myLocalPlayerID == 2) return false;
+	if (g_isSpectator || myLocalPlayerID == 255) return false;
 
 	if (g_isSimulatedMultiplayer) {
 		if (currentState == STATE_DRAFTING) {
@@ -34501,7 +34565,7 @@ bool ofApp::isMyTurn() const {
 
 //--------------------------------------------------------------
 bool ofApp::isCurrentPlayerLocal() const {
-	if (myLocalPlayerID == 2) return false; // Spectators cannot act locally
+	if (myLocalPlayerID == 255) return false; // Spectators cannot act locally
 	if (isAIvsAI) {
 		if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) {
 			return false;
@@ -40607,7 +40671,7 @@ void ofApp::drawDraftScreen() {
 			pName = getPlayerSteamName(draftPlayerIndex);
 		}
 	} else {
-		pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
+		pName = getPlayerNameByID(draftPlayerIndex);
 	}
 	string header = "";
 	string instr = "";
@@ -41375,7 +41439,7 @@ void ofApp::exit() {
 #endif
 
 	// --- CRITICAL FIX: INSTANT RESIGN ON ALT+F4 OR WINDOW CLOSE ---
-	if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 2) {
+	if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -41473,8 +41537,8 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	// In local 2-player PvP pass-and-play, both are human
 	if (!isMultiplayer) return true;
 
-	// In Multiplayer
-	if (g_isSpectator || myLocalPlayerID == 2) return false;
+	// In Multiplayer (255 is the true Spectator ID)
+	if (g_isSpectator || myLocalPlayerID == 255) return false;
 	return (draftOwnerID == myLocalPlayerID);
 }
 
@@ -41712,11 +41776,7 @@ void ofApp::processNetworkPackets() {
 				if (pkt->playerID == 255) {
 					msg.playerName = "Spectator";
 				} else {
-					// Use Lobby name if available
-					msg.playerName = "Player " + std::to_string(pkt->playerID + 1);
-					for (auto & lp : g_lobbyPlayers) {
-						if (lp.playerID == pkt->playerID) msg.playerName = lp.name;
-					}
+					msg.playerName = getPlayerNameByID(pkt->playerID);
 				}
 				msg.message = pkt->message;
 				msg.timestamp = ofGetElapsedTimef();
