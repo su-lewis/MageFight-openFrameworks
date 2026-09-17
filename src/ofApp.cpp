@@ -106,8 +106,8 @@ static bool g_isSimulatedMultiplayer = false;
 static std::unordered_map<std::string, std::string> g_locDictionary;
 static std::string g_currentLanguage = "en";
 
-static std::vector<std::string> g_availableLanguageCodes = { "en", "es", "zh" };
-static std::vector<std::string> g_availableLanguageNames = { "English", "Español", "简体中文" };
+static std::vector<std::string> g_availableLanguageCodes = { "en", "es", "zh", "fr", "de" };
+static std::vector<std::string> g_availableLanguageNames = { "English", "Español", "简体中文", "Français", "Deutsch" };
 static int g_currentLanguageIndex = 0;
 static ofRectangle settingsLangLeftButton;
 static ofRectangle settingsLangRightButton;
@@ -137,12 +137,49 @@ static void loadLanguage(const std::string & langCode) {
 			ofLogError("Loc") << "Failed to parse language file: " << path;
 		}
 	} else {
-		ofLogWarning("Loc") << "Language file not found: " << path << ". Using English fallbacks.";
+		ofLogWarning("Loc") << "Language file not found: " << path << ". Falling back to English defaults.";
 	}
 }
-// ---------------------------
 
-// --- ALPHA TESTER SYSTEM ---
+void ofApp::reloadFonts() {
+	// If Chinese, use the Chinese font. Otherwise use the standard English/Spanish font.
+	std::string fontPath = (g_currentLanguage == "zh") ? "UI/zpix.ttf" : "UI/m6x11plus.ttf";
+
+	if (!ofFile(fontPath).exists()) {
+		ofLogWarning("Fonts") << "Font missing: " << fontPath << ". Falling back.";
+		fontPath = "UI/m6x11plus.ttf";
+	}
+
+	// 1. UI Font
+	ofTrueTypeFontSettings uiSettings(fontPath, 24);
+	uiSettings.antialiased = false;
+	uiSettings.addRanges(ofAlphabet::Latin);
+	uiSettings.addRanges(ofAlphabet::Chinese);
+	uiFont.load(uiSettings);
+	if (uiFont.isLoaded()) {
+		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
+
+	// 2. Card Effect Font
+	ofTrueTypeFontSettings cardEffectSettings(fontPath, 22);
+	cardEffectSettings.antialiased = false;
+	cardEffectSettings.addRanges(ofAlphabet::Latin);
+	cardEffectSettings.addRanges(ofAlphabet::Chinese);
+	cardEffectFont.load(cardEffectSettings);
+
+	// 3. Title Font
+	ofTrueTypeFontSettings titleSettings(fontPath, 40);
+	titleSettings.antialiased = false;
+	titleSettings.addRanges(ofAlphabet::Latin);
+	titleSettings.addRanges(ofAlphabet::Chinese);
+	titleFont.load(titleSettings);
+	if (titleFont.isLoaded()) {
+		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
+}
+// ---------------------------------------------------------
 
 // --- ALPHA TESTER SYSTEM ---
 static std::string getAlphaTaggedName(std::string name, uint64_t steamID) {
@@ -4463,37 +4500,8 @@ void ofApp::setup() {
 	// Load default language (Can be tied to settings.json later)
 	loadLanguage("en");
 
-	// Load default language (Will be overridden by loadSettings() below)
-	loadLanguage("en");
-
-	// Bumped to 24px so it is thicker and highly readable in menus!
-	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 24);
-	uiSettings.antialiased = false;
-	uiSettings.addRanges(ofAlphabet::Latin); // <--- FIXED: Latin (Covers Spanish)
-	uiSettings.addRanges(ofAlphabet::Chinese); // Covers Chinese CJK
-	uiFont.load(uiSettings);
-	if (uiFont.isLoaded()) {
-		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-	}
-
-	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
-	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 22);
-	cardEffectSettings.antialiased = false;
-	cardEffectSettings.addRanges(ofAlphabet::Latin);
-	cardEffectSettings.addRanges(ofAlphabet::Chinese);
-	cardEffectFont.load(cardEffectSettings);
-
-	// Bumped to 40px so titles are bold and prominent
-	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 40);
-	titleSettings.antialiased = false;
-	titleSettings.addRanges(ofAlphabet::Latin);
-	titleSettings.addRanges(ofAlphabet::Chinese);
-	titleFont.load(titleSettings);
-	if (titleFont.isLoaded()) {
-		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-	}
+	// Initialize the fonts dynamically based on the language!
+	reloadFonts();
 
 	// --- SET APP ICON ---
 	ofPixels iconPixels;
@@ -8355,14 +8363,14 @@ void ofApp::drawSingleplayerMenu() {
 	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
 	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
-	drawPixelTextCentered(titleFont, "SINGLEPLAYER", centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(titleFont, _L("UI_SOLO_TITLE", "SINGLEPLAYER"), centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
-	drawMenuPlaqueButton(singleplayerNewGameButton, "New vs AI", singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuLocalPvPButton, "Local PvP", mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerContinueButton, "Continue vs AI", singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
-	drawMenuPlaqueButton(singleplayerReplayButton, "Watch a Replay", singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableReplays);
-	drawMenuPlaqueButton(singleplayerLoadButton, "Load Game", singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
-	drawMenuPlaqueButton(singleplayerBackButton, "Back", singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerNewGameButton, _L("UI_BTN_NEW_VS_AI", "New vs AI"), singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuLocalPvPButton, _L("UI_BTN_LOCAL_PVP", "Local PvP"), mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(singleplayerContinueButton, _L("UI_BTN_CONTINUE", "Continue vs AI"), singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
+	drawMenuPlaqueButton(singleplayerReplayButton, _L("UI_BTN_REPLAY", "Watch a Replay"), singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableReplays);
+	drawMenuPlaqueButton(singleplayerLoadButton, _L("UI_BTN_LOAD", "Load Game"), singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
+	drawMenuPlaqueButton(singleplayerBackButton, _L("UI_BTN_BACK", "Back"), singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
 void ofApp::drawCustomisationState() {
 	draw2DMenuBackground();
@@ -8555,11 +8563,11 @@ void ofApp::drawLobby() {
 	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 	float titleY = std::max(ofGetHeight() * 0.08f, menuStartY - menuTileSize * 0.4f);
 
-	drawPixelTextCentered(titleFont, "GAME LOBBY", centerX, titleY, 1.4f, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(titleFont, _L("UI_LOBBY_TITLE", "GAME LOBBY"), centerX, titleY, 1.4f, ofColor::gold, 4, ofColor::black);
 
 	// --- Column 1: Players Panel ---
 	drawMenuPlaquePanel(lobbyPlayersPanelRect);
-	drawPixelTextCentered(titleFont, "Players", lobbyPlayersPanelRect.getCenter().x, lobbyPlayersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
+	drawPixelTextCentered(titleFont, _L("UI_LOBBY_PLAYERS", "Players"), lobbyPlayersPanelRect.getCenter().x, lobbyPlayersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
 
 	float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
 	float itemH = menuTileSize * 0.95f;
@@ -8594,14 +8602,15 @@ void ofApp::drawLobby() {
 
 	// --- Column 2: Modifiers Panel ---
 	drawMenuPlaquePanel(lobbyModifiersPanelRect);
-	drawPixelTextCentered(titleFont, "Modifiers", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
+	drawPixelTextCentered(titleFont, _L("UI_LOBBY_MODIFIERS", "Modifiers"), lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
+
 	drawPixelTextCentered(uiFont, "Coming Soon...", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.getCenter().y, 1.1f, ofColor(160));
 
 	// --- Column 3: Chat Panel Background ---
 	drawMenuPlaquePanel(lobbyChatPanelRect);
 
 	// --- Bottom Row: Action Buttons ---
-	drawMenuPlaqueButton(lobbyLeaveBtn, "Leave Lobby", lobbyLeaveBtn.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(lobbyLeaveBtn, _L("UI_LOBBY_LEAVE", "Leave Lobby"), lobbyLeaveBtn.inside(ofGetMouseX(), ofGetMouseY()));
 
 	// Bulletproof Host Check: Player 0 or Host flag
 	bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
@@ -8613,15 +8622,15 @@ void ofApp::drawLobby() {
 			if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
 		}
 
-		drawMenuPlaqueButton(lobbyForceStartBtn, "Force Start", lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()));
-		drawMenuPlaqueButton(lobbyStartBtn, "Start Game", lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
+		drawMenuPlaqueButton(lobbyForceStartBtn, _L("UI_LOBBY_FORCE_START", "Force Start"), lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()));
+		drawMenuPlaqueButton(lobbyStartBtn, _L("UI_LOBBY_START", "Start Game"), lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
 	} else {
 		// Client has Ready / Unready (Middle)
 		bool iAmReady = false;
 		for (const auto & lp : g_lobbyPlayers) {
 			if (lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
 		}
-		drawMenuPlaqueButton(lobbyReadyBtn, iAmReady ? "Unready" : "Ready", lobbyReadyBtn.inside(ofGetMouseX(), ofGetMouseY()));
+		drawMenuPlaqueButton(lobbyReadyBtn, iAmReady ? _L("UI_LOBBY_UNREADY", "Unready") : _L("UI_LOBBY_READY", "Ready"), lobbyReadyBtn.inside(ofGetMouseX(), ofGetMouseY()));
 
 		// Client sees status plaque on Column 3
 		ofSetColor(25, 25, 32, 200);
@@ -8641,7 +8650,7 @@ void ofApp::drawMultiplayerMenu() {
 	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
 	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
-	drawPixelTextCentered(titleFont, "ONLINE VERSUS", centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(titleFont, _L("UI_ONLINE_TITLE", "ONLINE VERSUS"), centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
 	// --- LOBBIES PANEL (Left) ---
 	drawMenuPlaquePanel(mpLobbiesPanelRect);
@@ -8728,9 +8737,9 @@ void ofApp::drawMultiplayerMenu() {
 	glDisable(GL_SCISSOR_TEST);
 
 	// Action Buttons
-	drawMenuPlaqueButton(mpRefreshButton, "Refresh List", mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mpHostButton, "Host Match", mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mpBackButton, "Back to Menu", mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mpRefreshButton, _L("UI_ONLINE_REFRESH", "Refresh List"), mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mpHostButton, _L("UI_ONLINE_HOST", "Host Match"), mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mpBackButton, _L("UI_BTN_BACK", "Back to Menu"), mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
 	if (g_isConnectingToLobby) {
 		ofSetColor(0, 0, 0, 220);
@@ -16931,6 +16940,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (settingsLangLeftButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex - 1 + g_availableLanguageCodes.size()) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
+				reloadFonts(); // <--- REBUILD FONT ATLAS FOR CHINESE/SPANISH
 				loadCardData("Config/cards.json"); // Force cards to instantly re-translate and re-bake!
 				saveSettings();
 				return;
@@ -16938,6 +16948,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (settingsLangRightButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex + 1) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
+				reloadFonts(); // <--- REBUILD FONT ATLAS FOR CHINESE/SPANISH
 				loadCardData("Config/cards.json"); // Force cards to instantly re-translate and re-bake!
 				saveSettings();
 				return;
@@ -39740,7 +39751,7 @@ void ofApp::drawEncyclopediaState() {
 	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float cx = ofGetWidth() / 2.0f;
 
-	drawPixelTextCentered(titleFont, "RULES & CARDS", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
+	drawPixelTextCentered(titleFont, _L("UI_ENCY_TITLE", "RULES & CARDS"), cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
 
 	// Tabs: 0 = HOW TO PLAY, 1 = MINIONS, 2 = ALL CARDS
 	auto drawTab = [&](ofRectangle r, string label, int index) {
@@ -39753,9 +39764,9 @@ void ofApp::drawEncyclopediaState() {
 		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, active ? ofColor::white : ofColor(200));
 	};
 
-	drawTab(encyTabRules, "HOW TO PLAY", 0);
-	drawTab(encyTabMinions, "MINIONS", 1);
-	drawTab(encyTabCards, "ALL CARDS", 2);
+	drawTab(encyTabRules, _L("UI_ENCY_RULES", "HOW TO PLAY"), 0);
+	drawTab(encyTabMinions, _L("UI_ENCY_MINIONS", "MINIONS"), 1);
+	drawTab(encyTabCards, _L("UI_ENCY_CARDS", "ALL CARDS"), 2);
 
 	// Back Button
 	bool backHover = encyBtnBack.inside(ofGetMouseX(), ofGetMouseY());
@@ -41414,7 +41425,7 @@ void ofApp::drawPauseMenu() {
 	ofFill();
 
 	// Title
-	drawPixelTextCentered(titleFont, "PAUSED", centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
+	drawPixelTextCentered(titleFont, _L("UI_PAUSE_TITLE", "PAUSED"), centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
 
 	float startY = panelY + titleAreaH;
 	float btnX = centerX - btnW / 2.0f;
@@ -41440,21 +41451,21 @@ void ofApp::drawPauseMenu() {
 	};
 
 	float curY = startY;
-	drawBtn(pauseMenuResumeButton, curY, "Resume", 0);
+	drawBtn(pauseMenuResumeButton, curY, _L("UI_PAUSE_RESUME", "Resume"), 0);
 	curY += btnH + btnGap;
 
 	if (!isMultiplayer) {
 		if (ofGetElapsedTimef() - g_gameSavedNotificationTimer < 2.0f) {
-			drawBtn(pauseMenuSaveButton, curY, "Game Saved!", 1, ofColor(50, 140, 50));
+			drawBtn(pauseMenuSaveButton, curY, _L("UI_PAUSE_SAVED", "Game Saved!"), 1, ofColor(50, 140, 50));
 		} else {
-			drawBtn(pauseMenuSaveButton, curY, "Save Game", 1);
+			drawBtn(pauseMenuSaveButton, curY, _L("UI_PAUSE_SAVE", "Save Game"), 1);
 		}
 		curY += btnH + btnGap;
-		drawBtn(pauseMenuLoadButton, curY, "Load Game", 2);
+		drawBtn(pauseMenuLoadButton, curY, _L("UI_PAUSE_LOAD", "Load Game"), 2);
 		curY += btnH + btnGap;
-		drawBtn(pauseMenuSettingsButton, curY, "Settings", 3);
+		drawBtn(pauseMenuSettingsButton, curY, _L("UI_BTN_SETTINGS", "Settings"), 3);
 		curY += btnH + btnGap;
-		drawBtn(pauseMenuQuitButton, curY, "Quit to Menu", 4);
+		drawBtn(pauseMenuQuitButton, curY, _L("UI_PAUSE_QUIT", "Quit to Menu"), 4);
 	} else {
 		// Multiplayer Draw System
 		if (g_isGameOver) {

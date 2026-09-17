@@ -984,6 +984,7 @@ class ofApp : public ofBaseApp {
 public:
 	// --- Lifecycle Methods ---
 	void setup();
+	void reloadFonts();
 	void update();
 	void draw();
 	void exit();
@@ -1710,7 +1711,7 @@ private:
 	int opponentDecisionDurationFrames = 30 * 60;
 	int opponentDecisionPlayerIndex = -1;
 
-		int currentTurnOwnerID = -1;
+	int currentTurnOwnerID = -1;
 	bool currentTurnHadMeaningfulAction = false;
 	bool currentTurnTimeoutProcessed = false;
 	float reconnectForfeitStartTime = -1.0f;
