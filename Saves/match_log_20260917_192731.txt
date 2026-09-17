@@ -1,0 +1,44 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-17 19:27:31
+End Reason: Victory
+Seed: 1292199767
+Turns: 1
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[19:26:00] --- MATCH STARTED ---
+[19:26:11] Turn 0: Player 2's turn
+[19:26:11] Autosaved turn-start (autosave.json)
+[19:26:22] Player 2 moved to (12,1)
+[19:26:23] Player 2 played Shield Bash targeting (12,2)
+[19:27:00] Player 2 played Rock Crush targeting (12,2)
+[19:27:09] Unlimited time enabled (turn timer disabled).
+[19:27:10] Turn timer enabled.
+[19:27:11] Player 2 moved to (2,8)
+[19:27:17] Player 2 moved to (1,8)
+[19:27:18] Player 2 played Rock Crush targeting (0,8)
+[19:27:22] Turn 1: Player 1's turn
+[19:27:22] Autosaved turn-start (autosave.json)
+[19:27:24] Player 1 played Consume Health Potion targeting (0,8)
+[19:27:25] Player 1 played Consume Health Potion targeting (0,8)
+[19:27:27] Turn 1: Player 2's turn
+[19:27:27] Autosaved turn-start (autosave.json)
+[19:27:30] Player 2 played Punch targeting (0,8)
+[19:27:31] Player 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 6
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

@@ -112,6 +112,9 @@ static int g_currentLanguageIndex = 0;
 static ofRectangle settingsLangLeftButton;
 static ofRectangle settingsLangRightButton;
 
+static bool g_cardsNeedTranslationRebuild = false;
+static float g_languageChangedTime = 0.0f;
+
 static std::string _L(const std::string & key, const std::string & fallback) {
 	auto it = g_locDictionary.find(key);
 	if (it != g_locDictionary.end()) {
@@ -141,6 +144,59 @@ static void loadLanguage(const std::string & langCode) {
 	}
 }
 
+std::vector<ofUnicode::range> buildLocRanges() {
+	std::set<char32_t> chars;
+	// Always include standard ASCII
+	for (char32_t c = 32; c <= 126; ++c)
+		chars.insert(c);
+
+	// Scan the entire loaded language dictionary for unique Unicode characters
+	for (const auto & kv : g_locDictionary) {
+		std::string text = kv.second;
+		for (size_t i = 0; i < text.size();) {
+			unsigned char c0 = text[i];
+			char32_t u = 0;
+			int len = 1;
+			if (c0 < 0x80) {
+				u = c0;
+				len = 1;
+			} else if ((c0 & 0xE0) == 0xC0) {
+				u = c0 & 0x1F;
+				len = 2;
+			} else if ((c0 & 0xF0) == 0xE0) {
+				u = c0 & 0x0F;
+				len = 3;
+			} else if ((c0 & 0xF8) == 0xF0) {
+				u = c0 & 0x07;
+				len = 4;
+			}
+
+			for (int j = 1; j < len && i + j < text.size(); ++j) {
+				u = (u << 6) | (text[i + j] & 0x3F);
+			}
+			chars.insert(u);
+			i += len;
+		}
+	}
+
+	std::vector<ofUnicode::range> ranges;
+	if (chars.empty()) return ranges;
+
+	char32_t start = *chars.begin();
+	char32_t end = start;
+	for (auto it = std::next(chars.begin()); it != chars.end(); ++it) {
+		if (*it == end + 1) {
+			end = *it;
+		} else {
+			ranges.push_back(ofUnicode::range { (char32_t)start, (char32_t)end });
+			start = *it;
+			end = *it;
+		}
+	}
+	ranges.push_back(ofUnicode::range { (char32_t)start, (char32_t)end });
+	return ranges;
+}
+
 void ofApp::reloadFonts() {
 	// If Chinese, use the Chinese font. Otherwise use the standard English/Spanish font.
 	std::string fontPath = (g_currentLanguage == "zh") ? "UI/zpix.ttf" : "UI/m6x11plus.ttf";
@@ -150,11 +206,14 @@ void ofApp::reloadFonts() {
 		fontPath = "UI/m6x11plus.ttf";
 	}
 
+	// Generate safe texture ranges directly from our language JSON file
+	std::vector<ofUnicode::range> customRanges = buildLocRanges();
+
 	// 1. UI Font
 	ofTrueTypeFontSettings uiSettings(fontPath, 24);
 	uiSettings.antialiased = false;
-	uiSettings.addRanges(ofAlphabet::Latin);
-	uiSettings.addRanges(ofAlphabet::Chinese);
+	for (const auto & r : customRanges)
+		uiSettings.addRange(r);
 	uiFont.load(uiSettings);
 	if (uiFont.isLoaded()) {
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -164,15 +223,15 @@ void ofApp::reloadFonts() {
 	// 2. Card Effect Font
 	ofTrueTypeFontSettings cardEffectSettings(fontPath, 22);
 	cardEffectSettings.antialiased = false;
-	cardEffectSettings.addRanges(ofAlphabet::Latin);
-	cardEffectSettings.addRanges(ofAlphabet::Chinese);
+	for (const auto & r : customRanges)
+		cardEffectSettings.addRange(r);
 	cardEffectFont.load(cardEffectSettings);
 
 	// 3. Title Font
 	ofTrueTypeFontSettings titleSettings(fontPath, 40);
 	titleSettings.antialiased = false;
-	titleSettings.addRanges(ofAlphabet::Latin);
-	titleSettings.addRanges(ofAlphabet::Chinese);
+	for (const auto & r : customRanges)
+		titleSettings.addRange(r);
 	titleFont.load(titleSettings);
 	if (titleFont.isLoaded()) {
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -1017,7 +1076,12 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 					dmg *= (1 + owner->flurryOfFistsStacks);
 				}
 			}
-			std::string effectText = "Deal **" + ofToString(dmg) + "** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.";
+
+			std::string effectText = _L("CARD_master fist_DESC", "Deal **{dmg}** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.");
+			size_t dmgPos = effectText.find("{dmg}");
+			if (dmgPos != std::string::npos) {
+				effectText.replace(dmgPos, 5, ofToString(dmg));
+			}
 
 			drawRichEffectText(font, effectText, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
 		}
@@ -2027,12 +2091,13 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
-		std::string translatedName = _L("CARD_NAME_" + std::to_string((int)card.type), card.name);
+		std::string keyName = normalizeCardKey(card.name);
+		std::string translatedName = _L("CARD_" + keyName + "_NAME", card.name);
 		allCardNames.push_back(translatedName);
 
-		auto it = records.find(normalizeCardKey(card.name));
+		auto it = records.find(keyName);
 		if (it != records.end()) {
-			std::string translatedEffect = _L("CARD_DESC_" + std::to_string((int)card.type), stripBoldTags(it->second.effectText));
+			std::string translatedEffect = _L("CARD_" + keyName + "_DESC", stripBoldTags(it->second.effectText));
 			allEffectTexts.push_back(translatedEffect);
 			allAPCosts.push_back(it->second.apCost);
 
@@ -2540,12 +2605,13 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float y = card.textureRect.y;
 
 		CardTemplateRecord rec;
-		auto it = records.find(normalizeCardKey(card.name));
+		std::string keyName = normalizeCardKey(card.name);
+		auto it = records.find(keyName);
 		if (it != records.end()) rec = it->second;
 
 		// Apply localized text right before rendering!
-		rec.name = _L("CARD_NAME_" + std::to_string((int)card.type), rec.name.empty() ? card.name : rec.name);
-		rec.effectText = _L("CARD_DESC_" + std::to_string((int)card.type), rec.effectText);
+		rec.name = _L("CARD_" + keyName + "_NAME", rec.name.empty() ? card.name : rec.name);
+		rec.effectText = _L("CARD_" + keyName + "_DESC", rec.effectText);
 
 		int effectiveClass = card.cardClass;
 		int markdownClass = classTierFromLabel(rec.classLabel);
@@ -2986,7 +3052,7 @@ void ofApp::startInitiativePhase() {
 
 		// CRITICAL FIX: Extract the exact Player ID, do not rely on the loop index!
 		int realPlayerID = i;
-		if (i < players.size()) realPlayerID = players[i].playerID;
+		if ((size_t)i < players.size()) realPlayerID = players[i].playerID;
 
 		rolls.push_back({ realPlayerID, r, tb });
 
@@ -5573,6 +5639,12 @@ void ofApp::updateStateMachine() {
 }
 
 void ofApp::update() {
+	// --- DELAYED CARD REBUILD (Fixes Settings Menu Lag) ---
+	if (g_cardsNeedTranslationRebuild && ofGetElapsedTimef() - g_languageChangedTime > 0.5f) {
+		loadCardData("Config/cards.json");
+		g_cardsNeedTranslationRebuild = false;
+	}
+
 	// --- AUDIO FADES ---
 	// Bulletproof fix: ALWAYS fade out the dragging sound if we aren't dragging a card!
 	if (draggedCardIndex == -1 && draggingHandTargetVolume > 0.0f) {
@@ -6679,10 +6751,10 @@ void ofApp::draw() {
 							SafeDrawText(uiFont, label, r.x + (r.width - tb.width) / 2, r.y + (r.height + tb.height) / 2 - 2);
 						};
 
-						drawTab(chatTabRect, "CHAT", currentChatTab == ChatTab::CHAT);
-						drawTab(logTabRect, "LOG", currentChatTab == ChatTab::LOG);
+						drawTab(chatTabRect, _L("UI_TAB_CHAT", "CHAT"), currentChatTab == ChatTab::CHAT);
+						drawTab(logTabRect, _L("UI_TAB_LOG", "LOG"), currentChatTab == ChatTab::LOG);
 						if (!isMultiplayer || g_isSimulatedMultiplayer) {
-							drawTab(debugTabRect, "DEBUG", currentChatTab == ChatTab::DEBUG);
+							drawTab(debugTabRect, _L("UI_TAB_DEBUG", "DEBUG"), currentChatTab == ChatTab::DEBUG);
 						}
 						safePopStyle();
 
@@ -7029,7 +7101,8 @@ void ofApp::draw() {
 					ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
 
 					int secs = (int)std::ceil(remaining / turnTimerFramesPerSecond);
-					drawPixelTextCentered(uiFont, "Decision " + ofToString(secs) + "s", ofGetWidth() * 0.5f, barY + barH + 14.0f * scale, 1.0f * scale, ofColor::white, 2, ofColor::black);
+					std::string decisionText = _L("UI_DECISION", "Decision ") + ofToString(secs) + "s";
+					drawPixelTextCentered(uiFont, decisionText, ofGetWidth() * 0.5f, barY + barH + 14.0f * scale, 1.0f * scale, ofColor::white, 2, ofColor::black);
 				}
 			}
 
@@ -7332,15 +7405,15 @@ void ofApp::draw() {
 				float cx = ofGetWidth() / 2.0f;
 				float cy = ofGetHeight() / 2.0f;
 
-				std::string text = "MATCH COMPLETE";
+				std::string text = _L("UI_MATCH_COMPLETE", "MATCH COMPLETE");
 				if (g_winnerID == myLocalPlayerID)
-					text = "VICTORY!";
+					text = _L("UI_VICTORY", "VICTORY!");
 				else if (g_winnerID == 2)
-					text = "DRAW"; // Tie
+					text = _L("UI_DRAW", "DRAW"); // Tie
 				else if (g_isSpectator || myLocalPlayerID == 255)
-					text = getPlayerNameByID(g_winnerID) + " WINS!";
+					text = getPlayerNameByID(g_winnerID) + " " + _L("UI_WINS", "WINS!");
 				else
-					text = "ELIMINATED";
+					text = _L("UI_ELIMINATED", "ELIMINATED");
 
 				ofColor titleColor = (g_winnerID == myLocalPlayerID) ? ofColor::gold : ofColor::red;
 				if (g_winnerID == 2 || g_isSpectator) titleColor = ofColor::gold;
@@ -7361,10 +7434,10 @@ void ofApp::draw() {
 
 				// Table Headers
 				float curY = panel.y + 40 * uiScaleL;
-				drawPixelTextCentered(uiFont, "Player", panel.x + 150 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
-				drawPixelTextCentered(uiFont, "Max Dmg", panel.x + 420 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
-				drawPixelTextCentered(uiFont, "Summons", panel.x + 580 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
-				drawPixelTextCentered(uiFont, "Healed", panel.x + 740 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, _L("UI_STAT_PLAYER", "Player"), panel.x + 150 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, _L("UI_STAT_MAX_DMG", "Max Dmg"), panel.x + 420 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, _L("UI_STAT_SUMMONS", "Summons"), panel.x + 580 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
+				drawPixelTextCentered(uiFont, _L("UI_STAT_HEALED", "Healed"), panel.x + 740 * uiScaleL, curY, 0.8f * uiScaleL, ofColor::gray);
 
 				curY += 20 * uiScaleL;
 				ofSetColor(80, 80, 100, 120);
@@ -7420,7 +7493,7 @@ void ofApp::draw() {
 				ofSetColor(100, 100, 120);
 				ofDrawRectRounded(gameOverReturnBtn, 12.0f * uiScaleL);
 				ofFill();
-				drawPixelTextCentered(uiFont, "Quit to Menu", gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
+				drawPixelTextCentered(uiFont, _L("UI_PAUSE_QUIT", "Quit to Menu"), gameOverReturnBtn.getCenter().x, gameOverReturnBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
 
 				if (gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) && !replaySavedThisMatch) g_hoveredButtonId = "go_replay";
 				if (replaySavedThisMatch) {
@@ -7431,7 +7504,7 @@ void ofApp::draw() {
 					ofSetColor(80, 150, 80);
 					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
 					ofFill();
-					drawPixelTextCentered(uiFont, "Replay Saved!", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor(150, 255, 150));
+					drawPixelTextCentered(uiFont, _L("UI_REPLAY_SAVED", "Replay Saved!"), gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor(150, 255, 150));
 				} else {
 					ofSetColor(gameOverReplayBtn.inside(ofGetMouseX(), ofGetMouseY()) ? ofColor(70, 70, 90) : ofColor(40, 40, 50));
 					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
@@ -7440,7 +7513,7 @@ void ofApp::draw() {
 					ofSetColor(100, 100, 120);
 					ofDrawRectRounded(gameOverReplayBtn, 12.0f * uiScaleL);
 					ofFill();
-					drawPixelTextCentered(uiFont, "Save Replay", gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
+					drawPixelTextCentered(uiFont, _L("UI_SAVE_REPLAY", "Save Replay"), gameOverReplayBtn.getCenter().x, gameOverReplayBtn.getCenter().y, 1.0f * uiScaleL, ofColor::white);
 				}
 				safePopStyle();
 			}
@@ -14023,12 +14096,12 @@ void ofApp::drawGame() {
 				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
 				ofSetColor(ofColor::darkGreen);
 				ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
-				string txt = "Tortoise: " + ofToString(rem) + "/5";
+				string txt = _L("FORM_TORTOISE", "Tortoise: ") + ofToString(rem) + "/5";
 				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 					isShowingTooltip = true;
 					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = "Tortoise Form: Buffer HP";
+					tooltipText = _L("FORM_TORTOISE_TOOLTIP_SHORT", "Tortoise Form: Buffer HP");
 				}
 				nextYUp = formY;
 			}
@@ -14039,12 +14112,12 @@ void ofApp::drawGame() {
 				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
 				ofSetColor(150, 150, 255);
 				ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
-				string txt = "Ghost: " + ofToString(rem) + "/4";
+				string txt = _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4";
 				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 					isShowingTooltip = true;
 					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = "Ghost Form: Immune to Physical/Piercing";
+					tooltipText = _L("FORM_GHOST_TOOLTIP_SHORT", "Ghost Form: Immune to Physical/Piercing");
 				}
 				nextYUp = formY;
 			}
@@ -14093,11 +14166,11 @@ void ofApp::drawGame() {
 			}
 		};
 
-		drawSeg(player.block, ofColor::gray, "Block (Physical)");
-		drawSeg(player.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
-		drawSeg(player.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
-		drawSeg(player.holyBlock, ofColor::yellow, "Holy Block (Holy)");
-		drawSeg(player.ward, ofColor::black, "Ward (All Damage)");
+		drawSeg(player.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"));
+		drawSeg(player.fortification, ofColor(50, 50, 50), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"));
+		drawSeg(player.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"));
+		drawSeg(player.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"));
+		drawSeg(player.ward, ofColor::black, _L("STAT_WARD", "Ward (All Damage)"));
 	};
 
 	// Draw Floating Text
@@ -14865,7 +14938,7 @@ void ofApp::drawGame() {
 	if (showEndTurn || showDoneBtn) {
 		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 		ofSetColor(ofColor::white);
-		string endTurnButtonText = showDoneBtn ? optionalBtnText : "End Turn";
+		string endTurnButtonText = showDoneBtn ? _L("UI_DONE", optionalBtnText) : _L("UI_END_TURN", "End Turn");
 		// Use drawStatText to render the outlined, centered button text
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, fontScale);
 	}
@@ -16918,6 +16991,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentSettingsTab = SETTINGS_TAB_VIDEO;
 			return;
 		}
+
 		if (settingsTabAudioRect.inside(x, y)) {
 			currentSettingsTab = SETTINGS_TAB_AUDIO;
 			return;
@@ -16932,6 +17006,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		if (settingsBackButton.inside(x, y)) {
+			// If they leave before the timer finishes, force the card rebuild now!
+			if (g_cardsNeedTranslationRebuild) {
+				loadCardData("Config/cards.json");
+				g_cardsNeedTranslationRebuild = false;
+			}
+
 			if (stateBeforeSettings == STATE_MAIN_MENU) triggerMenuTransition(false); // From Right
 			currentState = stateBeforeSettings;
 			return;
@@ -16940,16 +17020,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (settingsLangLeftButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex - 1 + g_availableLanguageCodes.size()) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
-				reloadFonts(); // <--- REBUILD FONT ATLAS FOR CHINESE/SPANISH
-				loadCardData("Config/cards.json"); // Force cards to instantly re-translate and re-bake!
+				reloadFonts(); // Fast: Updates UI text immediately
+				g_cardsNeedTranslationRebuild = true;
+				g_languageChangedTime = ofGetElapsedTimef(); // Reset the 0.5s timer!
 				saveSettings();
 				return;
 			}
 			if (settingsLangRightButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex + 1) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
-				reloadFonts(); // <--- REBUILD FONT ATLAS FOR CHINESE/SPANISH
-				loadCardData("Config/cards.json"); // Force cards to instantly re-translate and re-bake!
+				reloadFonts(); // Fast: Updates UI text immediately
+				g_cardsNeedTranslationRebuild = true;
+				g_languageChangedTime = ofGetElapsedTimef(); // Reset the 0.5s timer!
 				saveSettings();
 				return;
 			}
@@ -20441,6 +20523,11 @@ void ofApp::keyReleased(int key) {
 			break;
 
 		case STATE_SETTINGS:
+			// If they leave via ESC before the timer finishes, force the card rebuild now!
+			if (g_cardsNeedTranslationRebuild) {
+				loadCardData("Config/cards.json");
+				g_cardsNeedTranslationRebuild = false;
+			}
 			currentState = stateBeforeSettings;
 			break;
 		default:
@@ -21177,10 +21264,10 @@ void ofApp::continueNewTurn() {
 
 		turnBannerStartTime = ofGetElapsedTimef();
 		if (isMyTurn()) {
-			turnBannerText = "YOUR TURN";
+			turnBannerText = _L("UI_YOUR_TURN", "YOUR TURN");
 			turnBannerColor = ofColor(255, 215, 0); // Radiant Gold
 		} else {
-			turnBannerText = "ENEMY TURN";
+			turnBannerText = _L("UI_ENEMY_TURN", "ENEMY TURN");
 			turnBannerColor = ofColor(220, 60, 60); // Crimson Red
 		}
 	}
@@ -37830,10 +37917,11 @@ void ofApp::drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccep
 	ofDrawRectRounded(buttonRect, 12);
 
 	ofSetColor(ofColor(255, 255, 255, (int)(255.0f * alpha)));
-	ofRectangle tb = uiFont.getStringBoundingBox("Accept", 0, 0);
+	std::string acceptStr = _L("UI_ACCEPT", "Accept");
+	ofRectangle tb = uiFont.getStringBoundingBox(acceptStr, 0, 0);
 	float tx = std::round(buttonRect.getCenter().x - (tb.x + tb.width * 0.5f));
 	float ty = std::round(buttonRect.getCenter().y - (tb.y + tb.height * 0.5f));
-	SafeDrawText(uiFont, "Accept", tx, ty);
+	SafeDrawText(uiFont, acceptStr, tx, ty);
 	ofPopMatrix();
 }
 
@@ -39276,14 +39364,11 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 		}
 	};
 
-	drawMinionSeg(minion.block, ofColor::gray, "Block (Physical)");
-	drawMinionSeg(minion.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
-	drawMinionSeg(minion.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
-
-	// --- FIX: Add Holy Block Drawing ---
-	drawMinionSeg(minion.holyBlock, ofColor::yellow, "Holy Block (Holy)"); // <--- ADDED
-
-	drawMinionSeg(minion.ward, ofColor::black, "Ward (All Damage)");
+	drawMinionSeg(minion.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"));
+	drawMinionSeg(minion.fortification, ofColor(50, 50, 50), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"));
+	drawMinionSeg(minion.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"));
+	drawMinionSeg(minion.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"));
+	drawMinionSeg(minion.ward, ofColor::black, _L("STAT_WARD", "Ward (All Damage)"));
 
 	// --- FORM BARS ---
 	if (minion.inTortoiseForm || minion.inGhostForm) {
@@ -39297,13 +39382,13 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
 			ofSetColor(ofColor::darkGreen);
 			ofDrawRectangle(formStartX, formY, totalBarW * (rem / 5.0f), formHeight);
-			drawStatText(uiFont, "Tortoise: " + ofToString(rem) + "/5", formStartX, formY, totalBarW, formHeight, ofColor::white);
+			drawStatText(uiFont, _L("FORM_TORTOISE", "Tortoise: ") + ofToString(rem) + "/5", formStartX, formY, totalBarW, formHeight, ofColor::white);
 
 			// Tooltip
 			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 				isShowingTooltip = true;
 				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-				tooltipText = "Tortoise Form: Buffer HP";
+				tooltipText = _L("FORM_TORTOISE_TOOLTIP_SHORT", "Tortoise Form: Buffer HP");
 			}
 
 			// Stack next bar if needed
@@ -39316,13 +39401,13 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
 			ofSetColor(150, 150, 255);
 			ofDrawRectangle(formStartX, formY, totalBarW * (rem / 4.0f), formHeight);
-			drawStatText(uiFont, "Ghost: " + ofToString(rem) + "/4", formStartX, formY, totalBarW, formHeight, ofColor::black);
+			drawStatText(uiFont, _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4", formStartX, formY, totalBarW, formHeight, ofColor::black);
 
 			// Tooltip
 			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 				isShowingTooltip = true;
 				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-				tooltipText = "Ghost Form: Immune to Physical/Piercing";
+				tooltipText = _L("FORM_GHOST_TOOLTIP_SHORT", "Ghost Form: Immune to Physical/Piercing");
 			}
 		}
 	}
