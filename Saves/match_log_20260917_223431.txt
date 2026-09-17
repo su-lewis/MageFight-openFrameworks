@@ -1,0 +1,240 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-17 22:34:31
+End Reason: Victory
+Seed: 2630562165
+Turns: 14
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: planetlewis
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[22:25:25] --- MATCH STARTED ---
+[22:25:46] Turn 1: planetlewis's turn
+[22:25:46] Autosaved turn-start (autosave.json)
+[22:25:49] planetlewis moved to (1,5)
+[22:25:52] Turn 1: Bot 1's turn
+[22:25:52] Autosaved turn-start (autosave.json)
+[22:25:53] Bot 1 moved to (12,1)
+[22:25:54] Bot 1 moved to (12,2)
+[22:25:55] Bot 1 moved to (12,3)
+[22:25:55] Bot 1 moved to (12,4)
+[22:25:58] Bot 1 moved to (12,5)
+[22:25:59] Turn 2: planetlewis's turn
+[22:25:59] Autosaved turn-start (autosave.json)
+[22:26:17] planetlewis moved to (2,5)
+[22:26:17] Turn 2: Bot 1's turn
+[22:26:17] Autosaved turn-start (autosave.json)
+[22:26:19] Bot 1 moved to (11,5)
+[22:26:22] Bot 1 moved to (10,5)
+[22:26:22] Bot 1 moved to (9,5)
+[22:26:23] Turn 3: planetlewis's turn
+[22:26:23] Autosaved turn-start (autosave.json)
+[22:26:26] planetlewis moved to (4,5)
+[22:26:27] planetlewis moved to (4,4)
+[22:26:51] Turn 3: Bot 1's turn
+[22:26:51] Autosaved turn-start (autosave.json)
+[22:26:53] Bot 1 moved to (8,5)
+[22:26:53] Bot 1 moved to (8,4)
+[22:26:56] Bot 1 moved to (8,3)
+[22:26:57] Bot 1 moved to (7,3)
+[22:26:58] Turn 4: planetlewis's turn
+[22:26:58] Autosaved turn-start (autosave.json)
+[22:27:00] planetlewis moved to (5,5)
+[22:27:00] Turn 4: Bot 1's turn
+[22:27:00] Autosaved turn-start (autosave.json)
+[22:27:02] Bot 1 played Summon Golem targeting (7,2)
+[22:27:03] Bot 1 summoned unit kind 8 at (7,2)
+[22:27:04] Bot 1 moved to (8,3)
+[22:27:05] Bot 1 moved to (9,3)
+[22:27:05] Turn 5: planetlewis's turn
+[22:27:05] Autosaved turn-start (autosave.json)
+[22:27:10] planetlewis moved to (6,4)
+[22:27:13] planetlewis moved to (6,7)
+[22:27:16] Turn 5: Bot 1's turn
+[22:27:16] Autosaved turn-start (autosave.json)
+[22:27:18] Bot 1 moved to (6,2)
+[22:27:18] Bot 1 moved to (6,1)
+[22:27:21] Bot 1 moved to (6,0)
+[22:27:22] Bot 1 moved to (7,0)
+[22:27:23] Turn 5: Bot 1's turn
+[22:27:23] Autosaved turn-start (autosave.json)
+[22:27:25] Bot 1 moved to (10,3)
+[22:27:25] Turn 6: planetlewis's turn
+[22:27:25] Autosaved turn-start (autosave.json)
+[22:27:29] planetlewis moved to (7,8)
+[22:27:29] Turn 6: Bot 1's turn
+[22:27:29] Autosaved turn-start (autosave.json)
+[22:27:31] Bot 1 moved to (8,0)
+[22:27:34] Bot 1 moved to (9,0)
+[22:27:35] Bot 1 moved to (10,0)
+[22:27:35] Bot 1 moved to (11,0)
+[22:27:36] Bot 1 moved to (11,1)
+[22:27:37] Turn 6: Bot 1's turn
+[22:27:37] Autosaved turn-start (autosave.json)
+[22:27:39] Bot 1 moved to (11,3)
+[22:27:42] Bot 1 moved to (11,2)
+[22:27:42] Bot 1 moved to (12,2)
+[22:27:43] Bot 1 moved to (12,3)
+[22:27:44] Turn 7: planetlewis's turn
+[22:27:44] Autosaved turn-start (autosave.json)
+[22:28:03] planetlewis played Raise Dead targeting (7,7)
+[22:28:03] planetlewis summoned unit kind 9 at (7,7)
+[22:28:04] planetlewis moved to (8,8)
+[22:28:06] Turn 7: Bot 1's turn
+[22:28:06] Autosaved turn-start (autosave.json)
+[22:28:08] Bot 1 moved to (11,2)
+[22:28:09] Bot 1 moved to (11,3)
+[22:28:10] Bot 1 moved to (10,3)
+[22:28:11] Bot 1 moved to (9,3)
+[22:28:11] Bot 1 moved to (9,2)
+[22:28:12] Bot 1 played Hand Block targeting (9,2)
+[22:28:13] Turn 7: Bot 1's turn
+[22:28:13] Autosaved turn-start (autosave.json)
+[22:28:15] Bot 1 moved to (11,3)
+[22:28:16] Turn 8: planetlewis's turn
+[22:28:16] Autosaved turn-start (autosave.json)
+[22:28:19] planetlewis moved to (8,4)
+[22:28:20] Turn 8: planetlewis's turn
+[22:28:20] Autosaved turn-start (autosave.json)
+[22:28:22] planetlewis moved to (9,8)
+[22:28:23] Turn 8: Bot 1's turn
+[22:28:23] Autosaved turn-start (autosave.json)
+[22:29:01] Turn 8: Bot 1's turn
+[22:29:01] Autosaved turn-start (autosave.json)
+[22:29:03] Bot 1 played Summon Golem targeting (11,2)
+[22:29:03] planetlewis summoned unit kind 8 at (11,2)
+[22:29:04] Bot 1 moved to (10,3)
+[22:29:05] Turn 9: planetlewis's turn
+[22:29:05] Autosaved turn-start (autosave.json)
+[22:29:19] planetlewis played Hand Block targeting (8,4)
+[22:29:20] Turn 9: planetlewis's turn
+[22:29:20] Autosaved turn-start (autosave.json)
+[22:29:22] planetlewis moved to (12,8)
+[22:29:24] Turn 9: Bot 1's turn
+[22:29:24] Autosaved turn-start (autosave.json)
+[22:29:26] Bot 1 played Hand Block targeting (9,2)
+[22:29:26] Turn 9: Bot 1's turn
+[22:29:26] Autosaved turn-start (autosave.json)
+[22:29:28] Bot 1 moved to (11,1)
+[22:29:29] Bot 1 moved to (11,0)
+[22:29:30] Bot 1 moved to (10,0)
+[22:29:31] Bot 1 moved to (9,0)
+[22:29:32] Bot 1 moved to (8,0)
+[22:29:33] Bot 1 played Hand Block targeting (8,0)
+[22:29:33] Turn 9: Bot 1's turn
+[22:29:33] Autosaved turn-start (autosave.json)
+[22:29:35] Bot 1 moved to (9,3)
+[22:29:36] Bot 1 moved to (8,3)
+[22:29:37] Bot 1 moved to (8,2)
+[22:29:38] Turn 10: planetlewis's turn
+[22:29:38] Autosaved turn-start (autosave.json)
+[22:29:40] planetlewis moved to (9,3)
+[22:29:43] planetlewis played Punch targeting (9,2)
+[22:29:44] planetlewis played Hand Block targeting (9,3)
+[22:29:49] planetlewis moved to (10,3)
+[22:29:51] Turn 10: planetlewis's turn
+[22:29:51] Autosaved turn-start (autosave.json)
+[22:29:53] planetlewis played Spark of Genius targeting (12,8)
+[22:29:54] planetlewis drew 3 card(s)
+[22:29:55] planetlewis moved to (12,7)
+[22:29:56] Turn 10: Bot 1's turn
+[22:29:56] Autosaved turn-start (autosave.json)
+[22:30:34] Turn 10: Bot 1's turn
+[22:30:34] Autosaved turn-start (autosave.json)
+[22:30:36] Turn 10: Bot 1's turn
+[22:30:36] Autosaved turn-start (autosave.json)
+[22:30:38] Bot 1 moved to (8,3)
+[22:30:39] Turn 11: planetlewis's turn
+[22:30:39] Autosaved turn-start (autosave.json)
+[22:30:42] planetlewis moved to (9,3)
+[22:30:44] planetlewis played Punch targeting (8,3)
+[22:30:45] planetlewis played Hand Block targeting (9,3)
+[22:30:46] Turn 11: planetlewis's turn
+[22:30:46] Autosaved turn-start (autosave.json)
+[22:30:49] planetlewis played Teleport targeting (12,7)
+[22:30:52] planetlewis moved to (8,8)
+[22:30:52] Turn 11: Bot 1's turn
+[22:30:52] Autosaved turn-start (autosave.json)
+[22:30:54] Bot 1 played Flail targeting (9,2)
+[22:30:56] Bot 1 moved to (8,2)
+[22:30:57] Bot 1 moved to (7,2)
+[22:30:58] Turn 11: Bot 1's turn
+[22:30:58] Autosaved turn-start (autosave.json)
+[22:31:00] Bot 1 moved to (7,0)
+[22:31:01] Bot 1 moved to (6,0)
+[22:31:01] Bot 1 moved to (6,1)
+[22:31:02] Bot 1 moved to (6,2)
+[22:31:03] Bot 1 moved to (5,2)
+[22:31:04] Bot 1 moved to (5,1)
+[22:31:05] Turn 11: Bot 1's turn
+[22:31:05] Autosaved turn-start (autosave.json)
+[22:31:07] Bot 1 moved to (7,3)
+[22:31:07] Turn 12: planetlewis's turn
+[22:31:07] Autosaved turn-start (autosave.json)
+[22:31:10] planetlewis moved to (5,8)
+[22:31:11] Turn 12: Bot 1's turn
+[22:31:11] Autosaved turn-start (autosave.json)
+[22:31:13] Bot 1 moved to (6,2)
+[22:31:14] Bot 1 moved to (5,2)
+[22:31:15] Bot 1 moved to (5,3)
+[22:31:15] Turn 12: Bot 1's turn
+[22:31:15] Autosaved turn-start (autosave.json)
+[22:31:17] Bot 1 moved to (6,1)
+[22:31:18] Bot 1 moved to (6,2)
+[22:31:19] Bot 1 moved to (5,2)
+[22:31:20] Bot 1 moved to (5,1)
+[22:31:21] Turn 12: Bot 1's turn
+[22:31:21] Autosaved turn-start (autosave.json)
+[22:31:23] Bot 1 played Heal targeting (5,1)
+[22:31:23] Bot 1 moved to (7,2)
+[22:31:24] Bot 1 played Heal targeting (5,1)
+[22:31:25] Bot 1 moved to (6,2)
+[22:31:25] Bot 1 moved to (5,2)
+[22:31:26] Turn 13: planetlewis's turn
+[22:31:26] Autosaved turn-start (autosave.json)
+[22:32:58] Turn 13: Bot 1's turn
+[22:32:58] Autosaved turn-start (autosave.json)
+[22:33:00] Bot 1 played Heal targeting (5,2)
+[22:33:01] Turn 13: Bot 1's turn
+[22:33:01] Autosaved turn-start (autosave.json)
+[22:33:03] Bot 1 moved to (6,1)
+[22:33:04] Bot 1 moved to (6,2)
+[22:33:05] Bot 1 moved to (7,2)
+[22:33:06] Bot 1 moved to (7,1)
+[22:33:06] Bot 1 moved to (6,1)
+[22:33:07] Turn 13: Bot 1's turn
+[22:33:07] Autosaved turn-start (autosave.json)
+[22:33:09] Bot 1 played Heal targeting (6,1)
+[22:33:10] Bot 1 moved to (5,1)
+[22:33:11] Bot 1 moved to (5,0)
+[22:33:11] Bot 1 moved to (4,0)
+[22:33:14] Turn 14: planetlewis's turn
+[22:33:14] Autosaved turn-start (autosave.json)
+[22:34:21] Turn 14: Bot 1's turn
+[22:34:21] Autosaved turn-start (autosave.json)
+[22:34:23] Bot 1 moved to (5,2)
+[22:34:23] Bot 1 moved to (5,1)
+[22:34:24] Turn 14: Bot 1's turn
+[22:34:24] Autosaved turn-start (autosave.json)
+[22:34:26] Bot 1 moved to (6,2)
+[22:34:27] Bot 1 moved to (5,2)
+[22:34:28] Bot 1 moved to (5,3)
+[22:34:29] Turn 14: Bot 1's turn
+[22:34:29] Autosaved turn-start (autosave.json)
+[22:34:30] planetlewis forfeited (conceded).
+[22:34:31] planetlewis has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 2
+  Cards Played: 8
+  Minions Spawned: 1
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 130
+  Minions Spawned: 2
+  Total Healing: 6
+=====================

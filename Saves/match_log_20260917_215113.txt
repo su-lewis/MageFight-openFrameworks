@@ -1,0 +1,117 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-17 21:51:13
+End Reason: Victory
+Seed: 3789566506
+Turns: 6
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: planetlewis
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[21:47:26] --- MATCH STARTED ---
+[21:47:43] Turn 0: Bot 1's turn
+[21:47:43] Autosaved turn-start (autosave.json)
+[21:47:45] Bot 1 moved to (12,1)
+[21:47:46] Bot 1 moved to (12,2)
+[21:47:47] Bot 1 moved to (12,3)
+[21:47:47] Turn 1: planetlewis's turn
+[21:47:47] Autosaved turn-start (autosave.json)
+[21:47:50] planetlewis moved to (0,5)
+[21:47:51] Turn 1: Bot 1's turn
+[21:47:51] Autosaved turn-start (autosave.json)
+[21:47:53] Bot 1 moved to (12,4)
+[21:47:56] Bot 1 moved to (12,5)
+[21:47:57] Bot 1 moved to (11,5)
+[21:47:59] Bot 1 moved to (10,5)
+[21:48:00] Bot 1 moved to (9,5)
+[21:48:01] Turn 2: planetlewis's turn
+[21:48:01] Autosaved turn-start (autosave.json)
+[21:49:10] planetlewis moved to (1,5)
+[21:49:25] planetlewis moved to (5,5)
+[21:49:27] Turn 2: Bot 1's turn
+[21:49:27] Autosaved turn-start (autosave.json)
+[21:49:29] Bot 1 played Summon Assistant targeting (8,5)
+[21:49:29] Bot 1 summoned unit kind 6 at (8,5)
+[21:49:31] Bot 1 moved to (10,5)
+[21:49:32] Bot 1 moved to (11,5)
+[21:49:32] Bot 1 moved to (12,5)
+[21:49:33] Bot 1 moved to (12,4)
+[21:49:34] Bot 1 moved to (12,3)
+[21:49:35] Bot 1 moved to (11,3)
+[21:49:37] Bot 1 moved to (10,3)
+[21:49:38] Turn 3: planetlewis's turn
+[21:49:38] Autosaved turn-start (autosave.json)
+[21:49:43] planetlewis moved to (4,4)
+[21:49:46] planetlewis moved to (5,5)
+[21:49:46] Turn 3: Bot 1's turn
+[21:49:46] Autosaved turn-start (autosave.json)
+[21:49:48] Bot 1 played Hand Block targeting (8,5)
+[21:49:49] Turn 3: Bot 1's turn
+[21:49:49] Autosaved turn-start (autosave.json)
+[21:49:51] Bot 1 moved to (9,3)
+[21:49:52] Turn 4: planetlewis's turn
+[21:49:52] Autosaved turn-start (autosave.json)
+[21:49:56] planetlewis played Summon Kobold King targeting (5,6)
+[21:49:56] planetlewis summoned unit kind 5 at (5,6)
+[21:49:58] Turn 4: Bot 1's turn
+[21:49:58] Autosaved turn-start (autosave.json)
+[21:50:00] Bot 1 played Hand Block targeting (8,5)
+[21:50:00] Turn 4: Bot 1's turn
+[21:50:00] Autosaved turn-start (autosave.json)
+[21:50:02] Bot 1 moved to (8,3)
+[21:50:03] Bot 1 moved to (8,4)
+[21:50:06] Turn 5: planetlewis's turn
+[21:50:06] Autosaved turn-start (autosave.json)
+[21:50:12] Unlimited time enabled (turn timer disabled).
+[21:50:13] Cannot spawn on a wall tile.
+[21:50:13] Target tile is occupied.
+[21:50:13] Target tile is occupied.
+[21:50:14] planetlewis moved to (6,6)
+[21:50:17] planetlewis played Stab targeting (7,6)
+[21:50:19] planetlewis played Call for Kobolds targeting (6,6)
+[21:50:20] planetlewis summoned unit kind 1 at (6,7)
+[21:50:21] planetlewis summoned unit kind 1 at (5,6)
+[21:50:25] Turn 5: planetlewis's turn
+[21:50:25] Turn 5: planetlewis's turn
+[21:50:25] Turn 5: planetlewis's turn
+[21:50:25] Autosaved turn-start (autosave.json)
+[21:50:27] planetlewis moved to (4,4)
+[21:50:28] planetlewis moved to (4,3)
+[21:50:29] Turn 5: Bot 1's turn
+[21:50:29] Autosaved turn-start (autosave.json)
+[21:50:31] Bot 1 moved to (9,5)
+[21:50:32] Bot 1 played Hand Block targeting (9,5)
+[21:50:32] Turn 5: Bot 1's turn
+[21:50:32] Turn 5: Bot 1's turn
+[21:50:32] Autosaved turn-start (autosave.json)
+[21:50:34] Bot 1 moved to (8,5)
+[21:50:35] Bot 1 moved to (8,6)
+[21:50:36] Turn 6: planetlewis's turn
+[21:50:36] Autosaved turn-start (autosave.json)
+[21:50:38] Turn 6: planetlewis's turn
+[21:50:38] Autosaved turn-start (autosave.json)
+[21:50:41] planetlewis moved to (7,7)
+[21:50:42] planetlewis played Hand Block targeting (7,7)
+[21:50:42] Turn 6: planetlewis's turn
+[21:50:42] Autosaved turn-start (autosave.json)
+[21:51:04] planetlewis played Kick targeting (6,6)
+[21:51:06] planetlewis moved to (5,5)
+[21:51:08] Turn 6: planetlewis's turn
+[21:51:08] Autosaved turn-start (autosave.json)
+[21:51:12] planetlewis forfeited (conceded).
+[21:51:13] planetlewis has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 4
+  Cards Played: 5
+  Minions Spawned: 3
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 4
+  Minions Spawned: 1
+  Total Healing: 0
+=====================

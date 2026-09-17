@@ -1,0 +1,71 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-17 22:22:13
+End Reason: Victory
+Seed: 368363754
+Turns: 5
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: planetlewis
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[22:19:24] --- MATCH STARTED ---
+[22:19:42] Turn 1: planetlewis's turn
+[22:19:42] Autosaved turn-start (autosave.json)
+[22:19:45] planetlewis moved to (0,7)
+[22:19:46] Turn 1: Bot 1's turn
+[22:19:46] Autosaved turn-start (autosave.json)
+[22:19:47] Bot 1 moved to (12,1)
+[22:19:48] Bot 1 moved to (12,2)
+[22:19:49] Bot 1 moved to (12,3)
+[22:19:50] Turn 2: planetlewis's turn
+[22:19:50] Autosaved turn-start (autosave.json)
+[22:19:53] planetlewis moved to (1,5)
+[22:19:55] planetlewis moved to (4,5)
+[22:19:56] Turn 2: Bot 1's turn
+[22:19:56] Autosaved turn-start (autosave.json)
+[22:19:58] Bot 1 played Raise Dead targeting (12,2)
+[22:19:58] Bot 1 summoned unit kind 9 at (12,2)
+[22:19:59] Bot 1 moved to (12,4)
+[22:20:02] Bot 1 moved to (12,5)
+[22:20:02] Bot 1 moved to (11,5)
+[22:20:05] Bot 1 moved to (10,5)
+[22:20:06] Turn 3: planetlewis's turn
+[22:20:06] Autosaved turn-start (autosave.json)
+[22:21:30] planetlewis moved to (4,4)
+[22:21:32] Turn 3: Bot 1's turn
+[22:21:32] Autosaved turn-start (autosave.json)
+[22:21:34] Bot 1 moved to (12,1)
+[22:21:35] Turn 3: Bot 1's turn
+[22:21:35] Autosaved turn-start (autosave.json)
+[22:21:37] Bot 1 moved to (9,5)
+[22:21:38] Bot 1 moved to (8,5)
+[22:21:39] Bot 1 moved to (8,4)
+[22:21:41] Turn 4: planetlewis's turn
+[22:21:41] Autosaved turn-start (autosave.json)
+[22:21:48] Turn 4: Bot 1's turn
+[22:21:48] Autosaved turn-start (autosave.json)
+[22:21:50] Bot 1 moved to (12,2)
+[22:21:51] Bot 1 moved to (11,2)
+[22:21:52] Bot 1 moved to (11,1)
+[22:21:53] Turn 4: Bot 1's turn
+[22:21:53] Autosaved turn-start (autosave.json)
+[22:21:55] Bot 1 moved to (8,5)
+[22:21:56] Turn 5: planetlewis's turn
+[22:21:56] Autosaved turn-start (autosave.json)
+[22:22:12] planetlewis forfeited (conceded).
+[22:22:13] planetlewis has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 1
+  Minions Spawned: 1
+  Total Healing: 0
+=====================

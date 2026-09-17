@@ -823,11 +823,18 @@ extern bool g_isSpectator;
 
 // Pending macros migrated; use `networkPending.*` fields.
 // --- LOBBY DATA STRUCTURES ---
+static bool g_modifierFogOfWar = false;
+static bool g_visibleTiles[BOARD_WIDTH][BOARD_HEIGHT];
+static std::map<int, std::set<std::string>> g_seenOpponentCards; // unit playerID -> seen card names
+static std::set<int> g_seenOpponentMinionIDs; // minion playerIDs seen in LoS
+
 struct LobbyPlayer {
-	uint32_t playerID;
-	uint32_t seed;
-	bool isReady;
-	std::string name;
+	uint32_t playerID = 0;
+	uint32_t seed = 0;
+	int32_t elo = 1000;
+	bool isReady = false;
+	bool isBot = false;
+	std::string name = "";
 };
 std::vector<LobbyPlayer> g_lobbyPlayers;
 bool g_inLobby = false;
@@ -840,16 +847,21 @@ ofRectangle lobbyStartBtn;
 ofRectangle lobbyForceStartBtn;
 ofRectangle lobbyReadyBtn;
 ofRectangle lobbyLeaveBtn;
+ofRectangle lobbyModFoWBtn;
+ofRectangle lobbyAddAIBtn;
 
 static const uint8_t PKT_LOBBY_UPDATE = 245; // Fixed: Unique ID to prevent collision with PKT_AUTH_TICKET (250)
 #pragma pack(push, 1)
 struct LobbyUpdatePacket {
 	PacketHeader header;
 	uint8_t numPlayers;
+	uint8_t modifiers; // Bitmask: Bit 0 = Fog of War
 	struct {
 		uint32_t playerID;
+		int32_t elo;
 		uint8_t isReady;
-		char name[32];
+		uint8_t isBot;
+		char name[27];
 	} players[4];
 };
 #pragma pack(pop)
@@ -860,11 +872,14 @@ void broadcastLobbyState(SteamManager & steamManager) {
 	lup.header.type = PKT_LOBBY_UPDATE;
 	lup.header.playerID = 0;
 	lup.numPlayers = std::min((int)g_lobbyPlayers.size(), 4);
+	lup.modifiers = g_modifierFogOfWar ? 1 : 0;
 	for (int i = 0; i < lup.numPlayers; i++) {
 		lup.players[i].playerID = g_lobbyPlayers[i].playerID;
+		lup.players[i].elo = g_lobbyPlayers[i].elo;
 		lup.players[i].isReady = g_lobbyPlayers[i].isReady ? 1 : 0;
-		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 31);
-		lup.players[i].name[31] = '\0';
+		lup.players[i].isBot = g_lobbyPlayers[i].isBot ? 1 : 0;
+		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 26);
+		lup.players[i].name[26] = '\0';
 	}
 	steamManager.sendPacket(&lup, sizeof(lup));
 }
@@ -2090,12 +2105,17 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	std::string longestTargetingCardName;
 
 	for (const auto & card : allCards) {
-		std::string translatedName = _L("CARD_NAME_" + std::to_string((int)card.type), card.name);
+		// Calculate the exact 1-70 card ID from cards.json based on atlas position
+		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
+		int row = (int)std::round(card.textureRect.y / card.textureRect.height);
+		int cardId = row * 10 + col + 1;
+
+		std::string translatedName = _L("CARD_NAME_" + std::to_string(cardId), card.name);
 		allCardNames.push_back(translatedName);
 
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
-			std::string translatedEffect = _L("CARD_DESC_" + std::to_string((int)card.type), stripBoldTags(it->second.effectText));
+			std::string translatedEffect = _L("CARD_DESC_" + std::to_string(cardId), stripBoldTags(it->second.effectText));
 			allEffectTexts.push_back(translatedEffect);
 			allAPCosts.push_back(it->second.apCost);
 
@@ -2606,9 +2626,13 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) rec = it->second;
 
-		// Apply localized text right before rendering!
-		rec.name = _L("CARD_NAME_" + std::to_string((int)card.type), rec.name.empty() ? card.name : rec.name);
-		rec.effectText = _L("CARD_DESC_" + std::to_string((int)card.type), rec.effectText);
+		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
+		int row = (int)std::round(card.textureRect.y / card.textureRect.height);
+		int cardId = row * 10 + col + 1;
+
+		// Apply localized text right before rendering using exact cards.json ID!
+		rec.name = _L("CARD_NAME_" + std::to_string(cardId), rec.name.empty() ? card.name : rec.name);
+		rec.effectText = _L("CARD_DESC_" + std::to_string(cardId), rec.effectText);
 
 		int effectiveClass = card.cardClass;
 		int markdownClass = classTierFromLabel(rec.classLabel);
@@ -3257,6 +3281,26 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 		int tidx = currentCardOutcome.targetPlayerIndex;
 		if (tidx < (int)players.size() && !players[tidx].deck.empty()) {
 			he.destroyedCardNames.push_back(players[tidx].deck.back().name);
+		}
+	}
+
+	// FOG OF WAR: If an enemy acted out of line of sight, hide their action in history!
+	if (g_modifierFogOfWar && playerIndex >= 0 && playerIndex < (int)players.size()) {
+		int owner = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
+		int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+		if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+			if (!g_visibleTiles[players[playerIndex].x][players[playerIndex].y]) {
+				he.cardName = "?";
+				he.hasTracers = false;
+				he.rangeRoll = -1;
+				he.damageRoll = -1;
+				he.utilityRoll = -1;
+				he.menuChoice = "";
+				he.destroyedCardNames.clear();
+			} else {
+				// Seen in line of sight! Remember this card in their deck/discard memory
+				g_seenOpponentCards[players[playerIndex].playerID].insert(playedCard.name);
+			}
 		}
 	}
 
@@ -4043,7 +4087,8 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Queue the lockstep command only. Execution phase will perform actual draws.
 	InputCommandPacket cmd = {};
 	cmd.type = PKT_INPUT_COMMAND;
-	cmd.playerID = myLocalPlayerID;
+	// Use the minion's actual owner ID so the security validator doesn't reject it
+	cmd.playerID = ownerIndex;
 	cmd.commandId = 0;
 	cmd.turnNumber = globalTurnCounter;
 	cmd.commandType = CMD_DRAW_CARDS;
@@ -5452,7 +5497,20 @@ void ofApp::updateStateMachine() {
 
 	// Disconnection / reconnection handling (multiplayer)
 	if (isMultiplayer && !g_isSimulatedMultiplayer) {
-		bool isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
+		// Only check for disconnection if there are other human players in the game
+		bool hasHumanOpponents = false;
+		for (const auto & lp : g_lobbyPlayers) {
+			if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+				hasHumanOpponents = true;
+				break;
+			}
+		}
+
+		bool isDisconnected = false;
+		if (hasHumanOpponents) {
+			isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
+		}
+
 		if (isDisconnected) {
 			// If the game has already concluded, or we are viewing a desync, don't interrupt
 			if (g_isGameOver || currentState == STATE_DESYNC) return;
@@ -5825,77 +5883,115 @@ void ofApp::update() {
 		matchLogSaved = false;
 	}
 
-	// --- PAIRWISE ELO CALCULATION (FFA READY) ---
+	// --- PAIRWISE ELO CALCULATION & WEBHOOK ---
 	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 255 && currentState != STATE_DESYNC) {
 		if (myElo <= 0) myElo = steamManager.getLocalElo();
 
-		if (myElo <= 0) {
-			ofLogWarning("Elo") << "Skipping ELO save: Steam Cloud stats not available.";
-			eloCalculated = true;
-		} else {
-			eloCalculated = true;
+		// Check if there are other human players in this match
+		bool hasHumanOpponents = false;
+		for (const auto & lp : g_lobbyPlayers) {
+			if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+				hasHumanOpponents = true;
+				break;
+			}
+		}
 
-			// Reconstruct robust display order
-			std::vector<int> displayOrder;
-			for (int i = matchPlacementOrder.size() - 1; i >= 0; --i)
-				displayOrder.push_back(matchPlacementOrder[i]);
+		// Reconstruct robust placement order
+		std::vector<int> displayOrder;
+		for (int i = (int)matchPlacementOrder.size() - 1; i >= 0; --i)
+			displayOrder.push_back(matchPlacementOrder[i]);
+		for (const auto & lp : g_lobbyPlayers) {
+			if (std::find(displayOrder.begin(), displayOrder.end(), (int)lp.playerID) == displayOrder.end()) {
+				displayOrder.push_back((int)lp.playerID);
+			}
+		}
+
+		// Helper to compute exact pairwise ELO swing for any given player
+		auto calculatePlayerEloChange = [&](int targetPlayerID, const std::vector<int> & standings) -> std::pair<int, int> {
+			int currentP_Elo = 1000;
 			for (const auto & lp : g_lobbyPlayers) {
-				if (std::find(displayOrder.begin(), displayOrder.end(), lp.playerID) == displayOrder.end()) {
-					displayOrder.push_back(lp.playerID);
+				if ((int)lp.playerID == targetPlayerID) {
+					currentP_Elo = (lp.elo > 0) ? lp.elo : 1000;
+					break;
 				}
 			}
-
-			// Find my rank index (0 = 1st Place, 1 = 2nd Place, etc.)
-			int myRankIdx = -1;
-			for (int i = 0; i < displayOrder.size(); i++) {
-				if (displayOrder[i] == myLocalPlayerID) myRankIdx = i;
+			if (targetPlayerID == myLocalPlayerID && myElo > 0) {
+				currentP_Elo = myElo;
 			}
 
-			float totalEloChange = 0;
-			float myK = (myElo < 1150) ? 40.0f : ((myElo > 1600) ? 16.0f : 24.0f);
+			int rankIdx = -1;
+			for (size_t i = 0; i < standings.size(); ++i) {
+				if (standings[i] == targetPlayerID) {
+					rankIdx = (int)i;
+					break;
+				}
+			}
+			if (rankIdx == -1) return { 0, currentP_Elo };
 
-			// Calculate Pairwise against every other player
-			for (int i = 0; i < displayOrder.size(); i++) {
-				if (i == myRankIdx) continue;
-				int oppID = displayOrder[i];
+			float totalChange = 0.0f;
+			int humanCompetitors = 0;
+			float kFactor = (currentP_Elo < 1150) ? 40.0f : ((currentP_Elo > 1600) ? 16.0f : 24.0f);
 
-				// We assume 1000 for unknown opponents in FFA for now, until we broadcast Elo in lobbies
-				float tempOppElo = 1000.0f;
+			for (size_t i = 0; i < standings.size(); ++i) {
+				if ((int)i == rankIdx) continue;
+				int otherID = standings[i];
 
-				float myExpected = 1.0f / (1.0f + pow(10.0f, (tempOppElo - myElo) / 400.0f));
-				float myActual = 0.0f;
+				// Only calculate ELO against actual humans
+				bool otherIsBot = false;
+				int otherElo = 1000;
+				for (const auto & lp : g_lobbyPlayers) {
+					if ((int)lp.playerID == otherID) {
+						otherIsBot = lp.isBot;
+						if (lp.elo > 0) otherElo = lp.elo;
+						break;
+					}
+				}
+				if (otherIsBot) continue;
+
+				humanCompetitors++;
+				float expected = 1.0f / (1.0f + pow(10.0f, (float)(otherElo - currentP_Elo) / 400.0f));
+				float actual = 0.0f;
 
 				if (g_winnerID == 2)
-					myActual = 0.5f; // Absolute Draw
-				else if (myRankIdx < i)
-					myActual = 1.0f; // I placed higher
-				else if (myRankIdx > i)
-					myActual = 0.0f; // I placed lower
+					actual = 0.5f; // Draw
+				else if (rankIdx < (int)i)
+					actual = 1.0f; // Placed higher
+				else
+					actual = 0.0f; // Placed lower
 
-				totalEloChange += myK * (myActual - myExpected);
+				totalChange += kFactor * (actual - expected);
 			}
 
-			// Average out the change based on player count
-			if (displayOrder.size() > 1) {
-				eloChange = (int)round(totalEloChange / (displayOrder.size() - 1));
-			} else {
-				eloChange = 0;
+			if (humanCompetitors == 0) return { 0, currentP_Elo };
+
+			int swing = (int)round(totalChange / humanCompetitors);
+
+			// First place bonus for low rank players
+			if (rankIdx == 0 && currentP_Elo < 1200 && swing > 0) {
+				swing = (int)round(swing * 1.30f);
 			}
 
-			// Low Elo Inflation
-			if (myRankIdx == 0 && myElo < 1200 && eloChange > 0) {
-				eloChange = (int)round(eloChange * 1.30f);
-			}
+			int maxSwing = (int)round(kFactor * 1.50f);
+			swing = std::clamp(swing, -maxSwing, maxSwing);
 
-			int maxSwing = (int)round(myK * 1.50f);
-			eloChange = std::clamp(eloChange, -maxSwing, maxSwing);
+			return { swing, currentP_Elo };
+		};
 
-			myElo += eloChange;
-			if (myElo < 300) myElo = 300;
+		eloCalculated = true;
+
+		// Only modify and store ELO if we competed against real humans
+		if (hasHumanOpponents && myElo > 0) {
+			auto [change, oldElo] = calculatePlayerEloChange(myLocalPlayerID, displayOrder);
+			eloChange = change;
+			myElo = std::max(300, myElo + eloChange);
 
 			steamManager.setLocalElo(myElo);
 			steamManager.disarmLeaverBuster();
-			ofLogNotice("Elo") << "Game Over. Change: " << eloChange << ", New Rating: " << myElo;
+			ofLogNotice("Elo") << "Online Match Over. ELO Change: " << eloChange << ", New Rating: " << myElo;
+		} else {
+			eloChange = 0;
+			steamManager.disarmLeaverBuster();
+			ofLogNotice("Elo") << "Solo / Bot Match Over. No ELO change.";
 		}
 
 		// --- DISCORD GAME HISTORY WEBHOOK (HOST ONLY) ---
@@ -5904,19 +6000,31 @@ void ofApp::update() {
 
 			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : getPlayerNameByID(g_winnerID);
 
-			std::string msg = "⚔️ **FFA DUEL FINISHED** ⚔️\n";
-			msg += "🏆 **Winner:** " + winnerName + "\n\n**Standings:**\n";
+			std::string msg = "⚔️ **ONLINE DUEL FINISHED** ⚔️\n";
+			msg += "🏆 **Winner:** " + winnerName + "\n\n**Standings & Rating Adjustments:**\n";
 
-			// Robust order reconstruction
-			std::vector<int> displayOrder;
-			for (int i = matchPlacementOrder.size() - 1; i >= 0; --i)
-				displayOrder.push_back(matchPlacementOrder[i]);
-			for (const auto & lp : g_lobbyPlayers) {
-				if (std::find(displayOrder.begin(), displayOrder.end(), lp.playerID) == displayOrder.end()) displayOrder.push_back(lp.playerID);
-			}
+			for (size_t i = 0; i < displayOrder.size(); i++) {
+				int pID = displayOrder[i];
+				std::string pName = getPlayerNameByID(pID);
 
-			for (int i = 0; i < displayOrder.size(); i++) {
-				msg += "#" + std::to_string(i + 1) + " - **" + getPlayerNameByID(displayOrder[i]) + "**\n";
+				bool isBot = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if ((int)lp.playerID == pID && lp.isBot) {
+						isBot = true;
+						break;
+					}
+				}
+
+				if (isBot) {
+					msg += "#" + std::to_string(i + 1) + " - **" + pName + "** [AI Bot]\n";
+				} else if (!hasHumanOpponents) {
+					msg += "#" + std::to_string(i + 1) + " - **" + pName + "** (Unranked vs Bot)\n";
+				} else {
+					auto [change, oldElo] = calculatePlayerEloChange(pID, displayOrder);
+					int newRating = std::max(300, oldElo + change);
+					std::string sign = (change >= 0) ? "+" : "";
+					msg += "#" + std::to_string(i + 1) + " - **" + pName + "** (" + sign + std::to_string(change) + ") ➔ **" + std::to_string(newRating) + "** Rating\n";
+				}
 			}
 
 			sendDiscordWebhook(historyWebhook, msg);
@@ -7243,7 +7351,12 @@ void ofApp::draw() {
 					float sw = g_actionHistory[i].card.textureRect.width * 0.7f;
 					float sh = g_actionHistory[i].card.textureRect.width * 0.7f;
 
-					if (g_actionHistory[i].isMovement) {
+					if (g_actionHistory[i].cardName == "?") {
+						// FOG OF WAR: Draw Mystery '?' Icon
+						ofSetColor(24, 28, 38);
+						ofDrawRectRounded(iconRect, 6);
+						drawPixelTextCentered(titleFont, "?", iconRect.getCenter().x, iconRect.getCenter().y, 1.1f * scale, ofColor(220, 220, 240));
+					} else if (g_actionHistory[i].isMovement) {
 						ofSetColor(24, 28, 38);
 						ofDrawRectRounded(iconRect, 6);
 						ofNoFill();
@@ -7262,7 +7375,9 @@ void ofApp::draw() {
 						isShowingTooltip = true;
 						tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
 
-						if (entry.isMovement) {
+						if (entry.cardName == "?") {
+							tooltipText = "Unknown Enemy Action";
+						} else if (entry.isMovement) {
 							tooltipText = "Unit Move: (" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ") -> (" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")";
 						} else {
 							tooltipText = entry.cardName;
@@ -7787,6 +7902,16 @@ void ofApp::updateMenuRects() {
 		lobbyModifiersPanelRect.set(oX + 1.1f * menuTileSize + (colW + colGap), panelY, colW, panelH);
 		lobbyChatPanelRect.set(oX + 1.1f * menuTileSize + (colW + colGap) * 2.0f, panelY, colW, panelH);
 
+		// Modifiers logic:
+		float btnY = lobbyModifiersPanelRect.y + menuTileSize * 1.5f;
+		lobbyModFoWBtn.set(lobbyModifiersPanelRect.x + 20 * uiScale, btnY, lobbyModifiersPanelRect.width - 40 * uiScale, 50 * uiScale);
+
+		// Players Logic: Add AI button below the last active player
+		float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
+		float itemH = menuTileSize * 0.95f;
+		float addAIPy = py + (g_lobbyPlayers.size() * (itemH + menuTileSize * 0.1f));
+		lobbyAddAIBtn.set(lobbyPlayersPanelRect.x + 20 * uiScale, addAIPy, lobbyPlayersPanelRect.width - 40 * uiScale, 40 * uiScale);
+
 		// Bottom Action Buttons (aligned under each column)
 		float btnRowY = menuStartY + 6.7f * menuTileSize;
 		float btnRowH = menuTileSize * 1.1f;
@@ -8038,11 +8163,10 @@ void ofApp::draw2DMenuBackground() {
 				}
 			} else {
 				// Draw floor tiles (inside rooms and along the tunnel at y=5)
+				// CRITICAL FIX: Fast bit-hash instead of re-instantiating std::mt19937 every frame!
 				unsigned int seed = (modX * 73856093) ^ (y * 19349663);
 				if (!floorTextures.empty()) {
-					std::mt19937 tileRng(seed);
-					std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
-					int texIndex = texDist(tileRng);
+					int texIndex = (int)((seed * 2654435761u) % floorTextures.size());
 
 					ofSetColor(230);
 					floorTextures[texIndex].draw(tx, ty, drawW, drawH);
@@ -8639,19 +8763,30 @@ void ofApp::drawLobby() {
 	drawMenuPlaquePanel(lobbyPlayersPanelRect);
 	drawPixelTextCentered(titleFont, _L("UI_LOBBY_PLAYERS", "Players"), lobbyPlayersPanelRect.getCenter().x, lobbyPlayersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
 
+	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
 	float itemH = menuTileSize * 0.95f;
+	bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
+
 	for (const auto & lp : g_lobbyPlayers) {
+		ofRectangle rowRect(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH);
+		bool isHoveringRow = rowRect.inside(ofGetMouseX(), ofGetMouseY());
+
 		ofSetColor(40, 40, 50, 240);
-		ofDrawRectRounded(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH, 8);
+		ofDrawRectRounded(rowRect, 8);
 		ofNoFill();
 		ofSetLineWidth(2.0f);
-		ofSetColor(80, 80, 100);
-		ofDrawRectRounded(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH, 8);
+		if (lp.isBot && isLobbyHost && isHoveringRow) {
+			ofSetColor(150, 60, 60); // Red highlight indicating it can be removed
+			g_hoveredButtonId = "lobby_remove_bot";
+		} else {
+			ofSetColor(80, 80, 100);
+		}
+		ofDrawRectRounded(rowRect, 8);
 		ofFill();
 
 		ofRectangle readyStatusRect(lobbyPlayersPanelRect.getRight() - 130, py, 120, itemH);
-		bool isMyRow = (lp.playerID == myLocalPlayerID);
+		bool isMyRow = ((int)lp.playerID == myLocalPlayerID);
 		bool isHoveredStatus = isMyRow && readyStatusRect.inside(ofGetMouseX(), ofGetMouseY());
 		if (isHoveredStatus) {
 			ofPushStyle();
@@ -8663,18 +8798,47 @@ void ofApp::drawLobby() {
 
 		ofColor statusCol = lp.isReady ? ofColor::green : ofColor(255, 200, 50);
 		if (isHoveredStatus) statusCol = ofColor::white;
+		if (lp.isBot && isLobbyHost && isHoveringRow) statusCol = ofColor(255, 80, 80); // Red "Remove"
 
 		drawPixelTextBaseline(uiFont, lp.name, lobbyPlayersPanelRect.x + 22, py + (itemH * 0.58f), 1.1f, ofColor::white);
-		drawPixelTextBaseline(uiFont, lp.isReady ? "READY" : "WAITING", lobbyPlayersPanelRect.getRight() - 110, py + (itemH * 0.58f), 0.95f, statusCol);
+		std::string statusStr = lp.isReady ? "READY" : "WAITING";
+		if (lp.isBot && isLobbyHost && isHoveringRow) statusStr = "REMOVE";
+		drawPixelTextBaseline(uiFont, statusStr, lobbyPlayersPanelRect.getRight() - 110, py + (itemH * 0.58f), 0.95f, statusCol);
 
 		py += itemH + (menuTileSize * 0.1f);
+	}
+
+	if (isLobbyHost && g_lobbyPlayers.size() < 4) {
+		bool hoverAdd = lobbyAddAIBtn.inside(ofGetMouseX(), ofGetMouseY());
+		if (hoverAdd) g_hoveredButtonId = "add_ai";
+		ofSetColor(hoverAdd ? ofColor(60, 80, 60) : ofColor(40, 50, 40));
+		ofDrawRectRounded(lobbyAddAIBtn, 6);
+		ofSetColor(hoverAdd ? ofColor::white : ofColor(200));
+		drawPixelTextCentered(uiFont, "+ Add AI Bot", lobbyAddAIBtn.getCenter().x, lobbyAddAIBtn.getCenter().y, 0.9f * uiScale, ofColor::white);
 	}
 
 	// --- Column 2: Modifiers Panel ---
 	drawMenuPlaquePanel(lobbyModifiersPanelRect);
 	drawPixelTextCentered(titleFont, _L("UI_LOBBY_MODIFIERS", "Modifiers"), lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
 
-	drawPixelTextCentered(uiFont, "Coming Soon...", lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.getCenter().y, 1.1f, ofColor(160));
+	// CRITICAL FIX: Draw the button directly from its panned hitbox so clicks match 1:1
+	bool isModHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
+	bool isHovered = lobbyModFoWBtn.inside(ofGetMouseX(), ofGetMouseY());
+	if (isHovered && isModHost) g_hoveredButtonId = "mod_fow";
+
+	ofColor baseColor = g_modifierFogOfWar ? ofColor(50, 180, 50) : ofColor(40, 40, 50);
+	if (isHovered && isModHost) baseColor.setBrightness(std::min(255, (int)baseColor.getBrightness() + 30));
+
+	ofSetColor(baseColor);
+	ofDrawRectRounded(lobbyModFoWBtn, 8);
+	ofNoFill();
+	ofSetLineWidth(2.0f);
+	ofSetColor(g_modifierFogOfWar ? ofColor(100, 255, 100) : ofColor(100, 100, 100));
+	ofDrawRectRounded(lobbyModFoWBtn, 8);
+	ofFill();
+
+	std::string fowText = _L("MOD_FOW", "Fog of War");
+	drawPixelTextCentered(uiFont, fowText, lobbyModFoWBtn.getCenter().x, lobbyModFoWBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
 
 	// --- Column 3: Chat Panel Background ---
 	drawMenuPlaquePanel(lobbyChatPanelRect);
@@ -8682,18 +8846,17 @@ void ofApp::drawLobby() {
 	// --- Bottom Row: Action Buttons ---
 	drawMenuPlaqueButton(lobbyLeaveBtn, _L("UI_LOBBY_LEAVE", "Leave Lobby"), lobbyLeaveBtn.inside(ofGetMouseX(), ofGetMouseY()));
 
-	// Bulletproof Host Check: Player 0 or Host flag
-	bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
-
 	if (isLobbyHost) {
 		// Host has Force Start (Middle) and Start Game (Right)
-		bool allReady = true;
+		bool allReady = (g_lobbyPlayers.size() > 1);
 		for (const auto & lp : g_lobbyPlayers) {
-			if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
+			if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 		}
 
-		drawMenuPlaqueButton(lobbyForceStartBtn, _L("UI_LOBBY_FORCE_START", "Force Start"), lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()));
-		drawMenuPlaqueButton(lobbyStartBtn, _L("UI_LOBBY_START", "Start Game"), lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady);
+		bool notEnoughPlayers = (g_lobbyPlayers.size() <= 1);
+
+		drawMenuPlaqueButton(lobbyForceStartBtn, _L("UI_LOBBY_FORCE_START", "Force Start"), lobbyForceStartBtn.inside(ofGetMouseX(), ofGetMouseY()), notEnoughPlayers);
+		drawMenuPlaqueButton(lobbyStartBtn, _L("UI_LOBBY_START", "Start Game"), lobbyStartBtn.inside(ofGetMouseX(), ofGetMouseY()), !allReady || notEnoughPlayers);
 	} else {
 		// Client has Ready / Unready (Middle)
 		bool iAmReady = false;
@@ -8768,7 +8931,9 @@ void ofApp::drawMultiplayerMenu() {
 
 	auto leaderboard = steamManager.getLeaderboardEntries();
 	if (leaderboard.empty()) {
-		drawPixelTextCentered(uiFont, "Loading rankings...", mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f, ofColor(150));
+		float elapsedSinceRefresh = ofGetElapsedTimef() - g_lastLeaderboardRefreshTime;
+		std::string statusMsg = (elapsedSinceRefresh < 3.0f) ? "Loading rankings..." : "No ranked entries found";
+		drawPixelTextCentered(uiFont, statusMsg, mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f, ofColor(150));
 	} else {
 		float lbY = mpLeaderboardPanelRect.y + 10 - g_mpLeaderboardScroll;
 		float itemH = 50.0f * uiScale;
@@ -9060,6 +9225,8 @@ void ofApp::setupGame() {
 	g_winnerID = -1;
 	g_drawOfferPlayerID = -1;
 	initialDraftComplete = false;
+	g_seenOpponentCards.clear();
+	g_seenOpponentMinionIDs.clear();
 	isInGameDraft = false;
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
@@ -9099,6 +9266,9 @@ void ofApp::setupGame() {
 	s_draftNextStage = -1;
 
 	// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
+	isChatOpen = false;
+	isChatMinimized = true;
+	chatInput = "";
 	gameLog.clear();
 	chatHistory.clear();
 	draftOptions.clear();
@@ -9637,6 +9807,53 @@ static void playOnBoardSound(ofCamera & cam, ofSoundPlayer & sound, glm::vec3 wo
 }
 
 void ofApp::prepareGameVisualState() {
+	// --- CALCULATE FOG OF WAR ---
+	int localTeam = myLocalPlayerID;
+	if (!isMultiplayer) {
+		if (isVsAI) {
+			localTeam = 0; // In Vs AI, human player is PERMANENTLY team 0!
+		} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			localTeam = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		} else {
+			localTeam = 0;
+		}
+	}
+
+	if (!g_modifierFogOfWar || g_isSpectator || localTeam == 255) {
+		for (int tx = 0; tx < BOARD_WIDTH; tx++)
+			for (int ty = 0; ty < BOARD_HEIGHT; ty++)
+				g_visibleTiles[tx][ty] = true;
+	} else {
+		for (int tx = 0; tx < BOARD_WIDTH; tx++)
+			for (int ty = 0; ty < BOARD_HEIGHT; ty++)
+				g_visibleTiles[tx][ty] = false;
+
+		for (const auto & p : players) {
+			if (p.health <= 0) continue;
+			int owner = p.isMinion ? p.ownerID : p.playerID;
+			if (owner == localTeam) {
+				glm::vec2 cPos((float)p.x, (float)p.y);
+				for (int tx = 0; tx < BOARD_WIDTH; tx++) {
+					for (int ty = 0; ty < BOARD_HEIGHT; ty++) {
+						if (g_visibleTiles[tx][ty]) continue;
+
+						// Automatically see your own tile and directly adjacent (prevents weird corner blind spots)
+						if (std::abs(tx - p.x) <= 1 && std::abs(ty - p.y) <= 1) {
+							g_visibleTiles[tx][ty] = true;
+							continue;
+						}
+
+						// Standard Line of Sight Raycast
+						auto los = getClearLosRay(cPos, glm::vec2((float)tx, (float)ty), CARD_FIREBALL);
+						if (los.hasLos) {
+							g_visibleTiles[tx][ty] = true;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// =========================================================================
 	// --- CONTINUOUS HIGH-REFRESH VISUAL INTERPOLATIONS ---
 	// =========================================================================
@@ -9804,8 +10021,22 @@ void ofApp::prepareGameVisualState() {
 				}
 
 				if (!resultText.empty()) {
-					diceRollResultText = resultText;
-					diceRollResultStartTime = ofGetElapsedTimef();
+					// FOG OF WAR: Suppress result text if the rolling unit is out of Line of Sight
+					bool showResultText = true;
+					if (g_modifierFogOfWar && it->associatedUnit >= 0 && it->associatedUnit < (int)players.size()) {
+						int owner = players[it->associatedUnit].isMinion ? players[it->associatedUnit].ownerID : players[it->associatedUnit].playerID;
+						int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+						if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+							if (!g_visibleTiles[players[it->associatedUnit].x][players[it->associatedUnit].y]) {
+								showResultText = false;
+							}
+						}
+					}
+
+					if (showResultText) {
+						diceRollResultText = resultText;
+						diceRollResultStartTime = ofGetElapsedTimef();
+					}
 				}
 			}
 		}
@@ -10219,6 +10450,19 @@ void ofApp::prepareGameVisualState() {
 
 	gap = (scale > 0.0f) ? (deckBottomGap / scale) : gap;
 
+	// Record any enemy minions currently in Line of Sight into persistent memory
+	if (g_modifierFogOfWar) {
+		int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].isMinion && players[i].health > 0) {
+				int owner = players[i].ownerID;
+				if (owner != localTeam && g_visibleTiles[players[i].x][players[i].y]) {
+					g_seenOpponentMinionIDs.insert(players[i].playerID);
+				}
+			}
+		}
+	}
+
 	activeMinionUIs.clear();
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
@@ -10226,10 +10470,14 @@ void ofApp::prepareGameVisualState() {
 	for (int i = 0; i < (int)players.size(); ++i) {
 		if (!players[i].isMinion) continue;
 		int ownerID = players[i].ownerID;
-		if (ownerID == myLocalPlayerID)
+		if (ownerID == myLocalPlayerID) {
 			p0_minionIndices.push_back(i);
-		else
-			p1_minionIndices.push_back(i);
+		} else {
+			// FOG OF WAR: Only show enemy minions if you have seen them at least once!
+			if (!g_modifierFogOfWar || g_seenOpponentMinionIDs.count(players[i].playerID) > 0) {
+				p1_minionIndices.push_back(i);
+			}
+		}
 	}
 
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
@@ -11775,6 +12023,81 @@ void ofApp::drawGame() {
 			wallDarkTexture.unbind();
 		}
 
+		// --- DRAW FOG OF WAR OVERLAY ---
+		if (g_modifierFogOfWar) {
+			ofPushStyle();
+			ofEnableDepthTest();
+			glDepthMask(GL_FALSE);
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+			// CRITICAL FIX: Push the polygons backwards so they never Z-Fight with the floor/walls!
+			glEnable(GL_POLYGON_OFFSET_FILL);
+			glPolygonOffset(-2.0f, -2.0f);
+
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					if (!g_visibleTiles[x][y]) {
+						glm::vec3 pos = gridToWorld(x, y);
+
+						// Rest exactly on the surface
+						float surfaceY = board[x][y].hasWall ? (TILE_SIZE * 0.5f) : 0.0f;
+
+						// Elevate everything slightly with glPolygonOffset so it doesn't Z-Fight
+						glEnable(GL_POLYGON_OFFSET_FILL);
+						glPolygonOffset(-2.0f, -2.0f);
+
+						// Deep, moody shadow fog (Like XCOM or RISK)
+						ofColor fogTop(12, 16, 26, 230);
+						ofColor fogSide(8, 12, 20, 245);
+
+						// Add a very subtle dark bob to make it look alive without clipping
+						float bob = sin(ofGetElapsedTimef() * 1.5f + x * 0.5f + y * 0.5f) * 0.05f;
+						surfaceY += std::max(0.01f, bob);
+
+						ofSetColor(fogTop);
+						ofPushMatrix();
+						ofTranslate(pos.x, surfaceY, pos.z);
+						ofRotateXDeg(90);
+						ofDrawRectangle(-TILE_SIZE / 2.0f, -TILE_SIZE / 2.0f, TILE_SIZE, TILE_SIZE);
+						ofPopMatrix();
+
+						// Darken the sides of the walls so they blend completely into the shadows
+						if (board[x][y].hasWall) {
+							ofSetColor(fogSide);
+							float h = TILE_SIZE * 0.5f;
+
+							ofPushMatrix();
+							ofTranslate(pos.x, h / 2.0f, pos.z + TILE_SIZE / 2.0f);
+							ofDrawRectangle(-TILE_SIZE / 2.0f, -h / 2.0f, TILE_SIZE, h);
+							ofPopMatrix();
+
+							ofPushMatrix();
+							ofTranslate(pos.x, h / 2.0f, pos.z - TILE_SIZE / 2.0f);
+							ofRotateYDeg(180);
+							ofDrawRectangle(-TILE_SIZE / 2.0f, -h / 2.0f, TILE_SIZE, h);
+							ofPopMatrix();
+
+							ofPushMatrix();
+							ofTranslate(pos.x + TILE_SIZE / 2.0f, h / 2.0f, pos.z);
+							ofRotateYDeg(90);
+							ofDrawRectangle(-TILE_SIZE / 2.0f, -h / 2.0f, TILE_SIZE, h);
+							ofPopMatrix();
+
+							ofPushMatrix();
+							ofTranslate(pos.x - TILE_SIZE / 2.0f, h / 2.0f, pos.z);
+							ofRotateYDeg(-90);
+							ofDrawRectangle(-TILE_SIZE / 2.0f, -h / 2.0f, TILE_SIZE, h);
+							ofPopMatrix();
+						}
+
+						glDisable(GL_POLYGON_OFFSET_FILL);
+					}
+				}
+			}
+			glDepthMask(GL_TRUE);
+			safePopStyle();
+		}
+
 		// Run this diagnostic once every 300 frames to prevent console spam
 		if (ofGetFrameNum() % 300 == 0) {
 			ofLogNotice("AttachmentDebug") << "=== SENSOR DIAGNOSTIC ===";
@@ -11822,6 +12145,8 @@ void ofApp::drawGame() {
 
 			// Draw Metallic Ground Circles for Key Tiles (Includes all active and pending keys)
 			for (const auto & inst : visibleKeyInstances) {
+				if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
+
 				ofColor circleCol = ofColor(255, 215, 0); // Gold
 				if (inst.set == 2)
 					circleCol = ofColor(200, 200, 220); // Silver
@@ -11886,6 +12211,8 @@ void ofApp::drawGame() {
 			bool flipForLocal = shouldFlipCamera();
 			(void)flipForLocal; // Suppress unused warning
 			for (const auto & inst : visibleKeyInstances) {
+				if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
+
 				const std::vector<ofTexture> * setTex = nullptr;
 				if (inst.set == 1)
 					setTex = &keyTextures;
@@ -11999,10 +12326,6 @@ void ofApp::drawGame() {
 		for (int opaquePlayerIdx = 0; opaquePlayerIdx < (int)players.size(); ++opaquePlayerIdx) {
 			const auto & player = players[opaquePlayerIdx];
 
-			// CRITICAL FIX: Re-enable Color Material per-player so OpenGL doesn't render them black!
-			glEnable(GL_COLOR_MATERIAL);
-			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-
 			// 1. Determine Position using Bulletproof Grid Fallback
 			glm::vec3 p = gridToWorld(player.x, player.y);
 
@@ -12021,6 +12344,29 @@ void ofApp::drawGame() {
 					p = playerVisualPos;
 				}
 			}
+
+			// FOG OF WAR VISIBILITY CHECK (Dynamic Positional Tracking)
+			bool isVisible = true;
+			if (g_modifierFogOfWar) {
+				int owner = player.isMinion ? player.ownerID : player.playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+				if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+					// Check the tile under the model's CURRENT interpolated movement position!
+					glm::vec2 gridTile = worldToGrid(p);
+					int gx = (int)gridTile.x;
+					int gy = (int)gridTile.y;
+					if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+						if (!g_visibleTiles[gx][gy]) isVisible = false;
+					} else {
+						isVisible = false;
+					}
+				}
+			}
+			if (!isVisible) continue;
+
+			// CRITICAL FIX: Re-enable Color Material per-player so OpenGL doesn't render them black!
+			glEnable(GL_COLOR_MATERIAL);
+			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 			// Draw blob shadow sprites always (since we disabled the heavy shadow map)
 			if (true) {
 				// Draw shadow quad on ground slightly above to avoid z-fighting
@@ -12369,9 +12715,19 @@ void ofApp::drawGame() {
 		// --- DICE RENDERING ---
 		diceMaterial.begin();
 
+		auto isDiceVisible = [&](int associatedUnit) {
+			if (!g_modifierFogOfWar) return true;
+			if (associatedUnit < 0 || associatedUnit >= (int)players.size()) return true;
+			int owner = players[associatedUnit].isMinion ? players[associatedUnit].ownerID : players[associatedUnit].playerID;
+			int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+			if (g_isSpectator || localTeam == 255 || owner == localTeam) return true;
+			return g_visibleTiles[players[associatedUnit].x][players[associatedUnit].y];
+		};
+
 		// 1. D4
 		d4Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+			if (!isDiceVisible(activeDiceRolls[i].associatedUnit)) continue;
 			if (activeDiceRolls[i].sides == 4) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d4Scale, d4Scale, d4Scale);
@@ -12386,6 +12742,7 @@ void ofApp::drawGame() {
 			ofDisableLighting();
 			coinFacesTexture.bind();
 			for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+				if (!isDiceVisible(activeDiceRolls[i].associatedUnit)) continue;
 				if (activeDiceRolls[i].sides == 2) {
 					setDiceTransform(i, activeDiceRolls[i]);
 					ofScale(coinScale, coinScale, coinScale);
@@ -12401,6 +12758,7 @@ void ofApp::drawGame() {
 		// 3. D6
 		d6Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+			if (!isDiceVisible(activeDiceRolls[i].associatedUnit)) continue;
 			if (activeDiceRolls[i].sides == 6) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d6Scale, d6Scale, d6Scale);
@@ -12413,6 +12771,7 @@ void ofApp::drawGame() {
 		// 4. D10
 		d10Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+			if (!isDiceVisible(activeDiceRolls[i].associatedUnit)) continue;
 			if (activeDiceRolls[i].sides == 10) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d10Scale, d10Scale, d10Scale);
@@ -12425,6 +12784,7 @@ void ofApp::drawGame() {
 		// 5. D20
 		d20Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
+			if (!isDiceVisible(activeDiceRolls[i].associatedUnit)) continue;
 			if (activeDiceRolls[i].sides == 20) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d20Scale, d20Scale, d20Scale);
@@ -12465,6 +12825,22 @@ void ofApp::drawGame() {
 					pos = playerVisualPos;
 				} else {
 					pos = gridToWorld(player.x, player.y);
+				}
+			}
+
+			// FOG OF WAR CHECK (Dynamic Positional Tracking)
+			if (g_modifierFogOfWar) {
+				int owner = player.isMinion ? player.ownerID : player.playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+				if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+					glm::vec2 gridTile = worldToGrid(pos);
+					int gx = (int)gridTile.x;
+					int gy = (int)gridTile.y;
+					bool visibleNow = (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) ? g_visibleTiles[gx][gy] : false;
+					if (!visibleNow) {
+						transPlayerIdx++;
+						continue;
+					}
 				}
 			}
 
@@ -12926,8 +13302,18 @@ void ofApp::drawGame() {
 			memset(assistantEffectTiles, 0, sizeof(assistantEffectTiles));
 
 			// Find all assistants and mark adjacent tiles
-			for (const auto & unit : players) {
-				if (!unit.isAssistant) continue; // Only process assistants
+			for (size_t uIdx = 0; uIdx < players.size(); ++uIdx) {
+				const auto & unit = players[uIdx];
+				if (!unit.isAssistant) continue;
+
+				// FOG OF WAR: Only draw clovers if the assistant is visible to the local player!
+				if (g_modifierFogOfWar) {
+					int owner = unit.isMinion ? unit.ownerID : unit.playerID;
+					int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+					if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+						if (!isDiceVisible((int)uIdx)) continue; // Hidden in fog
+					}
+				}
 
 				// Mark all adjacent tiles (4-directional: N/E/S/W only, not diagonal)
 				std::vector<glm::ivec2> adjacentDirs = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
@@ -13301,23 +13687,34 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 				}
 
-				// Draw impact tile outline
-				ofPushMatrix();
-				glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
-				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
-				ofRotateXDeg(90);
-				ofSetColor(255, 220, 0, col.a);
-				drawThickRect(TILE_SIZE, TILE_SIZE * 0.08f);
-				ofPopMatrix();
+				// FOG OF WAR: Only draw impact tile highlights if the impact tile is visible in LoS!
+				bool impactVisible = true;
+				if (g_modifierFogOfWar && tr.impactTile.x >= 0 && tr.impactTile.x < BOARD_WIDTH && tr.impactTile.y >= 0 && tr.impactTile.y < BOARD_HEIGHT) {
+					int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+					if (!g_isSpectator && localTeam != 255) {
+						impactVisible = g_visibleTiles[tr.impactTile.x][tr.impactTile.y];
+					}
+				}
 
-				// Impact glow on tile
-				float pulse = 1.0f + 0.25f * sin((now - tr.startTime) * 16.0f);
-				ofPushMatrix();
-				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
-				ofRotateXDeg(90);
-				ofSetColor(col);
-				ofDrawCircle(0, 0, (TILE_SIZE * 0.18f) * pulse);
-				ofPopMatrix();
+				if (impactVisible) {
+					// Draw impact tile outline
+					ofPushMatrix();
+					glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
+					ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
+					ofRotateXDeg(90);
+					ofSetColor(255, 220, 0, col.a);
+					drawThickRect(TILE_SIZE, TILE_SIZE * 0.08f);
+					ofPopMatrix();
+
+					// Impact glow on tile
+					float pulse = 1.0f + 0.25f * sin((now - tr.startTime) * 16.0f);
+					ofPushMatrix();
+					ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
+					ofRotateXDeg(90);
+					ofSetColor(col);
+					ofDrawCircle(0, 0, (TILE_SIZE * 0.18f) * pulse);
+					ofPopMatrix();
+				}
 
 				// Draw adjacent tile outlines
 				for (const auto & adjTile : tr.adjacentTiles) {
@@ -14172,6 +14569,13 @@ void ofApp::drawGame() {
 
 	// Draw Floating Text
 	for (const auto & ft : activeFloatingTexts) {
+		if (g_modifierFogOfWar) {
+			glm::vec2 gPos = worldToGrid(ft.worldPos);
+			if (gPos.x >= 0 && gPos.x < BOARD_WIDTH && gPos.y >= 0 && gPos.y < BOARD_HEIGHT) {
+				if (!g_visibleTiles[(int)gPos.x][(int)gPos.y]) continue;
+			}
+		}
+
 		glm::vec2 screenPos = getActiveCamera().worldToScreen(ft.worldPos);
 
 		// Fade out alpha
@@ -14365,7 +14769,23 @@ void ofApp::drawGame() {
 		// P1 Discard -- show opponent's top card face
 		if (!opponentPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, opponentPlayer->discardPile.back(), p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, opponentPlayer);
+			bool showFace = true;
+			if (g_modifierFogOfWar) {
+				int owner = opponentPlayer->isMinion ? opponentPlayer->ownerID : opponentPlayer->playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+				if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+					// Only show face if local player witnessed it!
+					if (g_seenOpponentCards[opponentPlayer->playerID].count(opponentPlayer->discardPile.back().name) == 0) {
+						showFace = false;
+					}
+				}
+			}
+
+			if (showFace) {
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, opponentPlayer->discardPile.back(), p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, opponentPlayer);
+			} else {
+				cardBackImage.draw(p1_discardRect);
+			}
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
@@ -14662,20 +15082,35 @@ void ofApp::drawGame() {
 		g_p1_apBoxAlpha = skipDrawP1AP ? std::max(0.0f, g_p1_apBoxAlpha - alphaFadeSpeed * dtFrame) : std::min(1.0f, g_p1_apBoxAlpha + alphaFadeSpeed * dtFrame);
 
 		if (g_p1_apBoxAlpha > 0.01f) {
-			float p1_baseRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
+			// FOG OF WAR: Check if active opponent unit is visible in line of sight
+			bool hideOpponentAP = false;
+			if (g_modifierFogOfWar && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				int owner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (isVsAI ? 0 : 0);
+				if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+					if (!g_visibleTiles[players[currentPlayerIndex].x][players[currentPlayerIndex].y]) {
+						hideOpponentAP = true;
+					}
+				}
+			}
+
+			std::string apTextToRender = hideOpponentAP ? "? AP" : g_p1_apText_cache;
+			ofRectangle curApTextBox = titleFont.getStringBoundingBox(apTextToRender, 0, 0);
+			float p1_baseRectWidth = (curApTextBox.width * fontScale) + (40 * scale);
+
 			ofSetColor(0, 0, 0, 150 * g_p1_apBoxAlpha);
-			ofDrawRectRounded(p1_apCenterX - p1_baseRectWidth / 2.0f, p1_apCenterY - p1_apRectHeight / 2.0f, p1_apRectWidth, p1_apRectHeight, 10 * scale);
+			ofDrawRectRounded(p1_apCenterX - p1_baseRectWidth / 2.0f, p1_apCenterY - p1_apRectHeight / 2.0f, p1_baseRectWidth, p1_apRectHeight, 10 * scale);
 
 			ofColor apTextCol(0, 255, 0, 255 * g_p1_apBoxAlpha);
 			ofColor apOutCol(0, 0, 0, 255 * g_p1_apBoxAlpha);
 
-			if (showAPPreview && !diffTextP1.empty() && (!isMultiplayer || !isMyTurn())) {
-				ofRectangle mainBoxP1 = titleFont.getStringBoundingBox(g_p1_apText_cache, 0, 0);
-				drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
+			if (!hideOpponentAP && showAPPreview && !diffTextP1.empty() && (!isMultiplayer || !isMyTurn())) {
+				ofRectangle mainBoxP1 = titleFont.getStringBoundingBox(apTextToRender, 0, 0);
+				drawPixelTextCentered(titleFont, apTextToRender, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 				float diffStartX1 = p1_apCenterX + (mainBoxP1.width * apFontScale * 0.5f);
 				drawPixelTextBaseline(titleFont, diffTextP1, diffStartX1, p1_apCenterY + (mainBoxP1.height * apFontScale * 0.4f), apFontScale, diffColorP1, 2, apOutCol);
 			} else {
-				drawPixelTextCentered(titleFont, g_p1_apText_cache, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
+				drawPixelTextCentered(titleFont, apTextToRender, p1_apCenterX, p1_apCenterY, apFontScale, apTextCol, 2, apOutCol);
 			}
 		}
 
@@ -15150,6 +15585,10 @@ void ofApp::drawGame() {
 				ofPushStyle();
 				ofFill();
 
+				int handOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (isVsAI ? 0 : 0);
+				bool isOpponentUnit = (!g_isSpectator && localTeam != 255 && handOwner != localTeam);
+
 				if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 					bool isSelected = false;
 					for (int sel : renewedSelectedHandIndices)
@@ -15163,16 +15602,15 @@ void ofApp::drawGame() {
 						ofSetColor(ofColor::green);
 						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 6.0f);
 					}
-				} else {
-					// 1. Playability Glows (Soft Radiant Bloom Aura)
+				} else if (!isOpponentUnit) {
+					// FOG OF WAR / STEALTH: Only draw playability glows for YOUR units, never for enemies!
 					CardGlowState glow = getCardGlowState(currentPlayerIndex, index);
 					if (glow == CARD_GLOW_YELLOW) {
-						drawCardGlowAura(drawX, drawY, w, h, ofColor(255, 215, 0, 240), 6); // Radiant Gold/Yellow Combo
+						drawCardGlowAura(drawX, drawY, w, h, ofColor(255, 215, 0, 240), 6);
 					} else if (glow == CARD_GLOW_GREEN) {
-						drawCardGlowAura(drawX, drawY, w, h, ofColor(0, 255, 120, 220), 5); // Vibrant Emerald Green
+						drawCardGlowAura(drawX, drawY, w, h, ofColor(0, 255, 120, 220), 5);
 					}
 
-					// 2. Selected / Dragged state
 					if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
 						drawCardGlowAura(drawX, drawY, w, h, ofColor(0, 255, 120, 255), 7);
 					}
@@ -15194,7 +15632,21 @@ void ofApp::drawGame() {
 					ofSetColor(255); // Normal
 				}
 
-				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
+				// FOG OF WAR: If viewing an opponent unit's hand, draw the cards face down!
+				bool isEnemyHand = false;
+				if (g_modifierFogOfWar) {
+					int owner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+					int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+					if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+						isEnemyHand = true;
+					}
+				}
+
+				if (isEnemyHand) {
+					cardBackImage.draw(drawX, drawY, w, h);
+				} else {
+					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, w, h, &currentPlayer);
+				}
 
 				ofPopMatrix();
 			};
@@ -15366,7 +15818,25 @@ void ofApp::drawGame() {
 				// Cull offscreen card instances inside viewport
 				if (drawY + viewCardHeight >= cardStartY && drawY <= cardStartY + visibleContentHeight) {
 					const Card & card = cardsToShowInView[i];
-					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, &players[currentPileViewPlayerIndex]);
+
+					// FOG OF WAR: If inspecting an opponent unit, cards you haven't seen are face-down!
+					bool isKnown = true;
+					if (g_modifierFogOfWar && currentPileViewPlayerIndex >= 0 && currentPileViewPlayerIndex < (int)players.size()) {
+						Player & vPlayer = players[currentPileViewPlayerIndex];
+						int owner = vPlayer.isMinion ? vPlayer.ownerID : vPlayer.playerID;
+						int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+						if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+							if (g_seenOpponentCards[vPlayer.playerID].count(card.name) == 0) {
+								isKnown = false;
+							}
+						}
+					}
+
+					if (isKnown) {
+						drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, viewCardWidth, viewCardHeight, &players[currentPileViewPlayerIndex]);
+					} else {
+						cardBackImage.draw(drawX, drawY, viewCardWidth, viewCardHeight);
+					}
 				}
 			}
 
@@ -15410,7 +15880,26 @@ void ofApp::drawGame() {
 			if (pidx >= 0 && pidx < (int)players.size()) pPtr = &players[pidx];
 		}
 
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
+		// FOG OF WAR: If drawing unit is out of Line of Sight, show card back!
+		bool hideCardFace = false;
+		if (g_modifierFogOfWar && pPtr) {
+			int owner = pPtr->isMinion ? pPtr->ownerID : pPtr->playerID;
+			int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+			if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+				if (!g_visibleTiles[pPtr->x][pPtr->y]) {
+					hideCardFace = true;
+				} else {
+					// Witnessed in Line of Sight! Save into known card memory
+					g_seenOpponentCards[pPtr->playerID].insert(anim.card.name);
+				}
+			}
+		}
+
+		if (hideCardFace) {
+			cardBackImage.draw(drawX, drawY, w, h);
+		} else {
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
+		}
 		safePopStyle();
 	}
 
@@ -15431,7 +15920,26 @@ void ofApp::drawGame() {
 			if (pidx >= 0 && pidx < (int)players.size()) pPtr = &players[pidx];
 		}
 
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
+		// FOG OF WAR: Check if the discarding unit is in line of sight
+		bool hideCardFace = false;
+		if (g_modifierFogOfWar && pPtr) {
+			int owner = pPtr->isMinion ? pPtr->ownerID : pPtr->playerID;
+			int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+			if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+				if (!g_visibleTiles[pPtr->x][pPtr->y]) {
+					hideCardFace = true;
+				} else {
+					// Witnessed in Line of Sight! Save into known card memory
+					g_seenOpponentCards[pPtr->playerID].insert(anim.card.name);
+				}
+			}
+		}
+
+		if (hideCardFace) {
+			cardBackImage.draw(drawX, drawY, w, h);
+		} else {
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, drawX, drawY, w, h, pPtr);
+		}
 		safePopStyle();
 	}
 	// --- Draw Stolen Card Animation (On top of most UI) ---
@@ -15929,7 +16437,17 @@ cursor_check_done:;
 		int tooltipGX = floor(boardPosForTooltip.x);
 		int tooltipGY = floor(boardPosForTooltip.y);
 		int unitIndexAtMouse = -1;
-		if (tooltipGX >= 0 && tooltipGX < BOARD_WIDTH && tooltipGY >= 0 && tooltipGY < BOARD_HEIGHT) {
+
+		// FOG OF WAR: Block tooltips and inspection on tiles hidden by fog
+		bool tileInVision = true;
+		if (g_modifierFogOfWar && tooltipGX >= 0 && tooltipGX < BOARD_WIDTH && tooltipGY >= 0 && tooltipGY < BOARD_HEIGHT) {
+			int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+			if (!g_isSpectator && localTeam != 255) {
+				tileInVision = g_visibleTiles[tooltipGX][tooltipGY];
+			}
+		}
+
+		if (tileInVision && tooltipGX >= 0 && tooltipGX < BOARD_WIDTH && tooltipGY >= 0 && tooltipGY < BOARD_HEIGHT) {
 			if (board[tooltipGX][tooltipGY].hasPlayer) {
 				for (int i = 0; i < (int)players.size(); ++i) {
 					if (players[i].x == tooltipGX && players[i].y == tooltipGY) {
@@ -16758,7 +17276,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (g_inLobby) {
 					clickedUI = true;
 
-					// ANYONE can leave the lobby
+					// Leave lobby
 					if (lobbyLeaveBtn.inside(x, y)) {
 						steamManager.leaveLobby();
 						g_inLobby = false;
@@ -16770,33 +17288,74 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return;
 					}
 
-					// Click on player's row / ready status to toggle Ready
+					bool isHostUser = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
+
+					// Toggle Fog of War
+					if (isHostUser && lobbyModFoWBtn.inside(x, y)) {
+						g_modifierFogOfWar = !g_modifierFogOfWar;
+						broadcastLobbyState(steamManager);
+						return;
+					}
+
+					// Add AI Bot
+					if (isHostUser && lobbyAddAIBtn.inside(x, y) && g_lobbyPlayers.size() < 4) {
+						int nextID = 1;
+						while (true) {
+							bool found = false;
+							for (auto & p : g_lobbyPlayers) {
+								if ((int)p.playerID == nextID) {
+									found = true;
+									break;
+								}
+							}
+							if (!found) break;
+							nextID++;
+						}
+						LobbyPlayer bot;
+						bot.playerID = nextID;
+						bot.isReady = true;
+						bot.isBot = true;
+						bot.seed = 0;
+						bot.name = "Bot " + std::to_string(nextID);
+						g_lobbyPlayers.push_back(bot);
+						broadcastLobbyState(steamManager);
+						return;
+					}
+
+					// Click on player row (ready toggle or kick bot)
 					float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
 					float itemH = menuTileSize * 0.95f;
-					for (auto & lp : g_lobbyPlayers) {
+					for (size_t i = 0; i < g_lobbyPlayers.size(); i++) {
+						auto & lp = g_lobbyPlayers[i];
 						ofRectangle rowRect(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH);
-						if (rowRect.inside(x, y) && lp.playerID == myLocalPlayerID) {
-							lp.isReady = !lp.isReady;
-							if (isHost()) {
+						if (rowRect.inside(x, y)) {
+							if (lp.isBot && isHostUser) {
+								g_lobbyPlayers.erase(g_lobbyPlayers.begin() + i);
 								broadcastLobbyState(steamManager);
-							} else {
-								ClientReadyPacket cr = {};
-								cr.type = PKT_CLIENT_READY;
-								cr.playerID = myLocalPlayerID;
-								cr.ready = lp.isReady ? 1 : 0;
-								steamManager.sendPacket(&cr, sizeof(cr));
+								return;
+							} else if ((int)lp.playerID == myLocalPlayerID) {
+								lp.isReady = !lp.isReady;
+								if (isHost()) {
+									broadcastLobbyState(steamManager);
+								} else {
+									ClientReadyPacket cr = {};
+									cr.type = PKT_CLIENT_READY;
+									cr.playerID = myLocalPlayerID;
+									cr.ready = lp.isReady ? 1 : 0;
+									steamManager.sendPacket(&cr, sizeof(cr));
+								}
+								return;
 							}
-							return;
 						}
 						py += itemH + (menuTileSize * 0.1f);
 					}
 
-					bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
-					if (isLobbyHost) {
+					// Start buttons (Host only)
+					if (isHostUser) {
 						if (lobbyStartBtn.inside(x, y)) {
-							bool allReady = true;
+							bool allReady = (g_lobbyPlayers.size() > 1);
 							for (const auto & lp : g_lobbyPlayers) {
-								if (!lp.isReady && lp.playerID != myLocalPlayerID) allReady = false;
+								if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 							}
 							if (allReady) {
 								std::random_device rd;
@@ -16811,29 +17370,29 @@ void ofApp::mousePressed(int x, int y, int button) {
 								sendInputCommand(startCmd, true);
 							}
 						} else if (lobbyForceStartBtn.inside(x, y)) {
-							std::random_device rd;
-							currentMapSeed = rd();
-							InputCommandPacket startCmd = {};
-							startCmd.type = PKT_INPUT_COMMAND;
-							startCmd.playerID = myLocalPlayerID;
-							startCmd.commandType = CMD_PSEUDO_ACTION;
-							startCmd.params[0] = currentMapSeed;
-							strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
-							startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-							sendInputCommand(startCmd, true);
+							if (g_lobbyPlayers.size() > 1) {
+								std::random_device rd;
+								currentMapSeed = rd();
+								InputCommandPacket startCmd = {};
+								startCmd.type = PKT_INPUT_COMMAND;
+								startCmd.playerID = myLocalPlayerID;
+								startCmd.commandType = CMD_PSEUDO_ACTION;
+								startCmd.params[0] = currentMapSeed;
+								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
+								sendInputCommand(startCmd, true);
+							}
 						}
 					} else {
 						if (lobbyReadyBtn.inside(x, y)) {
 							bool nextReady = false;
 							for (auto & lp : g_lobbyPlayers) {
-								if (lp.playerID == myLocalPlayerID) {
+								if ((int)lp.playerID == myLocalPlayerID) {
 									lp.isReady = !lp.isReady;
 									nextReady = lp.isReady;
 									break;
 								}
 							}
-
-							// CRITICAL FIX: The client should immediately see their own Ready state change!
 							ClientReadyPacket cr = {};
 							cr.type = PKT_CLIENT_READY;
 							cr.playerID = myLocalPlayerID;
@@ -16857,27 +17416,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_isSpectator = false;
 					steamManager.createLobby();
 					g_isHostingLobby = true;
-					g_inLobby = true; // Enter lobby state instantly as Host
+					g_inLobby = true;
 
-					// Add ourselves to the player list
 					myLocalPlayerID = 0;
+					if (myElo <= 0) myElo = steamManager.getLocalElo();
 					g_lobbyPlayers.clear();
 					LobbyPlayer lp;
 					lp.playerID = 0;
 					lp.seed = localSeedComponent;
-					lp.isReady = true; // Host is always ready
+					lp.elo = (myElo > 0) ? myElo : 1000;
+					lp.isReady = true;
+					lp.isBot = false;
 					lp.name = steamManager.getLocalPlayerName();
 					g_lobbyPlayers.push_back(lp);
 
 				} else {
-					// Handle Lobby Clicks!
 					auto lobbies = steamManager.getLobbyList();
 					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
 						if (mpLobbyButtons[i].inside(x, y)) {
 							clickedUI = true;
-							bool inProgress = (lobbies[i].numPlayers >= 4); // Max 4 players
+							bool inProgress = (lobbies[i].numPlayers >= 4);
 							g_isSpectator = inProgress;
-							myLocalPlayerID = 255; // Set to unknown until host replies
+							myLocalPlayerID = 255;
 							steamManager.joinLobbyByID(lobbies[i].lobbyID);
 							g_isConnectingToLobby = true;
 							return;
@@ -16955,21 +17515,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 
-			// If we DID NOT click a UI button, let the user move the circle!
 			if (!clickedUI) {
-				// ONLY allow clicking the board if we are on a physical screen (NO OVERLAYS!)
 				if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU) {
 					float panOffset = baseMenuStartX - currentMenuPanX;
 					int tx = std::floor((x - panOffset) / menuTileSize);
 					int ty = std::floor((y - menuStartY) / menuTileSize);
 
-					int modX = (tx % 30 + 30) % 30; // Properly wrap the coordinates for the infinite board
+					int modX = (tx % 30 + 30) % 30;
 					bool targetIsWall = true;
 
 					if (modX >= 0 && modX < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
 						targetIsWall = board[modX][ty].hasWall;
 					} else if (ty == 5 && tx >= -30 && tx <= 42) {
-						targetIsWall = false; // Tunnel is open, up to the dead ends!
+						targetIsWall = false;
 					}
 
 					if (!targetIsWall) {
@@ -16979,7 +17537,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 
-			if (clickedUI) return; // Consume the click so sliders don't accidentally fire
+			if (clickedUI) return;
 		}
 	}
 
@@ -19110,7 +19668,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 void ofApp::mouseDragged(int x, int y, int button) {
 	// ALWAYS allow camera panning, regardless of whose turn it is or what state the game is in!
 	if (button == OF_MOUSE_BUTTON_MIDDLE) {
-		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
+		// CRITICAL FIX: Corrected standard "Grab and Drag" math so it isn't inverted!
+		float dx = x - ofGetPreviousMouseX();
+		float dy = y - ofGetPreviousMouseY();
 		if (isShowingTooltip) isShowingTooltip = false;
 		if (isTooltipExpanded) {
 			isTooltipExpanded = false;
@@ -19121,7 +19681,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		glm::vec3 rht = glm::normalize(glm::cross(fwd, glm::vec3(0, 1, 0)));
 
 		cameraTargetPan -= rht * dx * 0.05f * (TILE_SIZE / 4.0f);
-		cameraTargetPan -= fwd * dy * 0.05f * (TILE_SIZE / 4.0f);
+		cameraTargetPan += fwd * dy * 0.05f * (TILE_SIZE / 4.0f);
 		return;
 	}
 
@@ -20024,13 +20584,14 @@ void ofApp::keyPressed(int key) {
 
 				// Prepare payload
 				std::string payload = chatInput;
-				if (isMultiplayer && myLocalPlayerID == 255) {
+				if ((isMultiplayer || g_inLobby) && myLocalPlayerID == 255) {
 					std::string myName = steamManager.getLocalPlayerName();
 					if (myName.empty()) myName = "Spectator";
 					payload = myName + "\a" + chatInput;
 				}
 
-				if (isMultiplayer) {
+				// Transmit chat in both active matches and game lobbies!
+				if (isMultiplayer || g_inLobby) {
 					ChatMessagePacket pkt = {};
 					pkt.type = PKT_CHAT_MESSAGE;
 					pkt.playerID = myLocalPlayerID;
@@ -20043,9 +20604,9 @@ void ofApp::keyPressed(int key) {
 					steamManager.sendPacket(&pkt, sizeof(pkt));
 				}
 
-				// Add to local chat history (singleplayer or multiplayer)
+				// Add to local chat history (singleplayer, lobby, or multiplayer)
 				ChatMessage msg;
-				if (isMultiplayer) {
+				if (isMultiplayer || g_inLobby) {
 					if (myLocalPlayerID == 255) {
 						std::string myName = steamManager.getLocalPlayerName();
 						if (myName.empty()) myName = "Spectator";
@@ -23674,8 +24235,18 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.turnNumber = globalTurnCounter;
 
-	// In simulated mode, let the AI send with ID 0 and you with ID 1
-	if (!g_isSimulatedMultiplayer && (isMultiplayer || g_inLobby) && !isAIvsAI) {
+	// Check if this command is being issued by the host on behalf of an AI bot
+	bool isBotCommand = false;
+	if (isVsAI && (int)cmd.playerID == 1) isBotCommand = true;
+	for (const auto & lp : g_lobbyPlayers) {
+		if (lp.isBot && (int)lp.playerID == (int)cmd.playerID) {
+			isBotCommand = true;
+			break;
+		}
+	}
+
+	// Only stamp with local human playerID if it's NOT an action generated by a bot
+	if (!isBotCommand && !g_isSimulatedMultiplayer && (isMultiplayer || g_inLobby) && !isAIvsAI) {
 		cmd.playerID = myLocalPlayerID;
 	}
 
@@ -25438,6 +26009,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (actionName == "StartMatch") {
 			g_inLobby = false; // Exit lobby visually
 			isMultiplayer = true;
+
+			// Close and minimize the chat box so it doesn't cover the draft/gameplay
+			isChatOpen = false;
+			isChatMinimized = true;
+			chatInput = "";
 
 			// Set the deterministic seed provided by the Host
 			currentMapSeed = cmd.params[0];
@@ -33061,6 +33637,17 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex, bool forceVisi
 
 	if (!isOpponent && !forceVisibleForAllPlayers) return; // Only show opponent's plays
 
+	// FOG OF WAR: If the opponent plays a card while not in line of sight, do not reveal the card popup!
+	if (g_modifierFogOfWar && playerIndex >= 0 && playerIndex < (int)players.size()) {
+		int ownerID = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
+		int localTeam = isMultiplayer ? myLocalPlayerID : 0;
+		if (!g_isSpectator && localTeam != 255 && ownerID != localTeam) {
+			if (!g_visibleTiles[players[playerIndex].x][players[playerIndex].y]) {
+				return; // Suppressed: Played in fog!
+			}
+		}
+	}
+
 	// Hearthstone-style: Replace any currently visible card displays instantly
 	activeCardDisplays.clear();
 
@@ -34688,70 +35275,68 @@ const Card * ofApp::findCardByName(const std::string & name) const {
 bool ofApp::isMyTurn() const {
 	if (g_isSpectator || myLocalPlayerID == 255) return false;
 
-	if (g_isSimulatedMultiplayer) {
-		if (currentState == STATE_DRAFTING) {
-			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
-				int owner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
-				return owner == myLocalPlayerID;
-			}
-			return false;
-		}
-		if (currentPlayerIndex < 0 || players.empty()) return false;
-		int pid = players[currentPlayerIndex].playerID;
-		int oid = players[currentPlayerIndex].ownerID;
-		return (pid == myLocalPlayerID || oid == myLocalPlayerID);
-	}
-
-	// FIX: Make the turn check Draft-Aware so it correctly tracks who is currently picking cards!
+	int activeID = 0;
 	if (currentState == STATE_DRAFTING) {
-		if (isAIvsAI) return true;
-		if (isVsAI) {
-			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
-				int owner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
-				return owner == 0; // It's the human's turn to draft if draftPlayerIndex belongs to Player 0
-			}
-			return true;
+		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+			activeID = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
 		}
-		if (isMultiplayer) {
-			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
-				int owner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
-				return owner == myLocalPlayerID;
-			}
+	} else {
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 		}
 	}
 
-	if (currentPlayerIndex < 0 || players.empty()) return false;
-	int pid = players[currentPlayerIndex].playerID;
-	int oid = players[currentPlayerIndex].ownerID;
-	if (isAIvsAI) {
-		// Both sides are local in AI vs AI
-		return true;
+	bool isBot = false;
+	for (const auto & lp : g_lobbyPlayers) {
+		if ((int)lp.playerID == activeID && lp.isBot) {
+			isBot = true;
+			break;
+		}
 	}
-	if (isVsAI) {
-		// In Vs AI mode, my turn is strictly when Player 0 (Human) is active
-		return (pid == 0 || oid == 0);
+	if (isAIvsAI) isBot = true;
+	if (isVsAI && activeID == 1) isBot = true;
+
+	if (isBot) return false; // Humans can't play during bot turns
+
+	if (g_isSimulatedMultiplayer || isMultiplayer) {
+		return activeID == myLocalPlayerID;
 	}
-	if (!isMultiplayer) return true; // Local PvP: both players are local
-	return (pid == myLocalPlayerID || oid == myLocalPlayerID);
+
+	return true; // Local PvP
 }
 
 //--------------------------------------------------------------
 bool ofApp::isCurrentPlayerLocal() const {
 	if (myLocalPlayerID == 255) return false; // Spectators cannot act locally
-	if (isAIvsAI) {
-		if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) {
-			return false;
+
+	int activeID = 0;
+	if (currentState == STATE_DRAFTING) {
+		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+			activeID = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
 		}
+	} else {
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		}
+	}
+
+	bool isBot = false;
+	for (const auto & lp : g_lobbyPlayers) {
+		if ((int)lp.playerID == activeID && lp.isBot) {
+			isBot = true;
+			break;
+		}
+	}
+	if (isAIvsAI) isBot = true;
+	if (isVsAI && activeID == 1) isBot = true;
+
+	if (isBot) {
+		if (isMultiplayer) return isHost(); // Host executes bot logic
 		return true;
 	}
 
-	if (currentPlayerIndex < 0 || players.empty()) return false;
-	const Player & p = players[currentPlayerIndex];
-	int activeID = p.isMinion ? p.ownerID : p.playerID;
-
-	// In Singleplayer (both Local PvP and Vs AI), the local machine runs both turns!
-	if (!isMultiplayer) return true;
-	return activeID == myLocalPlayerID;
+	if (isMultiplayer || g_isSimulatedMultiplayer) return activeID == myLocalPlayerID;
+	return true; // Local PvP
 }
 
 //--------------------------------------------------------------
@@ -34796,6 +35381,8 @@ std::string ofApp::buildSnapshotString() {
 			if (p.playerID == 1) p1Drawn = p.hasDrawnThisTurn;
 		}
 	}
+
+	ss << "MODIFIERS\t" << (g_modifierFogOfWar ? 1 : 0) << "\n";
 
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)syncState
@@ -35342,6 +35929,8 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 						tmpOppDecisionQueue.push_back(std::stoi(parts[2 + i]));
 					}
 				}
+			} else if (parts[0] == "MODIFIERS" && parts.size() >= 2) {
+				g_modifierFogOfWar = (std::stoi(parts[1]) != 0);
 			} else if (parts[0] == "BOARD" && parts.size() >= 3) {
 				const std::string & walls = parts[1];
 				const std::string & magicWalls = parts[2];
@@ -38880,6 +39469,7 @@ void ofApp::cleanupGame() {
 	waitingForClientHandshake = false;
 	hostWaitingForClientsReadyStartTime = 0.0f; // <--- This caused the "Endless Dice" bug!
 	isInGameDraft = false;
+	g_modifierFogOfWar = false;
 	initialDraftComplete = false;
 	s_draftNextPlayerIndex = -1;
 	s_draftNextStage = -1;
@@ -39770,7 +40360,18 @@ void ofApp::drawMinionManagerUI() {
 
 		// Discard
 		if (!minion.discardPile.empty()) {
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, minion.discardPile.back(), ui.discardRect.x, ui.discardRect.y, ui.discardRect.width, ui.discardRect.height, &minion);
+			bool showFace = true;
+			if (g_modifierFogOfWar && !isLeft) {
+				if (g_seenOpponentCards[minion.playerID].count(minion.discardPile.back().name) == 0) {
+					showFace = false;
+				}
+			}
+
+			if (showFace) {
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, minion.discardPile.back(), ui.discardRect.x, ui.discardRect.y, ui.discardRect.width, ui.discardRect.height, &minion);
+			} else {
+				cardBackImage.draw(ui.discardRect);
+			}
 		} else {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.discardRect, 3);
@@ -41083,13 +41684,18 @@ void ofApp::drawDraftScreen() {
 		// Skip hidden slots
 		if (i < draftOptionUI.size() && draftOptionUI[i].hidden) continue;
 
-		// Draw Card Sprite scaled
 		ofSetColor(255);
 
 		Player * pPtr = nullptr;
 		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) pPtr = &players[draftPlayerIndex];
 
-		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, draftOptions[i], drawX, drawY, w, h, pPtr);
+		// FOG OF WAR: If an opponent is drafting, hide their card faces with card backs!
+		bool isOpponentDraft = !isLocalDraftingPlayer(draftPlayerIndex);
+		if (g_modifierFogOfWar && isOpponentDraft) {
+			cardBackImage.draw(drawX, drawY, w, h);
+		} else {
+			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, draftOptions[i], drawX, drawY, w, h, pPtr);
+		}
 	}
 
 	// Throttled draw-time debug: log if we are drawing non-empty options but haven't logged recently
@@ -41184,6 +41790,13 @@ void ofApp::drawActiveDraftPickedMoves() {
 	for (auto & mv : activeDraftPickedMoves) {
 		if (mv.finished) continue;
 		float elapsedFrames = continuousFrame - (float)mv.startFrame;
+		bool isMyMove = false;
+		if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) {
+			int owner = players[mv.ownerIndex].isMinion ? players[mv.ownerIndex].ownerID : players[mv.ownerIndex].playerID;
+			int localTeam = isMultiplayer ? myLocalPlayerID : (isVsAI ? 0 : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0));
+			if (owner == localTeam) isMyMove = true;
+		}
+
 		if (elapsedFrames < mv.delayFrames) {
 			float drawW = cardW;
 			float drawH = cardH;
@@ -41194,7 +41807,12 @@ void ofApp::drawActiveDraftPickedMoves() {
 			Player * pPtr = nullptr;
 			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) pPtr = &players[mv.ownerIndex];
 
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
+			// FOG OF WAR: If an opponent picked this card, keep it face-down during the stationary hover
+			if (g_modifierFogOfWar && !isMyMove) {
+				cardBackImage.draw(dx, dy, drawW, drawH);
+			} else {
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
+			}
 		} else {
 			float activeFrames = elapsedFrames - (float)mv.delayFrames;
 			float t = (mv.durationFrames > 0) ? ((float)activeFrames / (float)mv.durationFrames) : 1.0f;
@@ -41211,7 +41829,19 @@ void ofApp::drawActiveDraftPickedMoves() {
 			Player * pPtr = nullptr;
 			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) pPtr = &players[mv.ownerIndex];
 
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
+			// FOG OF WAR: Check ownership directly to guarantee opponent cards fly face-down
+			bool isMyMove = false;
+			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) {
+				int owner = players[mv.ownerIndex].isMinion ? players[mv.ownerIndex].ownerID : players[mv.ownerIndex].playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+				if (owner == localTeam) isMyMove = true;
+			}
+
+			if (g_modifierFogOfWar && !isMyMove) {
+				cardBackImage.draw(dx, dy, drawW, drawH);
+			} else {
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
+			}
 			if (t >= 1.0f) {
 				mv.finished = true;
 				// Only flash main player decks; minion targets use their own shuffle visuals
@@ -41280,6 +41910,22 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		viewTitle = "Discard Pile";
 		cardsToShow = viewPlayer.discardPile;
 		std::reverse(cardsToShow.begin(), cardsToShow.end());
+	}
+
+	// FOG OF WAR: If inspecting an opponent unit, only display cards you actually saw!
+	if (g_modifierFogOfWar) {
+		int owner = viewPlayer.isMinion ? viewPlayer.ownerID : viewPlayer.playerID;
+		int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+		if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+			std::vector<Card> seenCardsOnly;
+			const auto & seenSet = g_seenOpponentCards[viewPlayer.playerID];
+			for (const auto & c : cardsToShow) {
+				if (seenSet.count(c.name) > 0) {
+					seenCardsOnly.push_back(c);
+				}
+			}
+			cardsToShow = seenCardsOnly;
+		}
 	}
 
 	// Prefer human-friendly names. For minions, prefer the same numbering used in the Minion UI
@@ -41698,25 +42344,27 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	if (draftIndex < 0 || draftIndex >= (int)players.size()) return false;
 	int draftOwnerID = players[draftIndex].isMinion ? players[draftIndex].ownerID : players[draftIndex].playerID;
 
-	// If simulating client, you are Player 1
-	if (g_isSimulatedMultiplayer) {
-		return (draftOwnerID == myLocalPlayerID);
+	bool isBot = false;
+	for (const auto & lp : g_lobbyPlayers) {
+		if ((int)lp.playerID == draftOwnerID && lp.isBot) {
+			isBot = true;
+			break;
+		}
+	}
+	if (isAIvsAI) isBot = true;
+	if (isVsAI && draftOwnerID == 1) isBot = true;
+
+	// BOTS ARE NEVER LOCAL HUMAN DRAFTERS!
+	// Returning false forces the AI to evaluate and pick its own cards
+	if (isBot) {
+		return false;
 	}
 
-	// In AI vs AI, neither side is human
-	if (isAIvsAI) return false;
-
-	// In Human vs AI, only Player 0 is the local human
-	if (isVsAI) {
-		return (draftOwnerID == 0);
-	}
-
-	// In local 2-player PvP pass-and-play, both are human
-	if (!isMultiplayer) return true;
-
-	// In Multiplayer (255 is the true Spectator ID)
+	if (g_isSimulatedMultiplayer) return (draftOwnerID == myLocalPlayerID);
 	if (g_isSpectator || myLocalPlayerID == 255) return false;
-	return (draftOwnerID == myLocalPlayerID);
+	if (isMultiplayer) return (draftOwnerID == myLocalPlayerID);
+
+	return true; // Local PvP
 }
 
 // --------------------------------------------------------------
@@ -41776,16 +42424,19 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_LOBBY_UPDATE && buffer.size() >= sizeof(LobbyUpdatePacket)) {
 				if (!isHost()) {
 					LobbyUpdatePacket * lup = (LobbyUpdatePacket *)header;
+					g_modifierFogOfWar = (lup->modifiers & 1) != 0;
 					g_lobbyPlayers.clear();
 					int safePlayerCount = std::min((int)lup->numPlayers, 4); // Clamped to struct array limit
 					for (int i = 0; i < safePlayerCount; i++) {
 						LobbyPlayer lp;
 						lp.playerID = lup->players[i].playerID;
+						lp.elo = lup->players[i].elo;
 						lp.isReady = (lup->players[i].isReady == 1);
+						lp.isBot = (lup->players[i].isBot == 1);
 
 						// Guarantee null-termination before string construction to prevent crash
-						char safeName[33] = { 0 };
-						memcpy(safeName, lup->players[i].name, 32);
+						char safeName[32] = { 0 };
+						memcpy(safeName, lup->players[i].name, 26);
 						lp.name = std::string(safeName);
 
 						g_lobbyPlayers.push_back(lp);
@@ -41842,7 +42493,9 @@ void ofApp::processNetworkPackets() {
 									LobbyPlayer lp;
 									lp.playerID = assignedID;
 									lp.seed = pkt->seed;
+									lp.elo = (pkt->elo > 0) ? (int)pkt->elo : 1000;
 									lp.isReady = false;
+									lp.isBot = false;
 									lp.name = "Player " + std::to_string(assignedID + 1);
 									g_lobbyPlayers.push_back(lp);
 								} else {
@@ -42835,6 +43488,31 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 		he.movementPath = path;
 	}
 
+	// FOG OF WAR: If movement crossed ANY tile in line of sight, reveal it! Otherwise mask as '?'
+	if (g_modifierFogOfWar) {
+		int owner = p.isMinion ? p.ownerID : p.playerID;
+		int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+		if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+			bool witnessedAlongPath = false;
+			for (const auto & step : he.movementPath) {
+				int sx = (int)step.x;
+				int sy = (int)step.y;
+				if (sx >= 0 && sx < BOARD_WIDTH && sy >= 0 && sy < BOARD_HEIGHT) {
+					if (g_visibleTiles[sx][sy]) {
+						witnessedAlongPath = true;
+						break;
+					}
+				}
+			}
+			if (!witnessedAlongPath) {
+				he.cardName = "?";
+				he.movementPath.clear();
+				he.fromX = -1;
+				he.toX = -1;
+			}
+		}
+	}
+
 	g_actionHistory.push_back(he);
 	if (g_actionHistory.size() > 8) g_actionHistory.erase(g_actionHistory.begin());
 
@@ -42970,27 +43648,37 @@ void ofApp::thinkDeepLearningAI() {
 }
 
 void ofApp::updateAI() {
-	if (!isVsAI && !isAIvsAI) return;
 	if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 	if (endTurnLocked || g_isGameOver || currentState == STATE_DESYNC) return;
 	if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) return;
 
-	// In Singleplayer Vs AI, strictly ensure the AI only controls its own turn, its draft, or its opponent decision prompts
-	if (isVsAI && !isAIvsAI) {
-		int humanID = g_isSimulatedMultiplayer ? 1 : 0;
-		int aiID = g_isSimulatedMultiplayer ? 0 : 1;
+	int activeID = 0;
+	int aiFocusIndex = currentPlayerIndex;
 
-		if (currentState == STATE_DRAFTING) {
-			int draftOwner = players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID;
-			if (draftOwner == humanID) return; // Never touch Human's draft!
-		} else if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
-			int deciderOwner = players[opponentDecisionPlayerIndex].isMinion ? players[opponentDecisionPlayerIndex].ownerID : players[opponentDecisionPlayerIndex].playerID;
-			if (deciderOwner != aiID) return;
-		} else {
-			int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-			if (activeOwner != aiID) return;
+	if (currentState == STATE_DRAFTING) {
+		aiFocusIndex = draftPlayerIndex;
+	} else if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+		aiFocusIndex = opponentDecisionPlayerIndex;
+	}
+
+	if (aiFocusIndex >= 0 && aiFocusIndex < (int)players.size()) {
+		activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
+	}
+
+	bool isBot = false;
+	for (const auto & lp : g_lobbyPlayers) {
+		if ((int)lp.playerID == activeID && lp.isBot) {
+			isBot = true;
+			break;
 		}
 	}
+	if (isAIvsAI) isBot = true;
+	if (isVsAI && activeID == 1) isBot = true;
+
+	if (!isBot) return; // Only process AI for actual bots
+
+	// In Multiplayer, ONLY the host runs bot logic to prevent desyncs
+	if (isMultiplayer && !isHost() && !g_isSimulatedMultiplayer) return;
 
 	// Block if dice or visual animations are running
 	if (!visualEvents.empty() || pendingStartNewTurnRequests > 0) return;
@@ -43584,8 +44272,23 @@ void ofApp::thinkRuleBasedAI() {
 		activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
 	}
 
-	int enemyID = (activeID == 1) ? 0 : 1;
-	int oppPlayerIdx = findPlayerIndexByID(enemyID);
+	// In 3 or 4-player FFA, find the closest opposing team leader rather than assuming player 0 or 1
+	int enemyID = -1;
+	int oppPlayerIdx = -1;
+	int closestDistToOpponent = 9999;
+	for (size_t i = 0; i < players.size(); i++) {
+		int owner = players[i].isMinion ? players[i].ownerID : players[i].playerID;
+		if (owner != activeID && players[i].health > 0) {
+			int d = std::abs(players[i].x - players[aiFocusIndex].x) + std::abs(players[i].y - players[aiFocusIndex].y);
+			if (d < closestDistToOpponent) {
+				closestDistToOpponent = d;
+				enemyID = owner;
+				oppPlayerIdx = (int)i;
+			}
+		}
+	}
+	if (enemyID == -1) enemyID = (activeID == 0) ? 1 : 0;
+
 	Player & me = players[aiFocusIndex];
 
 	bool isSupportMinion = me.isMinion && (me.isFaerie || me.isAssistant);
