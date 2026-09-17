@@ -1,0 +1,39 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-17 22:59:40
+End Reason: Victory
+Seed: 1876508091
+Turns: 1
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: planetlewis
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[22:58:33] --- MATCH STARTED ---
+[22:58:49] Turn 1: planetlewis's turn
+[22:58:49] Autosaved turn-start (autosave.json)
+[22:58:55] planetlewis moved to (1,8)
+[22:58:58] planetlewis moved to (2,8)
+[22:58:59] planetlewis moved to (3,8)
+[22:59:00] planetlewis moved to (7,8)
+[22:59:25] planetlewis moved to (7,7)
+[22:59:26] planetlewis moved to (7,5)
+[22:59:28] planetlewis moved to (9,6)
+[22:59:35] planetlewis moved to (7,6)
+[22:59:36] planetlewis moved to (7,7)
+[22:59:39] planetlewis forfeited (conceded).
+[22:59:40] planetlewis has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

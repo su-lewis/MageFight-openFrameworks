@@ -38732,7 +38732,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 	long long cCenterX = cx * 1000LL + 500LL;
 	long long cCenterY = cy * 1000LL + 500LL;
 
-	// 1. Find Target's closest face
+	// 1. Find the target's closest face mathematically
 	long long minDistSq = LLONG_MAX;
 	for (int i = 0; i < 4; i++) {
 		long long dx = tFaces[i].x - cCenterX;
@@ -38741,32 +38741,34 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 		if (dSq < minDistSq) minDistSq = dSq;
 	}
 
+	// Check if the closest face(s) touch a wall
 	std::vector<TileFaceInt> validTargetFaces;
 	for (int i = 0; i < 4; i++) {
 		long long dx = tFaces[i].x - cCenterX;
 		long long dy = tFaces[i].y - cCenterY;
 		long long dSq = dx * dx + dy * dy;
 
-		// Exact integer match guarantees platforms never disagree on ties!
 		if (dSq == minDistSq) {
+			// If the closest face has a wall directly on it, it's blocked from line of sight
 			if (!isObstacle(tx + tFaces[i].nx, ty + tFaces[i].ny)) {
 				validTargetFaces.push_back(tFaces[i]);
 			}
 		}
 	}
 
+	// Closest face is against a wall -> completely out of line of sight
 	if (validTargetFaces.empty()) {
 		return { false, casterCenter, targetCenter };
 	}
 
 	TileFaceInt cFaces[4] = {
-		{ cx * 1000LL + 500LL, cy * 1000LL, 0, -1 },
-		{ cx * 1000LL + 500LL, cy * 1000LL + 1000LL, 0, 1 },
-		{ cx * 1000LL, cy * 1000LL + 500LL, -1, 0 },
-		{ cx * 1000LL + 1000LL, cy * 1000LL + 500LL, 1, 0 }
+		{ cx * 1000LL + 500LL, cy * 1000LL, 0, -1 }, // North
+		{ cx * 1000LL + 500LL, cy * 1000LL + 1000LL, 0, 1 }, // South
+		{ cx * 1000LL, cy * 1000LL + 500LL, -1, 0 }, // West
+		{ cx * 1000LL + 1000LL, cy * 1000LL + 500LL, 1, 0 } // East
 	};
 
-	// 2. Test valid caster faces against valid target faces
+	// 3. Test valid caster perimeter faces (NOT center) against the closest target face
 	for (const auto & tFace : validTargetFaces) {
 		std::vector<TileFaceInt> validCasterFaces;
 
@@ -38784,7 +38786,6 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 			}
 		}
 
-		// Deterministic sort: use distance squared, tie-break with absolute coordinates
 		std::sort(validCasterFaces.begin(), validCasterFaces.end(), [&](const TileFaceInt & a, const TileFaceInt & b) {
 			long long dxa = a.x - tFace.x;
 			long long dya = a.y - tFace.y;
@@ -38814,16 +38815,25 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 			bool blocked = false;
 			int lastX = -1, lastY = -1;
 
-			// Raycast using pure integer division. (Avoid s=0 and s=50 to slightly nudge inward)
-			for (long long s = 1; s < 50; s++) {
-				long long curX = startX + (rayDx * s) / 50LL;
-				long long curY = startY + (rayDy * s) / 50LL;
+			long long numSamples = std::max(50LL, (std::max(std::abs(rayDx), std::abs(rayDy)) * 60LL) / 1000LL);
 
-				// Positive integer division securely acts as floor()
+			for (long long s = 1; s < numSamples; s++) {
+				long long curX = startX + (rayDx * s) / numSamples;
+				long long curY = startY + (rayDy * s) / numSamples;
+
 				int gx = (int)(curX / 1000LL);
 				int gy = (int)(curY / 1000LL);
 
 				if (gx == lastX && gy == lastY) continue;
+
+				// Diagonal corner pinch check
+				if (lastX != -1 && lastY != -1 && gx != lastX && gy != lastY) {
+					if (isObstacle(lastX, gy) && isObstacle(gx, lastY)) {
+						blocked = true;
+						break;
+					}
+				}
+
 				lastX = gx;
 				lastY = gy;
 
@@ -38835,6 +38845,7 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 					break;
 				}
 
+				// 2. THE GAP RULE (Restored): If a tile is a 1-tile choke between obstacles, line of sight must be axis-aligned
 				bool horizGap = isObstacle(gx, gy - 1) && isObstacle(gx, gy + 1);
 				bool vertGap = isObstacle(gx - 1, gy) && isObstacle(gx + 1, gy);
 
@@ -38849,13 +38860,11 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 			}
 
 			if (!blocked) {
-				// Success! Convert back to floats exclusively for the Visual Tracer to draw it.
 				return { true, glm::vec2(startX / 1000.0f, startY / 1000.0f), glm::vec2(endX / 1000.0f, endY / 1000.0f) };
 			}
 		}
 	}
 
-	// Fallback response for visualizer if all shots are blocked
 	return { false, casterCenter, targetCenter };
 }
 

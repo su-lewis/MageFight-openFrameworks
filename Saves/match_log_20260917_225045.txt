@@ -1,0 +1,53 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-17 22:50:45
+End Reason: Victory
+Seed: 2968300643
+Turns: 4
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: planetlewis
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[22:47:55] --- MATCH STARTED ---
+[22:48:02] Unlimited time enabled (turn timer disabled).
+[22:48:02] Turn timer enabled.
+[22:48:16] Turn 1: planetlewis's turn
+[22:48:16] Autosaved turn-start (autosave.json)
+[22:48:19] planetlewis moved to (0,5)
+[22:48:29] Turn 1: Bot 1's turn
+[22:48:29] Autosaved turn-start (autosave.json)
+[22:48:30] Bot 1 moved to (12,1)
+[22:48:31] Bot 1 moved to (12,2)
+[22:48:32] Bot 1 moved to (12,3)
+[22:48:33] Turn 2: planetlewis's turn
+[22:48:33] Autosaved turn-start (autosave.json)
+[22:48:35] planetlewis moved to (1,5)
+[22:48:37] Turn 2: Bot 1's turn
+[22:48:37] Autosaved turn-start (autosave.json)
+[22:48:39] Bot 1 moved to (12,4)
+[22:48:42] Turn 3: planetlewis's turn
+[22:48:42] Autosaved turn-start (autosave.json)
+[22:48:55] planetlewis moved to (4,4)
+[22:49:08] planetlewis moved to (8,4)
+[22:50:23] Turn 3: Bot 1's turn
+[22:50:23] Autosaved turn-start (autosave.json)
+[22:50:25] Bot 1 played Consume Health Flagon targeting (12,4)
+[22:50:25] Turn 4: planetlewis's turn
+[22:50:25] Autosaved turn-start (autosave.json)
+[22:50:43] planetlewis forfeited (conceded).
+[22:50:45] planetlewis has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 1
+  Minions Spawned: 0
+  Total Healing: 1
+=====================
