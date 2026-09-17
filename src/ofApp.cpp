@@ -212,8 +212,7 @@ void ofApp::reloadFonts() {
 	// 1. UI Font
 	ofTrueTypeFontSettings uiSettings(fontPath, 24);
 	uiSettings.antialiased = false;
-	for (const auto & r : customRanges)
-		uiSettings.addRange(r);
+	uiSettings.ranges.insert(uiSettings.ranges.end(), customRanges.begin(), customRanges.end());
 	uiFont.load(uiSettings);
 	if (uiFont.isLoaded()) {
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -223,16 +222,15 @@ void ofApp::reloadFonts() {
 	// 2. Card Effect Font
 	ofTrueTypeFontSettings cardEffectSettings(fontPath, 22);
 	cardEffectSettings.antialiased = false;
-	for (const auto & r : customRanges)
-		cardEffectSettings.addRange(r);
+	cardEffectSettings.ranges.insert(cardEffectSettings.ranges.end(), customRanges.begin(), customRanges.end());
 	cardEffectFont.load(cardEffectSettings);
 
 	// 3. Title Font
 	ofTrueTypeFontSettings titleSettings(fontPath, 40);
 	titleSettings.antialiased = false;
-	for (const auto & r : customRanges)
-		titleSettings.addRange(r);
+	titleSettings.ranges.insert(titleSettings.ranges.end(), customRanges.begin(), customRanges.end());
 	titleFont.load(titleSettings);
+
 	if (titleFont.isLoaded()) {
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
@@ -2090,14 +2088,14 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	allAPCosts.reserve(allCards.size());
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
+
 	for (const auto & card : allCards) {
-		std::string keyName = normalizeCardKey(card.name);
-		std::string translatedName = _L("CARD_" + keyName + "_NAME", card.name);
+		std::string translatedName = _L("CARD_NAME_" + std::to_string((int)card.type), card.name);
 		allCardNames.push_back(translatedName);
 
-		auto it = records.find(keyName);
+		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
-			std::string translatedEffect = _L("CARD_" + keyName + "_DESC", stripBoldTags(it->second.effectText));
+			std::string translatedEffect = _L("CARD_DESC_" + std::to_string((int)card.type), stripBoldTags(it->second.effectText));
 			allEffectTexts.push_back(translatedEffect);
 			allAPCosts.push_back(it->second.apCost);
 
@@ -2605,13 +2603,12 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float y = card.textureRect.y;
 
 		CardTemplateRecord rec;
-		std::string keyName = normalizeCardKey(card.name);
-		auto it = records.find(keyName);
+		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) rec = it->second;
 
 		// Apply localized text right before rendering!
-		rec.name = _L("CARD_" + keyName + "_NAME", rec.name.empty() ? card.name : rec.name);
-		rec.effectText = _L("CARD_" + keyName + "_DESC", rec.effectText);
+		rec.name = _L("CARD_NAME_" + std::to_string((int)card.type), rec.name.empty() ? card.name : rec.name);
+		rec.effectText = _L("CARD_DESC_" + std::to_string((int)card.type), rec.effectText);
 
 		int effectiveClass = card.cardClass;
 		int markdownClass = classTierFromLabel(rec.classLabel);
@@ -14938,7 +14935,7 @@ void ofApp::drawGame() {
 	if (showEndTurn || showDoneBtn) {
 		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 		ofSetColor(ofColor::white);
-		string endTurnButtonText = showDoneBtn ? _L("UI_DONE", optionalBtnText) : _L("UI_END_TURN", "End Turn");
+		string endTurnButtonText = showDoneBtn ? _L("UI_BTN_DONE", optionalBtnText) : _L("UI_BTN_END_TURN", "End Turn");
 		// Use drawStatText to render the outlined, centered button text
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, fontScale);
 	}
@@ -37917,7 +37914,7 @@ void ofApp::drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccep
 	ofDrawRectRounded(buttonRect, 12);
 
 	ofSetColor(ofColor(255, 255, 255, (int)(255.0f * alpha)));
-	std::string acceptStr = _L("UI_ACCEPT", "Accept");
+	std::string acceptStr = _L("UI_BTN_ACCEPT", "Accept");
 	ofRectangle tb = uiFont.getStringBoundingBox(acceptStr, 0, 0);
 	float tx = std::round(buttonRect.getCenter().x - (tb.x + tb.width * 0.5f));
 	float ty = std::round(buttonRect.getCenter().y - (tb.y + tb.height * 0.5f));
@@ -40859,18 +40856,16 @@ void ofApp::drawDraftScreen() {
 	string instr = "";
 
 	if (isInGameDraft) {
-		header = pName + ": Key Found!";
-		instr = "Choose 1 Card (Get 1 Copy)";
+		header = pName + ": " + _L("UI_DRAFT_KEY", "Key Found!");
+		instr = _L("UI_DRAFT_CHOOSE_1", "Choose 1 Card (Get 1 Copy)");
 	} else {
-		// Header shows which draft this is for the player whose draft it is.
-		// If it's the local player's draft, display "Your first/second draft" instead of their Steam name.
 		bool isMyTurnToDraft = isLocalDraftingPlayer(draftPlayerIndex);
 		if (draftStage == 0) {
-			header = isMyTurnToDraft ? "Your first draft" : (pName + "'s first draft");
-			instr = isMyTurnToDraft ? "Choose 2 (Get 2 Copies)" : "Choosing 2 (Gets 2 Copies)";
+			header = isMyTurnToDraft ? _L("UI_DRAFT_YOUR_FIRST", "Your first draft") : (pName + _L("UI_DRAFT_THEIR_FIRST", "'s first draft"));
+			instr = isMyTurnToDraft ? _L("UI_DRAFT_CHOOSE_2", "Choose 2 (Get 2 Copies)") : _L("UI_DRAFT_CHOOSING_2", "Choosing 2 (Gets 2 Copies)");
 		} else {
-			header = isMyTurnToDraft ? "Your second draft" : (pName + "'s second draft");
-			instr = isMyTurnToDraft ? "Choose 1 (Get 1 Copy)" : "Choosing 1 (Gets 1 Copy)";
+			header = isMyTurnToDraft ? _L("UI_DRAFT_YOUR_SECOND", "Your second draft") : (pName + _L("UI_DRAFT_THEIR_SECOND", "'s second draft"));
+			instr = isMyTurnToDraft ? _L("UI_DRAFT_CHOOSE_1", "Choose 1 (Get 1 Copy)") : _L("UI_DRAFT_CHOOSING_1", "Choosing 1 (Gets 1 Copy)");
 		}
 	}
 
