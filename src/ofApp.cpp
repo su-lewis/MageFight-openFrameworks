@@ -102,6 +102,46 @@ static int s_draftNextPlayerIndex = -1;
 static int s_draftNextStage = -1;
 static bool g_isSimulatedMultiplayer = false;
 
+// --- LOCALIZATION ENGINE ---
+static std::unordered_map<std::string, std::string> g_locDictionary;
+static std::string g_currentLanguage = "en";
+
+static std::vector<std::string> g_availableLanguageCodes = { "en", "es", "zh" };
+static std::vector<std::string> g_availableLanguageNames = { "English", "Español", "简体中文" };
+static int g_currentLanguageIndex = 0;
+static ofRectangle settingsLangLeftButton;
+static ofRectangle settingsLangRightButton;
+
+static std::string _L(const std::string & key, const std::string & fallback) {
+	auto it = g_locDictionary.find(key);
+	if (it != g_locDictionary.end()) {
+		return it->second;
+	}
+	return fallback;
+}
+
+static void loadLanguage(const std::string & langCode) {
+	g_currentLanguage = langCode;
+	g_locDictionary.clear();
+	std::string path = "Config/lang_" + langCode + ".json";
+	if (ofFile(path).exists()) {
+		try {
+			ofJson j = ofLoadJson(path);
+			for (auto & el : j.items()) {
+				if (el.value().is_string()) {
+					g_locDictionary[el.key()] = el.value().get<std::string>();
+				}
+			}
+			ofLogNotice("Loc") << "Loaded language: " << langCode;
+		} catch (...) {
+			ofLogError("Loc") << "Failed to parse language file: " << path;
+		}
+	} else {
+		ofLogWarning("Loc") << "Language file not found: " << path << ". Using English fallbacks.";
+	}
+}
+// ---------------------------
+
 // --- ALPHA TESTER SYSTEM ---
 
 // --- ALPHA TESTER SYSTEM ---
@@ -1950,10 +1990,13 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
-		allCardNames.push_back(card.name);
+		std::string translatedName = _L("CARD_NAME_" + std::to_string((int)card.type), card.name);
+		allCardNames.push_back(translatedName);
+
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
-			allEffectTexts.push_back(stripBoldTags(it->second.effectText)); // <--- UPDATED
+			std::string translatedEffect = _L("CARD_DESC_" + std::to_string((int)card.type), stripBoldTags(it->second.effectText));
+			allEffectTexts.push_back(translatedEffect);
 			allAPCosts.push_back(it->second.apCost);
 
 			ofRectangle r = layout.effectRect;
@@ -2462,6 +2505,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		CardTemplateRecord rec;
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) rec = it->second;
+
+		// Apply localized text right before rendering!
+		rec.name = _L("CARD_NAME_" + std::to_string((int)card.type), rec.name.empty() ? card.name : rec.name);
+		rec.effectText = _L("CARD_DESC_" + std::to_string((int)card.type), rec.effectText);
 
 		int effectiveClass = card.cardClass;
 		int markdownClass = classTierFromLabel(rec.classLabel);
@@ -4412,9 +4459,18 @@ void ofApp::setup() {
 
 	// --- 1. UI & CONFIG ---
 	loadH2HStats();
+
+	// Load default language (Can be tied to settings.json later)
+	loadLanguage("en");
+
+	// Load default language (Will be overridden by loadSettings() below)
+	loadLanguage("en");
+
 	// Bumped to 24px so it is thicker and highly readable in menus!
 	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 24);
 	uiSettings.antialiased = false;
+	uiSettings.addRanges(ofAlphabet::Latin); // <--- FIXED: Latin (Covers Spanish)
+	uiSettings.addRanges(ofAlphabet::Chinese); // Covers Chinese CJK
 	uiFont.load(uiSettings);
 	if (uiFont.isLoaded()) {
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -4422,14 +4478,17 @@ void ofApp::setup() {
 	}
 
 	// Card effect text uses a separate font so it can read lighter without changing the rest of the UI.
-	// Size 22 offers a perfect middle-ground: thicker than 20, but not as bulky as 24.
 	ofTrueTypeFontSettings cardEffectSettings("UI/m6x11plus.ttf", 22);
-	cardEffectSettings.antialiased = false; // Turn smoothing OFF for crisp pixel art text!
+	cardEffectSettings.antialiased = false;
+	cardEffectSettings.addRanges(ofAlphabet::Latin);
+	cardEffectSettings.addRanges(ofAlphabet::Chinese);
 	cardEffectFont.load(cardEffectSettings);
 
 	// Bumped to 40px so titles are bold and prominent
 	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 40);
 	titleSettings.antialiased = false;
+	titleSettings.addRanges(ofAlphabet::Latin);
+	titleSettings.addRanges(ofAlphabet::Chinese);
 	titleFont.load(titleSettings);
 	if (titleFont.isLoaded()) {
 		const_cast<ofTexture &>(titleFont.getFontTexture()).setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -7956,7 +8015,7 @@ void ofApp::drawMainMenu() {
 	draw2DMenuBackground();
 
 	// 3. Draw Title (Top Center)
-	string title = "MAGE FIGHT";
+	string title = _L("UI_TITLE", "MAGE FIGHT");
 	float titleScale = 1.5f; // Shrunk so it doesn't overlap the buttons
 	// Secure the title so it never flies off the top of the screen
 	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
@@ -7965,12 +8024,12 @@ void ofApp::drawMainMenu() {
 	float titleX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 	drawPixelTextCentered(titleFont, title, titleX, titleY, titleScale, ofColor::gold, 4, ofColor::black);
 
-	drawMenuPlaqueButton(mainMenuOnlineButton, "Online Versus", mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), true);
-	drawMenuPlaqueButton(mainMenuSingleplayerButton, "Singleplayer", mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuCustomisationButton, "Customisation", mainMenuCustomisationButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuEncyclopediaButton, "Rules & Cards", mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuSettingsButton, "Settings", mainMenuSettingsButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuQuitButton, "Quit", mainMenuQuitButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuOnlineButton, _L("UI_BTN_ONLINE", "Online Versus"), mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), true);
+	drawMenuPlaqueButton(mainMenuSingleplayerButton, _L("UI_BTN_SOLO", "Singleplayer"), mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuCustomisationButton, _L("UI_BTN_CUSTOM", "Customisation"), mainMenuCustomisationButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuEncyclopediaButton, _L("UI_BTN_RULES", "Rules & Cards"), mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuSettingsButton, _L("UI_BTN_SETTINGS", "Settings"), mainMenuSettingsButton.inside(ofGetMouseX(), ofGetMouseY()));
+	drawMenuPlaqueButton(mainMenuQuitButton, _L("UI_BTN_QUIT", "Quit"), mainMenuQuitButton.inside(ofGetMouseX(), ofGetMouseY()));
 }
 
 //--------------------------------------------------------------
@@ -8037,55 +8096,58 @@ void ofApp::drawSettingsMenu() {
 	// Content area start
 	float contentY = tabsY + tabH + 30.0f * uiScale;
 
+	// --- Settings UI Shared Variables ---
+	float settingSpacing = 100.0f * uiScale;
+	float controlWidth = 250.0f * uiScale;
+
+	// --- Helper for drawing a setting row ---
+	auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
+		if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
+		if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
+		// Draw Label (centered)
+		ofSetColor(ofColor::white);
+		ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
+		SafeDrawText(uiFont, label, centerX - lb.getWidth() / 2, yPos + 25);
+
+		// Draw Left/Right buttons (dark bg)
+		leftBtn.set(centerX - (controlWidth / 2) - 45.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
+		rightBtn.set(centerX + (controlWidth / 2) + 5.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
+		ofSetColor(ofColor(50));
+		ofDrawRectRounded(leftBtn, 5.0f * uiScale);
+		ofDrawRectRounded(rightBtn, 5.0f * uiScale);
+		ofSetColor(ofColor(120));
+		ofNoFill();
+		ofSetLineWidth(1.5 * uiScale);
+		ofDrawRectRounded(leftBtn, 5.0f * uiScale);
+		ofDrawRectRounded(rightBtn, 5.0f * uiScale);
+		ofFill();
+
+		// Draw Background for the value text (dark)
+		ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
+		ofSetColor(ofColor(35));
+		ofDrawRectangle(bgRect);
+
+		// Draw TEXT AFTER the background and set its color to WHITE and centered
+		ofSetColor(ofColor::white);
+		ofRectangle vb = uiFont.getStringBoundingBox(value, 0, 0);
+		SafeDrawText(uiFont, value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
+		ofRectangle lt = uiFont.getStringBoundingBox("<", 0, 0);
+		ofRectangle rt = uiFont.getStringBoundingBox(">", 0, 0);
+		SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
+		SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
+	};
+
 	// VIDEO tab: render existing resolution/framerate/fullscreen controls
 	if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
-		// --- Settings UI Positions ---
 		float settingY = contentY;
-		float settingSpacing = 100.0f * uiScale;
-		float labelOffset = 350.0f * uiScale;
-		(void)labelOffset; // unused
-		float controlWidth = 250.0f * uiScale;
 
-		// --- Helper for drawing a setting row ---
-		auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
-			if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
-			if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
-			// Draw Label (centered)
-			ofSetColor(ofColor::white);
-			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
-			SafeDrawText(uiFont, label, centerX - lb.getWidth() / 2, yPos + 25);
-
-			// Draw Left/Right buttons (dark bg)
-			leftBtn.set(centerX - (controlWidth / 2) - 45.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
-			rightBtn.set(centerX + (controlWidth / 2) + 5.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
-			ofSetColor(ofColor(50));
-			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
-			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
-			ofSetColor(ofColor(120));
-			ofNoFill();
-			ofSetLineWidth(1.5 * uiScale);
-			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
-			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
-			ofFill();
-
-			// Draw Background for the value text (dark)
-			ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
-			ofSetColor(ofColor(35));
-			ofDrawRectangle(bgRect);
-
-			// Draw TEXT AFTER the background and set its color to WHITE and centered
-			ofSetColor(ofColor::white);
-			ofRectangle vb = uiFont.getStringBoundingBox(value, 0, 0);
-			SafeDrawText(uiFont, value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
-			ofRectangle lt = uiFont.getStringBoundingBox("<", 0, 0);
-			ofRectangle rt = uiFont.getStringBoundingBox(">", 0, 0);
-			SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
-			SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
-		};
+		// --- Draw Language Selector ---
+		drawSettingRow(_L("UI_SETTING_LANG", "Language"), g_availableLanguageNames[g_currentLanguageIndex], settingsLangLeftButton, settingsLangRightButton, settingY);
+		settingY += settingSpacing;
 
 		// --- Draw Resolution ---
 		string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
-		drawSettingRow("Resolution", resText, settingsResLeftButton, settingsResRightButton, settingY);
+		drawSettingRow(_L("UI_SETTING_RES", "Resolution"), resText, settingsResLeftButton, settingsResRightButton, settingY);
 
 		// --- Draw Framerate as slider ---
 		settingY += settingSpacing;
@@ -16866,6 +16928,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+			if (settingsLangLeftButton.inside(x, y)) {
+				g_currentLanguageIndex = (g_currentLanguageIndex - 1 + g_availableLanguageCodes.size()) % g_availableLanguageCodes.size();
+				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
+				loadCardData("Config/cards.json"); // Force cards to instantly re-translate and re-bake!
+				saveSettings();
+				return;
+			}
+			if (settingsLangRightButton.inside(x, y)) {
+				g_currentLanguageIndex = (g_currentLanguageIndex + 1) % g_availableLanguageCodes.size();
+				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
+				loadCardData("Config/cards.json"); // Force cards to instantly re-translate and re-bake!
+				saveSettings();
+				return;
+			}
+
 			if (settingsResLeftButton.inside(x, y)) {
 				currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
 				applySettings();
@@ -38922,6 +38999,9 @@ void ofApp::saveSettings() {
 	json["currentResolutionIndex"] = currentResolutionIndex;
 	json["windowModeState"] = g_windowModeState;
 
+	// --- Save Language Preference ---
+	json["languageIndex"] = g_currentLanguageIndex;
+
 	// Key bindings
 	ofJson kb = ofJson::array();
 	for (const auto & p : settingsKeyBindings) {
@@ -38982,6 +39062,12 @@ void ofApp::loadSettings() {
 		settingsFramerateSliderValue = json.value("framerateSliderValue", settingsFramerateSliderValue);
 		currentResolutionIndex = json.value("currentResolutionIndex", currentResolutionIndex);
 		g_windowModeState = json.value("windowModeState", g_windowModeState);
+
+		// --- Load Language Preference ---
+		g_currentLanguageIndex = json.value("languageIndex", 0);
+		if (g_currentLanguageIndex < 0 || g_currentLanguageIndex >= (int)g_availableLanguageCodes.size()) g_currentLanguageIndex = 0;
+		loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
+		// --------------------------------
 
 		// Key bindings
 		if (json.contains("keyBindings") && json["keyBindings"].is_array()) {
