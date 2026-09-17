@@ -23738,11 +23738,19 @@ void ofApp::drawActiveCardInteractionUI() {
 					}
 				}
 
-				string prompt = isLocalDecider ? ("Choose an effect for " + getPlayerDisplayName(actualTargetIdx) + ":") : ("Waiting for " + getPlayerDisplayName(actualTargetIdx) + " to choose...");
-				int totalRemaining = magicBlastChoicesRemaining + (int)magicBlastSplashTargetIndices.size();
-				string choicesLeft = "Targets remaining: " + ofToString(totalRemaining);
+				int totalRemaining = magicBlastChoicesRemaining;
+				string choicesLeft = " (" + ofToString(totalRemaining) + " choices remaining)";
+
+				// CRITICAL FIX: Explicitly tell the victim that THEY must choose!
+				string prompt = "";
+				if (isLocalDecider) {
+					prompt = "You were hit by Magic Blast! Choose an effect" + choicesLeft + ":";
+				} else {
+					prompt = "Waiting for " + getPlayerNameByID(targetOwner) + " to choose" + choicesLeft + "...";
+				}
+
 				bool canDiscard = !targetPlayer->deck.empty();
-				drawCardChoicePanel(menuRect, "Magic Blast", prompt + "\n" + choicesLeft,
+				drawCardChoicePanel(menuRect, "Magic Blast", prompt,
 					btn1, btn2, "Take " + ofToString(dmgAmount) + " Magic Damage", canDiscard ? "Remove Top Card" : "No Cards to Remove",
 					ofColor::indianRed, ofColor::darkSlateBlue, isLocalDecider, isLocalDecider && canDiscard);
 
@@ -25384,17 +25392,23 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_MAGIC_BLAST) {
 			beginEffectSequence();
 
-			// FIX: Prevent array-shift crash if previous target died! Use the stable player ID!
 			int safeTarget = findPlayerIndexByID(magicBlastTargetPlayerIndex);
-			if (safeTarget == -1) safeTarget = targetIndex; // Fallback if safe fetch fails
+			if (safeTarget == -1) safeTarget = targetIndex;
 
 			int dmgAmount = 5;
-			for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
-				if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
-					dmgAmount = it->baseDamage;
-					break;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				for (auto it = players[currentPlayerIndex].playedCardsPile.rbegin(); it != players[currentPlayerIndex].playedCardsPile.rend(); ++it) {
+					if (it->type == CARD_MAGIC_BLAST && it->baseDamage > 0) {
+						dmgAmount = it->baseDamage;
+						break;
+					}
 				}
 			}
+
+			// Broadcast clear on-screen and chat feedback of the exact choice made
+			std::string choiceText = (choice == 1) ? ("Take " + ofToString(dmgAmount) + " Damage") : "Destroy Top Card";
+			addGameLog(getPlayerNameByID(cmd.playerID) + " chose: " + choiceText);
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.6f, 0), "Choice: " + choiceText, ofColor::yellow);
 
 			if (choice == 1) { // damage
 				EffectOp dmgOp = {};
@@ -25413,22 +25427,20 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			magicBlastChoicesRemaining--;
 
-			// Queue a Wait so damage numbers / animations play out before the menu returns
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
 			queueEffect(wait);
 
-			// Queue the Menu op to check if we have choices left
 			EffectOp menu = {};
 			menu.type = EffectOpType::APPLY_MAGIC_BLAST_MENU;
 			queueEffect(menu);
 
-			// Close the interaction state so the menu disappears while we wait for visuals
-			resetCardInteraction(false); // <--- CHANGED HERE
+			// Dismiss menu immediately while waiting for next choice
+			opponentInteraction.open = false;
+			resetCardInteraction(false);
 
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 
-			// CRITICAL FIX: Unfreeze the state machine so the effect sequence actually runs!
 			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			break;
 		}
@@ -28723,6 +28735,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int actualTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
 		Player * tgt = getPlayer(actualTargetIdx);
 
+		// If target unit died or has no choices left, advance to next splash target or terminate immediately
 		if (!tgt || tgt->health <= 0 || magicBlastChoicesRemaining <= 0) {
 			magicBlastChoicesRemaining = 0;
 			magicBlastTargetPlayerIndex = -1;
@@ -28740,7 +28753,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 
-		if (actualTargetIdx != -1 && magicBlastChoicesRemaining > 0 && tgt) {
+		if (actualTargetIdx != -1 && magicBlastChoicesRemaining > 0 && tgt && tgt->health > 0) {
 			int deciderOwner = tgt->isMinion ? tgt->ownerID : tgt->playerID;
 			bool isLocal = (!isMultiplayer) || (deciderOwner == myLocalPlayerID);
 
@@ -28784,18 +28797,20 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				opponentInteraction.cardIndex = activeCardIdx;
 			}
 		} else {
-			// All choices complete!
+			// All choices complete or target deceased! Cleanly dismiss all modals on both peers
 			opponentInteraction.open = false;
 			resetCardInteraction(false);
 
-			if (turnTimerPaused && opponentDecisionTimerActive) {
-				turnTimerPaused = false;
-				turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-				turnTimerPausedRemainingFrames = 0;
-			}
+			// Unpause the main turn timer and cancel the 30s decision watchdog completely
+			turnTimerPaused = false;
+			turnTimerPausedRemainingFrames = 0;
 			opponentDecisionTimerActive = false;
 			opponentDecisionStartFrame = 0;
 			opponentDecisionPlayerIndex = -1;
+
+			if (isMultiplayer) {
+				sendMenuState(0, -1, -1, -1);
+			}
 
 			if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_OUTCOME);
 		}
@@ -30518,7 +30533,18 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			break;
 
 		case CARD_RENEWED_INSPIRATION: {
-			if (riConfirmBtn.inside(mouseX, mouseY)) {
+			// Compute exact real-time button bounds to guarantee hit detection
+			float uiScaleLocal = std::min((float)ofGetWidth() / 1920.0f, getUIScaleFromHeight((float)ofGetHeight()));
+			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
+			float btnW = std::clamp(220.0f * uiScaleLocal, 140.0f, 320.0f);
+			float btnH = std::clamp(60.0f * uiScaleLocal, 40.0f, 96.0f);
+			float btnX = (ofGetWidth() - btnW) / 2.0f;
+			float btnY = handAreaRect.y - btnH - std::clamp(20.0f * uiScaleLocal, 12.0f, 48.0f);
+			float minTopMargin = 20.0f * uiScaleLocal;
+			if (btnY < minTopMargin) btnY = minTopMargin;
+			ofRectangle realTimeBtn(btnX, btnY, btnW, btnH);
+
+			if (realTimeBtn.inside(mouseX, mouseY) || riConfirmBtn.inside(mouseX, mouseY)) {
 				Player & p = players[currentPlayerIndex];
 				std::vector<int> validSelections;
 				for (int idx : renewedSelectedHandIndices) {
@@ -30538,8 +30564,6 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = (int)validSelections.size();
 				cmd.params[2] = interactingCardIndex;
 
-				// CRITICAL FIX: Ensure the client assigns an action ID so the Optimistic UI can track it!
-				// Without this, the Host's echoed command causes a duplicate execution crash!
 				if (isClient()) {
 					cmd.seq = ++watchdogClientActionCounter;
 					cmd.clientActionID = cmd.seq;
@@ -30559,10 +30583,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				sendInputCommand(cmd, true);
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();
-				// FIX: Do not call resetCardState() here, it destroys the effect sequence!
 				return;
 			}
-
 			// Toggle cards
 
 			// Toggle cards
