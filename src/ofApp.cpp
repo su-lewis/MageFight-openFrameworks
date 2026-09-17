@@ -9446,19 +9446,15 @@ void ofApp::setupGame() {
 
 		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
 
-		if (isHost()) {
-			std::string p0Name = steamManager.getLocalPlayerName();
-			std::string p1Name = steamManager.getOpponentName();
-			player0SteamName = getAlphaTaggedName(p0Name.empty() ? "Player 1" : p0Name, steamManager.getLocalSteamID().ConvertToUint64());
-			player1SteamName = getAlphaTaggedName(p1Name.empty() ? "Player 2" : p1Name, steamManager.getOpponentSteamID().ConvertToUint64());
+		// CRITICAL FIX: Read real names directly from the synchronized lobby player list
+		if (!g_lobbyPlayers.empty()) {
+			player0SteamName = getPlayerNameByID(0);
+			player1SteamName = getPlayerNameByID(1);
+		}
 
+		if (isHost()) {
 			steamManager.setLobbySeed(currentMapSeed);
 			steamManager.setMatchStarted();
-		} else {
-			std::string p1Name = steamManager.getLocalPlayerName();
-			std::string p0Name = steamManager.getOpponentName();
-			player0SteamName = getAlphaTaggedName(p0Name.empty() ? "Player 1" : p0Name, steamManager.getOpponentSteamID().ConvertToUint64());
-			player1SteamName = getAlphaTaggedName(p1Name.empty() ? "Player 2" : p1Name, steamManager.getLocalSteamID().ConvertToUint64());
 		}
 
 		if (isMultiplayer && myLocalPlayerID != 2) {
@@ -25940,10 +25936,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				break;
 			}
 
-			// SECURITY FIX: Ensure the sender owns the drafting unit
+			// Ensure the sender owns the drafting unit (or host is acting for a bot)
 			int draftOwner = players[draftPlayerIdx].isMinion ? players[draftPlayerIdx].ownerID : players[draftPlayerIdx].playerID;
-			if (isMultiplayer && draftOwner != (int)cmd.playerID) {
-				ofLogWarning("Security") << "Draft action spoofing attempt blocked. Sender: " << cmd.playerID;
+			bool isAllowedSender = (draftOwner == (int)cmd.playerID) || (isHost() && players[draftPlayerIdx].playerID != (int)myLocalPlayerID);
+			if (isMultiplayer && !isAllowedSender) {
+				ofLogWarning("Security") << "Draft action spoofing attempt blocked. Sender: " << cmd.playerID << " expected owner: " << draftOwner;
 				break;
 			}
 
@@ -42583,6 +42580,11 @@ void ofApp::processNetworkPackets() {
 				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
 				pkt->message[sizeof(pkt->message) - 1] = '\0';
 
+				// CRITICAL FIX: If this is our own message echoed back by the server, drop it so it doesn't double!
+				if (header->playerID == myLocalPlayerID && myLocalPlayerID != 255) {
+					continue;
+				}
+
 				// Handle internal name synchronization
 				if (strncmp(pkt->message, "\aSYNC_NAME:", 11) == 0) {
 					std::string newName = std::string(pkt->message + 11);
@@ -42598,7 +42600,7 @@ void ofApp::processNetworkPackets() {
 						if (pkt->playerID == 0) player0SteamName = newName;
 						if (pkt->playerID == 1) player1SteamName = newName;
 
-						// Host must re-broadcast the lobby state so all players receive the real name
+						// Host must immediately broadcast the lobby state so all players receive the new name
 						if (isHost()) {
 							broadcastLobbyState(steamManager);
 						}
