@@ -145,6 +145,16 @@ static void loadLanguage(const std::string & langCode) {
 }
 
 std::vector<ofUnicode::range> buildLocRanges() {
+	// OPTIMIZATION (Part 1.3): Only perform the heavy dictionary scan for CJK languages.
+	// Latin languages (English, Spanish, French, German) use standard predictable ranges.
+	if (g_currentLanguage != "zh" && g_currentLanguage != "jp" && g_currentLanguage != "kr") {
+		return {
+			ofUnicode::range { 0x0020, 0x007E }, // Basic Latin (ASCII)
+			ofUnicode::range { 0x00A0, 0x00FF }, // Latin-1 Supplement (Spanish/French Accents)
+			ofUnicode::range { 0x2018, 0x2026 } // General Punctuation (Smart quotes, ellipses)
+		};
+	}
+
 	std::set<char32_t> chars;
 	// Always include standard ASCII
 	for (char32_t c = 32; c <= 126; ++c)
@@ -6557,11 +6567,14 @@ void ofApp::draw() {
 	if (!isMultiplayer && gameSuspendedDueToInactivity) { }
 	if (headless) return;
 
+	// Let openFrameworks handle the viewport natively so mouse coordinates don't desync!
+	ofSetupScreen();
+
 	// CRITICAL FIX: Reset Global OpenGL State to prevent black screens on Linux GPUs!
 	ofDisableDepthTest();
 	ofSetColor(255, 255, 255, 255);
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
+	// glDisable(GL_TEXTURE_2D); <--- REMOVED! This breaks wall textures on Linux Mesa drivers!
 	glDisable(GL_COLOR_MATERIAL);
 	glDisable(GL_LIGHTING);
 	glDisable(GL_CULL_FACE);
@@ -8054,6 +8067,9 @@ void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
 }
 
 void ofApp::draw2DMenuBackground() {
+	// OPTIMIZATION (Part 2.1): Do not redraw the massive 2D floor grid during the Text Eraser pass!
+	if (g_isSecondPass) return;
+
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
 
@@ -8092,6 +8108,10 @@ void ofApp::draw2DMenuBackground() {
 		}
 	}
 
+	// OPTIMIZATION (Part 2.4): Batch the menu grid lines into a single Mesh to remove hundreds of draw calls!
+	ofMesh gridMesh;
+	gridMesh.setMode(OF_PRIMITIVE_LINES);
+
 	// 2. Draw the 2D Board Background
 	for (int x = startX; x <= endX; x++) {
 		for (int y = startY; y <= endY; y++) {
@@ -8103,31 +8123,24 @@ void ofApp::draw2DMenuBackground() {
 			float drawW = (nextTx - tx) + 1.0f;
 			float drawH = (nextTy - ty) + 1.0f;
 
-			// Map absolute infinite coordinates using a 30 tile stride
 			int modX = (x % 30 + 30) % 30;
 			bool isBoardY = (y >= 0 && y < BOARD_HEIGHT);
 			bool isBoardTile = (modX >= 0 && modX < BOARD_WIDTH && isBoardY);
-
-			// Screen -1 is the Online / Lobby room (x: -30 to -18)
 			bool isScreenMinus1 = (x >= -30 && x <= -18);
 
 			bool isWall = false;
 			if (isBoardTile) {
 				if (isScreenMinus1 && g_inLobby) {
-					// In the active Lobby, carve out an open room with border walls
 					isWall = (modX == 0 || modX == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1);
-					// Tunnel door on the right wall
 					if (modX == BOARD_WIDTH - 1 && y == 5) isWall = false;
 				} else {
-					// Main Menu, Singleplayer, and Online Versus server browser use the full maze layout
 					isWall = board[modX][y].hasWall;
 				}
 			} else {
-				// Outside the 13x9 rooms: the tunnel path at y=5 is open floor
 				if (y == 5 && x >= -30 && x <= 42) {
 					isWall = false;
 				} else {
-					isWall = true; // Everything else outside the rooms is solid wall
+					isWall = true;
 				}
 			}
 
@@ -8147,12 +8160,7 @@ void ofApp::draw2DMenuBackground() {
 					wallAbove = (y - 1 != 5);
 				}
 
-				// BRIGHTNESS / ILLUMINATION LOGIC:
-				// 1. All walls inside or on the border of a 13x9 room -> BRIGHT (255)
-				// 2. The walls directly above (y=4) and below (y=6) the tunnel path -> BRIGHT (255)
-				// 3. Far distant outer void walls -> DIMMED (40)
-				bool isTunnelWall = (x >= -30 && x <= 42 && (y == 4 || y == 6));
-				int brightness = (isBoardTile || isTunnelWall) ? 255 : 40;
+				int brightness = (isBoardTile || (x >= -30 && x <= 42 && (y == 4 || y == 6))) ? 255 : 40;
 
 				if (wallAbove && wallDarkTexture.isAllocated()) {
 					ofSetColor(brightness);
@@ -8165,12 +8173,9 @@ void ofApp::draw2DMenuBackground() {
 					ofDrawRectangle(tx, ty, drawW, drawH);
 				}
 			} else {
-				// Draw floor tiles (inside rooms and along the tunnel at y=5)
-				// CRITICAL FIX: Fast bit-hash instead of re-instantiating std::mt19937 every frame!
 				unsigned int seed = (modX * 73856093) ^ (y * 19349663);
 				if (!floorTextures.empty()) {
 					int texIndex = (int)((seed * 2654435761u) % floorTextures.size());
-
 					ofSetColor(230);
 					floorTextures[texIndex].draw(tx, ty, drawW, drawH);
 				} else {
@@ -8179,12 +8184,22 @@ void ofApp::draw2DMenuBackground() {
 				}
 			}
 
-			ofNoFill();
-			ofSetColor(0, 0, 0, 70);
-			ofDrawRectangle(tx, ty, drawW, drawH);
-			ofFill();
+			// Add lines to our batched mesh instead of drawing them one by one
+			ofColor gridColor(0, 0, 0, 70);
+			gridMesh.addColor(gridColor);
+			gridMesh.addVertex(glm::vec3(tx, ty, 0));
+			gridMesh.addColor(gridColor);
+			gridMesh.addVertex(glm::vec3(nextTx, ty, 0));
+			gridMesh.addColor(gridColor);
+			gridMesh.addVertex(glm::vec3(tx, ty, 0));
+			gridMesh.addColor(gridColor);
+			gridMesh.addVertex(glm::vec3(tx, nextTy, 0));
 		}
 	}
+
+	// Draw all 165+ grid lines in exactly ONE GPU call!
+	ofSetLineWidth(1.0f);
+	gridMesh.draw();
 
 	// 3. Draw Target Highlight
 	if (!mainMenuCirclePath.empty()) {
@@ -8239,6 +8254,16 @@ void ofApp::drawMainMenu() {
 
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
+	// OPTIMIZATION (Part 2.5): Cache font measurements to stop massive FPS drops in the settings menu!
+	static std::unordered_map<std::string, ofRectangle> textBoundsCache;
+	auto getCachedBounds = [&](const std::string & text) -> ofRectangle {
+		auto it = textBoundsCache.find(text);
+		if (it != textBoundsCache.end()) return it->second;
+		ofRectangle bounds = uiFont.getStringBoundingBox(text, 0, 0);
+		textBoundsCache[text] = bounds;
+		return bounds;
+	};
+
 	// Same overlay logic as Encyclopedia
 	if (stateBeforeSettings == STATE_MAIN_MENU) {
 		draw2DMenuBackground();
@@ -8311,7 +8336,7 @@ void ofApp::drawSettingsMenu() {
 		if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
 		// Draw Label (centered)
 		ofSetColor(ofColor::white);
-		ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
+		ofRectangle lb = getCachedBounds(label);
 		SafeDrawText(uiFont, label, centerX - lb.getWidth() / 2, yPos + 25);
 
 		// Draw Left/Right buttons (dark bg)
@@ -8334,10 +8359,10 @@ void ofApp::drawSettingsMenu() {
 
 		// Draw TEXT AFTER the background and set its color to WHITE and centered
 		ofSetColor(ofColor::white);
-		ofRectangle vb = uiFont.getStringBoundingBox(value, 0, 0);
+		ofRectangle vb = getCachedBounds(value);
 		SafeDrawText(uiFont, value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
-		ofRectangle lt = uiFont.getStringBoundingBox("<", 0, 0);
-		ofRectangle rt = uiFont.getStringBoundingBox(">", 0, 0);
+		ofRectangle lt = getCachedBounds("<");
+		ofRectangle rt = getCachedBounds(">");
 		SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
 		SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
 	};
@@ -8378,13 +8403,13 @@ void ofApp::drawSettingsMenu() {
 			int fps = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
 			frameText = ofToString(fps) + " FPS";
 		}
-		ofRectangle ftb = uiFont.getStringBoundingBox(frameText, 0, 0);
+		ofRectangle ftb = getCachedBounds(frameText);
 		SafeDrawText(uiFont, frameText, centerX - ftb.width / 2, settingsFramerateSlider.y - 10);
 		// Draw label left/right (place below slider to avoid overlap with handle)
 		string minLabel = "15";
 		string maxLabel = "Unlimited";
-		ofRectangle minb = uiFont.getStringBoundingBox(minLabel, 0, 0);
-		ofRectangle maxb = uiFont.getStringBoundingBox(maxLabel, 0, 0);
+		ofRectangle minb = getCachedBounds(minLabel);
+		ofRectangle maxb = getCachedBounds(maxLabel);
 		float labelY = settingsFramerateSlider.y + settingsFramerateSlider.height + 20.0f * uiScale;
 		SafeDrawText(uiFont, minLabel, settingsFramerateSlider.x - minb.width - 8.0f * uiScale, labelY + minb.height / 2.0f);
 		SafeDrawText(uiFont, maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8.0f * uiScale, labelY + maxb.height / 2.0f);
@@ -8402,7 +8427,7 @@ void ofApp::drawSettingsMenu() {
 		if (settingsFullscreenButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_fs";
 		ofDrawRectangle(settingsFullscreenButton);
 		ofSetColor(ofColor::white);
-		ofRectangle fb = uiFont.getStringBoundingBox(fsText, 0, 0);
+		ofRectangle fb = getCachedBounds(fsText);
 		SafeDrawText(uiFont, fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
 	}
 
@@ -8422,7 +8447,7 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectangle(settingsAudioMasterSlider.x, settingsAudioMasterSlider.y, masterFill, settingsAudioMasterSlider.height);
 		ofSetColor(ofColor::white);
 		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
-		ofRectangle mlb = uiFont.getStringBoundingBox(masterLabel, 0, 0);
+		ofRectangle mlb = getCachedBounds(masterLabel);
 		SafeDrawText(uiFont, masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10.0f * uiScale);
 
 		// Music slider (Controls both Menu and Game Music)
@@ -8435,7 +8460,7 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
 		ofSetColor(ofColor::white);
 		string menuLabel = "Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
-		ofRectangle ml2 = uiFont.getStringBoundingBox(menuLabel, 0, 0);
+		ofRectangle ml2 = getCachedBounds(menuLabel);
 		SafeDrawText(uiFont, menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10.0f * uiScale);
 
 		// SFX slider
@@ -8448,7 +8473,7 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectangle(settingsAudioSfxSlider.x, settingsAudioSfxSlider.y, sfxFill, settingsAudioSfxSlider.height);
 		ofSetColor(ofColor::white);
 		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
-		ofRectangle slb = uiFont.getStringBoundingBox(sfxLabel, 0, 0);
+		ofRectangle slb = getCachedBounds(sfxLabel);
 		SafeDrawText(uiFont, sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10.0f * uiScale);
 	}
 
@@ -9027,13 +9052,22 @@ void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 
-	// CRITICAL FIX: On Linux/Wayland (Bazzite), BOTH Borderless and Fullscreen must use OF's native fullscreen.
-	// If you manually resize a window to the monitor bounds under fractional scaling, the screen turns black!
+	// WAYLAND FULLSCREEN FIX:
+	// We MUST manually force the window to the monitor's dimensions BEFORE calling ofSetFullscreen(true)
+	// Otherwise, Wayland traps the game in a small box in the top-left corner!
 	if (g_windowModeState == 1 || g_windowModeState == 2) {
+		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+
+		int screenW = ofGetScreenWidth();
+		int screenH = ofGetScreenHeight();
+
 		if (ofGetWindowMode() != OF_FULLSCREEN) {
-			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+			ofSetWindowShape(screenW, screenH);
 			ofSetFullscreen(true);
+		} else {
+			ofSetWindowShape(screenW, screenH);
 		}
+
 		isFullscreen = true;
 	} else { // Standard Windowed
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
@@ -9042,13 +9076,17 @@ void ofApp::applySettings() {
 		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
 		ofSetWindowShape(res.x, res.y);
 
-		// Safely center on non-Wayland. On Wayland, the compositor handles it automatically.
 		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
 			ofSetWindowPosition((ofGetScreenWidth() - (int)res.x) / 2, (ofGetScreenHeight() - (int)res.y) / 2);
 		}
 		isFullscreen = false;
-	}
 
+		// CRITICAL MOUSE FIX: Instantly force the UI and FBOs to rebuild using the new resolution!
+		// Wayland sometimes delays the resize callback, which leaves the mouse hitboxes stranded at the old size.
+		recalculateUI(res.x, res.y);
+		allocateWorldFbo(res.x, res.y);
+	}
+	 
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
 		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
@@ -11914,7 +11952,7 @@ void ofApp::drawGame() {
 			shadowDepthShader.end();
 			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 			shadowFbo.end();
-			glViewport(0, 0, ofGetWidth(), ofGetHeight());
+			// glViewport removed: shadowFbo.end() automatically restores the correct viewport!
 		}
 		ofSetColor(255);
 		ofEnableLighting();
@@ -16486,14 +16524,19 @@ cursor_check_done:;
 										p = (double)success / (double)sides;
 									} else if (diceNum <= 6) {
 										int maxRollVal = maxPossible;
-										std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxRollVal + 1, 0));
+
+										// OPTIMIZATION: Stack-allocated fixed array instead of heap vectors!
+										int dp[7][125] = { 0 }; // Max 6 dice of d20 = 120 maxRollVal
 										dp[0][0] = 1;
 										for (int d = 1; d <= diceNum; ++d) {
 											for (int s = d; s <= d * sides; ++s) {
 												int sum = 0;
 												int faceMax = std::min(s - (d - 1), sides);
-												for (int face = 1; face <= faceMax; ++face)
-													sum += dp[d - 1][s - face];
+												for (int face = 1; face <= faceMax; ++face) {
+													if (s - face >= 0) { // Safety bound
+														sum += dp[d - 1][s - face];
+													}
+												}
 												dp[d][s] = sum;
 											}
 										}
@@ -34711,15 +34754,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								int sides = rangeSides;
 								int numDice = rangeNum;
 
-								// DP: dp[d][s] = number of ways to get sum s using d dice
-								std::vector<std::vector<int>> dp(numDice + 1, std::vector<int>(maxPossibleRoll + 1, 0));
+								// OPTIMIZATION: Stack-allocated array to prevent hundreds of heap allocations per frame
+								int dp[4][65] = { 0 }; // Max 3 dice of d20 = 60 maxPossibleRoll
 								dp[0][0] = 1; // Base case: 0 dice, sum 0
 
 								// Fill DP table
 								for (int d = 1; d <= numDice; d++) {
 									for (int s = d; s <= d * sides; s++) {
 										for (int face = 1; face <= sides && face <= s; face++) {
-											dp[d][s] += dp[d - 1][s - face];
+											if (s - face >= 0) { // Safety bound
+												dp[d][s] += dp[d - 1][s - face];
+											}
 										}
 									}
 								}
@@ -39652,17 +39697,37 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// Keeps template base image if markdown build fails.
 	// FIX: Skip generating this 10,500x10,500 image atlas in headless mode to save 440MB of RAM per instance!
 	if (!headless) {
-		const std::string cardTemplatePath = findCardTemplatePath();
-		if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet, g_cardTextSpriteSheet)) {
+		const std::string atlasPath = "UI/card_sprite_generated.png";
+		const std::string textAtlasPath = "UI/card_text_generated.png";
+
+		// OPTIMIZATION: Attempt to load pre-baked atlas from disk FIRST to save 5+ seconds!
+		if (ofFile(atlasPath).exists() && ofFile(textAtlasPath).exists() && cardSpriteSheet.load(atlasPath) && g_cardTextSpriteSheet.load(textAtlasPath)) {
+
 			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-			if (g_cardTextSpriteSheet.isAllocated()) {
-				g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-				g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-			}
-			ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
+			g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+
+			ofLogNotice("Cards") << "Loaded pre-baked card atlas directly from disk. Skipping generation!";
 		} else {
-			ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
+			ofLogNotice("Cards") << "Pre-baked atlas not found. Generating new atlas... (This will take a few seconds)";
+			const std::string cardTemplatePath = findCardTemplatePath();
+			if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet, g_cardTextSpriteSheet)) {
+				cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				if (g_cardTextSpriteSheet.isAllocated()) {
+					g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+					g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+
+					// Save the text atlas too, so we can load it instantly next time
+					ofPixels textPix;
+					g_cardTextSpriteSheet.getTexture().readToPixels(textPix);
+					ofSaveImage(textPix, textAtlasPath);
+				}
+				ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
+			} else {
+				ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
+			}
 		}
 	}
 }

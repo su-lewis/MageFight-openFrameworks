@@ -7,27 +7,27 @@ int main(int argc, char * argv[]) {
 	// 1. Check if we are running in Headless Mode
 	bool headless = (std::getenv("MAGEFIGHT_HEADLESS") != nullptr);
 
-	// 2. Setup based on mode
 	if (headless) {
 		ofAppNoWindow window;
 		ofSetupOpenGL(&window, 1024, 768, OF_WINDOW);
-
-		ofApp * app = new ofApp();
-		ofRunApp(app);
+		ofRunApp(new ofApp());
 		return 0;
 	}
 
-	// 3. Borderless Fullscreen Window Setup (Wayland/Bazzite Safe)
+	// 2. Safe Wayland Window Initialization
 	ofGLFWWindowSettings settings;
 	settings.setGLVersion(3, 3);
-	// OF_FULLSCREEN defaults to a borderless window at native resolution
-	// matching the primary monitor's refresh rate. No manual GLFW required.
-	settings.windowMode = OF_FULLSCREEN;
-	settings.title = "Mage Fight";
 
+	// Start as a window to prevent Wayland compositor initialization crashes
+	settings.windowMode = OF_WINDOW;
+	settings.title = "Mage Fight";
 	auto window = ofCreateWindow(settings);
 
-	// 4. Sound Setup
+	// Instantly resize the window to perfectly match the monitor BEFORE drawing the first frame!
+	ofSetWindowShape(ofGetScreenWidth(), ofGetScreenHeight());
+	ofSetWindowPosition(0, 0);
+
+	// 3. Sound Setup
 	ofSoundStreamSettings soundSettings;
 	soundSettings.numOutputChannels = 2;
 	soundSettings.numInputChannels = 0;
@@ -47,10 +47,9 @@ int main(int argc, char * argv[]) {
 	soundSettings.setApi(ofSoundDevice::Api::UNSPECIFIED);
 #endif
 
-	// NOTE: If audio still crashes, move ofSoundStreamSetup into ofApp::setup()
 	ofSoundStreamSetup(soundSettings);
 
-	// 5. Checksum Harness Logic
+	// 4. Checksum Harness Logic
 	bool checksumHarness = false;
 	const char * envHarness = getenv("MAGEFIGHT_CHECKSUM_HARNESS");
 	if (envHarness && std::string(envHarness) == "1") checksumHarness = true;
@@ -76,7 +75,7 @@ int main(int argc, char * argv[]) {
 		return 0;
 	}
 
-	// 6. Run Normal App
+	// 5. Run Normal App
 	auto app = std::make_shared<ofApp>();
 	ofRunApp(window, app);
 	return ofRunMainLoop();
