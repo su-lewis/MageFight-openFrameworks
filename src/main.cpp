@@ -1,9 +1,6 @@
 #include "ofApp.h"
 #include "ofAppNoWindow.h" // Required for Headless Mode
 #include "ofMain.h"
-
-#define GLFW_INCLUDE_NONE
-#include "GLFW/glfw3.h"
 #include <cstdlib>
 
 int main(int argc, char * argv[]) {
@@ -20,60 +17,40 @@ int main(int argc, char * argv[]) {
 		return 0;
 	}
 
-	// 3. Query Primary Monitor Native Resolution and Max Refresh Rate (Hz)
-	glfwInit();
-	GLFWmonitor * primaryMonitor = glfwGetPrimaryMonitor();
-	int screenWidth = 1920;
-	int screenHeight = 1080;
-	int monitorHz = 60; // Default fallback
-
-	if (primaryMonitor) {
-		const GLFWvidmode * mode = glfwGetVideoMode(primaryMonitor);
-		if (mode) {
-			screenWidth = mode->width;
-			screenHeight = mode->height;
-			monitorHz = mode->refreshRate;
-		}
-	}
-
-	// 4. Borderless Fullscreen Window Setup
+	// 3. Borderless Fullscreen Window Setup (Wayland/Bazzite Safe)
 	ofGLFWWindowSettings settings;
 	settings.setGLVersion(3, 3);
-	settings.decorated = false; // Strips window borders / title bar for true borderless mode
-	settings.windowMode = OF_WINDOW;
-	settings.setPosition(glm::vec2(0, 0));
-	settings.setSize(screenWidth, screenHeight);
+	// OF_FULLSCREEN defaults to a borderless window at native resolution
+	// matching the primary monitor's refresh rate. No manual GLFW required.
+	settings.windowMode = OF_FULLSCREEN;
 	settings.title = "Mage Fight";
+
 	auto window = ofCreateWindow(settings);
 
-	// Cap max FPS strictly to the user's monitor refresh rate (Hz)
-	ofSetFrameRate(monitorHz);
-
-	// Sound Setup
+	// 4. Sound Setup
 	ofSoundStreamSettings soundSettings;
 	soundSettings.numOutputChannels = 2;
 	soundSettings.numInputChannels = 0;
 	soundSettings.sampleRate = 44100;
 	soundSettings.bufferSize = 256;
 
-	// Centralized cross-platform audio API selection using ofSoundDevice::Api
-#if defined(__linux__)
-	// Native Linux builds use PulseAudio
-	soundSettings.setApi(ofSoundDevice::Api::PULSE);
-#elif defined(_WIN32)
-	// Windows and CrossOver/Wine translation layers on macOS use WASAPI
+	// Centralized cross-platform audio API selection
+#if defined(_WIN32)
 	soundSettings.setApi(ofSoundDevice::Api::MS_WASAPI);
 #elif defined(__APPLE__)
-	// Native macOS builds use CoreAudio
 	soundSettings.setApi(ofSoundDevice::Api::OSX_CORE);
+#elif defined(__linux__)
+	// Bazzite uses PipeWire. ALSA or UNSPECIFIED route perfectly through PipeWire.
+	// Forcing PULSE here is known to crash RtAudio on PipeWire systems.
+	soundSettings.setApi(ofSoundDevice::Api::UNSPECIFIED);
 #else
-	// Fallback to openFrameworks default selection
 	soundSettings.setApi(ofSoundDevice::Api::UNSPECIFIED);
 #endif
 
+	// NOTE: If audio still crashes, move ofSoundStreamSetup into ofApp::setup()
 	ofSoundStreamSetup(soundSettings);
 
-	// Checksum Harness Logic
+	// 5. Checksum Harness Logic
 	bool checksumHarness = false;
 	const char * envHarness = getenv("MAGEFIGHT_CHECKSUM_HARNESS");
 	if (envHarness && std::string(envHarness) == "1") checksumHarness = true;
@@ -99,7 +76,7 @@ int main(int argc, char * argv[]) {
 		return 0;
 	}
 
-	// Run Normal App
+	// 6. Run Normal App
 	auto app = std::make_shared<ofApp>();
 	ofRunApp(window, app);
 	return ofRunMainLoop();

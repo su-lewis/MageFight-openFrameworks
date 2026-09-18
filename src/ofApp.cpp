@@ -6607,12 +6607,15 @@ void ofApp::draw() {
 			s.height = safeH;
 			s.internalformat = GL_RGBA8;
 			s.textureTarget = GL_TEXTURE_2D;
-			s.useDepth = true;
+			s.useDepth = true; // This explicitly adds the Depth Buffer
 			s.useStencil = false;
 			s.depthStencilAsTexture = false;
+
 			g_uiPostFbo.allocate(s);
 
-			g_textFbo.allocate(safeW, safeH, GL_RGBA8);
+			// CRITICAL FIX: Allocate textFbo using the exact same settings struct
+			// so it inherits the Depth Buffer! Without this, AMD/Intel drivers crash to a black screen.
+			g_textFbo.allocate(s);
 
 			if (enablePixelArt || enableC64Shader) {
 				g_uiPostFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -9010,7 +9013,6 @@ void ofApp::applySettings() {
 	// --- FRAMERATE & VSYNC FIX ---
 	if (settingsUseVSync) {
 		ofSetVerticalSync(true);
-		// If VSync is ON, disable CPU throttling so the GPU naturally locks it to your monitor's refresh rate (e.g. 180hz)
 		ofSetFrameRate(0);
 	} else {
 		ofSetVerticalSync(false);
@@ -9023,37 +9025,14 @@ void ofApp::applySettings() {
 	}
 
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
-
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 
-	if (g_windowModeState == 1) { // Standard Fullscreen
+	// CRITICAL FIX: On Linux/Wayland (Bazzite), BOTH Borderless and Fullscreen must use OF's native fullscreen.
+	// If you manually resize a window to the monitor bounds under fractional scaling, the screen turns black!
+	if (g_windowModeState == 1 || g_windowModeState == 2) {
 		if (ofGetWindowMode() != OF_FULLSCREEN) {
-			// FIX: Strip borders BEFORE going fullscreen so Windows doesn't leave a gap for the taskbar!
 			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
-
-			GLFWmonitor * monitor = glfwGetPrimaryMonitor();
-			if (monitor) {
-				const GLFWvidmode * mode = glfwGetVideoMode(monitor);
-				ofSetWindowShape(mode->width, mode->height);
-			}
 			ofSetFullscreen(true);
-		}
-		isFullscreen = true;
-	} else if (g_windowModeState == 2) { // Borderless Windowed
-		if (ofGetWindowMode() == OF_FULLSCREEN) {
-			ofSetFullscreen(false);
-		}
-		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
-
-		GLFWmonitor * monitor = glfwGetPrimaryMonitor();
-		if (monitor) {
-			const GLFWvidmode * mode = glfwGetVideoMode(monitor);
-
-			// CRITICAL FIX: Wayland compositor crashes/black-screens if apps force their own position!
-			if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-				ofSetWindowPosition(0, 0);
-			}
-			ofSetWindowShape(mode->width, mode->height);
 		}
 		isFullscreen = true;
 	} else { // Standard Windowed
@@ -9063,18 +9042,13 @@ void ofApp::applySettings() {
 		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
 		ofSetWindowShape(res.x, res.y);
 
-		int screenW = ofGetScreenWidth();
-		int screenH = ofGetScreenHeight();
-
-		// CRITICAL FIX: Wayland crashes if apps try to move their own windows!
+		// Safely center on non-Wayland. On Wayland, the compositor handles it automatically.
 		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-			ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
+			ofSetWindowPosition((ofGetScreenWidth() - (int)res.x) / 2, (ofGetScreenHeight() - (int)res.y) / 2);
 		}
 		isFullscreen = false;
 	}
 
-	// CRITICAL FIX: Explicitly apply GLFW window attributes AFTER all window changes are complete.
-	// Fullscreen changes reset the GLFW context on Windows, wiping out focus and minimize hooks!
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
 		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
