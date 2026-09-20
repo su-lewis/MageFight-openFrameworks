@@ -17,15 +17,16 @@ int main(int argc, char * argv[]) {
 	// 2. Safe Wayland Window Initialization
 	ofGLFWWindowSettings settings;
 	settings.setGLVersion(3, 3);
+	settings.setSize(1280, 720); // Provide a safe explicit default size before maximizing
 
-	// Start as a window to prevent Wayland compositor initialization crashes
+	// Start as a window to prevent compositor initialization crashes
 	settings.windowMode = OF_WINDOW;
 	settings.title = "Mage Fight";
 	auto window = ofCreateWindow(settings);
 
-	// Instantly resize the window to perfectly match the monitor BEFORE drawing the first frame!
-	ofSetWindowShape(ofGetScreenWidth(), ofGetScreenHeight());
-	ofSetWindowPosition(0, 0);
+	// REMOVED: Instantly resize the window to perfectly match the monitor BEFORE drawing the first frame!
+	// Calling ofSetWindowShape() here breaks the GL context creation on Proton (Linux) and Whisky/Crossover (Mac).
+	// Window sizing and fullscreen will be handled safely during ofApp::setup() -> applySettings().
 
 	// 3. Sound Setup
 	ofSoundStreamSettings soundSettings;

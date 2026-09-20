@@ -9052,20 +9052,28 @@ void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 
-	// WAYLAND FULLSCREEN FIX:
-	// We MUST manually force the window to the monitor's dimensions BEFORE calling ofSetFullscreen(true)
-	// Otherwise, Wayland traps the game in a small box in the top-left corner!
+	int finalW = std::max(800, (int)res.x);
+	int finalH = std::max(600, (int)res.y);
+
+	// WAYLAND / PROTON FULLSCREEN FIX:
 	if (g_windowModeState == 1 || g_windowModeState == 2) {
-		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+		finalW = std::max(800, ofGetScreenWidth());
+		finalH = std::max(600, ofGetScreenHeight());
 
-		int screenW = ofGetScreenWidth();
-		int screenH = ofGetScreenHeight();
-
-		if (ofGetWindowMode() != OF_FULLSCREEN) {
-			ofSetWindowShape(screenW, screenH);
-			ofSetFullscreen(true);
+		if (g_windowModeState == 1) {
+			// True Fullscreen
+			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
+			if (ofGetWindowMode() != OF_FULLSCREEN) {
+				ofSetFullscreen(true);
+			}
 		} else {
-			ofSetWindowShape(screenW, screenH);
+			// Borderless Windowed
+			if (ofGetWindowMode() == OF_FULLSCREEN) {
+				ofSetFullscreen(false);
+			}
+			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+			ofSetWindowShape(finalW, finalH);
+			ofSetWindowPosition(0, 0);
 		}
 
 		isFullscreen = true;
@@ -9074,24 +9082,25 @@ void ofApp::applySettings() {
 			ofSetFullscreen(false);
 		}
 		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
-		ofSetWindowShape(res.x, res.y);
+		ofSetWindowShape(finalW, finalH);
 
 		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-			ofSetWindowPosition((ofGetScreenWidth() - (int)res.x) / 2, (ofGetScreenHeight() - (int)res.y) / 2);
+			ofSetWindowPosition((ofGetScreenWidth() - finalW) / 2, (ofGetScreenHeight() - finalH) / 2);
 		}
 		isFullscreen = false;
-
-		// CRITICAL MOUSE FIX: Instantly force the UI and FBOs to rebuild using the new resolution!
-		// Wayland sometimes delays the resize callback, which leaves the mouse hitboxes stranded at the old size.
-		recalculateUI(res.x, res.y);
-		allocateWorldFbo(res.x, res.y);
 	}
-	 
+
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
 		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
 		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_TRUE);
 	}
+
+	// CRITICAL MOUSE & FBO FIX: Always recalculate UI and FBOs when applying settings,
+	// because Wine/Proton/macOS might drop the windowResized event when launching!
+	// If this isn't called, the worldFbo is never allocated and the screen stays black!
+	recalculateUI(finalW, finalH);
+	allocateWorldFbo(finalW, finalH);
 }
 //--------------------------------------------------------------
 void ofApp::allocateWorldFbo(int w, int h) {
