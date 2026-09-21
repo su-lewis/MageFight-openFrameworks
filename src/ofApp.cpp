@@ -24377,8 +24377,7 @@ void ofApp::processCommandQueue() {
 
 		// If a gameplay command arrives but we are still stuck on the initial draft screen,
 		// the draft is already over on the network. Fast-forward immediately to gameplay!
-		if (currentState == STATE_DRAFTING && !isInGameDraft && 
-		   (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_END_TURN)) {
+		if (currentState == STATE_DRAFTING && !isInGameDraft && (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_END_TURN)) {
 			draftEndScheduled = false;
 			draftNextScheduled = false;
 			initialDraftComplete = true;
@@ -24584,47 +24583,58 @@ void ofApp::simulationTick() {
 			int pID = players[i].playerID;
 			if (s_playerDeathDelayMap.find(pID) == s_playerDeathDelayMap.end()) {
 				// Attempt Faerie resurrection immediately before initiating delay.
-				// FIX: Faeries CANNOT resurrect units that died from Exhaustion (no cards left),
-				// preventing an infinite resurrection loop!
 				Player & dying = players[i];
 				bool resurrected = false;
+
+				// Faeries auto-resurrect orthogonally adjacent teammates (including the main hero), but NOT other faeries
 				if (!noCards && !dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-					// Check orthogonally-adjacent tiles for an alive Faerie.
 					for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
 						for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-							if (abs(dx) + abs(dy) == 1) { // orthogonal only
+							if (abs(dx) + abs(dy) == 1) { // Orthogonal adjacency only
 								int nx = dying.x + dx, ny = dying.y + dy;
 								if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+
 								for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 									Player & p = players[pidx];
 									bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
-
-									// The adjacent Faerie must be either alive or currently undergoing her dramatic death delay countdown
-									bool isFaerieAvailable = p.isFaerie && (p.health > 0 || s_playerDeathDelayMap.find(p.playerID) != s_playerDeathDelayMap.end()) && isSameTeam;
+									bool isFaerieAvailable = p.isFaerie && p.health > 0 && isSameTeam;
 
 									if (isFaerieAvailable && p.x == nx && p.y == ny) {
-										// Deterministic resurrection roll (1d4)
+										// 1. Calculate Faerie's specific luck (Clover in deck or adjacent summoned Assistant)
+										int faerieLuck = 0;
+										for (const auto & c : p.deck) {
+											if (c.type == CARD_FOUR_LEAF_CLOVER) faerieLuck++;
+										}
+										for (const auto & a : players) {
+											if (a.isAssistant && a.health > 0 && a.directSummonerID == p.playerID) {
+												if (abs(a.x - p.x) + abs(a.y - p.y) == 1) { // Orthogonally adjacent
+													faerieLuck++;
+												}
+											}
+										}
+
+										// 2. Roll 1d4 with uncapped luck
 										std::vector<int> rawRes;
 										int raw = resolveDiceRollDetailed(1, 4, rawRes);
-										int luckBonus = p.luck + computePassiveLuck((int)pidx);
-										int roll = raw + luckBonus;
+										int roll = raw + faerieLuck;
 										if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 
-										// Calculate HP based on 25% * roll (0.5 rounds down to 0)
-										int hp = (int)floor((double)dying.maxHealth * (double)roll * 0.25 + 0.49);
+										// 3. Percentage calculation with custom rounding (.1 to .5 round down, .6 to .9 round up)
+										float rawHp = (float)dying.maxHealth * ((float)roll * 0.25f);
+										float frac = rawHp - std::floor(rawHp);
+										int hp = (frac >= 0.59f) ? (int)std::ceil(rawHp) : (int)std::floor(rawHp);
+										hp = std::min(hp, dying.maxHealth);
 
-										// Visual Dice Roll for the Faerie Resurrection
+										// Visual dice and tracer
 										queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
-
-										// Visual Tracer showing magical link
 										queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
 
+										int pct = roll * 25;
 										if (hp > 0) {
-											int pct = roll * 25;
 											std::string calcStr = "Rolled " + ofToString(roll) + " (" + ofToString(pct) + "%) = " + ofToString(hp) + " HP";
 											queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::white);
 
-											// Restore HP and clear status effects immediately in-place
+											// Revive unit in-place
 											dying.health = hp;
 											dying.onFire = false;
 											dying.isPoisoned = false;
@@ -24639,7 +24649,7 @@ void ofApp::simulationTick() {
 											dying.inTortoiseForm = false;
 											dying.inGhostForm = false;
 
-											// Clear defensive statistics
+											// Reset defenses
 											dying.ward = 0;
 											dying.block = 0;
 											dying.fortification = 0;
@@ -24648,19 +24658,28 @@ void ofApp::simulationTick() {
 											dying.nextTurnAPBonus = 0;
 											dying.shocksPlayedThisTurn = 0;
 											dying.flurryOfFistsStacks = 0;
-
 											dying.tortoiseDamageTaken = 0;
 											dying.storedDarkShieldDice = 0;
 											dying.ghostDamageTaken = 0;
 											dying.cardsPlayedThisTurn.clear();
+
+											// Return all cards (played, discard, hand) to deck and shuffle
+											dying.deck.insert(dying.deck.end(), dying.playedCardsPile.begin(), dying.playedCardsPile.end());
 											dying.playedCardsPile.clear();
-											dying.summonedOnTurnCycle = globalTurnCounter;
+											dying.deck.insert(dying.deck.end(), dying.discardPile.begin(), dying.discardPile.end());
+											dying.discardPile.clear();
+											dying.deck.insert(dying.deck.end(), dying.hand.begin(), dying.hand.end());
+											dying.hand.clear();
+											deterministic_shuffle_gameplay(dying.deck);
+
+											// Resurrected units do NOT suffer from summoning sickness
+											dying.summonedOnTurnCycle = -1;
 
 											resurrected = true;
 											queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie in-place for " << hp << " HP.";
+											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie for " << hp << " HP (" << pct << "%).";
 										} else {
-											int pct = roll * 25;
+											// 0 HP -> Round-down failure: unit stays dead
 											std::string calcStr = "Rolled " + ofToString(roll) + " (" + ofToString(pct) + "%) = 0 HP";
 											queueFloatingTextVisual(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.4f, 0), calcStr, ofColor::gray);
 											queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Resurrection Failed!", ofColor::red);
@@ -24674,10 +24693,10 @@ void ofApp::simulationTick() {
 				}
 
 				if (resurrected) {
-					continue; // Bypassed death sequence
+					continue; // Bypass death delay and removal
 				} else {
-					s_playerDeathDelayMap[pID] = 72; // Lock in the 1.2s suspense timer
-					continue; // Stay alive on screen during countdown
+					s_playerDeathDelayMap[pID] = 72; // Proceed with normal elimination delay
+					continue;
 				}
 			}
 
