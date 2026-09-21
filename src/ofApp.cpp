@@ -9240,6 +9240,25 @@ void ofApp::setupGame() {
 	lastReceivedSeqByPlayer[0] = 0;
 	lastReceivedSeqByPlayer[1] = 0;
 	// ---------------------------------
+	// Reset all draft progression variables
+	currentDraftingOrderIndex = 0;
+	currentDraftClassTier = 1;
+	draftStage = 0;
+	draftPlayerIndex = 0;
+	currentDraftOptionPoolIndices = { -1, -1, -1 };
+	draftEndNextPlayerIndex = 0;
+	s_draftNextPlayerIndex = -1;
+	s_draftNextStage = -1;
+	draftNextScheduled = false;
+	draftEndScheduled = false;
+	draftNextAt = 0.0f;
+	draftEndAt = 0.0f;
+	draftAcceptLocked = false;
+	draftAcceptApplied = false;
+	for (int i = 0; i < 4; ++i) {
+		lastReceivedSeqByPlayer[i] = 0;
+	}
+	blockingBoonPendingPhysicalAfterDraft = false;
 
 	// Reset lockstep runtime state for a fresh match.
 	s_pendingRemoteChecksums.clear();
@@ -24356,6 +24375,24 @@ void ofApp::processCommandQueue() {
 
 		int cmdType = cmd.commandType;
 
+		// If a gameplay command arrives but we are still stuck on the initial draft screen,
+		// the draft is already over on the network. Fast-forward immediately to gameplay!
+		if (currentState == STATE_DRAFTING && !isInGameDraft && 
+		   (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_END_TURN)) {
+			draftEndScheduled = false;
+			draftNextScheduled = false;
+			initialDraftComplete = true;
+			draftOptions.clear();
+			draftOptionUI.clear();
+			selectedDraftIndices.clear();
+			if (currentState == STATE_PAUSED) {
+				pausedFromState = STATE_GAMEPLAY;
+			} else {
+				currentState = STATE_GAMEPLAY;
+			}
+			ofLogNotice("Draft") << "Gameplay command received while in draft screen; fast-forwarding to STATE_GAMEPLAY.";
+		}
+
 		bool isUnitDying = false;
 		for (const auto & pair : s_playerDeathDelayMap) {
 			if (pair.second > 0) {
@@ -25728,10 +25765,38 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int pick1 = cmd.params[4];
 		int pick2 = cmd.params[5];
 
-		// CRITICAL FIX: Drop duplicate/stale draft commands so players don't get skipped!
-		if (cmdDraftPlayerIdx != draftPlayerIndex || classTier != currentDraftClassTier) {
-			ofLogNotice("Lockstep") << "Dropped stale CMD_ACCEPT_DRAFT: expected player " << draftPlayerIndex << " tier " << currentDraftClassTier << ", got player " << cmdDraftPlayerIdx << " tier " << classTier;
+		// If a draft generation is currently scheduled and waiting on a visual delay,
+		// force-flush it immediately so draftPlayerIndex and currentDraftClassTier are current!
+		if (draftNextScheduled) {
+			draftNextScheduled = false;
+			int ct = (draftNextClassTier > 0) ? draftNextClassTier : classTier;
+			draftNextClassTier = -1;
+			if (s_draftNextPlayerIndex != -1) {
+				draftPlayerIndex = s_draftNextPlayerIndex;
+				draftStage = s_draftNextStage;
+				s_draftNextPlayerIndex = -1;
+				s_draftNextStage = -1;
+			}
+			generateDraftOptions(ct);
+		}
+
+		// If an end-of-draft delay was running, flush it to start gameplay
+		if (draftEndScheduled) {
+			draftEndScheduled = false;
+			initialDraftComplete = true;
+			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
+				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
+			}
+			currentState = (currentState == STATE_PAUSED) ? STATE_PAUSED : STATE_GAMEPLAY;
+			requestStartNewTurn();
 			break;
+		}
+
+		// Authoritatively synchronize draft state to match the incoming command
+		if (!isInGameDraft && !initialDraftComplete) {
+			draftPlayerIndex = cmdDraftPlayerIdx;
+			currentDraftClassTier = classTier;
+			draftStage = (classTier <= 1) ? 0 : 1;
 		}
 
 		if (cmdDraftPlayerIdx < 0 || cmdDraftPlayerIdx >= (int)players.size()) {
@@ -39569,11 +39634,9 @@ void ofApp::cleanupGame() {
 	}
 	g_peerAuthValidated = false;
 
-	// Reset game over visualization values
 	s_hasCachedGameOverVisuals = false;
 	s_gameOverScreenStartTime = 0.0f;
 
-	// Stop any lingering card drag sounds when match ends or resets
 	if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
 		draggingHandLoop.stop();
 	}
@@ -39584,8 +39647,109 @@ void ofApp::cleanupGame() {
 	activeStolenCardAnimations.clear();
 	activePlayedCardAnimations.clear();
 	activeRemovedCardAnimations.clear();
+	activeDrawCardAnimations.clear();
+	activeDiscardCardAnimations.clear();
+	activeShuffleAnimations.clear();
+	activeDraftPickedMoves.clear();
+	pendingVisualKeyDraftQueue.clear();
+	deckFlashStartFrame = 0;
+	deckFlashOwnerIndex = -1;
 
-	// CRITICAL FIX: Reset all logical locking flags so the next lobby doesn't freeze!
+	// Reset all draft state completely
+	draftOptions.clear();
+	draftOptionUI.clear();
+	selectedDraftIndices.clear();
+	currentDraftOptionPoolIndices = { -1, -1, -1 };
+	currentDraftClassTier = 1;
+	draftStage = 0;
+	draftPlayerIndex = 0;
+	lastDraftOptionsPlayer = -1;
+	draftPicksRemaining = 0;
+	draftEndNextPlayerIndex = 0;
+	currentDraftingOrderIndex = 0;
+	matchTurnOrder.clear();
+	matchPlacementOrder.clear();
+	draftNextScheduled = false;
+	draftEndScheduled = false;
+	draftNextAt = 0.0f;
+	draftEndAt = 0.0f;
+	s_draftNextPlayerIndex = -1;
+	s_draftNextStage = -1;
+	draftAcceptLocked = false;
+	draftAcceptApplied = false;
+	draftDisplayStartTime = 0.0f;
+	draftDisplayInteractiveEnabled = true;
+	draftAutoSelectedIndex = -1;
+	waitingForDraftOptionsStartTime = 0.0f;
+	initialDraftComplete = false;
+	isInGameDraft = false;
+	inGameDraftTargetIdx = -1;
+
+	// Reset all card interactions, targeting, and opponent modals
+	cardInteractionState = CARD_INTERACTION_STATE_IDLE;
+	interactingCardType = CARD_NONE;
+	interactingCardIndex = -1;
+	interactionTargetIndex = -1;
+	interactionMenuChoice = "";
+	interactionTargetTile = glm::vec2(-1, -1);
+	magicHandTargetTile = glm::ivec2(-1, -1);
+
+	opponentInteraction.open = false;
+	opponentInteraction.type = 0;
+	opponentInteraction.targetIndex = -1;
+	opponentInteraction.hoveredChoice = -1;
+	opponentInteraction.cardIndex = -1;
+	s_opponentRiMask = 0;
+
+	opponentDecisionTimerActive = false;
+	opponentDecisionStartFrame = 0;
+	opponentDecisionPlayerIndex = -1;
+	turnTimerPaused = false;
+	turnTimerPausedRemainingFrames = 0;
+	turnStartDeferred = false;
+	turnStartDeferredAtFrame = 0;
+
+	g_pendingShellSpikes = 0;
+	ghostRelocateTargetIndex = -1;
+	ghostRelocateChoices.clear();
+	magicHandRelocateChoices.clear();
+	magicHandRelocateTargetIndex = -1;
+	magicBlastTargetPlayerIndex = -1;
+	magicBlastChoicesRemaining = 0;
+	magicBlastSplashTargetIndices.clear();
+	amnesiaTargetPlayerIndex = -1;
+	numCardsToRemove = 0;
+	amnesiaChooserPlayerID = -1;
+	amnesiaSelectedIndices.clear();
+	amnesiaDeckCopy.clear();
+	amnesiaCardRects.clear();
+	blockingBoonPendingCasterIndex = -1;
+	blockingBoonPendingCoinRawResults.clear();
+	blockingBoonPendingPhysicalAfterDraft = false;
+	renewedSelectedHandIndices.clear();
+
+	currentEffectSequence = EffectSequence();
+	currentCardOutcome = CardOutcome();
+	activeYellowPreviewTiles.clear();
+	activeCombinedPierceTargets.clear();
+	activeTracers.clear();
+	activeMagicBoltAOERings.clear();
+	activeAOERing.centerTile = glm::ivec2(-1, -1);
+	visualEvents.clear();
+
+	// Reset sequence and validation counters for all player slots
+	watchdogClientActionCounter = 0;
+	draftClientActionCounter = 0;
+	actionClientActionCounter = 0;
+	for (int i = 0; i < 4; ++i) {
+		lastReceivedSeqByPlayer[i] = 0;
+	}
+
+	simulationFrame = 0;
+	simulationAccumulator = 0.0f;
+	turnStartFrame = 0;
+
+	// Reset logical locking flags
 	isProcessingEffect = false;
 	isEarthquakeActive = false;
 	cardPlayState = CARD_PLAY_STATE_IDLE;
@@ -39595,7 +39759,7 @@ void ofApp::cleanupGame() {
 
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
-			board[x][y] = Tile(); // Reset each tile
+			board[x][y] = Tile();
 		}
 	}
 
@@ -39603,10 +39767,10 @@ void ofApp::cleanupGame() {
 	currentTurnOwnerID = -1;
 	currentTurnHadMeaningfulAction = false;
 	currentTurnTimeoutProcessed = false;
-	afkStrikeCounts = { 0, 0 };
+	afkStrikeCounts = { 0, 0, 0, 0 };
 	reconnectForfeitStartTime = -1.0f;
 	g_isGameOver = false;
-	g_drawOfferPlayerID = -1; // <--- ADDED THIS
+	g_drawOfferPlayerID = -1;
 	waitingForReconnect = false;
 	playerAction = NONE;
 	g_playerDefenses.clear();
@@ -39618,7 +39782,7 @@ void ofApp::cleanupGame() {
 	hasReceivedHandshake = false;
 	clientSentReady = false;
 
-	g_opponentDecisionQueue.clear(); // Clear the decision queue!
+	g_opponentDecisionQueue.clear();
 	commandQueue.clear();
 	provisionalCommands.clear();
 	provisionalSnapshots.clear();
@@ -39626,35 +39790,41 @@ void ofApp::cleanupGame() {
 	executedCommandKeys.clear();
 	skippedOptimisticCommands.clear();
 
-	g_isSpectator = false; // Safely reset spectator flag when match ends
+	g_isSpectator = false;
 	g_isSimulatedMultiplayer = false;
 
-	// Reset Chat State to prevent Hotkeys from getting locked in menus
 	isChatOpen = false;
 	isChatMinimized = true;
 	chatInput.clear();
 	lastChatInteractionTime = -999.0f;
 
-	// --- FIX: Reset Menu Sliders & Panning so UI buttons don't break when quitting! ---
 	currentMenuPanX = 0.0f;
 	targetMenuPanX = 0.0f;
 	targetMenuScreen = 0;
 	isWaitingForMenuTransition = false;
 	pendingMenuState = STATE_MAIN_MENU;
-	updateMenuRects(); // Snap hitboxes back to center immediately
+	updateMenuRects();
 
-	// --- FIX: Reset all Lobby and Connection flags to prevent getting stuck ---
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
 	waitingForClientHandshake = false;
-	hostWaitingForClientsReadyStartTime = 0.0f; // <--- This caused the "Endless Dice" bug!
-	isInGameDraft = false;
+	hostWaitingForClientsReadyStartTime = 0.0f;
 	g_modifierFogOfWar = false;
-	initialDraftComplete = false;
-	s_draftNextPlayerIndex = -1;
-	s_draftNextStage = -1;
 
-	// Restore default walls for the main menu background
+	// Reset AI tracking
+	aiActionStage = 0;
+	aiStageTimer = 0.0f;
+	aiDraftStaged = false;
+	aiLastMovedFromTile = glm::ivec2(-1, -1);
+	aiLastAttemptedCardIdx = -1;
+	aiLastAP = -1;
+	aiLastStateHash = 0;
+	aiStuckCounter = 0;
+
+	g_seenOpponentCards.clear();
+	g_seenOpponentMinionIDs.clear();
+	pausedFromState = STATE_MAIN_MENU;
+
 	const char * maze[BOARD_HEIGHT] = {
 		"WWWWWWWWWWWWW",
 		"W.WWW.W.WWW.W",
@@ -39673,8 +39843,7 @@ void ofApp::cleanupGame() {
 		}
 	}
 
-	mainMenuCirclePos = { 6.0f, 6.0f }; // Reset circle position
-
+	mainMenuCirclePos = { 6.0f, 6.0f };
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
 //-----------------------------------------------------------
