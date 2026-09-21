@@ -990,6 +990,9 @@ public:
 	void exit();
 	~ofApp();
 
+	void loadNextModelBatch();
+	void ensureModelsLoaded();
+
 	// --- AI Configuration & Methods ---
 	AIMode currentAIMode = AI_MODE_RULE_BASED;
 	int aiActionStage = 0;

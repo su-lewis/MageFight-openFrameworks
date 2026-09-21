@@ -102,6 +102,83 @@ static int s_draftNextPlayerIndex = -1;
 static int s_draftNextStage = -1;
 static bool g_isSimulatedMultiplayer = false;
 
+// --- SPLASH SCREEN SYSTEM ---
+static bool s_showingSplashScreen = true;
+static float s_splashStartTime = -1.0f;
+static ofImage s_splashBg;
+static ofImage s_splashLogo;
+static bool s_splashLoaded = false;
+
+static void loadSplashAssets() {
+	if (s_splashLoaded) return;
+	auto loadImg = [](ofImage & img, const std::string & relPath) {
+		std::vector<std::string> paths = { relPath, "data/" + relPath, "bin/data/" + relPath };
+		for (const auto & p : paths) {
+			if (ofFile(p).exists() && img.load(p)) {
+				img.getTexture().setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+				return true;
+			}
+		}
+		return false;
+	};
+
+	loadImg(s_splashBg, "UI/PageBackground.png");
+	loadImg(s_splashLogo, "UI/LibraryLogo.png");
+	s_splashLoaded = true;
+}
+
+static void drawSplashScreen() {
+	float now = ofGetElapsedTimef();
+	if (s_splashStartTime < 0.0f) s_splashStartTime = now;
+	float elapsed = now - s_splashStartTime;
+
+	// 5.0-second total duration with smooth fade-in and fade-out
+	float alpha = 1.0f;
+	if (elapsed < 0.8f) {
+		alpha = elapsed / 0.8f; // Fade in (0.8s)
+	} else if (elapsed > 4.2f) {
+		alpha = std::max(0.0f, (5.0f - elapsed) / 0.8f); // Fade out (0.8s)
+	}
+
+	ofPushStyle();
+	ofDisableDepthTest();
+	ofDisableLighting();
+	ofEnableAlphaBlending();
+
+	// 1. Draw Fullscreen Background
+	if (s_splashBg.isAllocated()) {
+		ofSetColor(255, 255, 255, (int)(255.0f * alpha));
+		s_splashBg.draw(0, 0, ofGetWidth(), ofGetHeight());
+	} else {
+		ofSetColor(20, 20, 25);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	}
+
+	// 2. Draw Big Centered Game Title Logo
+	if (s_splashLogo.isAllocated()) {
+		float logoW = s_splashLogo.getWidth();
+		float logoH = s_splashLogo.getHeight();
+		float aspect = (logoH > 0.0f) ? (logoW / logoH) : 1.0f;
+
+		// Size logo big: 65% of screen width or 45% of height (whichever fits comfortably)
+		float targetW = ofGetWidth() * 0.65f;
+		float targetH = targetW / aspect;
+
+		if (targetH > ofGetHeight() * 0.55f) {
+			targetH = ofGetHeight() * 0.55f;
+			targetW = targetH * aspect;
+		}
+
+		float logoX = (ofGetWidth() - targetW) * 0.5f;
+		float logoY = (ofGetHeight() - targetH) * 0.5f;
+
+		ofSetColor(255, 255, 255, (int)(255.0f * alpha));
+		s_splashLogo.draw(logoX, logoY, targetW, targetH);
+	}
+
+	ofPopStyle();
+}
+
 // --- LOCALIZATION ENGINE ---
 static std::unordered_map<std::string, std::string> g_locDictionary;
 static std::string g_currentLanguage = "en";
@@ -4525,7 +4602,105 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	}
 	return out;
 }
+static int s_modelLoadStep = 0;
 
+void ofApp::loadNextModelBatch() {
+	auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
+		model.setScaleNormalization(false);
+		bool loaded = false;
+		for (const auto & path : candidates) {
+			std::vector<std::string> searchPaths = { path, "data/" + path, "bin/data/" + path };
+			for (const auto & sp : searchPaths) {
+				if (ofFile(sp).exists()) {
+					if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
+						for (unsigned int i = 0; i < model.getMeshCount(); i++) {
+							if (model.getMeshHelper(i).hasTexture()) {
+								ofTexture & tex = model.getMeshHelper(i).getTextureRef();
+								tex.generateMipmap();
+								tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+							}
+						}
+						loaded = true;
+						break;
+					}
+				}
+			}
+			if (loaded) break;
+		}
+		model.disableMaterials();
+	};
+
+	auto loadDynamicTex = [](ofTexture & tex, const std::string & path) {
+		if (ofLoadImage(tex, path)) {
+			tex.generateMipmap();
+			tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+		}
+	};
+
+	switch (s_modelLoadStep) {
+	case 0:
+		loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
+		loadModelSafe(staffModel, { "Units/Wizard/Wizard_Staff.fbx", "Wizard_Staff.fbx" });
+		staffModel.setScaleNormalization(false);
+		staffModel.setPosition(0, 0, 0);
+		staffModel.setScale(1.0f, 1.0f, 1.0f);
+		if (playerModel.getAssimpScene() != nullptr) {
+			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
+			if (cachedPlayerHandNode != nullptr) {
+				handBindPoseWorldMatrix = getAssimpNodeWorldMatrix(cachedPlayerHandNode);
+			}
+		}
+		{
+			glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.1f, 0.05f));
+			glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			rotation = glm::rotate(rotation, glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+			rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			staffSocketOffset = translation * rotation;
+		}
+		break;
+	case 1:
+		loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
+		loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
+		loadDynamicTex(golemTexBase, "Units/Golem/texture_base.png");
+		loadDynamicTex(golemTexRock, "Units/Golem/texture_rock.png");
+		loadDynamicTex(golemTexFire, "Units/Golem/texture_fire.png");
+		loadDynamicTex(golemTexElectric, "Units/Golem/texture_electric.png");
+		break;
+	case 2:
+		loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
+		loadModelSafe(koboldModel, { "Units/Kobold/Kobold1/Kobold1.fbx" });
+		break;
+	case 3:
+		loadModelSafe(koboldKingModel, { "Units/KoboldKing/KoboldKing.fbx" });
+		loadModelSafe(hellhoundModel, { "Units/Hellhound/Hellhound.fbx" });
+		break;
+	case 4:
+		loadModelSafe(demonModel, { "Units/Demon/Demon.fbx" });
+		loadModelSafe(tortoiseModel, { "Units/Tortoise/Tortoise.fbx" });
+		break;
+	case 5:
+		loadModelSafe(ghostModel, { "Units/Ghost/Ghost.fbx" });
+		loadModelSafe(wallUnitModel, { "Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx" });
+		for (unsigned int i = 0; i < wallUnitModel.getMeshCount(); i++) {
+			if (wallUnitModel.getMeshHelper(i).hasTexture()) {
+				wallUnitModel.getMeshHelper(i).getTextureRef().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			}
+		}
+		break;
+	case 6:
+		loadModelSafe(assistantModel, { "Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx" });
+		loadModelSafe(faerieModel, { "Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx" });
+		ofLogNotice("Models") << "All 3D models loaded in background successfully.";
+		break;
+	}
+	s_modelLoadStep++;
+}
+
+void ofApp::ensureModelsLoaded() {
+	while (s_modelLoadStep <= 6) {
+		loadNextModelBatch();
+	}
+}
 //--------------------------------------------------------------
 void ofApp::setup() {
 #ifdef _WIN32
@@ -4617,7 +4792,8 @@ void ofApp::setup() {
 
 	// Load default language (Can be tied to settings.json later)
 	loadLanguage("en");
-
+	// Load splash assets for startup screen
+	loadSplashAssets();
 	// Initialize the fonts dynamically based on the language!
 	reloadFonts();
 
@@ -4713,134 +4889,7 @@ void ofApp::setup() {
 
 		// --- LOAD NEW STANDARDIZED MODELS ---
 
-		auto loadModelSafe = [](ofxAssimpModelLoader & model, const std::vector<std::string> & candidates) {
-			model.setScaleNormalization(false);
-			bool loaded = false;
-			for (const auto & path : candidates) {
-				// Check standard relative paths
-				std::vector<std::string> searchPaths = {
-					path,
-					"data/" + path,
-					"bin/data/" + path
-				};
-
-				for (const auto & sp : searchPaths) {
-					if (ofFile(sp).exists()) {
-						// FIX: Use OPTIMIZE_DEFAULT so Assimp automatically triangulates quads/n-gons!
-						// Without triangulation, 4-vertex faces corrupt ofMesh buffers and cause malloc heap crashes.
-						if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
-							ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
-
-							// Generate Mipmaps for model textures
-							for (unsigned int i = 0; i < model.getMeshCount(); i++) {
-								if (model.getMeshHelper(i).hasTexture()) {
-									ofTexture & tex = model.getMeshHelper(i).getTextureRef();
-									tex.generateMipmap();
-									tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
-								}
-							}
-
-							loaded = true;
-							break;
-						}
-					}
-				}
-				if (loaded) break;
-			}
-
-			if (!loaded) {
-				ofLogError("Models") << "FAILED TO LOAD MODEL. Searched for:";
-				for (const auto & p : candidates)
-					ofLogError("Models") << " - " << p;
-			}
-			model.disableMaterials();
-		};
-
-		loadModelSafe(playerModel, { "Units/Wizard/Wizard.fbx" });
-		loadModelSafe(staffModel, { "Units/Wizard/Wizard_Staff.fbx", "Wizard_Staff.fbx" });
-		staffModel.setScaleNormalization(false); // Prevent the model loader from resetting weapon dimensions
-		staffModel.setPosition(0, 0, 0); // Clear internal positional offsets
-		staffModel.setScale(1.0f, 1.0f, 1.0f); // Reset default scale
-
-		// Force search candidates back to the LeftHandIndex2 bone
-		// (Ensure your findHandNode candidate vector has "LeftHandIndex2" at the top)
-		if (playerModel.getAssimpScene() != nullptr) {
-			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
-
-			if (cachedPlayerHandNode != nullptr) {
-				// Capture the static, un-animated bind pose world matrix of the hand
-				handBindPoseWorldMatrix = getAssimpNodeWorldMatrix(cachedPlayerHandNode);
-				ofLogNotice("Models") << "Captured default hand bind pose matrix.";
-			}
-		}
-
-		// Caching the hand node pointer to bypass recursive string lookups during drawing
-		if (playerModel.getAssimpScene() != nullptr) {
-			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
-		}
-
-		// --- WEAPON SOCKET CONFIGURATION ---
-
-		// 1. POSITION: Centered on the palm joint (mixamorig:LeftHand).
-		// Applied a minor translation to sit perfectly in the grip.
-		float x_offset = 0.0f;
-		float y_offset = -0.1f; // Minor vertical offset to center the grip
-		float z_offset = 0.05f; // Minor forward/backward offset to sit in the palm
-		glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(x_offset, y_offset, z_offset));
-
-		// 2. ROTATION: Standing upright (Pitch = -90), rolled 90 degrees to face forward
-		float pitch = -90.0f;
-		float yaw = 0.0f;
-		float roll = 90.0f;
-
-		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(pitch), glm::vec3(1.0f, 0.0f, 0.0f));
-		rotation = glm::rotate(rotation, glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
-		rotation = glm::rotate(rotation, glm::radians(roll), glm::vec3(0.0f, 0.0f, 1.0f));
-
-		// Assigned directly to the member variable to clear the unused variable warning
-		staffSocketOffset = translation * rotation;
-
-		// Resolve and cache the hand node once immediately after loading the model
-		if (playerModel.getAssimpScene() != nullptr) {
-			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
-			ofLogNotice("Models") << "Cached player hand node pointer: " << (cachedPlayerHandNode ? "Success" : "Failed");
-		}
-		loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
-		loadModelSafe(golemModel, { "Units/Golem/Golem.fbx" });
-		loadModelSafe(wolfModel, { "Units/Wolf/Wolf.fbx" });
-		loadModelSafe(koboldModel, { "Units/Kobold/Kobold1/Kobold1.fbx" });
-		loadModelSafe(koboldKingModel, { "Units/KoboldKing/KoboldKing.fbx" });
-		loadModelSafe(hellhoundModel, { "Units/Hellhound/Hellhound.fbx" });
-		loadModelSafe(demonModel, { "Units/Demon/Demon.fbx" });
-		loadModelSafe(tortoiseModel, { "Units/Tortoise/Tortoise.fbx" });
-		loadModelSafe(ghostModel, { "Units/Ghost/Ghost.fbx" });
-		loadModelSafe(wallUnitModel, { "Units/Wall/Wall.fbx", "Units/Wall/wall.fbx", "Units/Wall.fbx" });
-
-		// CRITICAL FIX: Force the Wall Unit texture back to Nearest (Pixel Art) filtering!
-		// This overrides the automatic smoothing applied by loadModelSafe.
-		for (unsigned int i = 0; i < wallUnitModel.getMeshCount(); i++) {
-			if (wallUnitModel.getMeshHelper(i).hasTexture()) {
-				ofTexture & tex = wallUnitModel.getMeshHelper(i).getTextureRef();
-				tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-			}
-		}
-
-		loadModelSafe(assistantModel, { "Units/Assistant/Assistant.fbx", "Units/Assistant/assistant.fbx", "Units/Wizard.fbx" });
-		loadModelSafe(faerieModel, { "Units/Faerie/Faerie.fbx", "Units/Faerie/faerie.fbx", "Units/Faerie.fbx" });
-
-		// Retain dynamic Golem variant textures (since spell-logic swaps them)
-		auto loadDynamicTex = [](ofTexture & tex, const std::string & path) {
-			if (ofLoadImage(tex, path)) {
-				tex.generateMipmap();
-				tex.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
-			}
-		};
-		loadDynamicTex(golemTexBase, "Units/Golem/texture_base.png");
-		loadDynamicTex(golemTexRock, "Units/Golem/texture_rock.png");
-		loadDynamicTex(golemTexFire, "Units/Golem/texture_fire.png");
-		loadDynamicTex(golemTexElectric, "Units/Golem/texture_electric.png");
-
-		ofLogNotice("Setup") << "All standard 3D models loaded successfully.";
+		// Fast boot: 3D models will load progressively in update() while on the Main Menu
 
 		// --- 3. BOARD & SKYBOX ---
 		ofLoadImage(wallTexture, "Board/wall.png");
@@ -5705,6 +5754,24 @@ void ofApp::updateStateMachine() {
 }
 
 void ofApp::update() {
+
+	// --- SPLASH SCREEN PROGRESSION ---
+	if (s_showingSplashScreen) {
+		if (s_splashStartTime < 0.0f) {
+			s_splashStartTime = ofGetElapsedTimef();
+		}
+
+		// Continue loading 3D models in background while splash plays
+		if (s_modelLoadStep <= 6 && !headless) {
+			loadNextModelBatch();
+		}
+
+		// After 5 seconds, finish splash screen and enter Main Menu
+		if (ofGetElapsedTimef() - s_splashStartTime >= 5.0f) {
+			s_showingSplashScreen = false;
+		}
+		return; // Pause game/menu state machine until splash screen completes
+	}
 	// --- DELAYED CARD REBUILD (Fixes Settings Menu Lag) ---
 	if (g_cardsNeedTranslationRebuild && ofGetElapsedTimef() - g_languageChangedTime > 0.5f) {
 		loadCardData("Config/cards.json");
@@ -6164,7 +6231,7 @@ void ofApp::update() {
 		// True if on the main menu, multiplayer browser, singleplayer menu, encyclopedia, etc.
 		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_ENCYCLOPEDIA || currentState == STATE_CUSTOMISATION || (currentState == STATE_SAVE_BROWSER && saveBrowserReturnState != STATE_PAUSED) || (currentState == STATE_SETTINGS && stateBeforeSettings == STATE_MAIN_MENU));
 
-		if (isMenuContext) {
+		if (isMenuContext && !s_showingSplashScreen) {
 			// In Menu: Stop game music and loop main menu music
 			if (g_gameMusic.isPlaying()) g_gameMusic.stop();
 
@@ -6568,8 +6635,13 @@ void ofApp::draw() {
 	if (!isMultiplayer && gameSuspendedDueToInactivity) { }
 	if (headless) return;
 
-	// Let openFrameworks handle the viewport natively so mouse coordinates don't desync!
 	ofSetupScreen();
+
+	// Render the 5-second splash screen
+	if (s_showingSplashScreen) {
+		drawSplashScreen();
+		return;
+	}
 
 	// CRITICAL FIX: Reset Global OpenGL State to prevent black screens on Linux GPUs!
 	ofDisableDepthTest();
@@ -9199,6 +9271,7 @@ void ofApp::recalculateUI(int w, int h) {
 }
 //--------------------------------------------------------------
 void ofApp::setupGame() {
+	ensureModelsLoaded();
 	// --- BULLETPROOF REMATCH RESET ---
 	nextSummonOrder = 0; // Reset the summon counter (fixes Global hash mismatch)
 	g_lastDamagerMap.clear(); // Purge damage/kill credits from previous matches
@@ -17119,6 +17192,13 @@ cursor_check_done:;
 // ----------------- FULL mousePressed FUNCTION -----------------
 
 void ofApp::mousePressed(int x, int y, int button) {
+	// Skip splash screen on click (after at least 1 second has passed)
+	if (s_showingSplashScreen) {
+		if (ofGetElapsedTimef() - s_splashStartTime >= 1.0f) {
+			s_showingSplashScreen = false;
+		}
+		return;
+	}
 	if (g_isGameOver && currentState != STATE_PAUSED && currentState != STATE_SETTINGS) {
 		// Handle Opponent View Tabs
 		if (currentState == STATE_GAMEPLAY && button == OF_MOUSE_BUTTON_LEFT) {
@@ -20539,6 +20619,13 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 }
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
+	// Skip splash screen on keypress (after at least 1 second has passed)
+	if (s_showingSplashScreen) {
+		if (ofGetElapsedTimef() - s_splashStartTime >= 1.0f) {
+			s_showingSplashScreen = false;
+		}
+		return;
+	}
 	// DEV SHORTCUT: Press F8 anywhere on menus to test Online Versus as the Client!
 	if (key == OF_KEY_F8 && (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_MULTIPLAYER_MENU)) {
 		cleanupGame();
@@ -24256,7 +24343,7 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 // Send an input command: optionally apply locally (optimistic) and send over network
 bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	if (cmd.commandType == CMD_END_TURN) {
-		// Use persistent playerID instead of volatile array index so dead/shifted minions never desync turns
+		// Use permanent playerID instead of volatile array index so vector shifts never cause mismatches
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			cmd.params[0] = players[currentPlayerIndex].playerID;
 		} else {
@@ -25764,7 +25851,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int pick2 = cmd.params[5];
 
 		// If a draft generation is currently scheduled and waiting on a visual delay,
-		// force-flush it immediately so draftPlayerIndex and currentDraftClassTier are current!
+		// force-flush it immediately so draftPlayerIndex and currentDraftClassTier are up to date!
 		if (draftNextScheduled) {
 			draftNextScheduled = false;
 			int ct = (draftNextClassTier > 0) ? draftNextClassTier : classTier;
@@ -25778,7 +25865,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			generateDraftOptions(ct);
 		}
 
-		// If an end-of-draft delay was running, flush it to start gameplay
+		// Also handle if draftEndScheduled was active
 		if (draftEndScheduled) {
 			draftEndScheduled = false;
 			initialDraftComplete = true;
@@ -26136,10 +26223,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	case CMD_END_TURN: {
 		int actorPlayerID = cmd.params[0];
 
-		// If the command carried a playerID, verify if it matches our active unit or find it
+		// If the command carried a playerID, resolve it to the current index
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			int currentActiveID = players[currentPlayerIndex].playerID;
-			// If our local index is slightly desynced due to an off-turn minion death, sync to the commanded actor
+			// If our local array shifted due to an off-turn minion death, sync to the commanded actor
 			if (currentActiveID != actorPlayerID) {
 				int resolvedIdx = findPlayerIndexByID(actorPlayerID);
 				if (resolvedIdx >= 0) {
@@ -40964,6 +41051,7 @@ void ofApp::drawEncyclopediaState() {
 		}
 
 	} else if (encyclopediaMainTab == 1) {
+		ensureModelsLoaded();
 		// =====================================================================
 		// TAB 1: MINIONS (Expanded Bottom Clearance)
 		// =====================================================================
