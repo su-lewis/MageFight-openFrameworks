@@ -25892,8 +25892,19 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				bool intercepted = false;
 				for (auto it = pendingVisualKeyDraftQueue.begin(); it != pendingVisualKeyDraftQueue.end();) {
 					if (it->targetIndex == cmdDraftPlayerIdx) {
+						// Extract data to force deterministic state synchronization
+						int tier = it->classTier;
+						std::vector<int> forced;
+						for (int idx : it->poolIndices) {
+							if (idx >= 0) forced.push_back(idx);
+						}
+
 						it = pendingVisualKeyDraftQueue.erase(it);
 						intercepted = true;
+
+						// Synchronize UI state variables so checksum matches Host
+						draftPlayerIndex = cmdDraftPlayerIdx;
+						generateDraftOptions(tier, forced.empty() ? nullptr : &forced);
 						break;
 					} else {
 						++it;
@@ -25903,14 +25914,21 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					for (auto it = networkPending.draftQueue.begin(); it != networkPending.draftQueue.end();) {
 						int targetPlayerIdx = (*it >> 16) & 0xFFFF;
 						if (targetPlayerIdx == cmdDraftPlayerIdx) {
+							int tier = (*it) & 0xFFFF;
 							it = networkPending.draftQueue.erase(it);
 							intercepted = true;
+
+							// Synchronize UI state variables so checksum matches Host
+							draftPlayerIndex = cmdDraftPlayerIdx;
+							generateDraftOptions(tier, nullptr);
 							break;
 						} else {
 							++it;
 						}
 					}
 				}
+				// Since we generated options, isInGameDraft was turned on. Turn it back off since we accepted.
+				isInGameDraft = false;
 			}
 
 			resumeTurnTimerIfPausedForOpponent(cmdDraftPlayerIdx);
@@ -25968,6 +25986,44 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (actionType == 0) {
 			int poolIdx = cmd.params[1];
 			int draftPlayerIdx = cmd.params[2];
+
+			// --- FIX: Intercept pending visual key drafts so state is instantly available! ---
+			if (initialDraftComplete) {
+				bool intercepted = false;
+				for (auto it = pendingVisualKeyDraftQueue.begin(); it != pendingVisualKeyDraftQueue.end();) {
+					if (it->targetIndex == draftPlayerIdx) {
+						int tier = it->classTier;
+						std::vector<int> forced;
+						for (int idx : it->poolIndices) {
+							if (idx >= 0) forced.push_back(idx);
+						}
+						it = pendingVisualKeyDraftQueue.erase(it);
+						intercepted = true;
+						draftPlayerIndex = draftPlayerIdx;
+						generateDraftOptions(tier, forced.empty() ? nullptr : &forced);
+						break;
+					} else {
+						++it;
+					}
+				}
+				if (!intercepted) {
+					for (auto it = networkPending.draftQueue.begin(); it != networkPending.draftQueue.end();) {
+						int targetPlayerIdx = (*it >> 16) & 0xFFFF;
+						if (targetPlayerIdx == draftPlayerIdx) {
+							int tier = (*it) & 0xFFFF;
+							it = networkPending.draftQueue.erase(it);
+							intercepted = true;
+							draftPlayerIndex = draftPlayerIdx;
+							generateDraftOptions(tier, nullptr);
+							break;
+						} else {
+							++it;
+						}
+					}
+				}
+			}
+			// ---------------------------------------------------------------------------------
+
 			// Validate
 			if (draftPlayerIdx < 0 || draftPlayerIdx >= (int)players.size()) {
 				ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << draftPlayerIdx;
@@ -35678,6 +35734,23 @@ std::string ofApp::buildSnapshotString() {
 	}
 	ss << "\n";
 
+	ss << "EFFECT_OPS\t" << currentEffectSequence.ops.size() << "\n";
+	for (const auto & op : currentEffectSequence.ops) {
+		std::string hexStr;
+		for (size_t i = 0; i < sizeof(EffectOp); ++i) {
+			char buf[3];
+			snprintf(buf, sizeof(buf), "%02X", ((unsigned char *)&op)[i]);
+			hexStr += buf;
+		}
+		ss << "OP_HEX\t" << hexStr << "\n";
+	}
+
+	ss << "EARTHQUAKE\t" << (isEarthquakeActive ? 1 : 0) << "\t" << (isEarthquakeDiceRolling ? 1 : 0) << "\t" << (isEarthquakeAnimatingStep ? 1 : 0) << "\t" << earthquakeT << "\t" << earthquakeStep << "\n";
+	ss << "EQ_UNITS\t" << earthquakeUnits.size() << "\n";
+	for (const auto & eu : earthquakeUnits) {
+		ss << "EQ_U\t" << eu.playerIndex << "\t" << eu.startGrid.x << "\t" << eu.startGrid.y << "\t" << eu.nextGrid.x << "\t" << eu.nextGrid.y << "\t" << eu.direction.x << "\t" << eu.direction.y << "\t" << (eu.isMoving ? 1 : 0) << "\t" << (eu.crashed ? 1 : 0) << "\t" << eu.tilesToMove << "\t" << eu.originalDistance << "\t" << eu.crashDiceLastStep << "\n";
+	}
+
 	return ss.str();
 }
 
@@ -35825,6 +35898,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	bool tmpSeqComplete = true;
 	size_t tmpSeqCurOp = 0;
 	int tmpBlackboard[16] = { 0 };
+
+	std::vector<EffectOp> tmpOps;
+	bool tmpIsEarthquakeActive = false;
+	bool tmpIsEarthquakeDiceRolling = false;
+	bool tmpIsEarthquakeAnimatingStep = false;
+	float tmpEarthquakeT = 0.0f;
+	int tmpEarthquakeStep = 0;
+	std::vector<EarthquakeState> tmpEqUnits;
 
 	// Initialize board copy from current to keep any non-snapshot fields intact until swap
 	for (int x = 0; x < BOARD_WIDTH; ++x)
@@ -36281,6 +36362,37 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				for (int i = 0; i < 16; i++) {
 					tmpBlackboard[i] = std::stoi(parts[5 + i]);
 				}
+			} else if (parts[0] == "OP_HEX" && parts.size() >= 2) {
+				EffectOp op;
+				std::string hex = parts[1];
+				if (hex.length() == sizeof(EffectOp) * 2) {
+					for (size_t i = 0; i < sizeof(EffectOp); ++i) {
+						std::string byteStr = hex.substr(i * 2, 2);
+						((unsigned char *)&op)[i] = (unsigned char)std::stoul(byteStr, nullptr, 16);
+					}
+					tmpOps.push_back(op);
+				}
+			} else if (parts[0] == "EARTHQUAKE" && parts.size() >= 6) {
+				tmpIsEarthquakeActive = (std::stoi(parts[1]) != 0);
+				tmpIsEarthquakeDiceRolling = (std::stoi(parts[2]) != 0);
+				tmpIsEarthquakeAnimatingStep = (std::stoi(parts[3]) != 0);
+				tmpEarthquakeT = std::stof(parts[4]);
+				tmpEarthquakeStep = std::stoi(parts[5]);
+			} else if (parts[0] == "EQ_U" && parts.size() >= 13) {
+				EarthquakeState eu = {};
+				eu.playerIndex = std::stoi(parts[1]);
+				eu.startGrid.x = std::stoi(parts[2]);
+				eu.startGrid.y = std::stoi(parts[3]);
+				eu.nextGrid.x = std::stoi(parts[4]);
+				eu.nextGrid.y = std::stoi(parts[5]);
+				eu.direction.x = std::stoi(parts[6]);
+				eu.direction.y = std::stoi(parts[7]);
+				eu.isMoving = (std::stoi(parts[8]) != 0);
+				eu.crashed = (std::stoi(parts[9]) != 0);
+				eu.tilesToMove = std::stoi(parts[10]);
+				eu.originalDistance = std::stoi(parts[11]);
+				eu.crashDiceLastStep = std::stoi(parts[12]);
+				tmpEqUnits.push_back(eu);
 			}
 		}
 
@@ -36621,6 +36733,14 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	for (int i = 0; i < 16; i++) {
 		currentEffectSequence.blackboard[i] = tmpBlackboard[i];
 	}
+	currentEffectSequence.ops = tmpOps;
+
+	isEarthquakeActive = tmpIsEarthquakeActive;
+	isEarthquakeDiceRolling = tmpIsEarthquakeDiceRolling;
+	isEarthquakeAnimatingStep = tmpIsEarthquakeAnimatingStep;
+	earthquakeT = tmpEarthquakeT;
+	earthquakeStep = tmpEarthquakeStep;
+	earthquakeUnits = tmpEqUnits;
 
 	// Clear any stale highlights from pre-restore state
 	clearHighlights();
