@@ -21305,7 +21305,7 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
-	if (g_isGameOver) return; // FIX: Prevent new turns from starting when the match is over!
+	if (g_isGameOver) return;
 
 	// Reset AI staging flags
 	aiActionStage = 0;
@@ -21318,27 +21318,18 @@ void ofApp::startNewTurn() {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "--- START NEW TURN --- Unit: " + std::to_string(currentPlayerIndex) + " | Starting Checksum: " + std::to_string(calculateChecksum()));
 	}
 
-	// --- ADD THIS FIX AT THE VERY TOP OF startNewTurn() ---
-	// Forcefully wipe any lingering menu/targeting states from the previous turn
 	cancelAllTargeting();
 	resetCardState();
-	activeCardDisplays.clear(); // Instantly purge the opponent's played card banner!
-	// ------------------------------------------------------
+	activeCardDisplays.clear();
 
-	// Calculate Max Damage for the turn that just ended
 	for (int i = 0; i < 2; i++) {
 		if (matchStats[i].currentTurnDamage > matchStats[i].maxDamageInOneTurn) {
 			matchStats[i].maxDamageInOneTurn = matchStats[i].currentTurnDamage;
 		}
-		matchStats[i].currentTurnDamage = 0; // Reset for new turn
+		matchStats[i].currentTurnDamage = 0;
 	}
 
-	// Mark that turn-start status effects are being handled so updateGame()
-	// does not prematurely send a separate turn-start packet to clients.
 	isHandlingTurnStartEffects = true;
-
-	// CRITICAL FIX: Lock the turn timer immediately so it doesn't instantly expire
-	// during long status effect animations (Fire/Poison/Sleep/Paralysis) causing infinite skipped turns!
 	turnStartDeferred = true;
 	turnStartDeferredAtFrame = (int)simulationFrame;
 	turnStartFrame = (int)simulationFrame;
@@ -21349,12 +21340,8 @@ void ofApp::startNewTurn() {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "START NEW TURN. Starting Checksum: " + std::to_string(calculateChecksum()));
 	}
 
-	// Autosave full game state at the start of every new turn so host/clients
-	// can recover if someone crashes. Also useful for singleplayer saves.
-	// Primary autosave path (overwritten each turn)
 	try {
 		saveGameStateToFile("autosave.json");
-		// Also write a turn-stamped file for manual inspection
 		std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
 		saveGameStateToFile(stamped);
 	} catch (...) {
@@ -21362,27 +21349,22 @@ void ofApp::startNewTurn() {
 	}
 
 	bool activePlayerDied = g_activePlayerDiedThisTurn;
-	g_activePlayerDiedThisTurn = false; // Reset the flag
+	g_activePlayerDiedThisTurn = false;
 
 	if (players.empty()) return;
 
-	// In Headless training mode, bypass the start-of-turn delay so the AI can act instantly!
 	if (headless) {
 		turnStartDeferred = false;
 		turnStartFrame = (int)simulationFrame;
 	}
 
 	// --- 1. Handle the ENDING player's state ---
-	// NEW: Skip cleanup if the active player died, preventing out-of-bounds crashes
+	bool takingBonusTurn = false;
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && !activePlayerDied) {
 		Player & endingPlayer = players[currentPlayerIndex];
 		ofLogNotice("Turn") << "Processing ending player: index=" << currentPlayerIndex << " playerID=" << endingPlayer.playerID;
 
 		// --- A. CLEANUP HAND & BUFFS ---
-		ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
-
-		// FIX: Spawn visual animations immediately BEFORE clearing the hand,
-		// otherwise the array is empty and the cards vanish instantly!
 		float now = ofGetElapsedTimef();
 		for (size_t i = 0; i < endingPlayer.hand.size(); ++i) {
 			Card c = endingPlayer.hand[i];
@@ -21405,7 +21387,7 @@ void ofApp::startNewTurn() {
 
 		pendingTurnStartVisuals = -1;
 		for (auto & c : endingPlayer.hand) {
-			resetCardToBaseStats(c); // Strip Flurry discounts before discarding!
+			resetCardToBaseStats(c);
 		}
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
@@ -21413,13 +21395,10 @@ void ofApp::startNewTurn() {
 		endingPlayer.playedCardsPile.clear();
 		endingPlayer.cardsPlayedThisTurn.clear();
 
-		// CRITICAL FIX: Clear per-turn trackers synchronously!
-		// (Doing this via EffectOp causes them to persist incorrectly across bonus turns)
 		endingPlayer.shocksPlayedThisTurn = 0;
 		endingPlayer.flurryOfFistsStacks = 0;
 		endingPlayer.nextAttackAddPoison = false;
 
-		// If the player had an extra draw for this turn but didn't use it, it expires.
 		int cycle = endingPlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
 		if (endingPlayer.nextTurnExtraDraw && globalTurnCounter > cycle) {
 			EffectOp rm = {};
@@ -21439,18 +21418,14 @@ void ofApp::startNewTurn() {
 		koboldPlacementSourceX = -1;
 		koboldPlacementSourceY = -1;
 
-		// Reshuffle discard into deck if needed
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
-			ofLogNotice("Deck") << "Reshuffle triggered for player " << endingPlayer.playerID << " at turn " << globalTurnCounter << " (host=" << isHost() << ")";
-			// Use effect op to reshuffle discard into deck deterministically
 			EffectOp rs = {};
 			rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
-			rs.data.reshuffle.targetIndex = endingPlayer.playerID; // Use playerID to survive the array sort!
+			rs.data.reshuffle.targetIndex = endingPlayer.playerID;
 			queueEffect(rs);
 			if (!isProcessingEffect) beginEffectSequence();
 		}
 
-		// Decrement buff timers
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
 			endingPlayer.strengthenElementsTurnsRemaining--;
 			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
@@ -21458,7 +21433,6 @@ void ofApp::startNewTurn() {
 			}
 		}
 
-		// Decrement Sprint's Kick-free counter
 		if (endingPlayer.freeKickTurns > 0) {
 			bool willBeZero = (endingPlayer.freeKickTurns == 1);
 			EffectOp fk = {};
@@ -21466,7 +21440,7 @@ void ofApp::startNewTurn() {
 			int epIdx = findPlayerIndexByID(endingPlayer.playerID);
 			if (epIdx >= 0) {
 				fk.data.modifyStat.targetIndex = epIdx;
-				fk.data.modifyStat.statType = 15; // FreeKickTurns
+				fk.data.modifyStat.statType = 15;
 				fk.data.modifyStat.delta = -1;
 				fk.data.modifyStat.deltaFromSlot = -1;
 				queueEffect(fk);
@@ -21478,8 +21452,8 @@ void ofApp::startNewTurn() {
 		// --- B. CHECK FOR BONUS TURNS ---
 		if (endingPlayer.bonusTurns > 0) {
 			endingPlayer.bonusTurns--;
+			takingBonusTurn = true;
 
-			// Make next-turn draw active immediately for the bonus turn
 			if (endingPlayer.nextTurnExtraDraw) {
 				int currentCycle = endingPlayer.nextTurnExtraDrawSetOnCycle & 0xFFFF;
 				if (currentCycle == globalTurnCounter) {
@@ -21489,338 +21463,324 @@ void ofApp::startNewTurn() {
 			}
 
 			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
-		} else {
-			// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
-			// Maintain "Oldest Minion -> Newest Minion -> Player" turn order
-			int endingPlayerID = players[currentPlayerIndex].playerID;
+		}
+	} // Closes ending player cleanup block cleanly
 
-			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-				int ownerA = a.isMinion ? a.ownerID : a.playerID;
-				int ownerB = b.isMinion ? b.ownerID : b.playerID;
-				if (ownerA != ownerB) return ownerA < ownerB; // Group by Team
-				if (a.isMinion && !b.isMinion) return true; // Minions before Player
-				if (!a.isMinion && b.isMinion) return false; // Player after Minions
-				return a.summonOrder < b.summonOrder; // Oldest Minions first
-			});
+	// --- 2. ADVANCE TO NEXT UNIT (IF NOT TAKING BONUS TURN) ---
+	if (!takingBonusTurn && !players.empty()) {
+		int endingPlayerID = -1;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			endingPlayerID = players[currentPlayerIndex].playerID;
+		}
 
-			// Re-find the ending player's index now that the array has shifted
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.summonOrder < b.summonOrder;
+		});
+
+		if (!activePlayerDied && endingPlayerID != -1) {
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].playerID == endingPlayerID) {
 					currentPlayerIndex = (int)i;
 					break;
 				}
 			}
-
-			// Safely advance to the correct next unit
 			currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 			if (currentPlayerIndex == 0) globalTurnCounter++;
-
-			// FIX: Clear stale UI mappings immediately so render calls between ticks
-			// do not read invalid pre-sort indices
-			activeMinionUIs.clear();
+		} else {
+			// If active player died, clamp to valid bounds
+			if (currentPlayerIndex >= (int)players.size()) {
+				currentPlayerIndex = 0;
+				globalTurnCounter++;
+			}
 		}
 
-		// Double-check bounds before referencing startingPlayer
-		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
-			currentPlayerIndex = 0;
+		activeMinionUIs.clear();
+	}
+
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
+		currentPlayerIndex = 0;
+	}
+
+	Player & startingPlayer = players[currentPlayerIndex];
+
+	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
+	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
+
+	addGameLog("Turn " + ofToString(globalTurnCounter) + ": " + getPlayerSteamName(currentPlayerIndex) + "'s turn");
+
+	recalcTempLuck();
+
+	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+	animationPath.clear();
+	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
+
+	// Tortoise form: ALL defensive stats don't expire
+	if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
+		int sidx = currentPlayerIndex;
+		if (startingPlayer.block > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 5;
+			op.data.modifyStat.delta = -startingPlayer.block;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
 		}
+		if (startingPlayer.holyBlock > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 7;
+			op.data.modifyStat.delta = -startingPlayer.holyBlock;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.ward > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 8;
+			op.data.modifyStat.delta = -startingPlayer.ward;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.fortification > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 13;
+			op.data.modifyStat.delta = -startingPlayer.fortification;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.barrier > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 6;
+			op.data.modifyStat.delta = -startingPlayer.barrier;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		startingPlayer.defenseCycle = -1;
+	}
 
-		Player & startingPlayer = players[currentPlayerIndex];
-
-		ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
-		ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
-
-		// Add game log entry for turn start
-		addGameLog("Turn " + ofToString(globalTurnCounter) + ": " + getPlayerSteamName(currentPlayerIndex) + "'s turn");
-
-		// Ensure temp luck is correct for the starting player before AP is rolled
-		recalcTempLuck();
-
-		// --- C. RESET STATE FOR NORMAL TURN ---
-		playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
-		animationPath.clear();
-		isPlayerAnimating = false;
-		animatingPlayerIndex = -1;
-
-		// Tortoise form: ALL defensive stats don't expire
-		// FIX: Respect the defenseCycle timer so buffs played on opponents survive until their NEXT turn!
-		if (!startingPlayer.inTortoiseForm && startingPlayer.defenseCycle != -1 && globalTurnCounter >= startingPlayer.defenseCycle) {
+	if (startingPlayer.hasRegeneration) {
+		if (startingPlayer.health < startingPlayer.maxHealth) {
 			int sidx = currentPlayerIndex;
-			if (startingPlayer.block > 0) {
-				EffectOp op = {};
-				op.type = EffectOpType::MODIFY_STAT;
-				op.data.modifyStat.targetIndex = sidx;
-				op.data.modifyStat.statType = 5; // Block
-				op.data.modifyStat.delta = -startingPlayer.block;
-				op.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(op);
-			}
-			if (startingPlayer.holyBlock > 0) {
-				EffectOp op = {};
-				op.type = EffectOpType::MODIFY_STAT;
-				op.data.modifyStat.targetIndex = sidx;
-				op.data.modifyStat.statType = 7; // HolyBlock
-				op.data.modifyStat.delta = -startingPlayer.holyBlock;
-				op.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(op);
-			}
-			if (startingPlayer.ward > 0) {
-				EffectOp op = {};
-				op.type = EffectOpType::MODIFY_STAT;
-				op.data.modifyStat.targetIndex = sidx;
-				op.data.modifyStat.statType = 8; // Ward
-				op.data.modifyStat.delta = -startingPlayer.ward;
-				op.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(op);
-			}
-			if (startingPlayer.fortification > 0) {
-				EffectOp op = {};
-				op.type = EffectOpType::MODIFY_STAT;
-				op.data.modifyStat.targetIndex = sidx;
-				op.data.modifyStat.statType = 13; // Fortification
-				op.data.modifyStat.delta = -startingPlayer.fortification;
-				op.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(op);
-			}
-			if (startingPlayer.barrier > 0) {
-				EffectOp op = {};
-				op.type = EffectOpType::MODIFY_STAT;
-				op.data.modifyStat.targetIndex = sidx;
-				op.data.modifyStat.statType = 6; // Barrier
-				op.data.modifyStat.delta = -startingPlayer.barrier;
-				op.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(op);
-			}
-			startingPlayer.defenseCycle = -1; // Reset the cycle timer now that they are wiped!
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 0;
+			op.data.modifyStat.delta = 1;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
+		}
+	}
+
+	if (!isProcessingEffect) beginEffectSequence();
+
+	bool skipTurn = false;
+
+	if (startingPlayer.onFire) {
+		std::vector<int> rawFire;
+		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
+		currentEffectSequence.blackboard[0] = rollResult;
+		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		if (applied > 0)
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
+		else
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
+
+		if (rollResult == 1 || rollResult == 2) {
+			startingPlayer.onFire = false;
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_ON_FIRE;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+		}
+		queueVisualDelay(1.2f);
+	}
+
+	if (startingPlayer.health <= 0) skipTurn = true;
+
+	if (!skipTurn && startingPlayer.isPoisoned) {
+		std::vector<int> rawPoison;
+		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+		int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
+		if (actualDamage > 0) {
+			applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+		} else {
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
 		}
 
-		// Regeneration first
-		if (startingPlayer.hasRegeneration) {
-			if (startingPlayer.health < startingPlayer.maxHealth) {
-				int sidx = currentPlayerIndex;
-				EffectOp op = {};
-				op.type = EffectOpType::MODIFY_STAT;
-				op.data.modifyStat.targetIndex = sidx;
-				op.data.modifyStat.statType = 0; // HP
-				op.data.modifyStat.delta = 1;
-				op.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(op);
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
-			}
+		startingPlayer.poisonReduction += 1;
+		if (startingPlayer.poisonReduction >= 6) {
+			startingPlayer.isPoisoned = false;
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_POISONED;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+			startingPlayer.poisonReduction = 0;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
 		}
+		queueVisualDelay(1.2f);
+	}
+
+	if (startingPlayer.health <= 0) skipTurn = true;
+
+	if (!skipTurn && startingPlayer.isParalyzed && startingPlayer.sleepTurnsRemaining <= 0) {
+		std::vector<int> rawFlip;
+		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+
+		if (flip == 2) {
+			startingPlayer.paralysisHeadsCount++;
+			if (startingPlayer.paralysisHeadsCount >= 2) {
+				startingPlayer.isParalyzed = false;
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_PARALYZED;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				startingPlayer.paralysisHeadsCount = 0;
+				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
+			} else {
+				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
+			}
+		} else {
+			startingPlayer.paralysisHeadsCount = 0;
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
+			skipTurn = true;
+		}
+		queueVisualDelay(1.2f);
+	}
+
+	if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
+		startingPlayer.sleepTurnsRemaining--;
+		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+		skipTurn = true;
+		queueVisualDelay(1.2f);
+	}
+
+	if (skipTurn) {
+		if (startingPlayer.nextTurnAPBonus > 0) {
+			EffectOp clrAp = {};
+			clrAp.type = EffectOpType::MODIFY_STAT;
+			clrAp.data.modifyStat.targetIndex = currentPlayerIndex;
+			clrAp.data.modifyStat.statType = 11;
+			clrAp.data.modifyStat.delta = -startingPlayer.nextTurnAPBonus;
+			clrAp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(clrAp);
+		}
+		if (startingPlayer.nextTurnD10AP) {
+			EffectOp clrD10 = {};
+			clrD10.type = EffectOpType::REMOVE_STATUS;
+			clrD10.data.status.targetIndex = currentPlayerIndex;
+			clrD10.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+			clrD10.data.status.duration = 0;
+			queueEffect(clrD10);
+		}
+		if (startingPlayer.nextTurnBonusDiceFromMinions) {
+			EffectOp clrMinions = {};
+			clrMinions.type = EffectOpType::REMOVE_STATUS;
+			clrMinions.data.status.targetIndex = currentPlayerIndex;
+			clrMinions.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+			clrMinions.data.status.duration = 0;
+			queueEffect(clrMinions);
+		}
+
+		EffectOp wait = {};
+		wait.type = EffectOpType::WAIT_VISUAL;
+		wait.data.damage.fixedDamage = 1;
+		queueEffect(wait);
+
+		EffectOp endOp = {};
+		endOp.type = EffectOpType::MODIFY_STAT;
+		endOp.data.modifyStat.statType = 99;
+		queueEffect(endOp);
 
 		if (!isProcessingEffect) beginEffectSequence();
 
-		bool skipTurn = false;
+		if (isMultiplayer && myLocalPlayerID != 255) {
+			int uniqueTurnId = ((globalTurnCounter & 0x7FFF) << 16) | ((currentPlayerIndex & 0xFF) << 8) | (players[currentPlayerIndex].bonusTurns & 0xFF);
+			long long mySum = calculateChecksum();
+			s_pendingLocalChecksums[uniqueTurnId] = mySum;
 
-		// 1. On Fire
-		if (startingPlayer.onFire) {
-			std::vector<int> rawFire;
-			int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-			currentEffectSequence.blackboard[0] = rollResult;
-			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-			if (applied > 0)
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
-			else
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-0 Fire", ofColor::gray);
-
-			if (rollResult == 1 || rollResult == 2) {
-				startingPlayer.onFire = false;
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_ON_FIRE;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-			}
-			queueVisualDelay(1.2f);
+			ChecksumPacket chk = {};
+			chk.type = PKT_CHECKSUM_CHECK;
+			chk.playerID = myLocalPlayerID;
+			chk.turnNumber = uniqueTurnId;
+			chk.checksum = mySum;
+			steamManager.sendPacket(&chk, sizeof(chk));
+			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM (Skip): " + std::to_string(chk.checksum) + " ID: " + std::to_string(uniqueTurnId));
 		}
 
-		if (startingPlayer.health <= 0) skipTurn = true;
-
-		// 2. Poison
-		if (!skipTurn && startingPlayer.isPoisoned) {
-			std::vector<int> rawPoison;
-			int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-			int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
-			if (actualDamage > 0) {
-				applyDamageWithMitigations(players[currentPlayerIndex], actualDamage, DAMAGE_POISON, -1);
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+		if (!isMultiplayer || isHost()) {
+			bool ok = saveGameStateToFile("autosave.json");
+			if (ok) {
+				std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+				saveGameStateToFile(stamped);
+				pruneOldSaves(5);
+				addGameLog("Autosaved turn-start (autosave.json)");
 			} else {
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Poison Fading", ofColor::gray);
+				ofLogWarning("Save") << "Failed to autosave turn-start.";
 			}
-
-			startingPlayer.poisonReduction += 1;
-			if (startingPlayer.poisonReduction >= 6) {
-				startingPlayer.isPoisoned = false;
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_POISONED;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				startingPlayer.poisonReduction = 0;
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
-			}
-			queueVisualDelay(1.2f);
 		}
 
-		if (startingPlayer.health <= 0) skipTurn = true;
-
-		// 3. Paralysis (Bypassed if currently Sleeping)
-		if (!skipTurn && startingPlayer.isParalyzed && startingPlayer.sleepTurnsRemaining <= 0) {
-			std::vector<int> rawFlip;
-			int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
-
-			if (flip == 2) {
-				startingPlayer.paralysisHeadsCount++;
-				if (startingPlayer.paralysisHeadsCount >= 2) {
-					startingPlayer.isParalyzed = false;
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = currentPlayerIndex;
-					rm.data.status.statusType = STATUS_PARALYZED;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-					startingPlayer.paralysisHeadsCount = 0;
-					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y) + glm::vec3(0, 0.8f, 0), "Paralysis Cured!", ofColor::white);
-				} else {
-					ofLogNotice("Paralysis") << "Heads! Can play this turn (" << startingPlayer.paralysisHeadsCount << "/2 heads).";
-				}
-			} else {
-				startingPlayer.paralysisHeadsCount = 0;
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Paralyzed!", ofColor::yellow);
-				skipTurn = true;
-			}
-			queueVisualDelay(1.2f);
-		}
-
-		// 4. Sleep (Check `sleepTurnsRemaining` here to see if damage naturally woke them up!)
-		if (!skipTurn && startingPlayer.sleepTurnsRemaining > 0) {
-			startingPlayer.sleepTurnsRemaining--;
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
-			skipTurn = true;
-			queueVisualDelay(1.2f);
-		}
-
-		if (skipTurn) {
-			// FIX: Clear "Next Turn" AP buffs so they don't carry over into future turns
-			if (startingPlayer.nextTurnAPBonus > 0) {
-				EffectOp clrAp = {};
-				clrAp.type = EffectOpType::MODIFY_STAT;
-				clrAp.data.modifyStat.targetIndex = currentPlayerIndex;
-				clrAp.data.modifyStat.statType = 11;
-				clrAp.data.modifyStat.delta = -startingPlayer.nextTurnAPBonus;
-				clrAp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(clrAp);
-			}
-			if (startingPlayer.nextTurnD10AP) {
-				EffectOp clrD10 = {};
-				clrD10.type = EffectOpType::REMOVE_STATUS;
-				clrD10.data.status.targetIndex = currentPlayerIndex;
-				clrD10.data.status.statusType = STATUS_NEXT_TURN_D10AP;
-				clrD10.data.status.duration = 0;
-				queueEffect(clrD10);
-			}
-			if (startingPlayer.nextTurnBonusDiceFromMinions) {
-				EffectOp clrMinions = {};
-				clrMinions.type = EffectOpType::REMOVE_STATUS;
-				clrMinions.data.status.targetIndex = currentPlayerIndex;
-				clrMinions.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
-				clrMinions.data.status.duration = 0;
-				queueEffect(clrMinions);
-			}
-
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
-			queueEffect(wait);
-
-			EffectOp endOp = {};
-			endOp.type = EffectOpType::MODIFY_STAT;
-			endOp.data.modifyStat.statType = 99; // 99 = End Turn Immediate
-			queueEffect(endOp);
-
-			if (!isProcessingEffect) beginEffectSequence();
-
-			// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
-			if (isMultiplayer && myLocalPlayerID != 255) {
-				int uniqueTurnId = ((globalTurnCounter & 0x7FFF) << 16) | ((currentPlayerIndex & 0xFF) << 8) | (players[currentPlayerIndex].bonusTurns & 0xFF);
-				long long mySum = calculateChecksum();
-				s_pendingLocalChecksums[uniqueTurnId] = mySum;
-
-				ChecksumPacket chk = {};
-				chk.type = PKT_CHECKSUM_CHECK;
-				chk.playerID = myLocalPlayerID;
-				chk.turnNumber = uniqueTurnId;
-				chk.checksum = mySum;
-				steamManager.sendPacket(&chk, sizeof(chk));
-				writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM (Skip): " + std::to_string(chk.checksum) + " ID: " + std::to_string(uniqueTurnId));
-			}
-
-			// Autosave at the start of each turn (singleplayer or host in multiplayer).
-			if (!isMultiplayer || isHost()) {
-				bool ok = saveGameStateToFile("autosave.json");
-				if (ok) {
-					std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
-					saveGameStateToFile(stamped);
-					pruneOldSaves(5);
-					addGameLog("Autosaved turn-start (autosave.json)");
-				} else {
-					ofLogWarning("Save") << "Failed to autosave turn-start.";
-				}
-			}
-
-			return;
-		}
-
-		// Dark Shield special AP roll
-		if (startingPlayer.nextTurnBonusDiceFromMinions) {
-			int minionCount = startingPlayer.storedDarkShieldDice;
-
-			lastAPDiceNum = minionCount;
-			lastAPDiceSides = 6;
-
-			// Dark Shield: Roll Xd6 where X = total skeletons + hellhounds on board
-			// This REPLACES the normal AP roll, not adds to it
-			if (minionCount > 0) {
-				std::vector<int> rawAP;
-				int apRollRaw = resolveDiceRollDetailed(minionCount, 6, rawAP);
-				int luckBonus = 0;
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				}
-				int apRoll = apRollRaw + (minionCount * luckBonus);
-				currentEffectSequence.blackboard[0] = apRoll;
-
-				// FIX: Removed duplicate queueVisualDiceRoll!
-				// `continueNewTurn()` will automatically trigger the AP dice animation using `blackboard[0]`.
-
-				lastAPRawResults = rawAP;
-			} else {
-				currentEffectSequence.blackboard[0] = 0;
-				lastAPRawResults.clear();
-				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "No Minions (0 AP)", ofColor::gray);
-			}
-
-			EffectOp clearBonusDice = {};
-			clearBonusDice.type = EffectOpType::REMOVE_STATUS;
-			clearBonusDice.data.status.targetIndex = currentPlayerIndex;
-			clearBonusDice.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
-			clearBonusDice.data.status.duration = 0;
-			queueEffect(clearBonusDice);
-			if (!isProcessingEffect) beginEffectSequence();
-			// WE DO NOT RETURN. Let it fall through to the immediate AP resolution block in continueNewTurn()
-		}
-
-		continueNewTurn();
+		return;
 	}
+
+	if (startingPlayer.nextTurnBonusDiceFromMinions) {
+		int minionCount = startingPlayer.storedDarkShieldDice;
+
+		lastAPDiceNum = minionCount;
+		lastAPDiceSides = 6;
+
+		if (minionCount > 0) {
+			std::vector<int> rawAP;
+			int apRollRaw = resolveDiceRollDetailed(minionCount, 6, rawAP);
+			int luckBonus = 0;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			}
+			int apRoll = apRollRaw + (minionCount * luckBonus);
+			currentEffectSequence.blackboard[0] = apRoll;
+			lastAPRawResults = rawAP;
+		} else {
+			currentEffectSequence.blackboard[0] = 0;
+			lastAPRawResults.clear();
+			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "No Minions (0 AP)", ofColor::gray);
+		}
+
+		EffectOp clearBonusDice = {};
+		clearBonusDice.type = EffectOpType::REMOVE_STATUS;
+		clearBonusDice.data.status.targetIndex = currentPlayerIndex;
+		clearBonusDice.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+		clearBonusDice.data.status.duration = 0;
+		queueEffect(clearBonusDice);
+		if (!isProcessingEffect) beginEffectSequence();
+	}
+
+	continueNewTurn();
 }
 //--------------------------------------------------------------
 
@@ -22956,7 +22916,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		if (!validByChoice) return;
 	}
 
-		// Dispel Purge Target Acquired -> Open Status Menu
+	// Dispel Purge Target Acquired -> Open Status Menu
 	if (interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
 		if (targetIndex != -1) {
 			interactionTargetIndex = targetIndex;
@@ -24299,7 +24259,12 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 // Send an input command: optionally apply locally (optimistic) and send over network
 bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 	if (cmd.commandType == CMD_END_TURN) {
-		cmd.params[0] = currentPlayerIndex;
+		// Use persistent playerID instead of volatile array index so dead/shifted minions never desync turns
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			cmd.params[0] = players[currentPlayerIndex].playerID;
+		} else {
+			cmd.params[0] = myLocalPlayerID;
+		}
 	}
 	cmd.type = PKT_INPUT_COMMAND;
 	cmd.turnNumber = globalTurnCounter;
@@ -24948,9 +24913,10 @@ void ofApp::simulationTick() {
 			}
 
 			if (activePlayerDied && !players.empty()) {
-				g_activePlayerDiedThisTurn = true; // <-- NEW: Flag that the active player died
-				// Step back so startNewTurn() increments into the correct next unit
-				currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
+				g_activePlayerDiedThisTurn = true;
+				if (currentPlayerIndex >= (int)players.size()) {
+					currentPlayerIndex = 0;
+				}
 				requestStartNewTurn();
 			}
 
@@ -26171,27 +26137,26 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	}
 
 	case CMD_END_TURN: {
-		// If the network delivers a duplicate End Turn for an actor who already ended their turn, drop it!
-		if (cmd.params[0] != currentPlayerIndex) {
-			ofLogNotice("Lockstep") << "Dropped stale CMD_END_TURN: expected actor " << currentPlayerIndex << ", got " << cmd.params[0];
-			break;
+		int actorPlayerID = cmd.params[0];
+
+		// If the command carried a playerID, verify if it matches our active unit or find it
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			int currentActiveID = players[currentPlayerIndex].playerID;
+			// If our local index is slightly desynced due to an off-turn minion death, sync to the commanded actor
+			if (currentActiveID != actorPlayerID) {
+				int resolvedIdx = findPlayerIndexByID(actorPlayerID);
+				if (resolvedIdx >= 0) {
+					currentPlayerIndex = resolvedIdx;
+				}
+			}
 		}
 
-		// SECURITY FIX: Ensure the sender actually owns the current turn
-		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-		if (isMultiplayer && activeOwner != (int)cmd.playerID) {
-			ofLogWarning("Security") << "CMD_END_TURN spoofing attempt blocked. Sender: " << cmd.playerID;
-			break;
-		}
-
-		// --- CRITICAL RULE FIX: CANCEL ACTIVE SELECTIONS ON TIMEOUT ---
+		// Cancel any lingering card targeting states
 		if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
-			ofLogWarning("Lockstep") << "CMD_END_TURN received while selection pending! Force-canceling selection to prevent soft-lock.";
 			cancelAllTargeting();
 		}
-		// ---------------------------------------------------------------------
 
-		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
+		ofLogNotice("Lockstep") << "Execute CMD_END_TURN for actor playerID=" << actorPlayerID;
 		startNewTurn();
 		break;
 	}
