@@ -5926,6 +5926,50 @@ void ofApp::update() {
 
 	steamManager.update();
 
+	// --- STEAM NAME SYNC WATCHDOG ---
+	if (isMultiplayer || g_inLobby) {
+		static float lastNameSyncTime = 0.0f;
+		if (ofGetElapsedTimef() - lastNameSyncTime > 2.0f) {
+			lastNameSyncTime = ofGetElapsedTimef();
+			std::string actualName = steamManager.getLocalPlayerName();
+
+			// Filter out empty or placeholder Steam names that haven't loaded yet
+			if (!actualName.empty() && actualName != "Unknown" && actualName != "[unknown]") {
+				bool needsSync = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if ((int)lp.playerID == myLocalPlayerID && lp.name != actualName) {
+						needsSync = true;
+						break;
+					}
+				}
+				// Also check if the global HUD names are stuck on the fallbacks
+				if (myLocalPlayerID == 0 && player0SteamName != actualName && player0SteamName == "Player 1") needsSync = true;
+				if (myLocalPlayerID == 1 && player1SteamName != actualName && player1SteamName == "Player 2") needsSync = true;
+
+				if (needsSync && myLocalPlayerID != 255) {
+					ChatMessagePacket syncPkt = {};
+					syncPkt.type = PKT_CHAT_MESSAGE;
+					syncPkt.playerID = myLocalPlayerID;
+					std::string payload = "\aSYNC_NAME:" + actualName;
+					strncpy(syncPkt.message, payload.c_str(), sizeof(syncPkt.message) - 1);
+					syncPkt.message[sizeof(syncPkt.message) - 1] = '\0';
+					steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
+
+					// Force local update so we don't spam the network
+					for (auto & lp : g_lobbyPlayers) {
+						if ((int)lp.playerID == myLocalPlayerID) {
+							lp.name = actualName;
+						}
+					}
+					if (myLocalPlayerID == 0) player0SteamName = actualName;
+					if (myLocalPlayerID == 1) player1SteamName = actualName;
+
+					ofLogNotice("Network") << "Name Sync Watchdog triggered: sent actual Steam name '" << actualName << "'";
+				}
+			}
+		}
+	}
+
 	// --- STEP 3: POLL ELO AS SOON AS STEAM CLOUD STATS ARE READY ---
 	if (myElo <= 0 && steamManager.isConnected()) {
 		int fetchedElo = steamManager.getLocalElo();
@@ -9643,8 +9687,8 @@ void ofApp::setupGame() {
 			syncPkt.type = PKT_CHAT_MESSAGE;
 			syncPkt.playerID = myLocalPlayerID;
 			std::string payload = "\aSYNC_NAME:" + myName;
-			strncpy(syncPkt.message, payload.c_str(), 255);
-			syncPkt.message[255] = '\0';
+			strncpy(syncPkt.message, payload.c_str(), sizeof(syncPkt.message) - 1); // <--- FIXED
+			syncPkt.message[sizeof(syncPkt.message) - 1] = '\0'; // <--- FIXED
 			steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
 		}
 	}
@@ -29528,108 +29572,108 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::SPAWN_UNIT: {
-			int tx = op.data.spawnUnit.toX;
-			int ty = op.data.spawnUnit.toY;
-			int sk = op.data.spawnUnit.summonKind;
-			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-				
-				// CRITICAL FIX: Do not rely on board[tx][ty].hasPlayer because placement clicks
-				// preemptively set it to true! Always check the authoritative players array directly.
-				int existingUnitIdx = -1;
-				for (size_t pi = 0; pi < players.size(); ++pi) {
-					if (players[pi].x == tx && players[pi].y == ty && players[pi].health > 0) {
-						existingUnitIdx = (int)pi;
-						break;
-					}
+		int tx = op.data.spawnUnit.toX;
+		int ty = op.data.spawnUnit.toY;
+		int sk = op.data.spawnUnit.summonKind;
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+
+			// CRITICAL FIX: Do not rely on board[tx][ty].hasPlayer because placement clicks
+			// preemptively set it to true! Always check the authoritative players array directly.
+			int existingUnitIdx = -1;
+			for (size_t pi = 0; pi < players.size(); ++pi) {
+				if (players[pi].x == tx && players[pi].y == ty && players[pi].health > 0) {
+					existingUnitIdx = (int)pi;
+					break;
 				}
+			}
 
-				if (existingUnitIdx == -1) {
-					int maxHP = (op.data.spawnUnit.maxHealthFromSlot >= 0) ? currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot] : op.data.spawnUnit.maxHealth;
-					int ap = op.data.spawnUnit.ap;
-					int summonerID = op.data.spawnUnit.summonerPlayerID;
-					Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
-					if (spawned) {
-						// If variant > 100, restore the explicit resurrected ID and prevent nextSummonOrder counter drift
-						if (op.data.spawnUnit.variant > 100) {
-							spawned->playerID = op.data.spawnUnit.variant;
-							spawned->summonOrder = op.data.spawnUnit.variant - 100;
-							if (nextSummonOrder > 0) {
-								nextSummonOrder--; // Roll back counter since an existing ID was re-used
-							}
+			if (existingUnitIdx == -1) {
+				int maxHP = (op.data.spawnUnit.maxHealthFromSlot >= 0) ? currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot] : op.data.spawnUnit.maxHealth;
+				int ap = op.data.spawnUnit.ap;
+				int summonerID = op.data.spawnUnit.summonerPlayerID;
+				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
+				if (spawned) {
+					// If variant > 100, restore the explicit resurrected ID and prevent nextSummonOrder counter drift
+					if (op.data.spawnUnit.variant > 100) {
+						spawned->playerID = op.data.spawnUnit.variant;
+						spawned->summonOrder = op.data.spawnUnit.variant - 100;
+						if (nextSummonOrder > 0) {
+							nextSummonOrder--; // Roll back counter since an existing ID was re-used
 						}
-
-						// TRACK STATS: Minions Spawned
-						int owner = op.data.spawnUnit.ownerPlayerID;
-						if (owner >= 0 && owner <= 3) matchStats[owner].minionsSpawned++;
-						int newIdx = findPlayerIndexByID(spawned->playerID);
-						
-						// Deterministic key pickup check for spawn-on-key scenarios
-						checkKeyPickupAndDraftAfterSummon(tx, ty, spawned->ownerID, newIdx);
-						
-						// Resolve targetIndex = -1 for subsequent ADD_CARD_TO_DECK ops to apply to this specific minion
-						for (size_t i = currentEffectSequence.currentOp + 1; i < currentEffectSequence.ops.size(); ++i) {
-							if (currentEffectSequence.ops[i].type == EffectOpType::ADD_CARD_TO_DECK && currentEffectSequence.ops[i].data.addCard.targetIndex == -1) {
-								currentEffectSequence.ops[i].data.addCard.targetIndex = newIdx;
-							}
-						}
-						
-						if (newIdx >= 0 && sk == 8) { // GOLEM
-							int variant = op.data.spawnUnit.variant;
-							if (variant == 3)
-								players[newIdx].minionTexture = &golemTexElectric;
-							else if (variant == 2)
-								players[newIdx].minionTexture = &golemTexFire;
-							else if (variant == 1)
-								players[newIdx].minionTexture = &golemTexRock;
-							else
-								players[newIdx].minionTexture = &golemTexBase;
-						}
-
-						// Deterministic shuffle for newly spawned minion's deck
-						if (newIdx >= 0 && !players[newIdx].deck.empty()) {
-							deterministic_shuffle_gameplay(players[newIdx].deck);
-						}
-						addGameLog(getPlayerSteamName(op.data.spawnUnit.ownerPlayerID) + " summoned unit kind " + std::to_string(sk) + " at (" + std::to_string(tx) + "," + std::to_string(ty) + ")");
 					}
-				} else {
-					// If a minion already exists at this tile, update authoritative stats
-					auto & p = players[existingUnitIdx];
-					if (p.isMinion) {
-						int tgtIdx = existingUnitIdx;
-						int newMax = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : p.maxHealth;
-						if (newMax != p.maxHealth) {
-							EffectOp setMax = {};
-							setMax.type = EffectOpType::MODIFY_STAT;
-							setMax.data.modifyStat.targetIndex = tgtIdx;
-							setMax.data.modifyStat.statType = 1; // MaxHP
-							setMax.data.modifyStat.delta = newMax - p.maxHealth;
-							setMax.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(setMax);
+
+					// TRACK STATS: Minions Spawned
+					int owner = op.data.spawnUnit.ownerPlayerID;
+					if (owner >= 0 && owner <= 3) matchStats[owner].minionsSpawned++;
+					int newIdx = findPlayerIndexByID(spawned->playerID);
+
+					// Deterministic key pickup check for spawn-on-key scenarios
+					checkKeyPickupAndDraftAfterSummon(tx, ty, spawned->ownerID, newIdx);
+
+					// Resolve targetIndex = -1 for subsequent ADD_CARD_TO_DECK ops to apply to this specific minion
+					for (size_t i = currentEffectSequence.currentOp + 1; i < currentEffectSequence.ops.size(); ++i) {
+						if (currentEffectSequence.ops[i].type == EffectOpType::ADD_CARD_TO_DECK && currentEffectSequence.ops[i].data.addCard.targetIndex == -1) {
+							currentEffectSequence.ops[i].data.addCard.targetIndex = newIdx;
 						}
-						int hpDelta = newMax - p.health;
-						if (hpDelta != 0) {
-							EffectOp setHp = {};
-							setHp.type = EffectOpType::MODIFY_STAT;
-							setHp.data.modifyStat.targetIndex = tgtIdx;
-							setHp.data.modifyStat.statType = 0; // HP
-							setHp.data.modifyStat.delta = hpDelta;
-							setHp.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(setHp);
-						}
-						if (op.data.spawnUnit.ap >= 0 && op.data.spawnUnit.ap != p.ap) {
-							EffectOp setAp = {};
-							setAp.type = EffectOpType::MODIFY_STAT;
-							setAp.data.modifyStat.targetIndex = tgtIdx;
-							setAp.data.modifyStat.statType = 3; // AP
-							setAp.data.modifyStat.delta = op.data.spawnUnit.ap - p.ap;
-							setAp.data.modifyStat.deltaFromSlot = -1;
-							queueEffect(setAp);
-						}
+					}
+
+					if (newIdx >= 0 && sk == 8) { // GOLEM
+						int variant = op.data.spawnUnit.variant;
+						if (variant == 3)
+							players[newIdx].minionTexture = &golemTexElectric;
+						else if (variant == 2)
+							players[newIdx].minionTexture = &golemTexFire;
+						else if (variant == 1)
+							players[newIdx].minionTexture = &golemTexRock;
+						else
+							players[newIdx].minionTexture = &golemTexBase;
+					}
+
+					// Deterministic shuffle for newly spawned minion's deck
+					if (newIdx >= 0 && !players[newIdx].deck.empty()) {
+						deterministic_shuffle_gameplay(players[newIdx].deck);
+					}
+					addGameLog(getPlayerSteamName(op.data.spawnUnit.ownerPlayerID) + " summoned unit kind " + std::to_string(sk) + " at (" + std::to_string(tx) + "," + std::to_string(ty) + ")");
+				}
+			} else {
+				// If a minion already exists at this tile, update authoritative stats
+				auto & p = players[existingUnitIdx];
+				if (p.isMinion) {
+					int tgtIdx = existingUnitIdx;
+					int newMax = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : p.maxHealth;
+					if (newMax != p.maxHealth) {
+						EffectOp setMax = {};
+						setMax.type = EffectOpType::MODIFY_STAT;
+						setMax.data.modifyStat.targetIndex = tgtIdx;
+						setMax.data.modifyStat.statType = 1; // MaxHP
+						setMax.data.modifyStat.delta = newMax - p.maxHealth;
+						setMax.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(setMax);
+					}
+					int hpDelta = newMax - p.health;
+					if (hpDelta != 0) {
+						EffectOp setHp = {};
+						setHp.type = EffectOpType::MODIFY_STAT;
+						setHp.data.modifyStat.targetIndex = tgtIdx;
+						setHp.data.modifyStat.statType = 0; // HP
+						setHp.data.modifyStat.delta = hpDelta;
+						setHp.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(setHp);
+					}
+					if (op.data.spawnUnit.ap >= 0 && op.data.spawnUnit.ap != p.ap) {
+						EffectOp setAp = {};
+						setAp.type = EffectOpType::MODIFY_STAT;
+						setAp.data.modifyStat.targetIndex = tgtIdx;
+						setAp.data.modifyStat.statType = 3; // AP
+						setAp.data.modifyStat.delta = op.data.spawnUnit.ap - p.ap;
+						setAp.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(setAp);
 					}
 				}
 			}
-			opComplete = true;
-			break;
+		}
+		opComplete = true;
+		break;
 	}
 
 	case EffectOpType::HEAL: {
@@ -42962,6 +43006,10 @@ void ofApp::processNetworkPackets() {
 						lp.name = std::string(safeName);
 
 						g_lobbyPlayers.push_back(lp);
+
+						// NEW FIX: Ensure global steam names are synced immediately when lobby updates!
+						if (lp.playerID == 0) player0SteamName = lp.name;
+						if (lp.playerID == 1) player1SteamName = lp.name;
 					}
 				}
 				continue;
