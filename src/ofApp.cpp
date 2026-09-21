@@ -7053,9 +7053,11 @@ void ofApp::draw() {
 						};
 
 						drawTab(chatTabRect, _L("UI_TAB_CHAT", "CHAT"), currentChatTab == ChatTab::CHAT);
-						drawTab(logTabRect, _L("UI_TAB_LOG", "LOG"), currentChatTab == ChatTab::LOG);
-						if (!isMultiplayer || g_isSimulatedMultiplayer) {
-							drawTab(debugTabRect, _L("UI_TAB_DEBUG", "DEBUG"), currentChatTab == ChatTab::DEBUG);
+						if (!g_inLobby) {
+							drawTab(logTabRect, _L("UI_TAB_LOG", "LOG"), currentChatTab == ChatTab::LOG);
+							if (!isMultiplayer || g_isSimulatedMultiplayer) {
+								drawTab(debugTabRect, _L("UI_TAB_DEBUG", "DEBUG"), currentChatTab == ChatTab::DEBUG);
+							}
 						}
 						safePopStyle();
 
@@ -9487,12 +9489,11 @@ void ofApp::setupGame() {
 	s_draftNextPlayerIndex = -1;
 	s_draftNextStage = -1;
 
-	// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
+// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
 	isChatOpen = false;
 	isChatMinimized = true;
 	chatInput = "";
-	gameLog.clear();
-	chatHistory.clear();
+	// (Chat history clears removed so Lobby Chat seamlessly carries into the Match)
 	draftOptions.clear();
 	draftOptionUI.clear();
 	selectedDraftIndices.clear();
@@ -17663,20 +17664,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				if (mpBackButton.inside(x, y)) {
-					clickedUI = true;
-					navigateToMenu(0, STATE_MAIN_MENU);
-				} else if (mpRefreshButton.inside(x, y)) {
-					clickedUI = true;
-					steamManager.refreshLobbies();
-					steamManager.fetchLeaderboard();
-				} else if (mpHostButton.inside(x, y)) {
-					clickedUI = true;
-					g_isSpectator = false;
-					steamManager.createLobby();
-					g_isHostingLobby = true;
-					g_inLobby = true;
+						clickedUI = true;
+						navigateToMenu(0, STATE_MAIN_MENU);
+					} else if (mpRefreshButton.inside(x, y)) {
+						clickedUI = true;
+						steamManager.refreshLobbies();
+						steamManager.fetchLeaderboard();
+					} else if (mpHostButton.inside(x, y)) {
+						clickedUI = true;
+						g_isSpectator = false;
+						chatHistory.clear();
+						gameLog.clear();
+						steamManager.createLobby();
+						g_isHostingLobby = true;
+						g_inLobby = true;
 
-					myLocalPlayerID = 0;
+						myLocalPlayerID = 0;
+
 					if (myElo <= 0) myElo = steamManager.getLocalElo();
 					g_lobbyPlayers.clear();
 					LobbyPlayer lp;
@@ -17689,20 +17693,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_lobbyPlayers.push_back(lp);
 
 				} else {
-					auto lobbies = steamManager.getLobbyList();
-					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
-						if (mpLobbyButtons[i].inside(x, y)) {
-							clickedUI = true;
-							bool inProgress = (lobbies[i].numPlayers >= 4);
-							g_isSpectator = inProgress;
-							myLocalPlayerID = 255;
-							steamManager.joinLobbyByID(lobbies[i].lobbyID);
-							g_isConnectingToLobby = true;
-							return;
+						auto lobbies = steamManager.getLobbyList();
+						for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
+							if (mpLobbyButtons[i].inside(x, y)) {
+								clickedUI = true;
+								chatHistory.clear();
+								gameLog.clear();
+								bool inProgress = (lobbies[i].numPlayers >= 4);
+								g_isSpectator = inProgress;
+								myLocalPlayerID = 255;
+								steamManager.joinLobbyByID(lobbies[i].lobbyID);
+								g_isConnectingToLobby = true;
+								return;
+							}
 						}
 					}
-				}
-			} else if (currentState == STATE_SINGLEPLAYER_MENU) {
+				} else if (currentState == STATE_SINGLEPLAYER_MENU) {
 				if (singleplayerBackButton.inside(x, y)) {
 					clickedUI = true;
 					navigateToMenu(0, STATE_MAIN_MENU);
@@ -18052,27 +18058,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 				float chatY = chatWindowRect.y + chatWindowRect.height;
 
 				if (showTabs) {
-					// Check if clicking on Chat tab
-					if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-						currentChatTab = ChatTab::CHAT;
-						chatScrollOffset = 0; // Reset scroll on tab switch
-						lastChatInteractionTime = ofGetElapsedTimef();
-						return;
+						// Check if clicking on Chat tab
+						if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+							currentChatTab = ChatTab::CHAT;
+							chatScrollOffset = 0; // Reset scroll on tab switch
+							lastChatInteractionTime = ofGetElapsedTimef();
+							return;
+						}
+						// Check if clicking on Log tab
+						if (!g_inLobby && ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+							currentChatTab = ChatTab::LOG;
+							chatScrollOffset = 0; // Reset scroll on tab switch
+							lastChatInteractionTime = ofGetElapsedTimef();
+							return;
+						}
+						// Check if clicking on Debug tab
+						if (!g_inLobby && ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+							currentChatTab = ChatTab::DEBUG;
+							lastChatInteractionTime = ofGetElapsedTimef();
+							return;
+						}
 					}
-					// Check if clicking on Log tab
-					if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-						currentChatTab = ChatTab::LOG;
-						chatScrollOffset = 0; // Reset scroll on tab switch
-						lastChatInteractionTime = ofGetElapsedTimef();
-						return;
-					}
-					// Check if clicking on Debug tab
-					if (ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-						currentChatTab = ChatTab::DEBUG;
-						lastChatInteractionTime = ofGetElapsedTimef();
-						return;
-					}
-				}
 				// If chat is minimized, clicking opens it back up
 				if (isChatMinimized) {
 					isChatOpen = true;
@@ -20956,19 +20962,24 @@ void ofApp::keyPressed(int key) {
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_TAB) {
-			// Cycle through tabs: CHAT -> LOG -> DEBUG -> CHAT
-			if (currentChatTab == ChatTab::CHAT) {
-				currentChatTab = ChatTab::LOG;
-			} else if (currentChatTab == ChatTab::LOG) {
-				if (isMultiplayer && !g_isSimulatedMultiplayer) {
-					currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in real multiplayer
-				} else {
-					currentChatTab = ChatTab::DEBUG;
+				if (g_inLobby) {
+					currentChatTab = ChatTab::CHAT;
+					return;
 				}
-			} else {
-				currentChatTab = ChatTab::CHAT;
-			}
-			return;
+				// Cycle through tabs: CHAT -> LOG -> DEBUG -> CHAT
+				if (currentChatTab == ChatTab::CHAT) {
+					currentChatTab = ChatTab::LOG;
+				} else if (currentChatTab == ChatTab::LOG) {
+					if (isMultiplayer && !g_isSimulatedMultiplayer) {
+						currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in real multiplayer
+					} else {
+						currentChatTab = ChatTab::DEBUG;
+					}
+				} else {
+					currentChatTab = ChatTab::CHAT;
+				}
+				return;
+			
 		} else if (key == OF_KEY_BACKSPACE) {
 			if (!chatInput.empty()) {
 				chatInput = chatInput.substr(0, chatInput.size() - 1);
@@ -40000,14 +40011,17 @@ void ofApp::cleanupGame() {
 	skippedOptimisticCommands.clear();
 
 	g_isSpectator = false;
-	g_isSimulatedMultiplayer = false;
+	g_isSpectator = false;
+		g_isSimulatedMultiplayer = false;
 
-	isChatOpen = false;
-	isChatMinimized = true;
-	chatInput.clear();
-	lastChatInteractionTime = -999.0f;
+		isChatOpen = false;
+		isChatMinimized = true;
+		chatInput.clear();
+		chatHistory.clear();
+		gameLog.clear();
+		lastChatInteractionTime = -999.0f;
 
-	currentMenuPanX = 0.0f;
+		currentMenuPanX = 0.0f;
 	targetMenuPanX = 0.0f;
 	targetMenuScreen = 0;
 	isWaitingForMenuTransition = false;
