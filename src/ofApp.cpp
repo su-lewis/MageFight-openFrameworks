@@ -20084,59 +20084,108 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	if (isDiceSpinning) return;
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
+		// 1. Kobold Placement -> Synchronized skip/done
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			cmd.params[0] = -1;
+			cmd.params[1] = -1;
+			strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			sendInputCommand(cmd, true);
+			playHandFeedbackSfx(0.9f, 0.1f);
+			return;
+		}
+
+		// 2. Wolf Placement -> Synchronized skip/done
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			cmd.params[0] = -1;
+			cmd.params[1] = -1;
+			strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			sendInputCommand(cmd, true);
+			playHandFeedbackSfx(0.9f, 0.1f);
+			return;
+		}
+
+		// 3. Tortoise Shell Spike -> Synchronized skip/done
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			cmd.params[0] = -1;
+			cmd.params[1] = -1;
+			strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			sendInputCommand(cmd, true);
+			playHandFeedbackSfx(0.9f, 0.1f);
+			return;
+		}
+
+		// 4. Blocking Boon (Tails Targeting) -> Synchronized skip
 		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
-			ofLogNotice("Input") << "Right-click ignored for mandatory targeting (Blocking Boon).";
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = (int)CARD_BLOCKING_BOON;
+			cmd.params[1] = -1;
+			sendInputCommand(cmd, true);
+			playHandFeedbackSfx(0.9f, 0.1f);
 			return;
 		}
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-			ofLogNotice("Input") << "Right-click ignored for mandatory unit placement.";
-			return;
-		}
+
+		// 5. Renewed Inspiration -> Cancel selection and restore card to hand
 		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 			renewedSelectedHandIndices.clear();
 			resetCardInteraction();
-			resetCardState(); // Restores cardPlayState to CARD_PLAY_STATE_IDLE
+			resetCardState();
+			clearHighlights();
+			calculateTargetHighlights();
 			return;
 		}
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
-			ofLogNotice("Input") << "Right-click ignored for mandatory ghost relocate targeting.";
+
+		// Mandatory locks that cannot be right-clicked away
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE || interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE)) {
 			return;
 		}
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE) {
-			ofLogNotice("Input") << "Right-click ignored for mandatory magic hand relocate targeting.";
-			return;
-		}
-		// If we are in an in-game key draft, ignore right-click cancels
 		if (currentState == STATE_DRAFTING && isInGameDraft) {
-			ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
 			return;
 		}
-		// Prevent cancelling menus that are actively resolving mid-effect over the network.
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
-			if (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_MAGIC_BLAST) {
-				ofLogNotice("Input") << "Right-click ignored: this menu cannot be cancelled mid-resolution.";
-				return;
-			}
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_MAGIC_BLAST)) {
+			return;
 		}
-
-		// Prevent cancelling ANY spell that has started processing through the network state machine.
 		if (cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE || cardPlayState == CARD_PLAY_STATE_OUTCOME) {
-			ofLogNotice("Input") << "Right-click ignored: Cannot cancel a spell mid-resolution over the network.";
 			return;
 		}
 
+		// 6. Generic targeting or card drags cancellation
 		selectedCardIndex = -1;
 		draggedCardIndex = -1;
 		if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
 			draggingHandTargetVolume = 0.0f;
-			draggingHandFadeSpeed = 48.0f; // very fast fade
+			draggingHandFadeSpeed = 48.0f;
 		}
 		pressedCardIndex = -1;
 		handDragInValidPlayZone = false;
 		handDragVelocity.set(0.0f, 0.0f);
 		playerAction = NONE;
 
-		// Unified cancel for all targeting modes/menus
 		cancelAllTargeting();
 		return;
 	}
@@ -22907,40 +22956,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		if (!validByChoice) return;
 	}
 
-	// Centralize minion placement logic in a unified handler for summon cards.
-	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && (interactingCardType == CARD_CALL_FOR_KOBOLDS || interactingCardType == CARD_CALL_FOR_WOLVES)) {
-		int gx = gridX, gy = gridY;
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-				int srcX = (interactingCardType == CARD_CALL_FOR_KOBOLDS) ? koboldPlacementSourceX : wolfPlacementSourceX;
-				int srcY = (interactingCardType == CARD_CALL_FOR_KOBOLDS) ? koboldPlacementSourceY : wolfPlacementSourceY;
-				int dist = abs(gx - srcX) + abs(gy - srcY);
-				if (dist == 1) {
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.commandId = 0;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_PSEUDO_ACTION;
-					cmd.params[0] = gx;
-					cmd.params[1] = gy;
-					if (interactingCardType == CARD_CALL_FOR_KOBOLDS)
-						strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
-
-					else
-						strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
-					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-					sendInputCommand(cmd, true);
-
-					// FIX: Do NOT call resetCardInteraction() here! Let the PseudoAction response handle state changes!
-					// Otherwise the UI drops out of placement mode before the server confirms the placement!
-					return;
-				}
-			}
-		}
-	}
-	// Dispel Purge Target Acquired -> Open Status Menu
+		// Dispel Purge Target Acquired -> Open Status Menu
 	if (interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
 		if (targetIndex != -1) {
 			interactionTargetIndex = targetIndex;
@@ -26333,19 +26349,23 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		if (actionName == "PlaceKobold") {
 			if (targetX == -1 && targetY == -1) {
-				// Player clicked 'Done' to skip remaining
+				// Player clicked 'Done' or right-clicked to skip remaining
 				koboldsRemainingToPlace = 0;
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				isShowingTooltip = false;
+				clearHighlights();
+				calculateTargetHighlights();
 				resetCardState();
 				break;
 			}
-			if (koboldsRemainingToPlace <= 0) break; // Prevent spam clicks
+			if (koboldsRemainingToPlace <= 0) break;
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
-			// UI Check Removed: We trust the lockstep command!
 			int dist = abs(targetX - koboldPlacementSourceX) + abs(targetY - koboldPlacementSourceY);
 			if (dist != 1) break;
 			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+			// Immediately mark tile occupied on the board so subsequent checks and highlight calculations know it's taken
+			board[targetX][targetY].hasPlayer = true;
 
 			if (!isProcessingEffect) beginEffectSequence();
 			EffectOp spawnOp = {};
@@ -26363,9 +26383,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			koboldsRemainingToPlace--;
 			koboldSummonCount++;
 
-			// If board state changed such that no adjacent slots remain, stop placement now.
+			// Check if any empty adjacent slots actually remain around the summoner
 			int avail = 0;
-			glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+			glm::ivec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 			for (auto & d : adj) {
 				int nx = koboldPlacementSourceX + (int)d.x;
 				int ny = koboldPlacementSourceY + (int)d.y;
@@ -26373,39 +26393,43 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
 				}
 			}
-			if (avail <= 0 && koboldsRemainingToPlace > 0) {
-				koboldsRemainingToPlace = 0;
-				queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), "No Space!", ofColor::red);
-			}
 
-			if (koboldsRemainingToPlace <= 0) {
+			// If out of kobolds OR out of space, cleanly conclude placement
+			if (koboldsRemainingToPlace <= 0 || avail <= 0) {
+				if (avail <= 0 && koboldsRemainingToPlace > 0) {
+					queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), "No More Space!", ofColor::red);
+				}
+				koboldsRemainingToPlace = 0;
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				isShowingTooltip = false;
+				clearHighlights();
+				calculateTargetHighlights();
 				resetCardState();
 			} else {
-				// FIX: Force opponent to enter PLACING mode too!
 				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
 				if (isCurrentPlayerLocal()) calculateTargetHighlights();
 			}
-			// FIX: Force highlight cache to refresh so the newly spawned unit blocks further clicks!
-			calculateTargetHighlights();
 			break;
 		}
 
 		if (actionName == "PlaceWolf") {
 			if (targetX == -1 && targetY == -1) {
-				// Player clicked 'Done' to skip remaining
+				// Player clicked 'Done' or right-clicked to skip remaining
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 				isShowingTooltip = false;
+				clearHighlights();
+				calculateTargetHighlights();
 				resetCardState();
 				break;
 			}
-			if (wolfSummonStage != 1 && wolfSummonStage != 2) break; // Prevent spam clicks
+			if (wolfSummonStage != 1 && wolfSummonStage != 2) break;
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			int dist = abs(targetX - wolfPlacementSourceX) + abs(targetY - wolfPlacementSourceY);
 			if (dist != 1) break;
 			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+			board[targetX][targetY].hasPlayer = true;
 
 			if (!isProcessingEffect) beginEffectSequence();
 			EffectOp spawnOp = {};
@@ -26423,7 +26447,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			wolfSummonCount++;
 
 			if (wolfSummonStage == 1) {
-				wolfSummonStage = 99; // Lock state while waiting for coin
+				wolfSummonStage = 99; // Waiting for coinflip result
 
 				std::vector<int> rawFlip;
 				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
@@ -26432,20 +26456,21 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 				EffectOp wait = {};
 				wait.type = EffectOpType::WAIT_VISUAL;
-				wait.data.damage.fixedDamage = 0; // Wait 0.8s for coin
+				wait.data.damage.fixedDamage = 0;
 				queueEffect(wait);
 
 				EffectOp applyOp = {};
 				applyOp.type = EffectOpType::APPLY_WOLF_COIN;
 				queueEffect(applyOp);
 			} else if (wolfSummonStage == 2) {
+				// Second wolf successfully placed - finish
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 				isShowingTooltip = false;
+				clearHighlights();
+				calculateTargetHighlights();
 				resetCardState();
 			}
-			// FIX: Force highlight cache to refresh so the newly spawned unit blocks further clicks!
-			calculateTargetHighlights();
 			break;
 		}
 		// Handle deterministic TurnStart visuals published by host
@@ -26501,9 +26526,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.5f, 0), 1, 6, rawPsn, psnRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 				}
 
-				// The attack handler requires the state machine to be running to resolve correctly!
 				resetCardInteraction();
-				currentCardOutcome.cardType = CARD_FORM_OF_TORTOISE; // Set dummy context
+				currentCardOutcome.cardType = CARD_FORM_OF_TORTOISE;
+				currentCardOutcome.casterIndex = currentPlayerIndex; // FIX: Must be set so applyCardOutcomeEffects() completes!
+				currentCardOutcome.cardIndex = -1;
 				currentCardOutcome.apPaid = true; // No AP cost for the spike
 
 				EffectOp atkOp = {};
@@ -26517,9 +26543,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				resetCardInteraction();
 				resetCardState();
 			}
-
-			// DO NOT call tryTriggerShellSpike here!
-			// It will fire automatically from updateEffectSequence when atkOp is done!
 			break;
 		}
 
@@ -26628,7 +26651,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
-		// Resolve played-card index robustly after removals.
+		// Resolve played-card index robustly after removals
 		if (shiftedRiIndex < 0 || shiftedRiIndex >= (int)p.hand.size()
 			|| p.hand[shiftedRiIndex].type != CARD_RENEWED_INSPIRATION) {
 			int fallback = -1;
@@ -26644,44 +26667,42 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			shiftedRiIndex = fallback;
 		}
 
-		if (shiftedRiIndex < 0 || shiftedRiIndex >= (int)p.hand.size()) {
-			ofLogWarning("Lockstep") << "CMD_RENEWED_INSPIRATION: unable to resolve played-card index after selections.";
-			break;
+		if (shiftedRiIndex >= 0 && shiftedRiIndex < (int)p.hand.size()) {
+			Card riCard = p.hand[shiftedRiIndex];
+			int riCost = getEffectiveCardCostForPlayer(p, riCard);
+			currentAP -= riCost;
+			updatePlayerAP(p, currentAP);
+			riCard.playedThisTurn = true;
+			p.discardPile.push_back(riCard);
+			p.hand.erase(p.hand.begin() + shiftedRiIndex);
+
+			applyReplicateCopyToHand(p, riCard);
+			completeCardPlayAnimation(riCard, playerIdx);
 		}
 
-		// Pay AP and discard Renewed Inspiration immediately so the subsequent draw
-		// cannot invalidate the saved hand index or prevent the card from being removed.
-		Card riCard = p.hand[shiftedRiIndex];
-		int riCost = getEffectiveCardCostForPlayer(p, riCard);
-		currentAP -= riCost;
-		updatePlayerAP(p, currentAP);
-		riCard.playedThisTurn = true;
-		p.discardPile.push_back(riCard);
-		p.hand.erase(p.hand.begin() + shiftedRiIndex);
-
-		applyReplicateCopyToHand(p, riCard);
-
-		completeCardPlayAnimation(riCard, playerIdx);
-
-		// Now queue the finalization in the EffectOp sequence
+		// Cleanly reset interaction and set up completion
+		resetCardInteraction();
 		resetCardState();
 		currentCardOutcome.cardType = CARD_RENEWED_INSPIRATION;
 		currentCardOutcome.cardIndex = -1;
 		currentCardOutcome.casterIndex = playerIdx;
 		currentCardOutcome.apPaid = true;
 
-		if (!isProcessingEffect) beginEffectSequence();
-		EffectOp drawOp = {};
-		drawOp.type = EffectOpType::DRAW_CARDS;
-		drawOp.data.drawCards.playerIndex = playerIdx;
-		drawOp.data.drawCards.numCards = discarded * 2;
-		queueEffect(drawOp);
-
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		resetCardInteraction();
+		if (discarded > 0) {
+			if (!isProcessingEffect) beginEffectSequence();
+			EffectOp drawOp = {};
+			drawOp.type = EffectOpType::DRAW_CARDS;
+			drawOp.data.drawCards.playerIndex = playerIdx;
+			drawOp.data.drawCards.numCards = discarded * 2;
+			queueEffect(drawOp);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		} else {
+			// If 0 cards discarded, complete immediately without waiting for draws
+			advanceCardState(CARD_PLAY_STATE_IDLE);
+		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
-		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn(); // <--- ADD THIS
+		if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) markMeaningfulActionOnCurrentTurn();
 		break;
 	}
 
@@ -28558,9 +28579,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			ofLogNotice("Wolves") << "Tails! The call fizzles.";
 			queueFloatingTextVisual(textPos, "Fizzles...", ofColor::gray);
 
-			// End the sequence
 			updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 			wolfSummonStage = 0;
+			clearHighlights();
+			calculateTargetHighlights();
 			resetCardState();
 		} else {
 			// HEADS: Check if we have space for the 2nd wolf
@@ -28578,25 +28600,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			if (hasSpace) {
-				// FIX: Set the stage for BOTH players so the opponent doesn't re-roll the coin!
 				wolfSummonStage = 2;
-
-				// FIX: Ensure both peers re-enter placing mode!
 				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_WOLVES);
-
-				if (isCurrentPlayerLocal()) {
-					calculateTargetHighlights();
-					ofLogNotice("Wolves") << "Heads! You can place another wolf.";
-					queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
-				} else {
-					queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
-				}
+				if (isCurrentPlayerLocal()) calculateTargetHighlights();
+				queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
 			} else {
-				// HEADS BUT BLOCKED
-				ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
-				queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
+				queueFloatingTextVisual(textPos, "No Space for 2nd Wolf!", ofColor::red);
 				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
+				clearHighlights();
+				calculateTargetHighlights();
 				resetCardState();
 			}
 		}
@@ -30537,18 +30550,12 @@ void ofApp::handleCardDiceResult(int result, DicePurpose purpose) {
 // host and client execute identical state changes and avoid desyncs.
 
 void ofApp::applyCardOutcomeEffects() {
-	// This is where the actual game state changes happen
-	// Called by host immediately, and by clients when receiving PKT_CARD_OUTCOME
-
-	// CRITICAL FIX: If the caster died while the effect was resolving, their index is -1.
-	// Simply complete the state machine and skip resolving the hand/AP modifications.
 	if (currentCardOutcome.casterIndex < 0 || currentCardOutcome.casterIndex >= (int)players.size()) {
-		ofLogWarning("CardOutcome") << "Caster died or is invalid. Skipping hand/AP modifications.";
+		// If caster died or is a dummy context (like Shell Spike), cleanly finalize
 		resetCardInteraction();
+		resetCardState();
 		if (g_pendingShellSpikes > 0) {
-			if (isCurrentPlayerLocal()) {
-				tryTriggerShellSpike();
-			}
+			tryTriggerShellSpike();
 		}
 		return;
 	}
@@ -30560,43 +30567,31 @@ void ofApp::applyCardOutcomeEffects() {
 		if (currentCardOutcome.cardIndex < 0 || currentCardOutcome.cardIndex >= (int)caster.hand.size()) {
 			ofLogWarning("CardOutcome") << "Invalid card index: " << currentCardOutcome.cardIndex;
 			resetCardInteraction();
+			resetCardState(); // FIX: Reset state so the game doesn't hang!
 			return;
 		}
 
 		Card playedCard = caster.hand[currentCardOutcome.cardIndex];
 
-		// Remove card from hand and update AP (common to all cards)
 		int costToPay = getEffectiveCardCostForPlayer(caster, playedCard);
-
-		// Finish card play (moves to discard, handles replicate, etc)
 		finishPlayCard(caster, playedCard, currentCardOutcome.cardIndex);
 
 		updatePlayerAP(caster, currentAP - costToPay);
 		currentAP -= costToPay;
 		currentCardOutcome.apPaid = true;
-		// Add 5 seconds to the turn timer whenever a card is successfully played
 		addTimeBonusToTurn(currentPlayerIndex, 5);
 
-		// Show played card animation
 		completeCardPlayAnimation(playedCard, currentCardOutcome.casterIndex);
 	} else {
-		// Ensure player struct is synchronized with authoritative currentAP
 		updatePlayerAP(caster, currentAP);
 	}
 
-	// Force the target cache to reset cleanly so we don't get stuck highlights after playing a card!
 	invalidateTargetCache();
-
-	// Recalculate highlights for next action
 	calculateTargetHighlights();
-	// Forcefully wipe transient UI targeting/menu state now that the card
-	// outcome has been applied. This prevents a "ghost" interact state
-	// when cards that resolve instantly (drag-to-play) remove themselves
-	// from the hand during command processing.
-	resetCardInteraction(false); // <--- CHANGED HERE
+	resetCardInteraction(false);
 
 	if (g_pendingShellSpikes > 0) {
-		tryTriggerShellSpike(); // FIX: Let both peers enter targeting mode to pass Checksum!
+		tryTriggerShellSpike();
 	}
 }
 
