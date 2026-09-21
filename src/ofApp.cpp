@@ -44651,8 +44651,10 @@ void ofApp::thinkRuleBasedAI() {
 					const Card & c = amnesiaDeckCopy[i];
 					float p = 1.0f;
 
-					if (c.cardClass == 3) p += 60.0f;
-					if (c.baseDamage >= 5 || c.damageDiceNum >= 2) p += 25.0f;
+					if (c.type == CARD_HAND_BLOCK || c.type == CARD_PUNCH)
+						p += 60.0f;
+					else if (c.cardClass == 3)
+						p -= 60.0f; // Protect good cards!
 
 					cardsToPick.push_back({ i, p });
 				}
@@ -44727,6 +44729,70 @@ void ofApp::thinkRuleBasedAI() {
 			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
 				int targetOwner = players[interactionTargetIndex].isMinion ? players[interactionTargetIndex].ownerID : players[interactionTargetIndex].playerID;
 				choice = (targetOwner == enemyID) ? 2 : 1;
+			}
+		} else if (interactingCardType == CARD_AMNESIA) {
+			if (!amnesiaDeckCopy.empty() && numCardsToRemove > 0) {
+				struct ScoredAmnesiaCard {
+					int index;
+					float priority;
+				};
+				std::vector<ScoredAmnesiaCard> cardsToPick;
+
+				bool targetingEnemy = false;
+				if (amnesiaTargetPlayerIndex >= 0 && amnesiaTargetPlayerIndex < (int)players.size()) {
+					int tOwner = players[amnesiaTargetPlayerIndex].isMinion ? players[amnesiaTargetPlayerIndex].ownerID : players[amnesiaTargetPlayerIndex].playerID;
+					if (tOwner == enemyID) targetingEnemy = true;
+				}
+
+				for (int i = 0; i < (int)amnesiaDeckCopy.size(); ++i) {
+					const Card & c = amnesiaDeckCopy[i];
+					float p = 1.0f;
+
+					if (targetingEnemy) {
+						if (c.cardClass == 3) p += 60.0f;
+						if (c.baseDamage >= 5 || c.damageDiceNum >= 2) p += 25.0f;
+					} else {
+						if (c.type == CARD_HAND_BLOCK || c.type == CARD_PUNCH)
+							p += 60.0f;
+						else if (c.cardClass == 3)
+							p -= 60.0f;
+					}
+
+					cardsToPick.push_back({ i, p });
+				}
+
+				std::sort(cardsToPick.begin(), cardsToPick.end(), [](const ScoredAmnesiaCard & a, const ScoredAmnesiaCard & b) {
+					return a.priority > b.priority;
+				});
+
+				std::vector<int> selections;
+				for (int i = 0; i < std::min((int)cardsToPick.size(), numCardsToRemove); ++i) {
+					selections.push_back(cardsToPick[i].index);
+				}
+
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = activeID;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.params[0] = (int)CARD_AMNESIA;
+				cmd.params[1] = amnesiaTargetPlayerIndex;
+				cmd.params[2] = 3;
+				cmd.params[3] = interactingCardIndex;
+
+				uint32_t maskLow = 0, maskHigh = 0;
+				for (int idx : selections) {
+					if (idx < 32)
+						maskLow |= (1U << idx);
+					else if (idx < 64)
+						maskHigh |= (1U << (idx - 32));
+				}
+				cmd.params[4] = (int)maskLow;
+				cmd.params[5] = (int)maskHigh;
+				sendInputCommand(cmd, true);
+				return;
+			} else {
+				choice = 1; // Fallback to "Self" if empty
 			}
 		} else if (interactingCardType == CARD_DISPEL) {
 			bool isDebuffed = me.onFire || me.isPoisoned || me.isParalyzed || me.sleepTurnsRemaining > 0;
@@ -44961,10 +45027,26 @@ void ofApp::thinkRuleBasedAI() {
 								score += 150.0f;
 								if (!p.isMinion) score += 100.0f;
 								if (p.inTortoiseForm || p.inGhostForm) score += 80.0f;
+
+								if (interactingCardType == CARD_AMNESIA) {
+									score += 1800.0f; // Strongly prefer wiping enemy deck
+								}
 							} else if (owner == activeID && (interactingCardType == CARD_LESSER_HEAL || interactingCardType == CARD_HEAL || interactingCardType == CARD_BURST_OF_LIGHT)) {
 								if (!p.isMinion && p.health < p.maxHealth) score += 2000.0f;
 							} else if (owner == activeID) {
-								score -= 300.0f; // Friendly fire
+								if (interactingCardType == CARD_AMNESIA) {
+									int badCards = 0;
+									for (const auto & dc : me.deck) {
+										if (dc.type == CARD_HAND_BLOCK || dc.type == CARD_PUNCH) badCards++;
+									}
+									if (badCards > 0) {
+										score += 800.0f; // Viable self-mill
+									} else {
+										score -= 5000.0f; // NEVER self-mill good cards
+									}
+								} else {
+									score -= 300.0f; // Friendly fire
+								}
 							}
 						}
 					}
@@ -45543,9 +45625,7 @@ void ofApp::thinkRuleBasedAI() {
 							break;
 						}
 					}
-				} else if (card.type == CARD_AMNESIA)
-					score += 1200.0f;
-				else if (card.type == CARD_DISPEL)
+				} else if (card.type == CARD_DISPEL)
 					score += 800.0f;
 				else if (card.type == CARD_TELEPORT)
 					score += 600.0f;
