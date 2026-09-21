@@ -4726,15 +4726,12 @@ void ofApp::setup() {
 
 				for (const auto & sp : searchPaths) {
 					if (ofFile(sp).exists()) {
-						// CRITICAL FIX: Use OPTIMIZE_NONE instead of OPTIMIZE_DEFAULT!
-						// OPTIMIZE_DEFAULT triggers Assimp's "JoinIdenticalVertices" algorithm,
-						// which is extremely slow on complex rigged FBX models and causes 10+ second startup times.
-						// OPTIMIZE_NONE still triangulates and generates normals, but skips the heavy CPU geometry welding.
-						if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_NONE)) {
+						// FIX: Use OPTIMIZE_DEFAULT so Assimp automatically triangulates quads/n-gons!
+						// Without triangulation, 4-vertex faces corrupt ofMesh buffers and cause malloc heap crashes.
+						if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
 							ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
 
-							// CRITICAL FIX: Generate Mipmaps for the model textures!
-							// This stops the models from becoming crunchy/pixelated when zooming out.
+							// Generate Mipmaps for model textures
 							for (unsigned int i = 0; i < model.getMeshCount(); i++) {
 								if (model.getMeshHelper(i).hasTexture()) {
 									ofTexture & tex = model.getMeshHelper(i).getTextureRef();
