@@ -2370,9 +2370,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		2);
 	const float uniformNameScale = uniformNameScaleBase * 1.10f;
 
+	// FIX: Size the AP Cost perfectly for a double-digit number to guarantee maximum visibility!
 	const float uniformAPCostScale = bestUniformCenteredTextScale(
 		renderTitleFont,
-		allAPCosts,
+		{ "10" },
 		layout.costRect,
 		0.75f,
 		costTargetChipMaxScale,
@@ -2391,6 +2392,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	// Master Fist uses the global rect at runtime. Since it's an attack, it has the expanded box!
 	g_effectTextRect = layout.effectRect;
 	g_effectTextRect.height += 90.0f;
+
+	// FIX: Assign the global AP cost metric here so it's ready for the fast-load return!
+	g_uniformAPCostScale = uniformAPCostScale;
+	g_costRect = layout.costRect;
 
 	auto bestCenteredTextScaleForSingle = [&](const ofTrueTypeFont & font,
 											  const std::string & text,
@@ -2690,6 +2695,15 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofFbo fbo;
 	ofFbo fboText; // <-- NEW
 	ofFboSettings fboSettings;
+
+	// FIX: FAST LOAD - Skip heavy FBO rendering if atlases exist
+	if (ofFile("UI/card_sprite_generated.png").exists() && ofFile("UI/card_text_generated.png").exists()) {
+		if (outSpriteSheet.load("UI/card_sprite_generated.png") && outTextSheet.load("UI/card_text_generated.png")) {
+			ofLogNotice("Cards") << "Loaded pre-baked atlases inside generator. Skipping 5-second FBO rendering!";
+			return true;
+		}
+	}
+
 	fboSettings.width = sheetW;
 	fboSettings.height = sheetH;
 	fboSettings.internalformat = GL_RGBA;
@@ -2925,8 +2939,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushStyle();
 		ofSetColor(255);
 
-		g_uniformAPCostScale = bestCenteredTextScaleForSingle(renderTitleFont, trimCopy(rec.apCost), layout.costRect, 0.75f, costTargetChipMaxScale, 2);
-		g_costRect = layout.costRect;
+		// FIX: Removed the buggy g_uniformAPCostScale re-assignment here!
 
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
 		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
@@ -5465,22 +5478,80 @@ int ofApp::findPlayerIndexByID(int playerID) {
 	}
 	return -1;
 }
+static int getMinionDisplayNumber(const std::deque<Player> & playerList, int minionPlayerID, int localPlayerTeam, bool isFogOfWar, bool isSpectator, const std::set<int> & seenMinionIDs) {
+	int pidx = -1;
+	for (size_t i = 0; i < playerList.size(); ++i) {
+		if (playerList[i].playerID == minionPlayerID) {
+			pidx = (int)i;
+			break;
+		}
+	}
+	if (pidx < 0) return 1;
+	const Player & m = playerList[pidx];
+
+	bool isAlly = (m.ownerID == localPlayerTeam);
+
+	auto getSpeciesId = [](const Player & p) {
+		if (p.isFaerie) return 1;
+		if (p.isWallUnit) return 2;
+		if (p.isKoboldKing) return 3;
+		if (p.isKobold) return 4;
+		if (p.isAssistant) return 5;
+		if (p.isWolf) return 6;
+		if (p.isHellhound) return 7;
+		if (p.isGolem) return 8;
+		if (p.isSkeleton) return 9;
+		if (p.isDemon) return 10;
+		return 0;
+	};
+	int targetSpecies = getSpeciesId(m);
+
+	// Collect all qualifying minions of this owner and species
+	std::vector<int> candidateMinionIDs;
+	for (const auto & p : playerList) {
+		if (!p.isMinion || p.ownerID != m.ownerID || getSpeciesId(p) != targetSpecies) continue;
+
+		// If it's an enemy in Fog of War, only count minions that the local player has actually seen!
+		if (!isAlly && isFogOfWar && !isSpectator) {
+			if (seenMinionIDs.count(p.playerID) == 0) continue;
+		}
+		candidateMinionIDs.push_back(p.playerID);
+	}
+
+	// Sort candidates by creation order so the 1st seen is always #1, 2nd seen is #2
+	std::sort(candidateMinionIDs.begin(), candidateMinionIDs.end(), [&](int idA, int idB) {
+		int idxA = -1, idxB = -1;
+		for (size_t i = 0; i < playerList.size(); ++i) {
+			if (playerList[i].playerID == idA) idxA = (int)i;
+			if (playerList[i].playerID == idB) idxB = (int)i;
+		}
+		int orderA = (idxA >= 0) ? playerList[idxA].summonOrder : idA;
+		int orderB = (idxB >= 0) ? playerList[idxB].summonOrder : idB;
+		return orderA < orderB;
+	});
+
+	for (size_t rank = 0; rank < candidateMinionIDs.size(); ++rank) {
+		if (candidateMinionIDs[rank] == minionPlayerID) {
+			return (int)rank + 1;
+		}
+	}
+	return 1;
+}
 //--------------------------------------------------------------
 // Build a human-friendly display name for a player/minion
 std::string ofApp::getPlayerDisplayName(int index) {
 	Player * p = getPlayer(index);
 	if (!p) return "";
 
-	// Non-minion players: "Player N" (1-based playerID)
-
 	if (!p->isMinion) {
 		return "Player " + ofToString(p->playerID + 1);
 	}
 
-	// Minions: try to pick a species prefix
 	std::string prefix = "Minion";
 	if (p->isFaerie)
 		prefix = "Faerie";
+	else if (p->isWallUnit && p->isMagicWallUnit)
+		prefix = "Magic Wall";
 	else if (p->isWallUnit)
 		prefix = "Wall";
 	else if (p->isKoboldKing)
@@ -5500,16 +5571,8 @@ std::string ofApp::getPlayerDisplayName(int index) {
 	else if (p->isDemon)
 		prefix = "Demon";
 
-	// Derive a simple ordinal by counting same-type minions for the same owner
-	int ord = 1;
-	for (size_t i = 0; i < players.size(); ++i) {
-		if (i == (size_t)index) break;
-		Player & other = players[i];
-		if (!other.isMinion) continue;
-		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold King" && other.isKoboldKing) || (prefix == "Kobold" && other.isKobold) || (prefix == "Assistant" && other.isAssistant) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
-			if (other.ownerID == p->ownerID) ord++;
-		}
-	}
+	int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+	int ord = getMinionDisplayNumber(players, p->playerID, localTeam, g_modifierFogOfWar, g_isSpectator, g_seenOpponentMinionIDs);
 
 	return prefix + " " + ofToString(ord);
 }
@@ -7467,7 +7530,8 @@ void ofApp::draw() {
 						if (entry.cardName == "?") {
 							tooltipText = "Unknown Enemy Action";
 						} else if (entry.isMovement) {
-							tooltipText = "Unit Move: (" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ") -> (" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")";
+							int steps = std::max(0, (int)entry.movementPath.size() - 1);
+							tooltipText = "Unit Moved (" + ofToString(steps) + " " + (steps == 1 ? "tile" : "tiles") + ")";
 						} else {
 							tooltipText = entry.cardName;
 							if (entry.rangeRoll > 0) tooltipText += " [Range Roll: " + ofToString(entry.rangeRoll) + " ft]";
@@ -7502,7 +7566,7 @@ void ofApp::draw() {
 
 						if (entry.isMovement) {
 							hasDetails = true;
-							lineCount = 3;
+							lineCount = 2; // Cleaned up: only shows Action name and Tiles Moved
 						} else {
 							if (entry.rangeRoll > 0 && isRangedSpell) {
 								hasDetails = true;
@@ -7557,9 +7621,9 @@ void ofApp::draw() {
 							curY += 30 * scale;
 
 							if (entry.isMovement) {
-								drawLine("Start Tile:", "(" + ofToString(entry.fromX) + "," + ofToString(entry.fromY) + ")", ofColor::cyan);
-								drawLine("End Tile:", "(" + ofToString(entry.toX) + "," + ofToString(entry.toY) + ")", ofColor::green);
-								drawLine("Tiles Moved:", ofToString(std::max(0, (int)entry.movementPath.size() - 1)), ofColor::gold);
+								int steps = std::max(0, (int)entry.movementPath.size() - 1);
+								drawLine("Action:", "Unit Movement", ofColor::cyan);
+								drawLine("Tiles Moved:", ofToString(steps), ofColor::gold);
 							} else {
 								if (entry.rangeRoll > 0 && isRangedSpell) drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
 								if (entry.damageRoll > 0) drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
@@ -10716,30 +10780,12 @@ void ofApp::prepareGameVisualState() {
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
 
 	{
-		std::map<std::pair<int, int>, int> speciesCounters;
-		auto speciesIdFor = [&](const Player & m) -> int {
-			if (m.isSkeleton) return 1;
-			if (m.isGolem) return 2;
-			if (m.isWolf) return 3;
-			if (m.isHellhound) return 4;
-			if (m.isDemon) return 5;
-			if (m.isKobold) return 6;
-			if (m.isAssistant) return 7;
-			if (m.isWallUnit) return 8;
-			if (m.isFaerie) return 9;
-			if (m.isKoboldKing) return 10;
-			return 0;
-		};
-
+		int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
 		for (auto & ui : activeMinionUIs) {
 			int pidx = ui.playerIndex;
 			if (pidx < 0 || pidx >= (int)players.size()) continue;
-			const Player & m = players[pidx];
-			int sid = speciesIdFor(m);
-			std::pair<int, int> key = { m.ownerID, sid };
-			int & cnt = speciesCounters[key];
-			cnt++;
-			ui.displayNumber = cnt;
+			// Use the unified discovery numbering so Minion UI matches on-board tooltips
+			ui.displayNumber = getMinionDisplayNumber(players, players[pidx].playerID, localTeam, g_modifierFogOfWar, g_isSpectator, g_seenOpponentMinionIDs);
 		}
 	}
 
@@ -12810,16 +12856,27 @@ void ofApp::drawGame() {
 		}
 
 		// --- HOVER GLOW RENDERING ---
-		// Draw white glow for local player's hover
+		// Draw white glow for local player's hover (only if visible in FoW)
 		if (localHoverType == HOVER_UNIT && localHoverGridX >= 0 && localHoverGridX < BOARD_WIDTH && localHoverGridY >= 0 && localHoverGridY < BOARD_HEIGHT) {
-			drawTileGlow(localHoverGridX, localHoverGridY, ofColor(255, 255, 255, 200), 4.0f);
+			bool canDrawLocalHover = true;
+			if (g_modifierFogOfWar && !g_visibleTiles[localHoverGridX][localHoverGridY]) {
+				canDrawLocalHover = false;
+			}
+			if (canDrawLocalHover) {
+				drawTileGlow(localHoverGridX, localHoverGridY, ofColor(255, 255, 255, 200), 4.0f);
+			}
 		}
 
-		// Draw glow for opponent's hover (only in multiplayer)
+		// Draw glow for opponent's hover (only if the tile is in your Line of Sight)
 		if (isMultiplayer && opponentHoverType == HOVER_UNIT && opponentHoverGridX >= 0 && opponentHoverGridX < BOARD_WIDTH && opponentHoverGridY >= 0 && opponentHoverGridY < BOARD_HEIGHT) {
-			// Red if it's their turn, Blue if they are just spectator-hovering on our turn
-			ofColor glowColor = isMyTurn() ? ofColor(0, 150, 255, 200) : ofColor(255, 0, 0, 200);
-			drawTileGlow(opponentHoverGridX, opponentHoverGridY, glowColor, 4.0f);
+			bool canDrawOpponentHover = true;
+			if (g_modifierFogOfWar && !g_visibleTiles[opponentHoverGridX][opponentHoverGridY]) {
+				canDrawOpponentHover = false; // Do not reveal opponent's position in fog!
+			}
+			if (canDrawOpponentHover) {
+				ofColor glowColor = isMyTurn() ? ofColor(0, 150, 255, 200) : ofColor(255, 0, 0, 200);
+				drawTileGlow(opponentHoverGridX, opponentHoverGridY, glowColor, 4.0f);
+			}
 		}
 
 		// --- DICE RENDERING ---
@@ -13502,20 +13559,27 @@ void ofApp::drawGame() {
 		// --- DRAW 3D GHOST MOVEMENT PREVIEWS ---
 		if (s_hoveredHistoryIndex != -1 && s_hoveredHistoryIndex < (int)g_actionHistory.size()) {
 			const auto & entry = g_actionHistory[s_hoveredHistoryIndex];
-			if (entry.isMovement && entry.fromX != -1) {
-				// 1. Draw ghostly past position (blue) and destination (green)
-				drawTileGlow(entry.fromX, entry.fromY, ofColor(100, 180, 255, 180), 4.0f);
-				drawTileGlow(entry.toX, entry.toY, ofColor(100, 255, 100, 180), 4.0f);
+			if (entry.isMovement && entry.fromX != -1 && entry.cardName != "?") {
+				// FOG OF WAR FILTERING: Only show starting/destination tile glows if within Line of Sight
+				bool showFrom = (!g_modifierFogOfWar || g_visibleTiles[entry.fromX][entry.fromY]);
+				bool showTo = (!g_modifierFogOfWar || g_visibleTiles[entry.toX][entry.toY]);
 
-				// 2. Draw walked path dots
+				if (showFrom) drawTileGlow(entry.fromX, entry.fromY, ofColor(100, 180, 255, 180), 4.0f);
+				if (showTo) drawTileGlow(entry.toX, entry.toY, ofColor(100, 255, 100, 180), 4.0f);
+
+				// 2. Draw walked path dots (only for tiles currently visible in Line of Sight)
 				ofPushStyle();
 				ofEnableDepthTest();
 				glDepthMask(GL_FALSE);
 				ofSetColor(0, 255, 100, 195);
 				for (size_t p = 1; p < entry.movementPath.size(); p++) {
-					glm::vec3 stepPos = gridToWorld((int)entry.movementPath[p].x, (int)entry.movementPath[p].y);
+					int sx = (int)entry.movementPath[p].x;
+					int sy = (int)entry.movementPath[p].y;
+					if (g_modifierFogOfWar && !g_visibleTiles[sx][sy]) continue;
+
+					glm::vec3 stepPos = gridToWorld(sx, sy);
 					float h = 0.08f;
-					if (board[(int)entry.movementPath[p].x][(int)entry.movementPath[p].y].hasWall) {
+					if (board[sx][sy].hasWall) {
 						h = (TILE_SIZE * 0.5f) + 0.08f;
 					}
 					ofPushMatrix();
@@ -13527,70 +13591,72 @@ void ofApp::drawGame() {
 				glDepthMask(GL_TRUE);
 				safePopStyle();
 
-				// 3. Draw semi-transparent model of the actor at the starting tile (resolved via stable ID)
-				int foundIdx = -1;
-				for (int i = 0; i < (int)players.size(); ++i) {
-					if (players[i].playerID == entry.actorPlayerID) {
-						foundIdx = i;
-						break;
+				// 3. Draw semi-transparent model of the actor only if starting tile was in sight
+				if (showFrom) {
+					int foundIdx = -1;
+					for (int i = 0; i < (int)players.size(); ++i) {
+						if (players[i].playerID == entry.actorPlayerID) {
+							foundIdx = i;
+							break;
+						}
 					}
-				}
 
-				if (foundIdx != -1) {
-					const Player & p = players[foundIdx];
-					ofxAssimpModelLoader * currentModel = &playerModel;
-					if (p.inTortoiseForm)
-						currentModel = &tortoiseModel;
-					else if (p.inGhostForm)
-						currentModel = &ghostModel;
-					else if (p.isSkeleton)
-						currentModel = &skeletonModel;
-					else if (p.isGolem)
-						currentModel = &golemModel;
-					else if (p.isWolf)
-						currentModel = &wolfModel;
-					else if (p.isHellhound)
-						currentModel = &hellhoundModel;
-					else if (p.isDemon)
-						currentModel = &demonModel;
-					else if (p.isKobold)
-						currentModel = &koboldModel;
-					else if (p.isKoboldKing)
-						currentModel = &koboldKingModel;
-					else if (p.isFaerie)
-						currentModel = &faerieModel;
-					else if (p.isWallUnit)
-						currentModel = &wallUnitModel;
-					else if (p.isAssistant)
-						currentModel = &assistantModel;
+					if (foundIdx != -1) {
+						const Player & p = players[foundIdx];
+						ofxAssimpModelLoader * currentModel = &playerModel;
+						if (p.inTortoiseForm)
+							currentModel = &tortoiseModel;
+						else if (p.inGhostForm)
+							currentModel = &ghostModel;
+						else if (p.isSkeleton)
+							currentModel = &skeletonModel;
+						else if (p.isGolem)
+							currentModel = &golemModel;
+						else if (p.isWolf)
+							currentModel = &wolfModel;
+						else if (p.isHellhound)
+							currentModel = &hellhoundModel;
+						else if (p.isDemon)
+							currentModel = &demonModel;
+						else if (p.isKobold)
+							currentModel = &koboldModel;
+						else if (p.isKoboldKing)
+							currentModel = &koboldKingModel;
+						else if (p.isFaerie)
+							currentModel = &faerieModel;
+						else if (p.isWallUnit)
+							currentModel = &wallUnitModel;
+						else if (p.isAssistant)
+							currentModel = &assistantModel;
 
-					glm::vec3 startWorld = gridToWorld(entry.fromX, entry.fromY);
-					glm::mat4 modelMat(1.0f);
-					modelMat = glm::translate(modelMat, glm::vec3(startWorld.x, 0.0f, startWorld.z));
-					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(p.facingAngle), glm::vec3(0, 1, 0));
-					float modelVisualScale = 0.02f;
-					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
+						glm::vec3 startWorld = gridToWorld(entry.fromX, entry.fromY);
+						glm::mat4 modelMat(1.0f);
+						modelMat = glm::translate(modelMat, glm::vec3(startWorld.x, 0.0f, startWorld.z));
+						modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(p.facingAngle), glm::vec3(0, 1, 0));
+						float modelVisualScale = 0.02f;
+						modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(modelVisualScale, -modelVisualScale, modelVisualScale));
 
-					ofPushStyle();
-					safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-					ofSetColor(255, 255, 255, 110); // Translucent ghostly model
-					ofEnableDepthTest();
-					glDepthMask(GL_FALSE);
+						ofPushStyle();
+						safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+						ofSetColor(255, 255, 255, 110); // Translucent ghostly model
+						ofEnableDepthTest();
+						glDepthMask(GL_FALSE);
 
-					ofPushMatrix();
-					ofMultMatrix(modelMat);
-					ofMultMatrix(currentModel->getModelMatrix());
-					for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
 						ofPushMatrix();
-						ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
-						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+						ofMultMatrix(modelMat);
+						ofMultMatrix(currentModel->getModelMatrix());
+						for (unsigned int mi = 0; mi < currentModel->getMeshCount(); ++mi) {
+							ofPushMatrix();
+							ofMultMatrix(currentModel->getMeshHelper(mi).matrix);
+							currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
+							ofPopMatrix();
+						}
 						ofPopMatrix();
-					}
-					ofPopMatrix();
 
-					glDepthMask(GL_TRUE);
-					safeDisableBlendMode();
-					safePopStyle();
+						glDepthMask(GL_TRUE);
+						safeDisableBlendMode();
+						safePopStyle();
+					}
 				}
 			} else if (entry.hasTracers && entry.casterX != -1 && entry.targetX != -1) {
 				// Outline both cast and target tiles
@@ -13998,13 +14064,20 @@ void ofApp::drawGame() {
 						float u = 1.0f - t;
 						glm::vec3 blockPos = (u * u) * startPos + (2.0f * u * t) * cp + (t * t) * worldTarget;
 
-						// Fade/hide blocks too close to the start or end
 						float distToTarget = glm::distance(blockPos, worldTarget);
 						float distToStart = glm::distance(blockPos, startPos);
 
-						// Ensure lines end well before the chevron head, and start outside the unit
 						if (distToTarget < keepOutTarget) continue;
 						if (distToStart < keepOutStart) continue;
+
+						// FOG OF WAR: If drawing an opponent's arrow, only draw blocks on tiles in your Line of Sight!
+						if (g_modifierFogOfWar && !isCurrentPlayerLocal()) {
+							glm::vec2 bGrid = worldToGrid(blockPos);
+							int bgx = (int)bGrid.x, bgy = (int)bGrid.y;
+							if (bgx < 0 || bgx >= BOARD_WIDTH || bgy < 0 || bgy >= BOARD_HEIGHT || !g_visibleTiles[bgx][bgy]) {
+								continue;
+							}
+						}
 
 						// Tangent for aiming
 						glm::vec3 tangent = glm::normalize(2.0f * u * (cp - startPos) + 2.0f * t * (worldTarget - cp));
@@ -14036,93 +14109,103 @@ void ofApp::drawGame() {
 						ofPopMatrix();
 					}
 
-					// --- 2. 3D ARROW HEAD (Tilted to match the curve trajectory) ---
-					ofPushMatrix();
-
-					// Position the tip just outside the target ring with a clear gap
-					glm::vec3 headPos = worldTarget - tangentEnd * pushBackDist;
-					ofTranslate(headPos.x, headPos.y, headPos.z);
-
-					// Build rotation matrix matching the 3D curve exactly
-					glm::vec3 rightHead = glm::normalize(glm::cross(tangentEnd, glm::vec3(0, 1, 0)));
-					if (glm::length(rightHead) < 0.001f) rightHead = glm::vec3(1, 0, 0);
-					glm::vec3 upHead = glm::normalize(glm::cross(rightHead, tangentEnd));
-					glm::vec3 forwardHead = tangentEnd;
-
-					glm::mat4 rotHead(
-						rightHead.x, rightHead.y, rightHead.z, 0,
-						upHead.x, upHead.y, upHead.z, 0,
-						forwardHead.x, forwardHead.y, forwardHead.z, 0,
-						0, 0, 0, 1);
-					ofMultMatrix(rotHead);
-
-					float aw = TILE_SIZE * 0.35f; // Width
-					float al = TILE_SIZE * 0.5f; // Length
-					float ai = TILE_SIZE * 0.2f; // Indent
-
-					ofMesh headFill;
-					headFill.setMode(OF_PRIMITIVE_TRIANGLES);
-					ofMesh headLine;
-					headLine.setMode(OF_PRIMITIVE_LINE_LOOP);
-
-					// Ensure pTip is at the exact origin so the translation places the tip exactly at the gap
-					glm::vec3 pTip(0, 0, 0);
-					glm::vec3 pLeft(-aw, 0, -al);
-					glm::vec3 pRight(aw, 0, -al);
-					glm::vec3 pIndent(0, 0, -al + ai);
-
-					headFill.addVertex(pTip);
-					headFill.addVertex(pLeft);
-					headFill.addVertex(pIndent);
-					headFill.addVertex(pTip);
-					headFill.addVertex(pIndent);
-					headFill.addVertex(pRight);
-
-					// We no longer need the 1-pixel line mesh.
-					// Draw a slightly larger dark head behind the colored one for a true geometric outline!
-					ofPushMatrix();
-					ofScale(1.15f, 1.0f, 1.15f);
-					ofTranslate(0, -0.05f, 0);
-					ofSetColor(0, 0, 0, arrowCol.a + 50);
-					headFill.draw();
-					ofPopMatrix();
-
-					// Draw the actual colored arrow head on top
-					ofSetColor(arrowCol);
-					headFill.draw();
-					ofPopMatrix();
-
-					// --- 3. LARGE STATIC TARGET RING ---
-					ofPushMatrix();
-					ofTranslate(worldTarget.x, worldTarget.y + 0.05f, worldTarget.z);
-					ofRotateXDeg(90);
-
-					auto drawThickRing = [](float radius, float thickness) {
-						ofMesh ring;
-						ring.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
-						int res = 64;
-						for (int i = 0; i <= res; ++i) {
-							float angle = TWO_PI * i / res;
-							float cx = cos(angle);
-							float cy = sin(angle);
-							ring.addVertex(glm::vec3(cx * (radius - thickness / 2.0f), cy * (radius - thickness / 2.0f), 0));
-							ring.addVertex(glm::vec3(cx * (radius + thickness / 2.0f), cy * (radius + thickness / 2.0f), 0));
+					// Check target tile visibility in Fog of War before drawing arrowhead or ring
+					bool targetTileInSight = true;
+					if (g_modifierFogOfWar && !isCurrentPlayerLocal()) {
+						glm::vec2 tGrid = worldToGrid(worldTarget);
+						int tgx = (int)tGrid.x;
+						int tgy = (int)tGrid.y;
+						if (tgx < 0 || tgx >= BOARD_WIDTH || tgy < 0 || tgy >= BOARD_HEIGHT || !g_visibleTiles[tgx][tgy]) {
+							targetTileInSight = false;
 						}
-						ring.draw();
-					};
+					}
 
-					ofFill();
-					// Black border rings
-					ofSetColor(0, 0, 0, arrowCol.a);
-					drawThickRing(ringRadius, TILE_SIZE * 0.15f);
-					drawThickRing(TILE_SIZE * 0.1f, TILE_SIZE * 0.05f);
+					if (targetTileInSight) {
+						// --- 2. 3D ARROW HEAD (Tilted to match the curve trajectory) ---
+						ofPushMatrix();
 
-					// Colored inner rings
-					ofSetColor(arrowCol);
-					drawThickRing(ringRadius, TILE_SIZE * 0.08f);
-					drawThickRing(TILE_SIZE * 0.1f, TILE_SIZE * 0.03f);
+						// Position the tip just outside the target ring with a clear gap
+						glm::vec3 headPos = worldTarget - tangentEnd * pushBackDist;
+						ofTranslate(headPos.x, headPos.y, headPos.z);
 
-					ofPopMatrix();
+						// Build rotation matrix matching the 3D curve exactly
+						glm::vec3 rightHead = glm::normalize(glm::cross(tangentEnd, glm::vec3(0, 1, 0)));
+						if (glm::length(rightHead) < 0.001f) rightHead = glm::vec3(1, 0, 0);
+						glm::vec3 upHead = glm::normalize(glm::cross(rightHead, tangentEnd));
+						glm::vec3 forwardHead = tangentEnd;
+
+						glm::mat4 rotHead(
+							rightHead.x, rightHead.y, rightHead.z, 0,
+							upHead.x, upHead.y, upHead.z, 0,
+							forwardHead.x, forwardHead.y, forwardHead.z, 0,
+							0, 0, 0, 1);
+						ofMultMatrix(rotHead);
+
+						float aw = TILE_SIZE * 0.35f; // Width
+						float al = TILE_SIZE * 0.5f; // Length
+						float ai = TILE_SIZE * 0.2f; // Indent
+
+						ofMesh headFill;
+						headFill.setMode(OF_PRIMITIVE_TRIANGLES);
+
+						// Ensure pTip is at the exact origin so the translation places the tip exactly at the gap
+						glm::vec3 pTip(0, 0, 0);
+						glm::vec3 pLeft(-aw, 0, -al);
+						glm::vec3 pRight(aw, 0, -al);
+						glm::vec3 pIndent(0, 0, -al + ai);
+
+						headFill.addVertex(pTip);
+						headFill.addVertex(pLeft);
+						headFill.addVertex(pIndent);
+						headFill.addVertex(pTip);
+						headFill.addVertex(pIndent);
+						headFill.addVertex(pRight);
+
+						// Draw black outline geometry
+						ofPushMatrix();
+						ofScale(1.15f, 1.0f, 1.15f);
+						ofTranslate(0, -0.05f, 0);
+						ofSetColor(0, 0, 0, arrowCol.a + 50);
+						headFill.draw();
+						ofPopMatrix();
+
+						// Draw colored arrowhead on top
+						ofSetColor(arrowCol);
+						headFill.draw();
+						ofPopMatrix();
+
+						// --- 3. LARGE STATIC TARGET RING ---
+						ofPushMatrix();
+						ofTranslate(worldTarget.x, worldTarget.y + 0.05f, worldTarget.z);
+						ofRotateXDeg(90);
+
+						auto drawThickRing = [](float radius, float thickness) {
+							ofMesh ring;
+							ring.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+							int res = 64;
+							for (int i = 0; i <= res; ++i) {
+								float angle = TWO_PI * i / res;
+								float cx = cos(angle);
+								float cy = sin(angle);
+								ring.addVertex(glm::vec3(cx * (radius - thickness / 2.0f), cy * (radius - thickness / 2.0f), 0));
+								ring.addVertex(glm::vec3(cx * (radius + thickness / 2.0f), cy * (radius + thickness / 2.0f), 0));
+							}
+							ring.draw();
+						};
+
+						ofFill();
+						// Black border rings
+						ofSetColor(0, 0, 0, arrowCol.a);
+						drawThickRing(ringRadius, TILE_SIZE * 0.15f);
+						drawThickRing(TILE_SIZE * 0.1f, TILE_SIZE * 0.05f);
+
+						// Colored inner rings
+						ofSetColor(arrowCol);
+						drawThickRing(ringRadius, TILE_SIZE * 0.08f);
+						drawThickRing(TILE_SIZE * 0.1f, TILE_SIZE * 0.03f);
+
+						ofPopMatrix();
+					}
 				}
 			}
 			safePopStyle();
@@ -16231,17 +16314,26 @@ void ofApp::mouseMoved(int x, int y) {
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
 			if (!isTargetingMode && board[gx][gy].hasPlayer && newHoverType == HOVER_NONE) {
-				// Find which player/minion is at this position
-				for (int i = 0; i < (int)players.size(); ++i) {
-					if (players[i].x == gx && players[i].y == gy) {
-						newHoverType = HOVER_UNIT;
-						newHoverGridX = gx;
-						newHoverGridY = gy;
-						// Set cursor to click if hovering local player's unit
-						if (players[i].playerID == myLocalPlayerID) {
-							currentCursor = CURSOR_CLICK;
+				// FOG OF WAR CHECK: Do not allow hovering units through the fog
+				bool tileVisible = true;
+				if (g_modifierFogOfWar && !g_visibleTiles[gx][gy]) {
+					int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+					if (!g_isSpectator && localTeam != 255) {
+						tileVisible = false;
+					}
+				}
+
+				if (tileVisible) {
+					for (int i = 0; i < (int)players.size(); ++i) {
+						if (players[i].x == gx && players[i].y == gy) {
+							newHoverType = HOVER_UNIT;
+							newHoverGridX = gx;
+							newHoverGridY = gy;
+							if (players[i].playerID == myLocalPlayerID) {
+								currentCursor = CURSOR_CLICK;
+							}
+							break;
 						}
-						break;
 					}
 				}
 			}
@@ -29436,62 +29528,74 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::SPAWN_UNIT: {
-		int tx = op.data.spawnUnit.toX;
-		int ty = op.data.spawnUnit.toY;
-		int sk = op.data.spawnUnit.summonKind;
-		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-			if (!board[tx][ty].hasPlayer) {
-				int maxHP = (op.data.spawnUnit.maxHealthFromSlot >= 0) ? currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot] : op.data.spawnUnit.maxHealth;
-				int ap = op.data.spawnUnit.ap;
-				int summonerID = op.data.spawnUnit.summonerPlayerID;
-				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
-				if (spawned) {
-					// If variant > 100, restore the explicit resurrected ID and prevent nextSummonOrder counter drift
-					if (op.data.spawnUnit.variant > 100) {
-						spawned->playerID = op.data.spawnUnit.variant;
-						spawned->summonOrder = op.data.spawnUnit.variant - 100;
-						if (nextSummonOrder > 0) {
-							nextSummonOrder--; // Roll back counter since an existing ID was re-used
-						}
-					}
-
-					// TRACK STATS: Minions Spawned
-					int owner = op.data.spawnUnit.ownerPlayerID;
-					if (owner >= 0 && owner <= 3) matchStats[owner].minionsSpawned++;
-					int newIdx = findPlayerIndexByID(spawned->playerID);
-					// Deterministic key pickup check for spawn-on-key scenarios
-					// (e.g., Raise Dead / Call for Wolves spawning directly on a key tile).
-					checkKeyPickupAndDraftAfterSummon(tx, ty, spawned->ownerID, newIdx);
-					// Resolve targetIndex = -1 for subsequent ADD_CARD_TO_DECK ops to apply to this specific minion
-					for (size_t i = currentEffectSequence.currentOp + 1; i < currentEffectSequence.ops.size(); ++i) {
-						if (currentEffectSequence.ops[i].type == EffectOpType::ADD_CARD_TO_DECK && currentEffectSequence.ops[i].data.addCard.targetIndex == -1) {
-							currentEffectSequence.ops[i].data.addCard.targetIndex = newIdx;
-						}
-					}
-					if (newIdx >= 0 && sk == 8) { // GOLEM
-						int variant = op.data.spawnUnit.variant;
-						if (variant == 3)
-							players[newIdx].minionTexture = &golemTexElectric;
-						else if (variant == 2)
-							players[newIdx].minionTexture = &golemTexFire;
-						else if (variant == 1)
-							players[newIdx].minionTexture = &golemTexRock;
-						else
-							players[newIdx].minionTexture = &golemTexBase;
-					}
-
-					// Deterministic shuffle for newly spawned minion's deck
-					if (newIdx >= 0 && !players[newIdx].deck.empty()) {
-						deterministic_shuffle_gameplay(players[newIdx].deck);
-					}
-					addGameLog(getPlayerSteamName(op.data.spawnUnit.ownerPlayerID) + " summoned unit kind " + std::to_string(sk) + " at (" + std::to_string(tx) + "," + std::to_string(ty) + ")");
-				}
-			} else {
-				// If a minion already exists at this tile, update authoritative stats
+			int tx = op.data.spawnUnit.toX;
+			int ty = op.data.spawnUnit.toY;
+			int sk = op.data.spawnUnit.summonKind;
+			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+				
+				// CRITICAL FIX: Do not rely on board[tx][ty].hasPlayer because placement clicks
+				// preemptively set it to true! Always check the authoritative players array directly.
+				int existingUnitIdx = -1;
 				for (size_t pi = 0; pi < players.size(); ++pi) {
-					auto & p = players[pi];
-					if (p.x == tx && p.y == ty && p.isMinion) {
-						int tgtIdx = (int)pi;
+					if (players[pi].x == tx && players[pi].y == ty && players[pi].health > 0) {
+						existingUnitIdx = (int)pi;
+						break;
+					}
+				}
+
+				if (existingUnitIdx == -1) {
+					int maxHP = (op.data.spawnUnit.maxHealthFromSlot >= 0) ? currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot] : op.data.spawnUnit.maxHealth;
+					int ap = op.data.spawnUnit.ap;
+					int summonerID = op.data.spawnUnit.summonerPlayerID;
+					Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
+					if (spawned) {
+						// If variant > 100, restore the explicit resurrected ID and prevent nextSummonOrder counter drift
+						if (op.data.spawnUnit.variant > 100) {
+							spawned->playerID = op.data.spawnUnit.variant;
+							spawned->summonOrder = op.data.spawnUnit.variant - 100;
+							if (nextSummonOrder > 0) {
+								nextSummonOrder--; // Roll back counter since an existing ID was re-used
+							}
+						}
+
+						// TRACK STATS: Minions Spawned
+						int owner = op.data.spawnUnit.ownerPlayerID;
+						if (owner >= 0 && owner <= 3) matchStats[owner].minionsSpawned++;
+						int newIdx = findPlayerIndexByID(spawned->playerID);
+						
+						// Deterministic key pickup check for spawn-on-key scenarios
+						checkKeyPickupAndDraftAfterSummon(tx, ty, spawned->ownerID, newIdx);
+						
+						// Resolve targetIndex = -1 for subsequent ADD_CARD_TO_DECK ops to apply to this specific minion
+						for (size_t i = currentEffectSequence.currentOp + 1; i < currentEffectSequence.ops.size(); ++i) {
+							if (currentEffectSequence.ops[i].type == EffectOpType::ADD_CARD_TO_DECK && currentEffectSequence.ops[i].data.addCard.targetIndex == -1) {
+								currentEffectSequence.ops[i].data.addCard.targetIndex = newIdx;
+							}
+						}
+						
+						if (newIdx >= 0 && sk == 8) { // GOLEM
+							int variant = op.data.spawnUnit.variant;
+							if (variant == 3)
+								players[newIdx].minionTexture = &golemTexElectric;
+							else if (variant == 2)
+								players[newIdx].minionTexture = &golemTexFire;
+							else if (variant == 1)
+								players[newIdx].minionTexture = &golemTexRock;
+							else
+								players[newIdx].minionTexture = &golemTexBase;
+						}
+
+						// Deterministic shuffle for newly spawned minion's deck
+						if (newIdx >= 0 && !players[newIdx].deck.empty()) {
+							deterministic_shuffle_gameplay(players[newIdx].deck);
+						}
+						addGameLog(getPlayerSteamName(op.data.spawnUnit.ownerPlayerID) + " summoned unit kind " + std::to_string(sk) + " at (" + std::to_string(tx) + "," + std::to_string(ty) + ")");
+					}
+				} else {
+					// If a minion already exists at this tile, update authoritative stats
+					auto & p = players[existingUnitIdx];
+					if (p.isMinion) {
+						int tgtIdx = existingUnitIdx;
 						int newMax = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : p.maxHealth;
 						if (newMax != p.maxHealth) {
 							EffectOp setMax = {};
@@ -29521,13 +29625,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 							setAp.data.modifyStat.deltaFromSlot = -1;
 							queueEffect(setAp);
 						}
-						break;
 					}
 				}
 			}
-		}
-		opComplete = true;
-		break;
+			opComplete = true;
+			break;
 	}
 
 	case EffectOpType::HEAL: {
@@ -40062,37 +40164,24 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// Keeps template base image if markdown build fails.
 	// FIX: Skip generating this 10,500x10,500 image atlas in headless mode to save 440MB of RAM per instance!
 	if (!headless) {
-		const std::string atlasPath = "UI/card_sprite_generated.png";
 		const std::string textAtlasPath = "UI/card_text_generated.png";
 
-		// OPTIMIZATION: Attempt to load pre-baked atlas from disk FIRST to save 5+ seconds!
-		if (ofFile(atlasPath).exists() && ofFile(textAtlasPath).exists() && cardSpriteSheet.load(atlasPath) && g_cardTextSpriteSheet.load(textAtlasPath)) {
-
+		const std::string cardTemplatePath = findCardTemplatePath();
+		if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet, g_cardTextSpriteSheet)) {
 			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-			g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-			g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			if (g_cardTextSpriteSheet.isAllocated()) {
+				g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
-			ofLogNotice("Cards") << "Loaded pre-baked card atlas directly from disk. Skipping generation!";
-		} else {
-			ofLogNotice("Cards") << "Pre-baked atlas not found. Generating new atlas... (This will take a few seconds)";
-			const std::string cardTemplatePath = findCardTemplatePath();
-			if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, cardEffectFont, cardSpriteSheet, g_cardTextSpriteSheet)) {
-				cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-				cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-				if (g_cardTextSpriteSheet.isAllocated()) {
-					g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-					g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-
-					// Save the text atlas too, so we can load it instantly next time
-					ofPixels textPix;
-					g_cardTextSpriteSheet.getTexture().readToPixels(textPix);
-					ofSaveImage(textPix, textAtlasPath);
-				}
-				ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
-			} else {
-				ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
+				// Save the text atlas too, so we can load it instantly next time
+				ofPixels textPix;
+				g_cardTextSpriteSheet.getTexture().readToPixels(textPix);
+				ofSaveImage(textPix, textAtlasPath);
 			}
+			ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
+		} else {
+			ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
 		}
 	}
 }
