@@ -4726,7 +4726,11 @@ void ofApp::setup() {
 
 				for (const auto & sp : searchPaths) {
 					if (ofFile(sp).exists()) {
-						if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_DEFAULT)) {
+						// CRITICAL FIX: Use OPTIMIZE_NONE instead of OPTIMIZE_DEFAULT!
+						// OPTIMIZE_DEFAULT triggers Assimp's "JoinIdenticalVertices" algorithm,
+						// which is extremely slow on complex rigged FBX models and causes 10+ second startup times.
+						// OPTIMIZE_NONE still triangulates and generates normals, but skips the heavy CPU geometry welding.
+						if (model.load(sp, ofxAssimpModelLoader::OPTIMIZE_NONE)) {
 							ofLogNotice("Models") << "Loaded: " << sp << " (Meshes: " << model.getMeshCount() << ")";
 
 							// CRITICAL FIX: Generate Mipmaps for the model textures!
