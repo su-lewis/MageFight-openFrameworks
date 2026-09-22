@@ -796,8 +796,7 @@ static std::vector<std::string> s_ambienceTracks = {
 	"Sounds/Music/gilweed_pomengranete.mp3",
 	"Sounds/Music/hatetrees.mp3",
 	"Sounds/Music/ihatewalls.mp3",
-	"Sounds/Music/Ramen_Numeral.mp3",
-	"Sounds/Music/Skeleton_Realm.mp3"
+	"Sounds/Music/Ramen_Numeral.mp3"
 };
 static std::vector<int> s_ambiencePlaylist;
 static float savedGameMusicVolume = 0.0f;
@@ -3153,8 +3152,17 @@ void ofApp::startInitiativePhase() {
 	matchTurnOrder.clear();
 	matchPlacementOrder.clear();
 
-	int numPlayers = isMultiplayer ? g_lobbyPlayers.size() : 2;
+	// CRASH FIX: Abort if players array was never populated.
+	// This can happen on client-side races when StartMatch arrives before lobby state.
+	if (players.empty()) {
+		ofLogError("Initiative") << "startInitiativePhase() aborted: players array is empty!";
+		return;
+	}
+
+	// CRASH FIX: Clamp numPlayers to actual players.size() to prevent out-of-bounds blackboard writes.
+	int numPlayers = isMultiplayer ? (int)g_lobbyPlayers.size() : 2;
 	if (numPlayers == 0) numPlayers = 2; // Failsafe
+	numPlayers = std::min(numPlayers, (int)players.size()); // Never exceed actual array size
 
 	struct PlayerRoll {
 		int playerID;
@@ -3177,7 +3185,10 @@ void ofApp::startInitiativePhase() {
 
 		rolls.push_back({ realPlayerID, r, tb });
 
-		currentEffectSequence.blackboard[i] = r; // Store for visual UI
+		// CRASH FIX: Bounds-check blackboard write (size is 16).
+		if (i >= 0 && i < 16) {
+			currentEffectSequence.blackboard[i] = r; // Store for visual UI
+		}
 
 		// Find where this player is standing to spawn the die
 		for (const auto & p : players) {
@@ -4730,26 +4741,20 @@ void ofApp::setup() {
 	setenv("SteamGameId", "4329880", 1);
 #endif
 
-	// --- 1. STEAM DRM LAUNCH ENFORCEMENT ---
-	if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr) {
-		if (SteamAPI_RestartAppIfNecessary(k_uSteamAppId)) {
-			ofLogNotice("SteamDRM") << "RestartAppIfNecessary returned true. Exiting to relaunch via Steam client...";
-			std::exit(0);
-			return;
-		}
-	}
-
+	// Initialize Steam SDK (fails gracefully if Steam is not running)
 	steamManager.setup();
 
-	// --- 2. STEAM LICENSE & OWNERSHIP CHECK ---
-	if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr && steamManager.isConnected()) {
-		if (SteamApps() && !SteamApps()->BIsSubscribed()) {
-			ofLogError("SteamDRM") << "Unauthorized user: Active Steam account does not own a license for App ID " << k_uSteamAppId;
+	if (steamManager.isConnected()) {
+		ofLogNotice("Steam") << "Steam integration active.";
+		// Verify license if connected
+		if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr && SteamApps() && !SteamApps()->BIsSubscribed()) {
+			ofLogError("SteamDRM") << "Active Steam account does not own App ID " << k_uSteamAppId;
 			std::exit(0);
 			return;
 		}
+	} else {
+		ofLogWarning("Steam") << "Steam is not running. Running in offline/standalone mode.";
 	}
-
 	// Headless mode: when `MAGEFIGHT_HEADLESS` is set, skip rendering and texture operations.
 	if (std::getenv("MAGEFIGHT_HEADLESS") != nullptr) {
 		headless = true;
@@ -5972,14 +5977,15 @@ void ofApp::update() {
 	}
 
 	// --- STEP 3: POLL ELO AS SOON AS STEAM CLOUD STATS ARE READY ---
-	if (myElo <= 0 && steamManager.isConnected()) {
+	static float lastEloPollTimeFast = 0.0f;
+	if (myElo <= 0 && steamManager.isConnected() && ofGetElapsedTimef() - lastEloPollTimeFast > 1.0f) {
+		lastEloPollTimeFast = ofGetElapsedTimef();
 		int fetchedElo = steamManager.getLocalElo();
 		if (fetchedElo > 0) {
 			myElo = fetchedElo;
 			ofLogNotice("Elo") << "Steam Cloud stats loaded. Current ELO: " << myElo;
 		}
 	}
-
 	// Lobby Connection Timeout Watchdog
 	static float connectStartTime = 0.0f;
 	if (g_isConnectingToLobby) {
@@ -6357,7 +6363,8 @@ void ofApp::update() {
 					for (size_t i = 0; i < s_ambienceTracks.size(); i++) {
 						s_ambiencePlaylist.push_back(i);
 					}
-					std::mt19937 g((uint32_t)ofGetSystemTimeMillis());
+					// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
+					std::mt19937 g((uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF));
 					std::shuffle(s_ambiencePlaylist.begin(), s_ambiencePlaylist.end(), g);
 				}
 
@@ -6439,8 +6446,8 @@ void ofApp::update() {
 					if (!waitingForClientHandshake) {
 						ofLogNotice("Network") << "Host: Opponent found. Initiating Handshake.";
 						waitingForClientHandshake = true;
-						std::random_device rd;
-						localSeedComponent = rd();
+						// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
+						localSeedComponent = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 						myElo = steamManager.getLocalElo();
 
 						// FIX: Only generate and send the heavy Auth Session Ticket ONCE!
@@ -6476,8 +6483,8 @@ void ofApp::update() {
 					lastClientPingTime = ofGetElapsedTimef();
 
 					if (localSeedComponent == 0) {
-						std::random_device rd;
-						localSeedComponent = rd();
+						// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
+						localSeedComponent = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 					}
 					myElo = steamManager.getLocalElo();
 
@@ -6543,13 +6550,12 @@ void ofApp::update() {
 	case STATE_DESYNC:
 		break;
 	case STATE_MULTIPLAYER_MENU:
-		if (!g_inLobby && !g_isHostingLobby && !g_isConnectingToLobby) {
+		if (steamManager.isConnected() && !g_inLobby && !g_isHostingLobby && !g_isConnectingToLobby) {
 			float now = ofGetElapsedTimef();
 			if (now - g_lastLobbyRefreshTime > 2.0f) {
 				steamManager.refreshLobbies();
 				g_lastLobbyRefreshTime = now;
 			}
-			// Fetching leaderboards is a heavy API call; only do it every 15s to avoid Steam rate limits!
 			if (now - g_lastLeaderboardRefreshTime > 15.0f) {
 				steamManager.fetchLeaderboard();
 				g_lastLeaderboardRefreshTime = now;
@@ -8427,7 +8433,7 @@ void ofApp::drawMainMenu() {
 	float titleX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 	drawPixelTextCentered(titleFont, title, titleX, titleY, titleScale, ofColor::gold, 4, ofColor::black);
 
-	drawMenuPlaqueButton(mainMenuOnlineButton, _L("UI_BTN_ONLINE", "Online Versus"), mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), true);
+	drawMenuPlaqueButton(mainMenuOnlineButton, _L("UI_BTN_ONLINE", "Online Versus"), mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), false);
 	drawMenuPlaqueButton(mainMenuSingleplayerButton, _L("UI_BTN_SOLO", "Singleplayer"), mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuCustomisationButton, _L("UI_BTN_CUSTOM", "Customisation"), mainMenuCustomisationButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mainMenuEncyclopediaButton, _L("UI_BTN_RULES", "Rules & Cards"), mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
@@ -9096,94 +9102,115 @@ void ofApp::drawMultiplayerMenu() {
 	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
 	drawPixelTextCentered(titleFont, _L("UI_ONLINE_TITLE", "ONLINE VERSUS"), centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
 
+	bool isOnline = steamManager.isConnected();
+
 	// --- LOBBIES PANEL (Left) ---
 	drawMenuPlaquePanel(mpLobbiesPanelRect);
 
-	glEnable(GL_SCISSOR_TEST);
-	int scY = g_isFboPass ? (mpLobbiesPanelRect.y + 4) : (ofGetHeight() - (mpLobbiesPanelRect.getBottom() - 4));
-	glScissor(mpLobbiesPanelRect.x + 4, scY, mpLobbiesPanelRect.width - 8, mpLobbiesPanelRect.height - 8);
-
-	auto lobbies = steamManager.getLobbyList();
-	mpLobbyButtons.clear();
-
-	if (lobbies.empty()) {
-		drawPixelTextCentered(uiFont, "No open matches found.", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y, 1.0f, ofColor(150));
+	if (!isOnline) {
+		// Greyed-out overlay when Steam is offline
+		ofPushStyle();
+		ofSetColor(20, 20, 25, 200);
+		ofDrawRectRounded(mpLobbiesPanelRect.x + 4, mpLobbiesPanelRect.y + 4, mpLobbiesPanelRect.width - 8, mpLobbiesPanelRect.height - 8, 8);
+		drawPixelTextCentered(uiFont, "Steam Offline", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y - 12.0f * uiScale, 1.1f * uiScale, ofColor(180, 180, 180));
+		drawPixelTextCentered(uiFont, "Online lobbies unavailable", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y + 16.0f * uiScale, 0.85f * uiScale, ofColor(130, 130, 130));
+		safePopStyle();
+		mpLobbyButtons.clear();
 	} else {
-		float currentY = mpLobbiesPanelRect.y + 10 - g_mpLobbyScroll;
-		float itemH = 60.0f * uiScale;
-		for (size_t i = 0; i < lobbies.size(); ++i) {
-			ofRectangle lRect(mpLobbiesPanelRect.x + 10, currentY, mpLobbiesPanelRect.width - 20, itemH);
+		glEnable(GL_SCISSOR_TEST);
+		int scY = g_isFboPass ? (mpLobbiesPanelRect.y + 4) : (ofGetHeight() - (mpLobbiesPanelRect.getBottom() - 4));
+		glScissor(mpLobbiesPanelRect.x + 4, scY, mpLobbiesPanelRect.width - 8, mpLobbiesPanelRect.height - 8);
 
-			if (lRect.getBottom() > mpLobbiesPanelRect.y && lRect.getTop() < mpLobbiesPanelRect.getBottom()) {
-				mpLobbyButtons.push_back(lRect);
-				bool isHovered = lRect.inside(ofGetMouseX(), ofGetMouseY());
-				if (isHovered) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
+		auto lobbies = steamManager.getLobbyList();
+		mpLobbyButtons.clear();
 
-				bool inProgress = (lobbies[i].numPlayers >= 4);
-				std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
-				lobbyText += inProgress ? " [SPECTATE]" : " [JOIN]";
+		if (lobbies.empty()) {
+			drawPixelTextCentered(uiFont, "No open matches found.", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y, 1.0f, ofColor(150));
+		} else {
+			float currentY = mpLobbiesPanelRect.y + 10 - g_mpLobbyScroll;
+			float itemH = 60.0f * uiScale;
+			for (size_t i = 0; i < lobbies.size(); ++i) {
+				ofRectangle lRect(mpLobbiesPanelRect.x + 10, currentY, mpLobbiesPanelRect.width - 20, itemH);
 
-				drawMenuPlaqueButton(lRect, lobbyText, isHovered);
-			} else {
-				mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
+				if (lRect.getBottom() > mpLobbiesPanelRect.y && lRect.getTop() < mpLobbiesPanelRect.getBottom()) {
+					mpLobbyButtons.push_back(lRect);
+					bool isHovered = lRect.inside(ofGetMouseX(), ofGetMouseY());
+					if (isHovered) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
+
+					bool inProgress = (lobbies[i].numPlayers >= 4);
+					std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
+					lobbyText += inProgress ? " [SPECTATE]" : " [JOIN]";
+
+					drawMenuPlaqueButton(lRect, lobbyText, isHovered);
+				} else {
+					mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
+				}
+
+				currentY += itemH + 10.0f * uiScale;
 			}
-
-			currentY += itemH + 10.0f * uiScale;
 		}
+		glDisable(GL_SCISSOR_TEST);
 	}
-	glDisable(GL_SCISSOR_TEST);
 
 	// --- LEADERBOARD PANEL (Right) ---
 	drawMenuPlaquePanel(mpLeaderboardPanelRect);
 
-	glEnable(GL_SCISSOR_TEST);
-	int lbScY = g_isFboPass ? (mpLeaderboardPanelRect.y + 4) : (ofGetHeight() - (mpLeaderboardPanelRect.getBottom() - 4));
-	glScissor(mpLeaderboardPanelRect.x + 4, lbScY, mpLeaderboardPanelRect.width - 8, mpLeaderboardPanelRect.height - 8);
-
-	auto leaderboard = steamManager.getLeaderboardEntries();
-	if (leaderboard.empty()) {
-		float elapsedSinceRefresh = ofGetElapsedTimef() - g_lastLeaderboardRefreshTime;
-		std::string statusMsg = (elapsedSinceRefresh < 3.0f) ? "Loading rankings..." : "No ranked entries found";
-		drawPixelTextCentered(uiFont, statusMsg, mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f, ofColor(150));
+	if (!isOnline) {
+		ofPushStyle();
+		ofSetColor(20, 20, 25, 200);
+		ofDrawRectRounded(mpLeaderboardPanelRect.x + 4, mpLeaderboardPanelRect.y + 4, mpLeaderboardPanelRect.width - 8, mpLeaderboardPanelRect.height - 8, 8);
+		drawPixelTextCentered(uiFont, "Steam Offline", mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f * uiScale, ofColor(150, 150, 150));
+		safePopStyle();
 	} else {
-		float lbY = mpLeaderboardPanelRect.y + 10 - g_mpLeaderboardScroll;
-		float itemH = 50.0f * uiScale;
-		for (const auto & entry : leaderboard) {
-			ofRectangle lbRect(mpLeaderboardPanelRect.x + 10, lbY, mpLeaderboardPanelRect.width - 20, itemH);
-			if (lbRect.getBottom() > mpLeaderboardPanelRect.y && lbRect.getTop() < mpLeaderboardPanelRect.getBottom()) {
+		glEnable(GL_SCISSOR_TEST);
+		int lbScY = g_isFboPass ? (mpLeaderboardPanelRect.y + 4) : (ofGetHeight() - (mpLeaderboardPanelRect.getBottom() - 4));
+		glScissor(mpLeaderboardPanelRect.x + 4, lbScY, mpLeaderboardPanelRect.width - 8, mpLeaderboardPanelRect.height - 8);
 
-				ofSetColor(30, 30, 35, 255);
-				ofDrawRectRounded(lbRect, 8);
-				ofNoFill();
-				ofSetLineWidth(2.0f);
-				ofSetColor(100, 100, 100);
-				ofDrawRectRounded(lbRect, 8);
-				ofFill();
+		auto leaderboard = steamManager.getLeaderboardEntries();
+		if (leaderboard.empty()) {
+			float elapsedSinceRefresh = ofGetElapsedTimef() - g_lastLeaderboardRefreshTime;
+			std::string statusMsg = (elapsedSinceRefresh < 3.0f) ? "Loading rankings..." : "No ranked entries found";
+			drawPixelTextCentered(uiFont, statusMsg, mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f, ofColor(150));
+		} else {
+			float lbY = mpLeaderboardPanelRect.y + 10 - g_mpLeaderboardScroll;
+			float itemH = 50.0f * uiScale;
+			for (const auto & entry : leaderboard) {
+				ofRectangle lbRect(mpLeaderboardPanelRect.x + 10, lbY, mpLeaderboardPanelRect.width - 20, itemH);
+				if (lbRect.getBottom() > mpLeaderboardPanelRect.y && lbRect.getTop() < mpLeaderboardPanelRect.getBottom()) {
 
-				drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), lbRect.x + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
+					ofSetColor(30, 30, 35, 255);
+					ofDrawRectRounded(lbRect, 8);
+					ofNoFill();
+					ofSetLineWidth(2.0f);
+					ofSetColor(100, 100, 100);
+					ofDrawRectRounded(lbRect, 8);
+					ofFill();
 
-				auto rank = getMageRank(entry.score);
+					drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), lbRect.x + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
 
-				float nameX = lbRect.x + 80 * uiScale;
-				drawPixelTextBaseline(uiFont, entry.name, nameX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
+					auto rank = getMageRank(entry.score);
 
-				std::string scoreStr = std::to_string(entry.score);
-				ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
-				float scoreX = lbRect.getRight() - sb.width - 20;
+					float nameX = lbRect.x + 80 * uiScale;
+					drawPixelTextBaseline(uiFont, entry.name, nameX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
 
-				drawPixelTextBaseline(uiFont, scoreStr, scoreX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
+					std::string scoreStr = std::to_string(entry.score);
+					ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
+					float scoreX = lbRect.getRight() - sb.width - 20;
 
-				std::string rankStr = "[" + rank.first + "]";
-				ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
-				drawPixelTextBaseline(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, rank.second);
+					drawPixelTextBaseline(uiFont, scoreStr, scoreX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
+
+					std::string rankStr = "[" + rank.first + "]";
+					ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
+					drawPixelTextBaseline(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, rank.second);
+				}
+				lbY += itemH + 5.0f * uiScale;
 			}
-			lbY += itemH + 5.0f * uiScale;
 		}
+		glDisable(GL_SCISSOR_TEST);
 	}
-	glDisable(GL_SCISSOR_TEST);
 
-	// Action Buttons
-	drawMenuPlaqueButton(mpRefreshButton, _L("UI_ONLINE_REFRESH", "Refresh List"), mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()));
+	// Action Buttons: Refresh is disabled if offline, Host and Back remain enabled
+	drawMenuPlaqueButton(mpRefreshButton, _L("UI_ONLINE_REFRESH", "Refresh List"), mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()), !isOnline);
 	drawMenuPlaqueButton(mpHostButton, _L("UI_ONLINE_HOST", "Host Match"), mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
 	drawMenuPlaqueButton(mpBackButton, _L("UI_BTN_BACK", "Back to Menu"), mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
@@ -9382,6 +9409,17 @@ void ofApp::recalculateUI(int w, int h) {
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	ensureModelsLoaded();
+
+	// --- CRASH FIX: Ensure lobby state is populated before building players ---
+	// If we're the client and haven't received the LobbyUpdate yet, abort setup.
+	// The host will resend lobby state, or the client will receive StartMatch again
+	// after the lobby packet arrives.
+	if (isMultiplayer && g_lobbyPlayers.empty()) {
+		ofLogError("Setup") << "setupGame() aborted: multiplayer but g_lobbyPlayers is empty!";
+		addGameLog("Waiting for lobby data...");
+		return;
+	}
+
 	// --- BULLETPROOF REMATCH RESET ---
 	nextSummonOrder = 0; // Reset the summon counter (fixes Global hash mismatch)
 	g_lastDamagerMap.clear(); // Purge damage/kill credits from previous matches
@@ -9677,6 +9715,13 @@ void ofApp::setupGame() {
 			}
 		}
 
+		// CRASH FIX: Ensure opponentElo has a valid value before arming the trap.
+		// If the lobby doesn't have an opponent yet (uninitialized), fall back to 1000.
+		if (opponentElo <= 0 || opponentElo > 5000) {
+			ofLogWarning("Setup") << "opponentElo invalid (" << opponentElo << "), defaulting to 1000";
+			opponentElo = 1000;
+		}
+
 		// ARM THE LEAVERBUSTER TRAP (SECURE STEAM BACKEND)
 		steamManager.armLeaverBuster(opponentElo);
 
@@ -9704,6 +9749,7 @@ void ofApp::setupGame() {
 	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
 	else {
 		if (!isReplayMode) { // <-- Prevent overwriting the replay's exact map seed!
+			// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 			currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 		}
 
@@ -17512,9 +17558,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				} else if (mainMenuEncyclopediaButton.inside(x, y)) {
 					clickedUI = true;
 					currentState = STATE_ENCYCLOPEDIA;
-				} else if (mainMenuOnlineButton.inside(x, y) && steamManager.isConnected()) {
+				} else if (mainMenuOnlineButton.inside(x, y)) {
 					clickedUI = true;
-					if (SteamUserStats()) {
+					if (steamManager.isConnected() && SteamUserStats()) {
 						int32_t expiryTime = 0;
 						SteamUserStats()->GetStat("ban_expiry_time", &expiryTime);
 						if ((int32_t)std::time(nullptr) < expiryTime) {
@@ -17525,8 +17571,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 					isVsAI = false;
 					isAIvsAI = false;
-					steamManager.refreshLobbies();
-					steamManager.fetchLeaderboard();
+					if (steamManager.isConnected()) {
+						steamManager.refreshLobbies();
+						steamManager.fetchLeaderboard();
+					}
 					navigateToMenu(-1, STATE_MULTIPLAYER_MENU);
 				} else if (mainMenuSettingsButton.inside(x, y)) {
 					clickedUI = true;
@@ -17623,7 +17671,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 							}
 							if (allReady) {
-								// FIX: std::random_device crashes MinGW/Windows. Use safe cross-platform seed.
+								// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
@@ -17636,7 +17684,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							}
 						} else if (lobbyForceStartBtn.inside(x, y)) {
 							if (g_lobbyPlayers.size() > 1) {
-								// FIX: std::random_device crashes MinGW/Windows. Use safe cross-platform seed.
+								// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
@@ -17681,24 +17729,32 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_isSpectator = false;
 					chatHistory.clear();
 					gameLog.clear();
+
+					// Attempt Steam lobby creation; if offline or fails, fallback to local host
 					steamManager.createLobby();
+
 					g_isHostingLobby = true;
 					g_inLobby = true;
-
 					myLocalPlayerID = 0;
 
-					if (myElo <= 0) myElo = steamManager.getLocalElo();
+					if (myElo <= 0 && steamManager.isConnected()) {
+						int fetched = steamManager.getLocalElo();
+						myElo = (fetched > 0) ? fetched : 1000;
+					}
+					if (myElo <= 0) myElo = 1000;
+
 					g_lobbyPlayers.clear();
 					LobbyPlayer lp;
 					lp.playerID = 0;
 					lp.seed = localSeedComponent;
-					lp.elo = (myElo > 0) ? myElo : 1000;
+					lp.elo = myElo;
 					lp.isReady = true;
 					lp.isBot = false;
-					lp.name = steamManager.getLocalPlayerName();
+					lp.name = steamManager.isConnected() ? steamManager.getLocalPlayerName() : "Player 1";
+					if (lp.name.empty()) lp.name = "Player 1";
 					g_lobbyPlayers.push_back(lp);
 
-				} else {
+				} else if (steamManager.isConnected()) {
 					auto lobbies = steamManager.getLobbyList();
 					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
 						if (mpLobbyButtons[i].inside(x, y)) {
@@ -26404,6 +26460,22 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		std::string actionName = cmd.stringData;
 
 		if (actionName == "StartMatch") {
+			// CRASH FIX: Client must have lobby data before we can build the players array.
+			// If we're a client and lobby state is missing, ignore this command —
+			// the host will keep broadcasting lobby state and can resend StartMatch.
+			if (isMultiplayer && !steamManager.isHost() && g_lobbyPlayers.empty()) {
+				ofLogWarning("Network") << "StartMatch received on client but g_lobbyPlayers is empty! Ignoring command and requesting resync.";
+				// Request a fresh lobby state from host by sending a handshake probe
+				HandshakePacket probe = {};
+				probe.type = PKT_HANDSHAKE;
+				probe.playerID = myLocalPlayerID;
+				probe.seq = 1002;
+				probe.seed = localSeedComponent;
+				probe.elo = myElo;
+				steamManager.sendPacket(&probe, sizeof(probe));
+				break;
+			}
+
 			g_inLobby = false; // Exit lobby visually
 			isMultiplayer = true;
 
@@ -26419,6 +26491,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			// Call setupGame() which will read the lobby players and roll initiative
 			setupGame();
+
+			// CRASH FIX: If setupGame() aborted due to empty players, do not advance sequence counters.
+			// This keeps the queue consistent so the host can retry.
+			if (players.empty() && isMultiplayer) {
+				ofLogError("Network") << "setupGame() failed to populate players. Not advancing command sequence.";
+				break;
+			}
 
 			// CRITICAL FIX: Restore the sequence counters so the queue doesn't swallow the next commands!
 			nextCommandId = cmd.commandId + 1;
@@ -41947,6 +42026,9 @@ void ofApp::drawInitiativeRoll() {
 	if (activeDiceRolls.size() > 0) {
 		ofCamera & activeCam = getActiveCamera();
 
+		// CRASH FIX: Guard against empty players array (can happen on client races).
+		if (players.empty()) return;
+
 		for (const auto & roll : activeDiceRolls) {
 			if (roll.purpose != PURPOSE_DEBUG) continue;
 
@@ -41957,6 +42039,9 @@ void ofApp::drawInitiativeRoll() {
 			// Get screen position of the die safely
 			glm::vec3 worldPos = gridToWorld(players[pIdx].x, players[pIdx].y);
 			glm::vec2 screenPos = activeCam.worldToScreen(worldPos + glm::vec3(0, 2.0f, 0));
+
+			// CRASH FIX: Skip NaN screen positions (FBO not allocated, camera uninitialized, etc.)
+			if (std::isnan(screenPos.x) || std::isnan(screenPos.y)) continue;
 
 			std::string pName = getPlayerNameByID(roll.associatedUnit);
 			ofColor pColor = (roll.associatedUnit == myLocalPlayerID) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);

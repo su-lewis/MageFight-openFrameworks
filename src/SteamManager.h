@@ -39,9 +39,15 @@ public:
 	uint32_t getLobbySeed() const;
 
 	// Connection Logic
-	void createLobby();
+	bool createLobby();
 	void openFriendOverlay();
 	void leaveLobby();
+	bool hasLobbyBeenCreated() const { return m_lobbyCreationSucceeded; }
+	bool hasLobbyCreationFailed() const { return m_lobbyCreationFailed; }
+	void clearLobbyFlags() {
+		m_lobbyCreationSucceeded = false;
+		m_lobbyCreationFailed = false;
+	}
 
 	// Data Logic
 	bool sendPacket(const void * data, uint32_t size);
@@ -87,6 +93,8 @@ public:
 	int checkLeaverBuster();
 
 private:
+	bool m_lobbyCreationSucceeded = false;
+	bool m_lobbyCreationFailed = false;
 	//ELO
 	bool m_bStatsLoaded = false;
 	STEAM_CALLBACK(SteamManager, onUserStatsReceived, UserStatsReceived_t, m_CallbackUserStatsReceived);

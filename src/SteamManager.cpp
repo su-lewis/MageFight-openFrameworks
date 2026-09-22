@@ -55,8 +55,8 @@ bool g_isSpectator = false;
 SteamManager::SteamManager()
 	: m_bInitialized(false)
 	, m_bIsHost(false)
-	, m_hListenSocket(k_HSteamListenSocket_Invalid)
 	, m_CallbackUserStatsReceived(this, &SteamManager::onUserStatsReceived)
+	, m_hListenSocket(k_HSteamListenSocket_Invalid)
 	, m_hConnection(k_HSteamNetConnection_Invalid) {
 }
 
@@ -78,8 +78,30 @@ void SteamManager::setup() {
 
 	if (SteamAPI_Init()) {
 		m_bInitialized = true;
+
+		// CRASH FIX: SteamAPI_Init() only validates the *SDK* can talk to the
+		// *Steam client pipe*. If Steam isn't running, Init may still succeed on
+		// some platforms, but every subsequent call returns IPC failure 12.
+		// Verify the client is alive here so we fail early instead of crashing.
+		if (!SteamAPI_IsSteamRunning()) {
+			ofLogError("Steam") << "SteamAPI_Init() succeeded but SteamAPI_IsSteamRunning() is false. "
+								   "The game was likely launched outside Steam, or Steam is in Offline Mode.";
+			m_bInitialized = false;
+			SteamAPI_Shutdown();
+			return;
+		}
+
+		if (!SteamUser()) {
+			ofLogError("Steam") << "SteamUser() returned null.";
+			m_bInitialized = false;
+			SteamAPI_Shutdown();
+			return;
+		}
+
 		m_LocalID = CSteamID((uint64)SteamAPI_ISteamUser_GetSteamID((intptr_t)SteamUser()));
-		SteamNetworkingUtils()->InitRelayNetworkAccess();
+		if (SteamNetworkingUtils()) {
+			SteamNetworkingUtils()->InitRelayNetworkAccess();
+		}
 		ofLogNotice("Steam") << "Initialized. LocalID: " << m_LocalID.ConvertToUint64();
 
 		// Handle Cold-Boot Invites (+connect_lobby)
@@ -201,14 +223,31 @@ void SteamManager::shutdownAPI() {
 	}
 }
 
-void SteamManager::createLobby() {
-	if (!m_bInitialized) return;
-	if (m_bIsHost) return;
+bool SteamManager::createLobby() {
+	if (!m_bInitialized || !SteamAPI_IsSteamRunning() || !SteamMatchmaking()) {
+		ofLogNotice("Steam") << "createLobby: Steam offline/unavailable. Hosting offline bot lobby.";
+		m_bIsHost = true;
+		return true;
+	}
+	if (m_bIsHost) {
+		ofLogWarning("Steam") << "createLobby: Already hosting.";
+		return true;
+	}
 
 	ofLogNotice("Steam") << "Requesting Lobby Creation...";
+
+	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_CreateLobby(
+		(intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 4);
+
+	if (hSteamAPICall == k_uAPICallInvalid) {
+		ofLogWarning("Steam") << "createLobby: Steam rejected online lobby. Falling back to offline bot lobby.";
+		m_bIsHost = true;
+		return true;
+	}
+
 	m_bIsHost = true;
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_CreateLobby((intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 10);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
+	return true;
 }
 
 void SteamManager::leaveLobby() {
@@ -342,19 +381,34 @@ void SteamManager::openFriendOverlay() {
 }
 
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
-	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
+	// CRASH FIX: pCallback can be null if the call failed before dispatch.
+	if (!pCallback || bIOFailure || pCallback->m_eResult != k_EResultOK) {
+		ofLogError("Steam") << "OnLobbyCreated: FAILED. bIOFailure=" << (bIOFailure ? 1 : 0)
+							<< " result=" << (pCallback ? (int)pCallback->m_eResult : -1);
 		m_bIsHost = false;
-		g_isHostingLobby = false;
+		g_isHostingLobby = false; // extern in SteamManager.cpp — OK
+		// NOTE: Do NOT touch g_inLobby here — it's a static in ofApp.cpp.
+		//       ofApp will poll m_lobbyCreationFailed and reset its own state.
+		m_LobbyID = CSteamID();
+		m_lobbyCreationFailed = true;
 		return;
 	}
+
 	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
 	m_bIsHost = true;
+	m_lobbyCreationFailed = false;
+	m_lobbyCreationSucceeded = true;
+
+	if (!SteamMatchmaking()) return;
 
 	std::string lobbyName = getLocalPlayerName() + "'s Game";
 	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "name", lobbyName.c_str());
 	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "MageFightLobby", "Active");
 
-	m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
+	// CRASH FIX: Verify SteamNetworkingSockets() is valid before using it.
+	if (SteamNetworkingSockets()) {
+		m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
+	}
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
@@ -556,32 +610,51 @@ void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t *
 }
 std::vector<SteamManager::LeaderboardEntry> SteamManager::getLeaderboardEntries() { return currentLeaderboard; }
 int SteamManager::getLocalElo() {
-	if (!SteamUserStats()) return 1000;
+	if (!m_bInitialized || !SteamUserStats()) return -1;
 	int32_t elo = 1000;
-	if (!SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "elo_rating", &elo)) return -1;
+	if (!SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "elo_rating", &elo)) {
+		// CRASH FIX: Return -1 (not 1000) so callers can detect IPC failure.
+		// The game treats -1 as "still loading" and retries, which is correct
+		// when Steam Cloud stats haven't downloaded yet.
+		return -1;
+	}
 	return (int)elo;
 }
 void SteamManager::setLocalElo(int elo) {
-	if (!SteamUserStats()) return;
+	if (!m_bInitialized || !SteamUserStats()) return;
 	if (elo <= 300) elo = 300;
-	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "elo_rating", elo);
+	if (!SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "elo_rating", elo)) {
+		ofLogWarning("Steam") << "setLocalElo: SetStat failed (IPC unavailable?).";
+		return;
+	}
 	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
-	if (currentLeaderboardHandle != 0) SteamAPI_ISteamUserStats_UploadLeaderboardScore((intptr_t)SteamUserStats(), currentLeaderboardHandle, 2, elo, nullptr, 0);
+	if (currentLeaderboardHandle != 0) {
+		SteamAPI_ISteamUserStats_UploadLeaderboardScore((intptr_t)SteamUserStats(), currentLeaderboardHandle, 2, elo, nullptr, 0);
+	}
 }
 void SteamManager::armLeaverBuster(int oppElo) {
-	if (!SteamUserStats()) return;
-	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", oppElo);
+	if (!m_bInitialized || !SteamUserStats()) return;
+	if (!SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", oppElo)) {
+		ofLogWarning("Steam") << "armLeaverBuster: SetStat failed (IPC unavailable?).";
+		return;
+	}
 	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
 }
 void SteamManager::disarmLeaverBuster() {
-	if (!SteamUserStats()) return;
-	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", 0);
+	if (!m_bInitialized || !SteamUserStats()) return;
+	if (!SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", 0)) {
+		ofLogWarning("Steam") << "disarmLeaverBuster: SetStat failed (IPC unavailable?).";
+		return;
+	}
 	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
 }
 int SteamManager::checkLeaverBuster() {
-	if (!SteamUserStats()) return 0;
+	if (!m_bInitialized || !SteamUserStats()) return 0;
 	int32_t oppElo = 0;
-	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", &oppElo);
+	if (!SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", &oppElo)) {
+		ofLogWarning("Steam") << "checkLeaverBuster: GetStat failed (IPC unavailable?).";
+		return 0;
+	}
 	return (int)oppElo;
 }
 void SteamManager::updateRichPresence(const std::string & presenceText) {
