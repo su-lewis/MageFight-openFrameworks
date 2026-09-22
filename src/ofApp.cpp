@@ -3182,7 +3182,8 @@ void ofApp::startInitiativePhase() {
 		// Find where this player is standing to spawn the die
 		for (const auto & p : players) {
 			if (!p.isMinion && p.playerID == realPlayerID) {
-				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, r, PURPOSE_DEBUG, i, 1.5f);
+				// FIX: Pass the authoritative Player ID so the text correctly anchors over their head
+				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 1.5f);
 				break;
 			}
 		}
@@ -6356,8 +6357,7 @@ void ofApp::update() {
 					for (size_t i = 0; i < s_ambienceTracks.size(); i++) {
 						s_ambiencePlaylist.push_back(i);
 					}
-					std::random_device rd;
-					std::mt19937 g(rd());
+					std::mt19937 g((uint32_t)ofGetSystemTimeMillis());
 					std::shuffle(s_ambiencePlaylist.begin(), s_ambiencePlaylist.end(), g);
 				}
 
@@ -9489,7 +9489,7 @@ void ofApp::setupGame() {
 	s_draftNextPlayerIndex = -1;
 	s_draftNextStage = -1;
 
-// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
+	// --- CRITICAL FIX: Comprehensive State Wipe for Rematches ---
 	isChatOpen = false;
 	isChatMinimized = true;
 	chatInput = "";
@@ -9664,16 +9664,23 @@ void ofApp::setupGame() {
 		ofFile::removeFile("deck_states_" + role + ".log");
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "MATCH STARTED. Seed: " + std::to_string(currentMapSeed));
 
+		// CRITICAL FIX: Read real names and opponents' Elo securely directly from the synchronized lobby player list
+		if (!g_lobbyPlayers.empty()) {
+			player0SteamName = getPlayerNameByID(0);
+			player1SteamName = getPlayerNameByID(1);
+
+			// Also fetch opponent Elo to ensure armLeaverBuster is fully initialized!
+			for (const auto & p : g_lobbyPlayers) {
+				if ((int)p.playerID != myLocalPlayerID) {
+					opponentElo = p.elo;
+				}
+			}
+		}
+
 		// ARM THE LEAVERBUSTER TRAP (SECURE STEAM BACKEND)
 		steamManager.armLeaverBuster(opponentElo);
 
 		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
-
-		// CRITICAL FIX: Read real names directly from the synchronized lobby player list
-		if (!g_lobbyPlayers.empty()) {
-			player0SteamName = getPlayerNameByID(0);
-			player1SteamName = getPlayerNameByID(1);
-		}
 
 		if (isHost()) {
 			steamManager.setLobbySeed(currentMapSeed);
@@ -9697,8 +9704,7 @@ void ofApp::setupGame() {
 	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
 	else {
 		if (!isReplayMode) { // <-- Prevent overwriting the replay's exact map seed!
-			std::random_device rd;
-			currentMapSeed = rd();
+			currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 		}
 
 		lastTurnStartSentPlayer = -1;
@@ -17617,26 +17623,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 								if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 							}
 							if (allReady) {
-								std::random_device rd;
-								currentMapSeed = rd();
+								// FIX: std::random_device crashes MinGW/Windows. Use safe cross-platform seed.
+								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
 								startCmd.playerID = myLocalPlayerID;
 								startCmd.commandType = CMD_PSEUDO_ACTION;
-								startCmd.params[0] = currentMapSeed;
+								startCmd.params[0] = (int)currentMapSeed;
 								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
 								sendInputCommand(startCmd, true);
 							}
 						} else if (lobbyForceStartBtn.inside(x, y)) {
 							if (g_lobbyPlayers.size() > 1) {
-								std::random_device rd;
-								currentMapSeed = rd();
+								// FIX: std::random_device crashes MinGW/Windows. Use safe cross-platform seed.
+								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
 								startCmd.playerID = myLocalPlayerID;
 								startCmd.commandType = CMD_PSEUDO_ACTION;
-								startCmd.params[0] = currentMapSeed;
+								startCmd.params[0] = (int)currentMapSeed;
 								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
 								sendInputCommand(startCmd, true);
@@ -17664,22 +17670,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				if (mpBackButton.inside(x, y)) {
-						clickedUI = true;
-						navigateToMenu(0, STATE_MAIN_MENU);
-					} else if (mpRefreshButton.inside(x, y)) {
-						clickedUI = true;
-						steamManager.refreshLobbies();
-						steamManager.fetchLeaderboard();
-					} else if (mpHostButton.inside(x, y)) {
-						clickedUI = true;
-						g_isSpectator = false;
-						chatHistory.clear();
-						gameLog.clear();
-						steamManager.createLobby();
-						g_isHostingLobby = true;
-						g_inLobby = true;
+					clickedUI = true;
+					navigateToMenu(0, STATE_MAIN_MENU);
+				} else if (mpRefreshButton.inside(x, y)) {
+					clickedUI = true;
+					steamManager.refreshLobbies();
+					steamManager.fetchLeaderboard();
+				} else if (mpHostButton.inside(x, y)) {
+					clickedUI = true;
+					g_isSpectator = false;
+					chatHistory.clear();
+					gameLog.clear();
+					steamManager.createLobby();
+					g_isHostingLobby = true;
+					g_inLobby = true;
 
-						myLocalPlayerID = 0;
+					myLocalPlayerID = 0;
 
 					if (myElo <= 0) myElo = steamManager.getLocalElo();
 					g_lobbyPlayers.clear();
@@ -17693,22 +17699,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_lobbyPlayers.push_back(lp);
 
 				} else {
-						auto lobbies = steamManager.getLobbyList();
-						for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
-							if (mpLobbyButtons[i].inside(x, y)) {
-								clickedUI = true;
-								chatHistory.clear();
-								gameLog.clear();
-								bool inProgress = (lobbies[i].numPlayers >= 4);
-								g_isSpectator = inProgress;
-								myLocalPlayerID = 255;
-								steamManager.joinLobbyByID(lobbies[i].lobbyID);
-								g_isConnectingToLobby = true;
-								return;
-							}
+					auto lobbies = steamManager.getLobbyList();
+					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
+						if (mpLobbyButtons[i].inside(x, y)) {
+							clickedUI = true;
+							chatHistory.clear();
+							gameLog.clear();
+							bool inProgress = (lobbies[i].numPlayers >= 4);
+							g_isSpectator = inProgress;
+							myLocalPlayerID = 255;
+							steamManager.joinLobbyByID(lobbies[i].lobbyID);
+							g_isConnectingToLobby = true;
+							return;
 						}
 					}
-				} else if (currentState == STATE_SINGLEPLAYER_MENU) {
+				}
+			} else if (currentState == STATE_SINGLEPLAYER_MENU) {
 				if (singleplayerBackButton.inside(x, y)) {
 					clickedUI = true;
 					navigateToMenu(0, STATE_MAIN_MENU);
@@ -18058,27 +18064,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 				float chatY = chatWindowRect.y + chatWindowRect.height;
 
 				if (showTabs) {
-						// Check if clicking on Chat tab
-						if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-							currentChatTab = ChatTab::CHAT;
-							chatScrollOffset = 0; // Reset scroll on tab switch
-							lastChatInteractionTime = ofGetElapsedTimef();
-							return;
-						}
-						// Check if clicking on Log tab
-						if (!g_inLobby && ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-							currentChatTab = ChatTab::LOG;
-							chatScrollOffset = 0; // Reset scroll on tab switch
-							lastChatInteractionTime = ofGetElapsedTimef();
-							return;
-						}
-						// Check if clicking on Debug tab
-						if (!g_inLobby && ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-							currentChatTab = ChatTab::DEBUG;
-							lastChatInteractionTime = ofGetElapsedTimef();
-							return;
-						}
+					// Check if clicking on Chat tab
+					if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+						currentChatTab = ChatTab::CHAT;
+						chatScrollOffset = 0; // Reset scroll on tab switch
+						lastChatInteractionTime = ofGetElapsedTimef();
+						return;
 					}
+					// Check if clicking on Log tab
+					if (!g_inLobby && ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+						currentChatTab = ChatTab::LOG;
+						chatScrollOffset = 0; // Reset scroll on tab switch
+						lastChatInteractionTime = ofGetElapsedTimef();
+						return;
+					}
+					// Check if clicking on Debug tab
+					if (!g_inLobby && ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+						currentChatTab = ChatTab::DEBUG;
+						lastChatInteractionTime = ofGetElapsedTimef();
+						return;
+					}
+				}
 				// If chat is minimized, clicking opens it back up
 				if (isChatMinimized) {
 					isChatOpen = true;
@@ -20962,24 +20968,24 @@ void ofApp::keyPressed(int key) {
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_TAB) {
-				if (g_inLobby) {
-					currentChatTab = ChatTab::CHAT;
-					return;
-				}
-				// Cycle through tabs: CHAT -> LOG -> DEBUG -> CHAT
-				if (currentChatTab == ChatTab::CHAT) {
-					currentChatTab = ChatTab::LOG;
-				} else if (currentChatTab == ChatTab::LOG) {
-					if (isMultiplayer && !g_isSimulatedMultiplayer) {
-						currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in real multiplayer
-					} else {
-						currentChatTab = ChatTab::DEBUG;
-					}
-				} else {
-					currentChatTab = ChatTab::CHAT;
-				}
+			if (g_inLobby) {
+				currentChatTab = ChatTab::CHAT;
 				return;
-			
+			}
+			// Cycle through tabs: CHAT -> LOG -> DEBUG -> CHAT
+			if (currentChatTab == ChatTab::CHAT) {
+				currentChatTab = ChatTab::LOG;
+			} else if (currentChatTab == ChatTab::LOG) {
+				if (isMultiplayer && !g_isSimulatedMultiplayer) {
+					currentChatTab = ChatTab::CHAT; // Skip DEBUG tab in real multiplayer
+				} else {
+					currentChatTab = ChatTab::DEBUG;
+				}
+			} else {
+				currentChatTab = ChatTab::CHAT;
+			}
+			return;
+
 		} else if (key == OF_KEY_BACKSPACE) {
 			if (!chatInput.empty()) {
 				chatInput = chatInput.substr(0, chatInput.size() - 1);
@@ -40012,16 +40018,16 @@ void ofApp::cleanupGame() {
 
 	g_isSpectator = false;
 	g_isSpectator = false;
-		g_isSimulatedMultiplayer = false;
+	g_isSimulatedMultiplayer = false;
 
-		isChatOpen = false;
-		isChatMinimized = true;
-		chatInput.clear();
-		chatHistory.clear();
-		gameLog.clear();
-		lastChatInteractionTime = -999.0f;
+	isChatOpen = false;
+	isChatMinimized = true;
+	chatInput.clear();
+	chatHistory.clear();
+	gameLog.clear();
+	lastChatInteractionTime = -999.0f;
 
-		currentMenuPanX = 0.0f;
+	currentMenuPanX = 0.0f;
 	targetMenuPanX = 0.0f;
 	targetMenuScreen = 0;
 	isWaitingForMenuTransition = false;
