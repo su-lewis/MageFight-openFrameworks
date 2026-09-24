@@ -6569,7 +6569,8 @@ void ofApp::update() {
 		break; // Deprecated, game no longer pauses here!
 
 	case STATE_INITIATIVE_ROLL:
-		// Initiative handling moved to updateStateMachine()
+		// Ensure camera matrices, viewports, and visual coordinates update during the roll
+		prepareGameVisualState();
 		break;
 
 	// --- DRAFTING STATE ---
@@ -6583,12 +6584,6 @@ void ofApp::update() {
 				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
 			}
 		}
-
-		// NOTE: Removed legacy timer-path that simulated a mouse click.
-		// auto-accept draft picks. That path bypassed the proper lockstep
-		// send/queue flow and could leave the client stuck if command IDs
-		// weren't assigned. The timer now only sets `draftAcceptLocked = true`
-		// elsewhere and relies on `sendInputCommand` to queue the accept.
 
 		updateDraftUiAnimations();
 
@@ -14917,12 +14912,18 @@ void ofApp::drawGame() {
 		}
 	}
 
-	// Safety fallback
-	if (!localPlayer) localPlayer = opponentPlayer;
-	if (!opponentPlayer) opponentPlayer = localPlayer;
+	// If opponent player was not found by g_viewedOpponentID, find any non-minion player that is not localPlayer
+	if (!opponentPlayer) {
+		for (auto & p : players) {
+			if (!p.isMinion && p.playerID != myLocalPlayerID) {
+				opponentPlayer = &p;
+				break;
+			}
+		}
+	}
 
-	// Safety fallbacks: keep HUD alive if one side is temporarily unresolved.
-	if (!localPlayer) localPlayer = opponentPlayer;
+	// Safety fallbacks: keep HUD alive if one side is temporarily unresolved
+	if (!localPlayer && !players.empty()) localPlayer = &players[0];
 	if (!opponentPlayer) opponentPlayer = localPlayer;
 
 	if (localPlayer && opponentPlayer) {
@@ -15468,6 +15469,11 @@ void ofApp::drawGame() {
 	float btnHeight_end = 66 * uiScaleBtn; // CHANGED: Increased from 60
 
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
+
+	// In initiative roll state, skip turn indicators and action buttons entirely
+	if (currentState == STATE_INITIATIVE_ROLL) {
+		return;
+	}
 
 	// Check if it's my turn
 	bool myTurn = isMyTurn();
@@ -42038,10 +42044,12 @@ void ofApp::drawInitiativeRoll() {
 
 			// Get screen position of the die safely
 			glm::vec3 worldPos = gridToWorld(players[pIdx].x, players[pIdx].y);
-			glm::vec2 screenPos = activeCam.worldToScreen(worldPos + glm::vec3(0, 2.0f, 0));
+			glm::vec3 screenPos3D = activeCam.worldToScreen(worldPos + glm::vec3(0, 2.0f, 0));
+			glm::vec2 screenPos(screenPos3D.x, screenPos3D.y);
 
-			// CRASH FIX: Skip NaN screen positions (FBO not allocated, camera uninitialized, etc.)
-			if (std::isnan(screenPos.x) || std::isnan(screenPos.y)) continue;
+			// CRASH FIX: Skip NaN/Inf screen positions and screen coordinates outside the window
+			if (std::isnan(screenPos.x) || std::isnan(screenPos.y) || std::isinf(screenPos.x) || std::isinf(screenPos.y)) continue;
+			if (screenPos.x < -200 || screenPos.x > ofGetWidth() + 200 || screenPos.y < -200 || screenPos.y > ofGetHeight() + 200) continue;
 
 			std::string pName = getPlayerNameByID(roll.associatedUnit);
 			ofColor pColor = (roll.associatedUnit == myLocalPlayerID) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);

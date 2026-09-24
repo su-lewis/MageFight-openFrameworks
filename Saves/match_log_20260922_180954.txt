@@ -1,0 +1,49 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-22 18:09:54
+End Reason: Victory
+Seed: 536016822
+Turns: 3
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[18:08:56] --- MATCH STARTED ---
+[18:09:13] Turn 1: Player's turn
+[18:09:13] Autosaved turn-start (autosave.json)
+[18:09:21] Player played Hasten targeting (0,8)
+[18:09:22] Player moved to (0,5)
+[18:09:23] Turn 1: Bot 1's turn
+[18:09:23] Autosaved turn-start (autosave.json)
+[18:09:25] Bot 1 moved to (12,1)
+[18:09:25] Bot 1 moved to (12,2)
+[18:09:26] Turn 2: Player's turn
+[18:09:26] Autosaved turn-start (autosave.json)
+[18:09:30] Player moved to (1,5)
+[18:09:32] Player moved to (4,4)
+[18:09:38] Unlimited time enabled (turn timer disabled).
+[18:09:38] Turn timer enabled.
+[18:09:41] Player moved to (6,1)
+[18:09:44] Turn 2: Bot 1's turn
+[18:09:44] Autosaved turn-start (autosave.json)
+[18:09:46] Bot 1 moved to (11,2)
+[18:09:47] Bot 1 moved to (11,3)
+[18:09:49] Turn 3: Player's turn
+[18:09:49] Autosaved turn-start (autosave.json)
+[18:09:52] Player forfeited (conceded).
+[18:09:54] Player has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 1
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
