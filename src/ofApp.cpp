@@ -2695,17 +2695,61 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofFbo fboText; // <-- NEW
 	ofFboSettings fboSettings;
 
-	// Check if cached atlas exists
+	// Check if cached atlas exists and whether it is up to date
 	std::string spritePath = "UI/card_sprite_generated.png";
 	std::string textPath = "UI/card_text_generated.png";
+	std::string tagPath = "UI/atlas_v2.tag";
 	if (!ofFile(spritePath).exists()) spritePath = "bin/data/" + spritePath;
 	if (!ofFile(textPath).exists()) textPath = "bin/data/" + textPath;
+	if (!ofFile(tagPath).exists()) tagPath = "bin/data/" + tagPath;
 
-	if (ofFile(spritePath).exists() && ofFile(textPath).exists()) {
+	auto isCacheOutOfDate = [&](const std::string & sPath, const std::string & tPath) -> bool {
+		try {
+			namespace fs = std::filesystem;
+			if (!fs::exists(sPath) || !fs::exists(tPath) || !fs::exists(tagPath)) return true;
+			auto sTime = fs::last_write_time(sPath);
+			auto tTime = fs::last_write_time(tPath);
+			auto cacheTime = std::min(sTime, tTime);
+
+			// Check config, template markdown, and template frame files
+			std::vector<std::string> deps = {
+				"Config/cards.json", "bin/data/Config/cards.json", "data/Config/cards.json",
+				"UI/cards.md", "bin/data/UI/cards.md", "data/UI/cards.md",
+				"UI/CardTemplateBronze.PNG", "UI/CardTemplateSilver.PNG", "UI/CardTemplateGold.PNG",
+				"UI/DamageTypeBanner.PNG", "UI/TargetingTypeArea.PNG", "UI/APHP.PNG",
+				actualTemplatePath
+			};
+			for (const auto & dep : deps) {
+				if (fs::exists(dep) && fs::last_write_time(dep) > cacheTime) return true;
+			}
+
+			// Check all card art folders for new/modified PNGs
+			std::vector<std::string> artDirs = {
+				"UI/Cards/Art", "bin/data/UI/Cards/Art", "data/UI/Cards/Art", "Cards/Art"
+			};
+			for (const auto & ad : artDirs) {
+				if (fs::exists(ad) && fs::is_directory(ad)) {
+					for (const auto & entry : fs::directory_iterator(ad)) {
+						if (entry.is_regular_file() && entry.last_write_time() > cacheTime) {
+							ofLogNotice("Cards") << "Atlas cache out of date: modified art file " << entry.path().filename().string();
+							return true;
+						}
+					}
+				}
+			}
+			return false;
+		} catch (...) {
+			return true;
+		}
+	};
+
+	if (ofFile(spritePath).exists() && ofFile(textPath).exists() && !isCacheOutOfDate(spritePath, textPath)) {
 		if (outSpriteSheet.load(spritePath) && outTextSheet.load(textPath)) {
 			ofLogNotice("Cards") << "Loaded pre-baked atlases inside generator. Skipping FBO rendering!";
 			return true;
 		}
+	} else {
+		ofLogNotice("Cards") << "Atlas cache missing or out of date. Regenerating card sprite sheet from art files...";
 	}
 
 	fboSettings.width = sheetW;
@@ -2716,6 +2760,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	fboSettings.textureTarget = GL_TEXTURE_2D;
 	fbo.allocate(fboSettings);
 	fboText.allocate(fboSettings);
+
+	fbo.begin();
+	ofClear(0, 0, 0, 0);
+	fbo.end();
 
 	fboText.begin();
 	ofClear(0, 0, 0, 0);
@@ -2750,9 +2798,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (!pictureToken.empty()) art = loadCardArtIfNeeded(pictureToken);
 		if (!art || !art->isAllocated()) art = loadCardArtIfNeeded("0");
 
-		// ==========================================
-		// PASS 1: DRAW BASE ART & OVERLAYS TO fbo
-		// ==========================================
+		// =========================================================================
+		// PASS 1: DRAW CARD ART ONLY TO fbo (Subject to pixel filter shader)
+		// =========================================================================
 		fbo.begin();
 		ofPushMatrix();
 		ofTranslate(x, y);
@@ -2802,7 +2850,20 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 
+		ofPopMatrix();
+		fbo.end();
+
+		// =========================================================================
+		// PASS 2: DRAW TEMPLATES, BANNERS, ICONS & TEXT TO fboText (Skips pixel filter)
+		// =========================================================================
+		fboText.begin();
+		ofPushMatrix();
+		ofTranslate(x, y);
+		ofScale((float)cardW / g_templateWidth, (float)cardH / g_templateHeight);
+		ofPushStyle();
 		ofSetColor(255, 255, 255, 255);
+
+		// 1. Card Template Frame (Bronze, Silver, Gold)
 		auto classTplIt = classTemplateImages.find(effectiveClass);
 		if (classTplIt != classTemplateImages.end()) {
 			classTplIt->second.draw(0, 0, g_templateWidth, g_templateHeight);
@@ -2813,7 +2874,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (rec.name.empty()) rec.name = card.name;
 		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
 
-		ofPushStyle();
 		auto isFullCardOverlay = [&](const ofImage & img) { return img.getWidth() >= g_templateWidth * 0.9f && img.getHeight() >= g_templateHeight * 0.9f; };
 		auto makeKey = [&](const std::string & s) {
 			std::string k;
@@ -2822,6 +2882,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			return k;
 		};
 
+		// 2. Damage Type Banner & Damage Type Icons (Fire, Holy, etc.)
 		if (!rec.damageType.empty()) {
 			std::vector<std::string> dmgKeys;
 			for (const auto & token : extractAlphaTokens(rec.damageType)) {
@@ -2898,6 +2959,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 
+		// 3. Targeting Type Area
 		if (!rec.targeting.empty()) {
 			auto itTarget = overlayCache.find(std::string("targetingtypearea"));
 			if (itTarget != overlayCache.end()) {
@@ -2909,6 +2971,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 
+		// 4. APHP Chip Area
 		if (!rec.summonAP.empty() || !rec.summonHP.empty()) {
 			auto itAPHP = overlayCache.find(std::string("aphp"));
 			if (itAPHP != overlayCache.end()) {
@@ -2925,6 +2988,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 
+		// 5. Class Badge
 		std::string badgeKey = std::string("badge_class") + ofToString(card.cardClass);
 		auto itBadge = overlayCache.find(badgeKey);
 		if (itBadge != overlayCache.end()) {
@@ -2932,19 +2996,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 		}
 
-		safePopStyle();
-		ofPopMatrix();
-		fbo.end();
-
-		fboText.begin(); // Switch to Text FBO!
-		ofPushMatrix(); // <--- FIX: Save matrix state
-		ofTranslate(x, y); // <--- FIX: Move to this specific card's slot
-		ofScale((float)cardW / g_templateWidth, (float)cardH / g_templateHeight);
-		ofPushStyle();
-		ofSetColor(255);
-
-		// FIX: Removed the buggy g_uniformAPCostScale re-assignment here!
-
+		// 6. Text Elements
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
 		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
 		auto summonHPLayout = chooseSummonChipTextAndScale(rec.summonHP, layout.summonHPRect);
@@ -2959,11 +3011,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
 		}
 
-		ofPopStyle(); // <--- FIX: Pop Text FBO style
-		ofPopMatrix(); // <--- FIX: Pop Text FBO matrix
-		fboText.end(); // Close text fbo
-
-		// REMOVED: Extra ofPopStyle and ofPopMatrix that caused the OpenGL crash!
+		ofPopStyle();
+		ofPopMatrix();
+		fboText.end();
 	}
 
 	ofPixels pixels;
@@ -2974,13 +3024,22 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofPixels textPixels;
 	fboText.readToPixels(textPixels);
 	outTextSheet.setFromPixels(textPixels);
-	// Save a generated sprite sheet for inspection so artists can verify overlays
+
+	// Save generated sprite sheets and version tag
 	try {
 		std::string outPath = "UI/card_sprite_generated.png";
 		if (outSpriteSheet.isAllocated()) {
 			outSpriteSheet.save(outPath);
-			ofLogNotice("Cards") << "Saved generated sprite sheet to " << outPath;
+			ofLogNotice("Cards") << "Saved generated card art sheet to " << outPath;
 		}
+		std::string outTextPath = "UI/card_text_generated.png";
+		if (outTextSheet.isAllocated()) {
+			outTextSheet.save(outTextPath);
+			ofLogNotice("Cards") << "Saved generated frame & text sheet to " << outTextPath;
+		}
+		ofFile tagF("UI/atlas_v2.tag", ofFile::WriteOnly);
+		tagF << "v2";
+		tagF.close();
 	} catch (...) {
 		ofLogWarning("Cards") << "Failed to save generated sprite sheet (ignored).";
 	}
@@ -14805,49 +14864,52 @@ void ofApp::drawGame() {
 
 	// --- DRAW OPPONENT SELECTOR TABS (VERTICAL STACK TO THE LEFT OF ENEMY DECK/DISCARD) ---
 	opponentViewTabs.clear();
-	if (g_lobbyPlayers.size() > 2) {
-		std::vector<int> opponentIDs;
-		for (const auto & lp : g_lobbyPlayers) {
-			if ((int)lp.playerID != myLocalPlayerID) {
-				opponentIDs.push_back((int)lp.playerID);
+
+	// Determine all distinct enemy wizard IDs present in the match
+	std::vector<int> opponentIDs;
+	for (const auto & p : players) {
+		if (!p.isMinion && p.playerID != myLocalPlayerID) {
+			if (std::find(opponentIDs.begin(), opponentIDs.end(), p.playerID) == opponentIDs.end()) {
+				opponentIDs.push_back(p.playerID);
 			}
 		}
+	}
 
-		if (!opponentIDs.empty()) {
-			float tabW = 46.0f * scale;
-			float tabH = 34.0f * scale;
-			float tabGap = 6.0f * scale;
-			float marginFromDeck = 12.0f * scale;
+	// Only show switcher tabs when there are 2 or more distinct enemies (3+ player game)
+	if (opponentIDs.size() > 1) {
+		float tabW = 46.0f * scale;
+		float tabH = 34.0f * scale;
+		float tabGap = 6.0f * scale;
+		float marginFromDeck = 12.0f * scale;
 
-			float midY = (p1_discardRect.getBottom() + p1_deckRect.y) * 0.5f;
-			float totalH = (float)opponentIDs.size() * tabH + (float)(opponentIDs.size() - 1) * tabGap;
-			float startY = midY - (totalH * 0.5f);
-			float tabX = p1_deckRect.x - tabW - marginFromDeck;
+		float midY = (p1_discardRect.getBottom() + p1_deckRect.y) * 0.5f;
+		float totalH = (float)opponentIDs.size() * tabH + (float)(opponentIDs.size() - 1) * tabGap;
+		float startY = midY - (totalH * 0.5f);
+		float tabX = p1_deckRect.x - tabW - marginFromDeck;
 
-			for (size_t i = 0; i < opponentIDs.size(); ++i) {
-				int pID = opponentIDs[i];
-				float tabY = startY + i * (tabH + tabGap);
-				ofRectangle tRect(tabX, tabY, tabW, tabH);
+		for (size_t i = 0; i < opponentIDs.size(); ++i) {
+			int pID = opponentIDs[i];
+			float tabY = startY + i * (tabH + tabGap);
+			ofRectangle tRect(tabX, tabY, tabW, tabH);
 
-				opponentViewTabs.push_back({ tRect, pID });
+			opponentViewTabs.push_back({ tRect, pID });
 
-				bool isHovered = tRect.inside(ofGetMouseX(), ofGetMouseY());
-				bool isActive = (pID == g_viewedOpponentID);
+			bool isHovered = tRect.inside(ofGetMouseX(), ofGetMouseY());
+			bool isActive = (pID == g_viewedOpponentID);
 
-				ofPushStyle();
-				ofSetColor(isActive ? ofColor(45, 75, 125, 240) : (isHovered ? ofColor(60, 65, 80, 220) : ofColor(30, 32, 40, 200)));
-				ofDrawRectRounded(tRect, 6.0f * scale);
+			ofPushStyle();
+			ofSetColor(isActive ? ofColor(45, 75, 125, 240) : (isHovered ? ofColor(60, 65, 80, 220) : ofColor(30, 32, 40, 200)));
+			ofDrawRectRounded(tRect, 6.0f * scale);
 
-				ofNoFill();
-				ofSetLineWidth(isActive ? 2.5f * scale : 1.5f * scale);
-				ofSetColor(isActive ? ofColor(100, 200, 255) : (isHovered ? ofColor(180, 190, 210) : ofColor(70, 75, 90)));
-				ofDrawRectRounded(tRect, 6.0f * scale);
-				ofFill();
+			ofNoFill();
+			ofSetLineWidth(isActive ? 2.5f * scale : 1.5f * scale);
+			ofSetColor(isActive ? ofColor(100, 200, 255) : (isHovered ? ofColor(180, 190, 210) : ofColor(70, 75, 90)));
+			ofDrawRectRounded(tRect, 6.0f * scale);
+			ofFill();
 
-				std::string tabName = "P" + std::to_string(pID + 1);
-				drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, isActive ? ofColor::white : ofColor(190, 190, 200), 2, ofColor::black);
-				safePopStyle();
-			}
+			std::string tabName = "P" + std::to_string(pID + 1);
+			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, isActive ? ofColor::white : ofColor(190, 190, 200), 2, ofColor::black);
+			safePopStyle();
 		}
 	}
 	// ------------------------------------------
@@ -15036,11 +15098,17 @@ void ofApp::drawGame() {
 	// --- MAIN UI DRAWING (4-PLAYER READY) ---
 
 	// Failsafe: Don't view yourself or a non-existent player
-	if (g_viewedOpponentID == myLocalPlayerID || g_viewedOpponentID >= std::max((int)g_lobbyPlayers.size(), 2)) {
-		// Default to first valid opponent
-		for (const auto & lp : g_lobbyPlayers) {
-			if ((int)lp.playerID != myLocalPlayerID) {
-				g_viewedOpponentID = (int)lp.playerID;
+	bool validViewedOpponent = false;
+	for (const auto & p : players) {
+		if (!p.isMinion && p.playerID != myLocalPlayerID && p.playerID == g_viewedOpponentID) {
+			validViewedOpponent = true;
+			break;
+		}
+	}
+	if (!validViewedOpponent) {
+		for (const auto & p : players) {
+			if (!p.isMinion && p.playerID != myLocalPlayerID) {
+				g_viewedOpponentID = p.playerID;
 				break;
 			}
 		}
@@ -17919,13 +17987,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 				} else if (mainMenuLocalPvPButton.inside(x, y)) {
 					clickedUI = true;
 					isVsAI = false;
+					isAIvsAI = false;
 					isMultiplayer = false;
+					g_lobbyPlayers.clear();
 					myLocalPlayerID = 0;
 					isLoadingGame = true;
 				} else if (singleplayerNewGameButton.inside(x, y)) {
 					clickedUI = true;
 					isVsAI = true;
+					isAIvsAI = false;
 					isMultiplayer = false;
+					g_lobbyPlayers.clear();
 					myLocalPlayerID = 0;
 					isLoadingGame = true;
 				} else if (singleplayerContinueButton.inside(x, y)) {
@@ -26268,7 +26340,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (pick2 >= 0) picks.push_back(pick2);
 
 		bool isAiDrafting = false;
-		if (!isMultiplayer && cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && (players[cmdDraftPlayerIdx].playerID == 1 || players[cmdDraftPlayerIdx].ownerID == 1)) {
+		if (!isMultiplayer && isVsAI && cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && (players[cmdDraftPlayerIdx].playerID == 1 || players[cmdDraftPlayerIdx].ownerID == 1)) {
 			isAiDrafting = true;
 		}
 
@@ -35913,10 +35985,12 @@ bool ofApp::isMyTurn() const {
 	}
 
 	bool isBot = false;
-	for (const auto & lp : g_lobbyPlayers) {
-		if ((int)lp.playerID == activeID && lp.isBot) {
-			isBot = true;
-			break;
+	if (isMultiplayer) {
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID == activeID && lp.isBot) {
+				isBot = true;
+				break;
+			}
 		}
 	}
 	if (isAIvsAI) isBot = true;
@@ -35947,10 +36021,12 @@ bool ofApp::isCurrentPlayerLocal() const {
 	}
 
 	bool isBot = false;
-	for (const auto & lp : g_lobbyPlayers) {
-		if ((int)lp.playerID == activeID && lp.isBot) {
-			isBot = true;
-			break;
+	if (isMultiplayer) {
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID == activeID && lp.isBot) {
+				isBot = true;
+				break;
+			}
 		}
 	}
 	if (isAIvsAI) isBot = true;
@@ -43175,10 +43251,12 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	int draftOwnerID = players[draftIndex].isMinion ? players[draftIndex].ownerID : players[draftIndex].playerID;
 
 	bool isBot = false;
-	for (const auto & lp : g_lobbyPlayers) {
-		if ((int)lp.playerID == draftOwnerID && lp.isBot) {
-			isBot = true;
-			break;
+	if (isMultiplayer) {
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID == draftOwnerID && lp.isBot) {
+				isBot = true;
+				break;
+			}
 		}
 	}
 	if (isAIvsAI) isBot = true;
@@ -44491,6 +44569,9 @@ void ofApp::updateAI() {
 	if (endTurnLocked || g_isGameOver || currentState == STATE_DESYNC) return;
 	if (currentState != STATE_GAMEPLAY && currentState != STATE_DRAFTING) return;
 
+	// In singleplayer Local PvP, no players or minions are bots
+	if (!isMultiplayer && !isVsAI && !isAIvsAI) return;
+
 	int activeID = 0;
 	int aiFocusIndex = currentPlayerIndex;
 
@@ -44505,10 +44586,12 @@ void ofApp::updateAI() {
 	}
 
 	bool isBot = false;
-	for (const auto & lp : g_lobbyPlayers) {
-		if ((int)lp.playerID == activeID && lp.isBot) {
-			isBot = true;
-			break;
+	if (isMultiplayer) {
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID == activeID && lp.isBot) {
+				isBot = true;
+				break;
+			}
 		}
 	}
 	if (isAIvsAI) isBot = true;
