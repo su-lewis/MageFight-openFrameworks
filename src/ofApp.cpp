@@ -341,7 +341,7 @@ void ofApp::reloadFonts() {
 		const_cast<ofTexture &>(uiFont.getFontTexture()).setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
 
-	// 2. Card Effect Font
+	// 2. Card Effect Font (Crisp 1440p pixel precision)
 	ofTrueTypeFontSettings cardEffectSettings(fontPath, 22);
 	cardEffectSettings.antialiased = false;
 	cardEffectSettings.ranges.insert(cardEffectSettings.ranges.end(), customRanges.begin(), customRanges.end());
@@ -853,6 +853,7 @@ static ofRectangle replayProgressBarRect;
 static uint32_t replayMaxFrame = 100;
 
 static float g_uniformEffectScale = 1.0f;
+static float g_uniformNameScale = 1.0f;
 static float g_effectLineSpacing = 0.82f;
 static ofRectangle g_effectTextRect(96, 928, 864, 384);
 static float g_templateWidth = 1056.0f;
@@ -861,6 +862,57 @@ static ofImage g_cardTextSpriteSheet;
 static float g_uniformAPCostScale = 1.0f;
 static ofRectangle g_costRect(32, 32, 128, 128);
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
+
+// g_cardLayout initialized with template coordinate space (1056 x 1448)
+static CardTemplateLayout g_cardLayout = []() {
+	CardTemplateLayout l;
+	l.pictureRect = ofRectangle(96, 172, 864, 692);
+	l.damageTypeRect = ofRectangle(44, 150, 140, 140);
+	l.classRect = ofRectangle(872, 150, 140, 140);
+	l.nameRect = ofRectangle(140, 720, 776, 170);
+	l.targetingRect = ofRectangle(200, 890, 656, 70);
+	l.effectRect = ofRectangle(96, 960, 864, 400);
+	l.summonAPRect = ofRectangle(470, 1310, 80, 80);
+	l.summonHPRect = ofRectangle(550, 1310, 80, 80);
+	l.costRect = ofRectangle(32, 32, 128, 128);
+	l.nameCurveDropPx = 28.0f;
+	l.nameMiddleClampXMin = 300.0f;
+	l.nameMiddleClampXMax = 756.0f;
+	l.nameMiddleBottomMaxY = 890.0f;
+	l.nameMinScale = 0.75f;
+	l.effectScale = 1.0f;
+	l.effectMinScale = 0.5f;
+	l.effectLineSpacing = 0.82f;
+	return l;
+}();
+static std::unordered_map<std::string, CardTemplateRecord> g_cardTemplateRecords;
+
+// String normalization helpers declared early so drawCardFaceDynamic can use them
+static inline std::string trimCopy(const std::string & in) {
+	size_t start = 0;
+	while (start < in.size() && std::isspace(static_cast<unsigned char>(in[start])))
+		++start;
+	size_t end = in.size();
+	while (end > start && std::isspace(static_cast<unsigned char>(in[end - 1])))
+		--end;
+	return in.substr(start, end - start);
+}
+
+static inline std::string toLowerCopy(std::string s) {
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return s;
+}
+
+static inline std::string normalizeCardKey(const std::string & s) {
+	return toLowerCopy(trimCopy(s));
+}
+
+// Forward declaration of the safe subsection renderer
+static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, float dstY, float dstW, float dstH, float srcX, float srcY, float srcW, float srcH);
+
+// Forward declarations for text drawing used by drawCardFaceDynamic
+static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
+static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float endDropPx, float clampXMin, float clampXMax, float clampBottomY, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
 static std::vector<unsigned char> gCardAlphaMask;
 static int gCardAlphaMaskWidth = 0;
 static int gCardAlphaMaskHeight = 0;
@@ -1079,12 +1131,36 @@ void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
 	return;
 }
 
-namespace {
-
 static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing, const ofColor & fillColor) {
 	if (!g_renderText || g_suppressText || text.empty()) return;
 
 	TEXT_PASS_BEGIN()
+
+	// Ensure any occurrence of "hand-related" is automatically bolded
+	std::string processedText = "";
+	{
+		std::string lowerText = text;
+		for (auto & c : lowerText)
+			c = (char)std::tolower((unsigned char)c);
+		size_t pos = 0;
+		while (pos < text.size()) {
+			size_t found = lowerText.find("hand-related", pos);
+			if (found == std::string::npos) {
+				processedText += text.substr(pos);
+				break;
+			}
+			bool hasLeading = (found >= 2 && text[found - 1] == '*' && text[found - 2] == '*');
+			bool hasTrailing = (found + 12 + 1 < text.size() && text[found + 12] == '*' && text[found + 12 + 1] == '*');
+			if (hasLeading && hasTrailing) {
+				processedText += text.substr(pos, found + 12 - pos);
+				pos = found + 12;
+			} else {
+				processedText += text.substr(pos, found - pos);
+				processedText += "**" + text.substr(found, 12) + "**";
+				pos = found + 12;
+			}
+		}
+	}
 
 	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
 	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
@@ -1099,31 +1175,31 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 	auto flushWord = [&]() {
 		if (!currentWord.empty()) {
 			float fw = font.getStringBoundingBox(currentWord, 0, 0).width * drawScale;
-			if (currentBold) fw += 1.0f * drawScale;
+			if (currentBold) fw += 3.0f; // Reserve 3 screen pixels for extra-heavy bold
 			tokens.push_back({ currentWord, currentBold, fw });
 			currentWord.clear();
 		}
 	};
 
-	for (size_t i = 0; i < text.size(); ++i) {
-		if (i + 1 < text.size() && text[i] == '*' && text[i + 1] == '*') {
+	for (size_t i = 0; i < processedText.size(); ++i) {
+		if (i + 1 < processedText.size() && processedText[i] == '*' && processedText[i + 1] == '*') {
 			flushWord();
 			currentBold = !currentBold;
 			i++;
-		} else if (text[i] == ' ') {
+		} else if (processedText[i] == ' ') {
 			flushWord();
 			tokens.push_back({ " ", currentBold, customSpaceW });
-		} else if (text[i] == '\n') {
+		} else if (processedText[i] == '\n') {
 			flushWord();
 			tokens.push_back({ "\n", currentBold, 0.0f });
 		} else {
-			// If trailing punctuation (e.g. , . ; : ! ? ) directly follows bold closing **, attach it to the preceding token
-			if (currentWord.empty() && !tokens.empty() && (text[i] == ',' || text[i] == '.' || text[i] == ';' || text[i] == ':' || text[i] == '!' || text[i] == '?' || text[i] == ')')) {
-				tokens.back().text += text[i];
+			// If trailing punctuation directly follows bold closing **, attach it to the preceding token
+			if (currentWord.empty() && !tokens.empty() && (processedText[i] == ',' || processedText[i] == '.' || processedText[i] == ';' || processedText[i] == ':' || processedText[i] == '!' || processedText[i] == '?' || processedText[i] == ')')) {
+				tokens.back().text += processedText[i];
 				tokens.back().w = font.getStringBoundingBox(tokens.back().text, 0, 0).width * drawScale;
-				if (tokens.back().bold) tokens.back().w += 1.0f * drawScale;
+				if (tokens.back().bold) tokens.back().w += 3.0f;
 			} else {
-				currentWord += text[i];
+				currentWord += processedText[i];
 			}
 		}
 	}
@@ -1175,7 +1251,13 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 			if (t.text != " " && t.text != "\n") {
 				font.drawString(t.text, 0, 0);
-				if (t.bold) font.drawString(t.text, 1.0f / drawScale, 0);
+				if (t.bold) {
+					// 4-strike bold stamping for heavy, distinct pixel-art weight
+					font.drawString(t.text, 1.0f / drawScale, 0);
+					font.drawString(t.text, 2.0f / drawScale, 0);
+					font.drawString(t.text, 1.0f / drawScale, -0.75f / drawScale);
+					font.drawString(t.text, 0, -0.75f / drawScale);
+				}
 			}
 
 			ofPopMatrix();
@@ -1185,11 +1267,6 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	TEXT_PASS_END()
 }
-// Forward declaration of the safe subsection renderer
-static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, float dstY, float dstW, float dstH, float srcX, float srcY, float srcW, float srcH);
-
-// Forward declarations for text drawing used by drawCardFaceDynamic
-static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
 
 static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner) {
 	ofPushStyle();
@@ -1220,6 +1297,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		ofTranslate(drawX, drawY);
 		ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
 
+		// 1. AP Cost (Big, bold text filling the top-left cost medallion)
 		int effCost = card.cost;
 		if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
 
@@ -1227,8 +1305,37 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		if (effCost == 0 && card.type != CARD_BLOCKING_BOON && card.type != CARD_SPRINT && card.type != CARD_CONSTITUTION_BOON) {
 			costColor = ofColor::green;
 		}
-		drawCenteredTextScaledOutlined(titleFont, ofToString(effCost), g_costRect, g_uniformAPCostScale, costColor, ofColor::black, 2);
 
+		std::string costStr = ofToString(effCost);
+		float costScale = (costStr.size() > 1) ? 2.40f : 3.15f;
+		ofRectangle costGemRect(8, 8, 176, 176);
+		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, ofColor::black, 4);
+
+		// 2. Fetch Card Template Text Records
+		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
+		int row = (int)std::round(card.textureRect.y / card.textureRect.height);
+		int cardId = row * 10 + col + 1;
+
+		std::string cardName = _L("CARD_NAME_" + std::to_string(cardId), card.name);
+		std::string cardTargeting = "";
+		std::string cardEffect = _L("CARD_DESC_" + std::to_string(cardId), "");
+		std::string summonAP = "";
+		std::string summonHP = "";
+
+		auto itRec = g_cardTemplateRecords.find(normalizeCardKey(card.name));
+		if (itRec != g_cardTemplateRecords.end()) {
+			cardTargeting = itRec->second.targeting;
+			// In English, use the template record directly to retain full markdown **bold** formatting
+			if (g_currentLanguage == "en" && !itRec->second.effectText.empty()) {
+				cardEffect = itRec->second.effectText;
+			} else if (cardEffect.empty()) {
+				cardEffect = itRec->second.effectText;
+			}
+			summonAP = itRec->second.summonAP;
+			summonHP = itRec->second.summonHP;
+		}
+
+		// 3. Dynamic overrides for Master Fist & Constitution Boon
 		if (card.type == CARD_MASTER_FIST) {
 			int dmg = 0;
 			if (owner) {
@@ -1240,31 +1347,42 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 					dmg *= (1 + owner->flurryOfFistsStacks);
 				}
 			}
-
-			std::string effectText = _L("CARD_master fist_DESC", "Deal **{dmg}** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.");
-			size_t dmgPos = effectText.find("{dmg}");
+			cardEffect = _L("CARD_master fist_DESC", "Deal **{dmg}** Physical damage to an adjacent unit. This deals 2 damage for each hand-related card in your discard pile. Gain +1 Luck and +1 Max Health. **Destroy** their top card.");
+			size_t dmgPos = cardEffect.find("{dmg}");
 			if (dmgPos != std::string::npos) {
-				effectText.replace(dmgPos, 5, ofToString(dmg));
+				cardEffect.replace(dmgPos, 5, ofToString(dmg));
 			}
-
-			drawRichEffectText(font, effectText, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
 		} else if (card.type == CARD_CONSTITUTION_BOON) {
 			int base = g_modifierCustomMaxHP ? g_customStartingMaxHP : 15;
-			int t1_0 = base + 1, t1_1 = base + 5;
-			int t2_0 = base + 6, t2_1 = base + 10;
-			int t3_0 = base + 11, t3_1 = base + 15;
-			int winVal = base + 16;
-
-			std::string dynamicDesc = "Check **Max Health**. "
-				+ ofToString(t1_0) + "-" + ofToString(t1_1) + ": **Draft** Class 1. "
-				+ ofToString(t2_0) + "-" + ofToString(t2_1) + ": **Draft** Class 2. "
-				+ ofToString(t3_0) + "-" + ofToString(t3_1) + ": **Draft** Class 3. "
-				+ ofToString(winVal) + "+: Win the game.";
-
-			drawRichEffectText(font, dynamicDesc, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+			cardEffect = "Check **Max Health**. "
+				+ ofToString(base + 1) + "-" + ofToString(base + 5) + ": **Draft** Class 1. "
+				+ ofToString(base + 6) + "-" + ofToString(base + 10) + ": **Draft** Class 2. "
+				+ ofToString(base + 11) + "-" + ofToString(base + 15) + ": **Draft** Class 3. "
+				+ ofToString(base + 16) + "+: Win the game.";
 		}
 
+		// 4. Live Native 1440p Text Drawing (Zero texture blur)
+		drawArcCenteredTextScaledOutlined(titleFont, cardName, g_cardLayout.nameRect, g_uniformNameScale, g_cardLayout.nameCurveDropPx, g_cardLayout.nameMiddleClampXMin, g_cardLayout.nameMiddleClampXMax, g_cardLayout.nameMiddleBottomMaxY, ofColor::white, ofColor::black, 4);
+
+		if (!cardTargeting.empty()) {
+			drawCenteredTextScaledOutlined(titleFont, cardTargeting, g_cardLayout.targetingRect, 1.25f, ofColor::white, ofColor::black, 3);
+		}
+
+		if (!summonAP.empty()) {
+			drawCenteredTextScaledOutlined(titleFont, summonAP, g_cardLayout.summonAPRect, 1.0f, ofColor::white, ofColor::black, 3);
+		}
+		if (!summonHP.empty()) {
+			drawCenteredTextScaledOutlined(titleFont, summonHP, g_cardLayout.summonHPRect, 1.0f, ofColor::white, ofColor::black, 3);
+		}
+
+		ofRectangle effRect = g_cardLayout.effectRect;
+		if (summonAP.empty() && summonHP.empty()) {
+			effRect.height += 90.0f;
+		}
+		drawRichEffectText(font, cardEffect, effRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+
 		ofPopMatrix();
+		TEXT_PASS_END()
 	}
 
 	safePopStyle();
@@ -1494,25 +1612,6 @@ static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet,
 	const float safeSrcW = std::max(1.0f, srcW - insetLeft - insetRight);
 	const float safeSrcH = std::max(1.0f, srcH - insetTop - insetBottom);
 	spriteSheet.drawSubsection(dstX, dstY, dstW, dstH, safeSrcX, safeSrcY, safeSrcW, safeSrcH);
-}
-
-static std::string trimCopy(const std::string & in) {
-	size_t start = 0;
-	while (start < in.size() && std::isspace(static_cast<unsigned char>(in[start])))
-		++start;
-	size_t end = in.size();
-	while (end > start && std::isspace(static_cast<unsigned char>(in[end - 1])))
-		--end;
-	return in.substr(start, end - start);
-}
-
-static std::string toLowerCopy(std::string s) {
-	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	return s;
-}
-
-static std::string normalizeCardKey(const std::string & s) {
-	return toLowerCopy(trimCopy(s));
 }
 
 static std::string stripBoldTags(const std::string & in) {
@@ -2160,6 +2259,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofLogWarning("Cards") << "Template markdown not parsed, keeping existing sheet: " << markdownPath;
 		return false;
 	}
+	g_cardTemplateRecords = records;
 
 	ofImage templateImage;
 	std::string actualTemplatePath = templatePath;
@@ -2430,6 +2530,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.nameMiddleBottomMaxY,
 		2);
 	const float uniformNameScale = uniformNameScaleBase * 1.10f;
+	g_uniformNameScale = uniformNameScale;
 
 	// FIX: Size the AP Cost perfectly for a double-digit number to guarantee maximum visibility!
 	const float uniformAPCostScale = bestUniformCenteredTextScale(
@@ -2449,6 +2550,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	g_uniformEffectScale = uniformEffectScale;
 	g_effectLineSpacing = layout.effectLineSpacing;
+	g_cardLayout = layout; // Stored here after layout is initialized
 
 	// Master Fist uses the global rect at runtime. Since it's an attack, it has the expanded box!
 	g_effectTextRect = layout.effectRect;
@@ -2764,7 +2866,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	// Compute a fast 64-bit content hash of cards.md, cards.json, language files, and art directory
 	auto computeCardSourceHash = [&]() -> uint64_t {
-		const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+		const uint64_t FNV_OFFSET = 14695981039346656037ULL ^ 0x4E4F54455854ULL; // Invalidate stale text cache
 		const uint64_t FNV_PRIME = 1099511628211ULL;
 		uint64_t h = FNV_OFFSET;
 
@@ -2839,6 +2941,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		}
 	} else {
 		ofLogNotice("Cards") << "Card text, art, or configuration modified! Regenerating card sprite sheets...";
+		ofFile::removeFile(spritePath, false);
+		ofFile::removeFile(textPath, false);
 	}
 
 	fboSettings.width = sheetW;
@@ -3085,20 +3189,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 		}
 
-		// 6. Text Elements
-		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
-		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
-		auto summonHPLayout = chooseSummonChipTextAndScale(rec.summonHP, layout.summonHPRect);
-
-		drawArcCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, uniformNameScale, layout.nameCurveDropPx, layout.nameMiddleClampXMin, layout.nameMiddleClampXMax, layout.nameMiddleBottomMaxY, ofColor::white, ofColor::black, 4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
-
-		if (!summonAPLayout.first.empty()) drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
-		if (!summonHPLayout.first.empty()) drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
-
-		if (normalizeCardKey(rec.name) != "master fist" && normalizeCardKey(rec.name) != "constitution boon") {
-			drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
-		}
+		// All text elements are rendered live with native resolution and localization in drawCardFaceDynamic()
 
 		ofPopStyle();
 		ofPopMatrix();
@@ -3113,6 +3204,12 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofPixels textPixels;
 	fboText.readToPixels(textPixels);
 	outTextSheet.setFromPixels(textPixels);
+
+	// Keep frames, banners, and icons 100% pixel-art sharp (all text is rendered live)
+	if (outTextSheet.isAllocated()) {
+		outTextSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		outTextSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 
 	// Save generated sprite sheets and update content hash
 	try {
@@ -3136,7 +3233,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 	return outSpriteSheet.isAllocated();
 }
-} // namespace
 
 bool containsSlur(const std::string & input) {
 	// Hardcoded list compiled directly into the binary.
@@ -41025,15 +41121,16 @@ void ofApp::loadCardData(const std::string & filePath) {
 		else if (newCard.cardClass == 3)
 			class3Cards.push_back(newCard);
 	}
+
 	ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
 	ofLogNotice("ofApp::loadCardData") << "Class Distribution - C1: " << class1Cards.size() << ", C2: " << class2Cards.size() << ", C3: " << class3Cards.size();
 
-	// Optional runtime card rendering path:
-	// - template image: whichever file is present in UI/ (see `findCardTemplatePath()`)
-	// - content source: UI/cards.md
-	// - field layout/scales are configured directly in CardTemplateLayout (this .cpp)
-	// Keeps template base image if markdown build fails.
-	// FIX: Skip generating this 10,500x10,500 image atlas in headless mode to save 440MB of RAM per instance!
+	// Always load markdown records into memory so live 1440p card text rendering has access to all descriptions
+	std::string mdPath = ofToDataPath("UI/cards.md", true);
+	if (ofFile(mdPath).exists()) {
+		parseCardTemplateMarkdown(mdPath, g_cardTemplateRecords);
+	}
+
 	if (!headless) {
 		const std::string textAtlasPath = "UI/card_text_generated.png";
 
@@ -41042,7 +41139,8 @@ void ofApp::loadCardData(const std::string & filePath) {
 			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 			if (g_cardTextSpriteSheet.isAllocated()) {
-				g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				g_cardTextSpriteSheet.getTexture().generateMipmap();
+				g_cardTextSpriteSheet.getTexture().setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
 				g_cardTextSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
 				// Save the text atlas too, so we can load it instantly next time
@@ -41940,7 +42038,7 @@ void ofApp::drawEncyclopediaState() {
 				{ "DEFENSE TYPES", ofColor(255, 215, 0), { { "Block", ofColor::gray, ofColor::black, "Absorbs incoming Physical damage. Expires at turn end (unless Tortoise)." }, { "Fortification", ofColor(50, 50, 50), ofColor(200, 200, 200), "Absorbs Physical and Piercing damage." }, { "Barrier", ofColor::hotPink, ofColor::black, "Absorbs Non-Physical damage (Magic, Fire, Electric, Holy, Poison)." }, { "Holy Block", ofColor::yellow, ofColor::black, "Absorbs incoming Holy damage." }, { "Ward", ofColor::black, ofColor(255, 255, 255), "Absorbs all incoming damage types." } } },
 				{ "DAMAGE TYPES", ofColor(255, 80, 80), { { "Physical", ofColor(220, 20, 60), ofColor::black, "Standard attacks; absorbed by Block, Fortification, and Ward." }, { "Piercing", ofColor(192, 192, 192), ofColor::black, "Pierces in a line; subsequent targets take half damage. Deals 2x damage vs Wolves." }, { "Magic", ofColor(148, 0, 211), ofColor::black, "Bypasses physical Block; absorbed by Barrier and Ward." }, { "Electric", ofColor(30, 80, 220), ofColor::black, "Bypasses physical Block; often applies Paralysis or generates bonus AP." }, { "Fire", ofColor(255, 120, 0), ofColor::black, "Bypasses physical Block; damaging Health inflicts lingering Burning." }, { "Holy", ofColor(255, 215, 0), ofColor::black, "Radiant damage; deals 2x damage to Undead (Skeletons), Demons, Hellhounds, Ghosts, and Vampires." }, { "Poison", ofColor(50, 205, 50), ofColor::black, "Bypasses physical Block; inflicts lingering toxic damage." } } },
 				{ "STATUS EFFECTS", ofColor(255, 140, 40), { { "Burning", ofColor(255, 120, 0), ofColor::black, "Takes 1d6 Fire damage at turn start. Rolls of 1 or 2 extinguish the fire." }, { "Poisoned", ofColor(50, 205, 50), ofColor::black, "Takes 1d6 Poison damage at turn start (damage reduces by 1 each turn until cured)." }, { "Paralyzed", ofColor(255, 255, 0), ofColor::black, "Must flip a coin on turn start: Heads allows acting (2 Heads cures), Tails skips turn." }, { "Sleeping", ofColor(0, 255, 255), ofColor::black, "Skips turn until timer expires or upon taking damage." }, { "Regeneration", ofColor(220, 20, 60), ofColor::black, "Heals +1 HP at the start of each turn." }, { "Ghost Form", ofColor(150, 150, 255), ofColor::black, "Phased through walls and units. Immune to Physical and Piercing. Takes 2x Holy damage." }, { "Tortoise Form", ofColor::darkGreen, ofColor::white, "Defense never expires. Spikes adjacent enemies for 3 damage when gaining HP or Defense." }, { "Strengthen Elements", ofColor(255, 120, 0), ofColor::black, "For 3 turns: whenever you play an Electric or Fire card, add a copy to your hand." } } },
-				{ "KEYWORDS & MECHANICS", ofColor(255, 215, 0), { { "Luck", ofColor::darkGreen, ofColor::white, "Adds a flat numerical bonus to nearly every dice roll (attacks, heals, AP, ranges, initiative)." }, { "Flurry of Fists", ofColor::orange, ofColor::black, "Doubles the damage and effect of all Hand-related attacks." }, { "Cleave", ofColor(200, 200, 210), ofColor::black, "Hits 3 adjacent tiles in a sweeping arc." }, { "Linear Pierce", ofColor(192, 192, 192), ofColor::black, "Attacks in a straight 2-tile line; second target takes half damage." }, { "Choose One", ofColor::cyan, ofColor::black, "Offers two distinct tactical options upon casting." }, { "Destroy", ofColor::magenta, ofColor::black, "Permanently removes target cards from decks or annihilates walls." }, { "Execute", ofColor::red, ofColor::black, "Instantly destroys the target unit regardless of remaining Health." }, { "Restore", ofColor::green, ofColor::black, "Heals lost Health up to maximum capacity." }, { "Exhaustion", ofColor(148, 0, 211), ofColor::black, "If a unit has zero cards across deck, hand, discard, and played piles, they perish." } } }
+				{ "KEYWORDS & MECHANICS", ofColor(255, 215, 0), { { "Luck", ofColor::darkGreen, ofColor::white, "Adds a flat numerical bonus to nearly every dice roll (attacks, heals, AP, ranges, initiative)." }, { "Hand-Related", ofColor(255, 140, 40), ofColor::black, "Cards utilizing physical hands (Punch, Bash, Drain Punch, Master Fist, Flurry of Fists, Giant Magic Hand, Double Handed, Hand Block). Empowered by Flurry of Fists." }, { "Flurry of Fists", ofColor::orange, ofColor::black, "Doubles the damage and effect of all Hand-related attacks." }, { "Cleave", ofColor(200, 200, 210), ofColor::black, "Hits 3 adjacent tiles in a sweeping arc." }, { "Linear Pierce", ofColor(192, 192, 192), ofColor::black, "Attacks in a straight 2-tile line; second target takes half damage." }, { "Choose One", ofColor::cyan, ofColor::black, "Offers two distinct tactical options upon casting." }, { "Destroy", ofColor::magenta, ofColor::black, "Permanently removes target cards from decks or annihilates walls." }, { "Execute", ofColor::red, ofColor::black, "Instantly destroys the target unit regardless of remaining Health." }, { "Restore", ofColor::green, ofColor::black, "Heals lost Health up to maximum capacity." }, { "Exhaustion", ofColor(148, 0, 211), ofColor::black, "If a unit has zero cards across deck, hand, discard, and played piles, they perish." } } }
 			};
 
 			float textDrawScale = 0.95f * uiScale;
