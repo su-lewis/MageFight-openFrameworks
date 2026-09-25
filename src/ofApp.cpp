@@ -10867,15 +10867,29 @@ void ofApp::prepareGameVisualState() {
 								selectedDraftIndices.clear();
 								currentState = STATE_DRAFTING;
 
-								// Pause the turn timer and grant a 45s decision window for drafting
-								if (!turnTimerPaused) {
-									turnTimerPaused = true;
-									turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+								// Only pause and grant a decision window if an OPPONENT was forced onto a key off-turn (e.g. via Earthquake/Push)
+								int activeOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
+									? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID)
+									: -1;
+								int draftOwner = (draft.targetIndex >= 0 && draft.targetIndex < (int)players.size())
+									? (players[draft.targetIndex].isMinion ? players[draft.targetIndex].ownerID : players[draft.targetIndex].playerID)
+									: -1;
+
+								if (activeOwner != -1 && draftOwner != -1 && activeOwner != draftOwner) {
+									if (!turnTimerPaused) {
+										turnTimerPaused = true;
+										turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+									}
+									opponentDecisionTimerActive = true;
+									opponentDecisionStartFrame = simulationFrame;
+									opponentDecisionDurationFrames = 45 * turnTimerFramesPerSecond;
+									opponentDecisionPlayerIndex = draft.targetIndex;
+								} else {
+									// Own turn: regular turn timer continues running normally
+									opponentDecisionTimerActive = false;
+									opponentDecisionStartFrame = 0;
+									opponentDecisionPlayerIndex = -1;
 								}
-								opponentDecisionTimerActive = true;
-								opponentDecisionStartFrame = simulationFrame;
-								opponentDecisionDurationFrames = 45 * turnTimerFramesPerSecond;
-								opponentDecisionPlayerIndex = draft.targetIndex;
 
 								draftDisplayStartTime = ofGetElapsedTimef();
 								draftDisplayInteractiveEnabled = true;
@@ -11865,6 +11879,22 @@ void ofApp::updateGameLogic() {
 			draftStage = 0;
 			currentState = STATE_DRAFTING;
 			resetDraftPhaseTimerWindow();
+
+			// Only activate opponent decision timer if the drafting unit is an opponent acting off-turn
+			int activeTurnOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
+				? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID)
+				: -1;
+			int draftOwner = (targetPlayerIdx >= 0 && targetPlayerIdx < (int)players.size())
+				? (players[targetPlayerIdx].isMinion ? players[targetPlayerIdx].ownerID : players[targetPlayerIdx].playerID)
+				: -1;
+
+			if (activeTurnOwner != -1 && draftOwner != -1 && activeTurnOwner != draftOwner) {
+				pauseTurnTimerForOpponentDecision(targetPlayerIdx);
+			} else {
+				opponentDecisionTimerActive = false;
+				opponentDecisionStartFrame = 0;
+				opponentDecisionPlayerIndex = -1;
+			}
 
 			draftDisplayStartTime = ofGetElapsedTimef();
 			draftDisplayInteractiveEnabled = false;
@@ -39341,15 +39371,17 @@ void ofApp::drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccep
 	ofScale(scale, scale);
 	ofTranslate(-buttonRect.getCenter().x, -buttonRect.getCenter().y);
 
-	ofSetColor(canAccept ? ofColor(70, 160, 255, (int)(255.0f * alpha)) : ofColor(100, 100, 100, (int)(255.0f * alpha)));
+	ofSetColor(canAccept ? ofColor(70, 160, 255, (int)(255.0f * alpha)) : ofColor(85, 90, 100, (int)(255.0f * alpha)));
 	ofDrawRectRounded(buttonRect, 12);
 
-	ofSetColor(ofColor(255, 255, 255, (int)(255.0f * alpha)));
+	ofNoFill();
+	ofSetLineWidth(2.5f);
+	ofSetColor(canAccept ? ofColor(140, 205, 255, (int)(255.0f * alpha)) : ofColor(110, 115, 125, (int)(255.0f * alpha)));
+	ofDrawRectRounded(buttonRect, 12);
+	ofFill();
+
 	std::string acceptStr = _L("UI_BTN_ACCEPT", "Accept");
-	ofRectangle tb = uiFont.getStringBoundingBox(acceptStr, 0, 0);
-	float tx = std::round(buttonRect.getCenter().x - (tb.x + tb.width * 0.5f));
-	float ty = std::round(buttonRect.getCenter().y - (tb.y + tb.height * 0.5f));
-	SafeDrawText(uiFont, acceptStr, tx, ty);
+	drawPixelTextCentered(uiFont, acceptStr, buttonRect.getCenter().x, buttonRect.getCenter().y, 1.15f, ofColor::white, 2, ofColor::black);
 	ofPopMatrix();
 }
 
@@ -42486,14 +42518,31 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 
-		// Position text comfortably between the top bar and the draft cards
-		float topMargin = (turnTimerEnabled ? (16.0f * uiScale + 20.0f * uiScale) : 30.0f * uiScale);
-		float ty = std::max(topMargin, startY - 110.0f * uiScale);
-		float instrTy = ty + 38.0f * uiScale;
-		float classTy = instrTy + 32.0f * uiScale;
+		// Start text block strictly below the bottom of the Turn Indicator
+		float scale1080 = (float)ofGetHeight() / 1080.0f;
+		float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
+		if (endTurnButtonRect.height > 0) {
+			indicatorBottomY = endTurnButtonRect.getBottom();
+		}
+
+		// Account for font height because drawString draws UPWARDS from the baseline
+		ofRectangle headerMeasureBox = titleFont.getStringBoundingBox(header, 0, 0);
+		float fontHeightScaled = (headerMeasureBox.height > 0 ? headerMeasureBox.height : 36.0f) * scale;
+		float textTopMargin = 22.0f * uiScale; // 22px clear gap below indicator
+
+		float ty = indicatorBottomY + textTopMargin + fontHeightScaled;
+		float instrTy = ty + 48.0f * uiScale; // Line 2
+		float classTy = instrTy + 44.0f * uiScale; // Line 3
 
 		// --- MINI DECISION TIMER FOR OPPONENT DRAFTS ---
-		if (opponentDecisionTimerActive) {
+		int activeTurnOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
+			? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID)
+			: -1;
+		int deciderOwner = (opponentDecisionPlayerIndex >= 0 && opponentDecisionPlayerIndex < (int)players.size())
+			? (players[opponentDecisionPlayerIndex].isMinion ? players[opponentDecisionPlayerIndex].ownerID : players[opponentDecisionPlayerIndex].playerID)
+			: -1;
+
+		if (opponentDecisionTimerActive && activeTurnOwner != -1 && deciderOwner != -1 && activeTurnOwner != deciderOwner) {
 			float elapsed = (float)((int)(simulationFrame - opponentDecisionStartFrame));
 			float remaining = std::max(0.0f, (float)opponentDecisionDurationFrames - elapsed);
 			float pct = (opponentDecisionDurationFrames > 0) ? (remaining / (float)opponentDecisionDurationFrames) : 0.0f;
@@ -42674,17 +42723,34 @@ void ofApp::drawDraftScreen() {
 	bool showAccept = isLocalDraftingPlayer(draftPlayerIndex);
 	if (draftAcceptApplied) showAccept = false;
 
-	float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
-	float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
-	float gapBelowCards = 40.0f * uiScale;
+	// Bigger, chunkier button dimensions
+	float btnW = std::clamp(260.0f * uiScale, 180.0f, 360.0f);
+	float btnH = std::clamp(72.0f * uiScale, 52.0f, 100.0f);
+	float hideBtnW = std::clamp(140.0f * uiScale, 100.0f, 200.0f);
+	float buttonGap = 16.0f * uiScale;
+
+	// Tighter gap below the cards so buttons sit closer to them
+	float gapBelowCards = 22.0f * uiScale;
 	float btnY = startY + cardH + gapBelowCards;
 
 	float maxAllowedBtnY = ofGetHeight() - btnH - (20.0f * uiScale);
 	if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
 
-	// Center the Accept button
-	float btnX = (ofGetWidth() - btnW) / 2.0f;
-	draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
+	// Center the buttons nicely
+	float btnX = 0.0f;
+	float hideBtnX = 0.0f;
+
+	if (showAccept) {
+		float totalGroupW = btnW + buttonGap + hideBtnW;
+		btnX = (ofGetWidth() - totalGroupW) * 0.5f;
+		hideBtnX = btnX + btnW + buttonGap;
+		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
+	} else {
+		hideBtnX = (ofGetWidth() - hideBtnW) * 0.5f;
+		draftAcceptButtonRect.set(0, 0, 0, 0);
+	}
+
+	s_draftHideButtonRect.set(hideBtnX, btnY, hideBtnW, btnH);
 
 	if (showAccept && !draftOptions.empty()) {
 		float acceptScale = 1.0f;
@@ -42717,34 +42783,26 @@ void ofApp::drawDraftScreen() {
 
 		if (draftAcceptButtonRect.inside(ofGetMouseX(), ofGetMouseY()) && showAccept && canAccept) g_hoveredButtonId = "draft_accept";
 		drawAcceptButtonShared(draftAcceptButtonRect, canAccept, acceptScale, acceptAlpha);
-	} else {
-		draftAcceptButtonRect.set(0, 0, 0, 0);
 	}
 
-	// Draw Hide / Show Toggle Button to the right of the Accept button
+	// Draw Hide / Show Toggle Button right next to Accept
 	if (!draftOptions.empty() && !draftAcceptApplied) {
-		float hideBtnW = std::clamp(130.0f * uiScale, 90.0f, 180.0f);
-		float hideBtnX = btnX + btnW + (16.0f * uiScale);
-		s_draftHideButtonRect.set(hideBtnX, btnY, hideBtnW, btnH);
-
 		bool hideHover = s_draftHideButtonRect.inside(ofGetMouseX(), ofGetMouseY());
 		if (hideHover) g_hoveredButtonId = "draft_hide_toggle";
 
 		ofPushStyle();
-		ofSetColor(hideHover ? ofColor(55, 60, 75, 240) : ofColor(35, 38, 48, 220));
-		ofDrawRectRounded(s_draftHideButtonRect, 10 * uiScale);
+		ofSetColor(hideHover ? ofColor(55, 60, 75, 245) : ofColor(35, 38, 48, 230));
+		ofDrawRectRounded(s_draftHideButtonRect, 12);
 
 		ofNoFill();
-		ofSetLineWidth(2.0f * uiScale);
+		ofSetLineWidth(2.5f * uiScale);
 		ofSetColor(hideHover ? ofColor(255, 215, 0) : ofColor(120, 130, 150));
-		ofDrawRectRounded(s_draftHideButtonRect, 10 * uiScale);
+		ofDrawRectRounded(s_draftHideButtonRect, 12);
 		ofFill();
 
 		std::string hideLabel = s_draftCardsHidden ? _L("UI_DRAFT_SHOW", "Show") : _L("UI_DRAFT_HIDE", "Hide");
-		drawPixelTextCentered(uiFont, hideLabel, s_draftHideButtonRect.getCenter().x, s_draftHideButtonRect.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
+		drawPixelTextCentered(uiFont, hideLabel, s_draftHideButtonRect.getCenter().x, s_draftHideButtonRect.getCenter().y, 1.1f * uiScale, ofColor::white, 2, ofColor::black);
 		safePopStyle();
-	} else {
-		s_draftHideButtonRect.set(0, 0, 0, 0);
 	}
 
 	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
@@ -43058,19 +43116,32 @@ void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCard
 	float screenScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 	float scale = screenScale * std::clamp(settingsUIScale, 0.75f, 1.25f);
 
-	// Increased from 0.80f to 1.1f to make the cards much larger and prominent
-	outCardW = kCardPixelWidth * 1.1f * scale;
-	outCardH = kCardPixelHeight * 1.1f * scale;
+	// Slightly calibrated card scale (1.02x) so cards fit with generous margins
+	outCardW = kCardPixelWidth * 1.02f * scale;
+	outCardH = kCardPixelHeight * 1.02f * scale;
 
-	// Slightly tighter relative spacing so the 3 larger cards still fit comfortably on screen
 	outSpacing = outCardW * 0.10f;
 
 	float totalWidth = outCardW * 3.0f + outSpacing * 2.0f;
 	outStartX = (ofGetWidth() - totalWidth) / 2.0f;
 
-	// Perfectly center the cards vertically. (Removed the downward push so they
-	// leave plenty of room for the Accept button below and instructions above).
-	outStartY = (ofGetHeight() - outCardH) / 2.0f;
+	float uiScale = std::clamp(screenScale * settingsUIScale, 0.75f, 1.25f);
+	float scale1080 = (float)ofGetHeight() / 1080.0f;
+
+	// Calculate bottom of the Turn Indicator button
+	float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
+	if (endTurnButtonRect.height > 0) {
+		indicatorBottomY = endTurnButtonRect.getBottom();
+	}
+
+	// Align cards to sit with a 24px gap below Line 3 ("Class 1")
+	float line1BaselineY = indicatorBottomY + (22.0f * uiScale) + (38.0f * uiScale);
+	float line2BaselineY = line1BaselineY + (48.0f * uiScale);
+	float line3BaselineY = line2BaselineY + (44.0f * uiScale);
+	float textBlockBottom = line3BaselineY + (8.0f * uiScale);
+
+	// Cards start cleanly below the entire 3-line text block
+	outStartY = textBlockBottom + (24.0f * uiScale);
 }
 
 void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
