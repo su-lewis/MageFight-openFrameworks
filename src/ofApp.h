@@ -1149,7 +1149,11 @@ public:
 	float aiThinkTimer = 0.0f;
 	int myLocalPlayerID = 0;
 	int g_viewedOpponentID = 1; // Tracks which opponent's UI is visible on the right
-	std::vector<ofRectangle> opponentViewTabs; // Hitboxes for the UI dropdown tabs
+	struct OpponentTab {
+		ofRectangle rect;
+		int playerID = -1;
+	};
+	std::vector<OpponentTab> opponentViewTabs;
 	std::vector<int> matchTurnOrder; // Strict 1st to 4th order for drafting and turn 1
 	int currentDraftingOrderIndex = 0; // Tracks whose turn it is to draft
 	std::vector<int> matchPlacementOrder; // Tracks who died in what order (1st to die = 4th place)
@@ -1161,7 +1165,7 @@ public:
 
 	uint32_t localSeedComponent = 0;
 	bool waitingForClientHandshake = false;
-
+	bool matchHadHumanOpponents = false;
 	int eloChange = 0;
 	int myElo = 1000;
 	int opponentElo = 1000;

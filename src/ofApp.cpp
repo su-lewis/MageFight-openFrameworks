@@ -2695,10 +2695,15 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofFbo fboText; // <-- NEW
 	ofFboSettings fboSettings;
 
-	// FIX: FAST LOAD - Skip heavy FBO rendering if atlases exist
-	if (ofFile("UI/card_sprite_generated.png").exists() && ofFile("UI/card_text_generated.png").exists()) {
-		if (outSpriteSheet.load("UI/card_sprite_generated.png") && outTextSheet.load("UI/card_text_generated.png")) {
-			ofLogNotice("Cards") << "Loaded pre-baked atlases inside generator. Skipping 5-second FBO rendering!";
+	// Check if cached atlas exists
+	std::string spritePath = "UI/card_sprite_generated.png";
+	std::string textPath = "UI/card_text_generated.png";
+	if (!ofFile(spritePath).exists()) spritePath = "bin/data/" + spritePath;
+	if (!ofFile(textPath).exists()) textPath = "bin/data/" + textPath;
+
+	if (ofFile(spritePath).exists() && ofFile(textPath).exists()) {
+		if (outSpriteSheet.load(spritePath) && outTextSheet.load(textPath)) {
+			ofLogNotice("Cards") << "Loaded pre-baked atlases inside generator. Skipping FBO rendering!";
 			return true;
 		}
 	}
@@ -3143,7 +3148,34 @@ bool ofApp::loadGameStateFromFile(const std::string & path) {
 void ofApp::pruneOldSaves(int keepCount) {
 	pruneOldStampedSaves(keepCount);
 }
+static glm::vec3 getInitiativeDieWorldPos(int playerID, int totalPlayers, float diceY = 7.0f) {
+	// Radius of the invisible square in the center of the arena
+	const float d = 4.6f;
 
+	if (totalPlayers <= 2) {
+		// 2 Players: Clean West vs East positioning
+		if (playerID == 0) return glm::vec3(-d, diceY, 0.0f);
+		return glm::vec3(d, diceY, 0.0f);
+	}
+
+	// 3 or 4 Players: Dedicated corner of the invisible square matching starting positions
+	// P0: Bottom-Left (South-West)
+	// P1: Top-Left    (North-West)
+	// P2: Top-Right   (North-East)
+	// P3: Bottom-Right(South-East)
+	switch (playerID) {
+	case 0:
+		return glm::vec3(-d, diceY, d);
+	case 1:
+		return glm::vec3(-d, diceY, -d);
+	case 2:
+		return glm::vec3(d, diceY, -d);
+	case 3:
+		return glm::vec3(d, diceY, d);
+	default:
+		return glm::vec3(0.0f, diceY, 0.0f);
+	}
+}
 void ofApp::startInitiativePhase() {
 	currentState = STATE_INITIATIVE_ROLL;
 	isInitiativeRolling = true;
@@ -3190,14 +3222,8 @@ void ofApp::startInitiativePhase() {
 			currentEffectSequence.blackboard[i] = r; // Store for visual UI
 		}
 
-		// Find where this player is standing to spawn the die
-		for (const auto & p : players) {
-			if (!p.isMinion && p.playerID == realPlayerID) {
-				// FIX: Pass the authoritative Player ID so the text correctly anchors over their head
-				queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 1.5f);
-				break;
-			}
-		}
+		// Queue the initiative die with a 4.2-second duration so it remains visible while players read results
+		queueVisualDiceRoll(getInitiativeDieWorldPos(realPlayerID, numPlayers, 7.0f), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 4.2f);
 	}
 
 	// Sort descending by roll, then by tiebreaker
@@ -5635,8 +5661,31 @@ void ofApp::updateStateMachine() {
 			}
 		}
 
+		// If match was purely solo vs bots from the very start and connection is lost, exit directly
+		if (!matchHadHumanOpponents) {
+			if (!steamManager.isConnected()) {
+				ofLogNotice("Network") << "Connection lost during bot-only match. Exiting to main menu.";
+				steamManager.leaveLobby();
+				isMultiplayer = false;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+				return;
+			}
+		}
+
+		// HOST MIGRATION: If host disconnected, promote next valid client to host
+		if (!isHost() && !steamManager.hasOpponent() && steamManager.isConnected()) {
+			if (steamManager.isLocalLobbyOwner()) {
+				ofLogNotice("Network") << "HOST MIGRATION: Host disconnected. Promoting local client to Host.";
+				steamManager.becomeHost();
+				// Broadcast updated lobby and continue match
+				broadcastLobbyState(steamManager);
+			}
+		}
+
 		bool isDisconnected = false;
-		if (hasHumanOpponents) {
+		if (matchHadHumanOpponents) {
+			// In matches that had human opponents, disconnects require defeat of remaining bots or trigger penalty
 			isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
 		}
 
@@ -9750,7 +9799,15 @@ void ofApp::setupGame() {
 		ofFile::removeFile("deck_states_" + role + ".log");
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "MATCH STARTED. Seed: " + std::to_string(currentMapSeed));
 
-		// CRITICAL FIX: Read real names and opponents' Elo securely directly from the synchronized lobby player list
+		// Track whether this match started with human players (persists even if humans disconnect or die)
+		matchHadHumanOpponents = false;
+		for (const auto & lp : g_lobbyPlayers) {
+			if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+				matchHadHumanOpponents = true;
+				break;
+			}
+		}
+
 		if (!g_lobbyPlayers.empty()) {
 			player0SteamName = getPlayerNameByID(0);
 			player1SteamName = getPlayerNameByID(1);
@@ -9923,6 +9980,16 @@ void ofApp::setupGame() {
 			p.visualPos = gridToWorld(p.x, p.y);
 			board[p.x][p.y].hasPlayer = true;
 			players.push_back(p);
+		}
+
+		// Remove keys on tiles where a player starts (unoccupied corners keep their keys)
+		for (const auto & p : players) {
+			floatingKeyInstances.erase(
+				std::remove_if(floatingKeyInstances.begin(), floatingKeyInstances.end(),
+					[&](const FloatingKey & k) {
+						return k.pos.x == p.x && k.pos.y == p.y;
+					}),
+				floatingKeyInstances.end());
 		}
 	} else {
 		// Singleplayer Fallback
@@ -10709,9 +10776,19 @@ void ofApp::prepareGameVisualState() {
 								draftPicksRemaining = 1;
 								selectedDraftIndices.clear();
 								currentState = STATE_DRAFTING;
-								resetDraftPhaseTimerWindow();
+
+								// Pause the turn timer and grant a 45s decision window for drafting
+								if (!turnTimerPaused) {
+									turnTimerPaused = true;
+									turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+								}
+								opponentDecisionTimerActive = true;
+								opponentDecisionStartFrame = simulationFrame;
+								opponentDecisionDurationFrames = 45 * turnTimerFramesPerSecond;
+								opponentDecisionPlayerIndex = draft.targetIndex;
+
 								draftDisplayStartTime = ofGetElapsedTimef();
-								draftDisplayInteractiveEnabled = false;
+								draftDisplayInteractiveEnabled = true;
 								draftAutoSelectedIndex = -1;
 								ofColor keyCol = ofColor::gold;
 								if (draft.classTier == 2)
@@ -10722,10 +10799,14 @@ void ofApp::prepareGameVisualState() {
 							}
 						}
 					}
-					currentPathIndex++;
-					animationSegmentStartTime = ofGetElapsedTimef();
-					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
-					if (!pausedForKeyDraft) {
+
+					// If an in-game draft was triggered, freeze on this tile until the draft is finished
+					if (currentState == STATE_DRAFTING && isInGameDraft) {
+						animationSegmentStartTime = ofGetElapsedTimef();
+						playerVisualPos = targetPos;
+					} else {
+						currentPathIndex++;
+						animationSegmentStartTime = ofGetElapsedTimef();
 						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
 							isPlayerAnimating = false;
 							animatingPlayerIndex = -1;
@@ -11201,13 +11282,7 @@ void ofApp::updateGameLogic() {
 				if (timerState == STATE_DRAFTING) {
 					int draftOwner = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? (players[draftPlayerIndex].isMinion ? players[draftPlayerIndex].ownerID : players[draftPlayerIndex].playerID) : draftPlayerIndex;
 
-					// CRITICAL FIX: In Multiplayer, ONLY the Host generates timeouts to prevent duplicate packets skipping players!
-					bool canGenerateTimeout = false;
-					if (isMultiplayer) {
-						if (steamManager.isHost()) canGenerateTimeout = true;
-					} else {
-						if (isLocalDraftingPlayer(draftPlayerIndex)) canGenerateTimeout = true;
-					}
+					bool canGenerateTimeout = isMultiplayer ? steamManager.isHost() : isLocalDraftingPlayer(draftPlayerIndex);
 
 					if (canGenerateTimeout && !draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
@@ -11225,16 +11300,15 @@ void ofApp::updateGameLogic() {
 								if (!alreadySelected) candidates.push_back(poolIdx);
 							}
 							if (candidates.empty()) break;
-
-							// FIX: Pick first available candidate deterministically without consuming gameplay RNG!
 							selectedDraftIndices.push_back(candidates[0]);
 						}
+
 						if ((int)selectedDraftIndices.size() > 0) {
 							draftAcceptLocked = true;
 
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
-							cmd.playerID = draftOwner; // Authorized player ID for drafting unit
+							cmd.playerID = draftOwner;
 							cmd.commandId = 0;
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_ACCEPT_DRAFT;
@@ -11246,7 +11320,9 @@ void ofApp::updateGameLogic() {
 								cmd.params[3 + i] = selectedDraftIndices[i];
 							}
 							sendInputCommand(cmd, true);
+							ofLogNotice("Timer") << "Draft timeout processed for player " << draftOwner;
 
+							// If this timeout occurred on an in-game draft, also forcibly end the turn
 							if (isInGameDraft) {
 								InputCommandPacket endCmd = {};
 								endCmd.type = PKT_INPUT_COMMAND;
@@ -11256,13 +11332,12 @@ void ofApp::updateGameLogic() {
 								endCmd.commandType = CMD_END_TURN;
 								sendInputCommand(endCmd, true);
 							}
-							ofLogNotice("Timer") << "Draft timeout processed for player " << draftOwner;
 						} else {
 							turnStartFrame = (int)simulationFrame;
 						}
 					}
 				} else {
-					// Auto-end-turn during gameplay
+					// Turn timeout during gameplay
 					bool isLocalMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU);
 					bool isOpponentMenu = (opponentInteraction.open && opponentInteraction.type != 0 && opponentInteraction.type != 5 && opponentInteraction.type != 99);
 
@@ -12064,26 +12139,11 @@ void ofApp::drawGame() {
 			int col = i % rowLength;
 
 			if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 1) {
-				glm::vec3 leftPos(-6.0f, diceDisplayY, 0.0f);
-				glm::vec3 rightPos(6.0f, diceDisplayY, 0.0f);
-				bool player0OnLeft = true;
-				if ((int)activeDiceRolls.size() == 1) {
-					ofTranslate(0.0f, leftPos.y, leftPos.z);
-				} else {
-					if (i == 0) {
-						glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
-						ofTranslate(pos.x, pos.y, pos.z);
-					} else if (i == 1) {
-						glm::vec3 pos = player0OnLeft ? rightPos : leftPos;
-						ofTranslate(pos.x, pos.y, pos.z);
-					} else {
-						int totalDice = (int)activeDiceRolls.size();
-						int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
-						float totalW = itemsInThisRow * spacing;
-						float startX = -(totalW / 2.0f) + (spacing / 2.0f);
-						ofTranslate(startX + (col * spacing), diceDisplayY, (row * spacing));
-					}
-				}
+				int totalDice = (int)activeDiceRolls.size();
+				int pID = roll.associatedUnit;
+				if (pID < 0 || pID > 3) pID = (int)i;
+				glm::vec3 pos = getInitiativeDieWorldPos(pID, totalDice, diceDisplayY);
+				ofTranslate(pos.x, pos.y, pos.z);
 			} else {
 				int totalDice = (int)activeDiceRolls.size();
 				int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
@@ -14743,31 +14803,51 @@ void ofApp::drawGame() {
 	drawProfile(p0_profileX, profileY, profileW, profileH, true, myName, p0Active, p0Elo);
 	drawProfile(p1_profileX, profileY, profileW, profileH, false, oppName, p1Active, p1Elo);
 
-	// --- DRAW OPPONENT SELECTOR TABS ---
+	// --- DRAW OPPONENT SELECTOR TABS (VERTICAL STACK TO THE LEFT OF ENEMY DECK/DISCARD) ---
 	opponentViewTabs.clear();
 	if (g_lobbyPlayers.size() > 2) {
-		float tabW = 60.0f * scale;
-		float tabH = 20.0f * scale;
-		float tabX = p1_profileX + profileW - tabW; // Align right edge
-		float tabY = profileY - tabH - 2.0f; // Above profile
+		std::vector<int> opponentIDs;
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID != myLocalPlayerID) {
+				opponentIDs.push_back((int)lp.playerID);
+			}
+		}
 
-		for (int i = g_lobbyPlayers.size() - 1; i >= 0; i--) {
-			int pID = g_lobbyPlayers[i].playerID;
-			if (pID == myLocalPlayerID) continue; // Don't tab yourself
+		if (!opponentIDs.empty()) {
+			float tabW = 46.0f * scale;
+			float tabH = 34.0f * scale;
+			float tabGap = 6.0f * scale;
+			float marginFromDeck = 12.0f * scale;
 
-			ofRectangle tRect(tabX, tabY, tabW, tabH);
-			opponentViewTabs.push_back(tRect);
+			float midY = (p1_discardRect.getBottom() + p1_deckRect.y) * 0.5f;
+			float totalH = (float)opponentIDs.size() * tabH + (float)(opponentIDs.size() - 1) * tabGap;
+			float startY = midY - (totalH * 0.5f);
+			float tabX = p1_deckRect.x - tabW - marginFromDeck;
 
-			bool isHovered = tRect.inside(ofGetMouseX(), ofGetMouseY());
-			bool isActive = (pID == g_viewedOpponentID);
+			for (size_t i = 0; i < opponentIDs.size(); ++i) {
+				int pID = opponentIDs[i];
+				float tabY = startY + i * (tabH + tabGap);
+				ofRectangle tRect(tabX, tabY, tabW, tabH);
 
-			ofSetColor(isActive ? ofColor(80, 100, 140) : (isHovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
-			ofDrawRectRounded(tRect, 4.0f);
+				opponentViewTabs.push_back({ tRect, pID });
 
-			std::string tabName = "P" + std::to_string(pID + 1);
-			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.8f * scale, isActive ? ofColor::white : ofColor(200));
+				bool isHovered = tRect.inside(ofGetMouseX(), ofGetMouseY());
+				bool isActive = (pID == g_viewedOpponentID);
 
-			tabX -= (tabW + 4.0f * scale);
+				ofPushStyle();
+				ofSetColor(isActive ? ofColor(45, 75, 125, 240) : (isHovered ? ofColor(60, 65, 80, 220) : ofColor(30, 32, 40, 200)));
+				ofDrawRectRounded(tRect, 6.0f * scale);
+
+				ofNoFill();
+				ofSetLineWidth(isActive ? 2.5f * scale : 1.5f * scale);
+				ofSetColor(isActive ? ofColor(100, 200, 255) : (isHovered ? ofColor(180, 190, 210) : ofColor(70, 75, 90)));
+				ofDrawRectRounded(tRect, 6.0f * scale);
+				ofFill();
+
+				std::string tabName = "P" + std::to_string(pID + 1);
+				drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, isActive ? ofColor::white : ofColor(190, 190, 200), 2, ofColor::black);
+				safePopStyle();
+			}
 		}
 	}
 	// ------------------------------------------
@@ -14955,17 +15035,15 @@ void ofApp::drawGame() {
 	}
 	// --- MAIN UI DRAWING (4-PLAYER READY) ---
 
-	// Auto-switch viewed opponent to whoever's turn it currently is
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
-		int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-		if (activeOwner != myLocalPlayerID) {
-			g_viewedOpponentID = activeOwner;
-		}
-	}
-
 	// Failsafe: Don't view yourself or a non-existent player
 	if (g_viewedOpponentID == myLocalPlayerID || g_viewedOpponentID >= std::max((int)g_lobbyPlayers.size(), 2)) {
-		g_viewedOpponentID = (myLocalPlayerID == 0) ? 1 : 0;
+		// Default to first valid opponent
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID != myLocalPlayerID) {
+				g_viewedOpponentID = (int)lp.playerID;
+				break;
+			}
+		}
 	}
 
 	Player * localPlayer = nullptr;
@@ -15535,11 +15613,6 @@ void ofApp::drawGame() {
 	float btnHeight_end = 66 * uiScaleBtn; // CHANGED: Increased from 60
 
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
-
-	// In initiative roll state, skip turn indicators and action buttons entirely
-	if (currentState == STATE_INITIATIVE_ROLL) {
-		return;
-	}
 
 	// Check if it's my turn
 	bool myTurn = isMyTurn();
@@ -17460,22 +17533,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
-	if (g_isGameOver && currentState != STATE_PAUSED && currentState != STATE_SETTINGS) {
-		// Handle Opponent View Tabs
-		if (currentState == STATE_GAMEPLAY && button == OF_MOUSE_BUTTON_LEFT) {
-			int tabIdx = 0;
-			for (int i = g_lobbyPlayers.size() - 1; i >= 0; i--) {
-				int pID = g_lobbyPlayers[i].playerID;
-				if (pID == myLocalPlayerID) continue;
 
-				if (tabIdx < opponentViewTabs.size() && opponentViewTabs[tabIdx].inside(x, y)) {
-					g_viewedOpponentID = pID;
-					playHandFeedbackSfx(1.0f, 0.2f);
-					return; // Consume click
-				}
-				tabIdx++;
+	// Opponent HUD Switcher Tabs (Click to inspect other players)
+	if (button == OF_MOUSE_BUTTON_LEFT && !opponentViewTabs.empty() && currentState != STATE_MAIN_MENU) {
+		for (const auto & tab : opponentViewTabs) {
+			if (tab.rect.inside(x, y)) {
+				g_viewedOpponentID = tab.playerID;
+				if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
+				return;
 			}
 		}
+	}
+
+	if (g_isGameOver && currentState != STATE_PAUSED && currentState != STATE_SETTINGS) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			if (gameOverReplayBtn.inside(x, y) && !replaySavedThisMatch) {
 				saveReplay("last_match_replay.json");
@@ -19067,7 +19137,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (pauseMenuQuitButton.inside(x, y)) {
-			if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
+			// If match had human players, quitting against bots counts as a forfeit
+			if (isMultiplayer && matchHadHumanOpponents && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
@@ -19077,14 +19148,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
 				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-				// Send forfeit and let the game naturally transition to Game Over
-				// so Elo is deducted properly!
 				sendInputCommand(cmd, true);
-
-				// Close the pause menu so we can see the Game Over screen!
 				currentState = STATE_GAMEPLAY;
 			} else {
-				// Only instantly exit if in singleplayer, already at Game Over, or Spectating
 				steamManager.leaveLobby();
 				isMultiplayer = false;
 				cleanupGame();
@@ -20035,7 +20101,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = STATE_SETTINGS;
 		}
 		if (pauseMenuQuitButton.inside(x, y)) {
-			if (isMultiplayer && !g_isGameOver) {
+			bool hasHumanOpponents = false;
+			for (const auto & lp : g_lobbyPlayers) {
+				if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+					hasHumanOpponents = true;
+					break;
+				}
+			}
+
+			if (isMultiplayer && hasHumanOpponents && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
@@ -20046,10 +20120,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 				sendInputCommand(cmd, true);
 
-				// Close the pause menu so we can see the Game Over screen!
 				currentState = STATE_GAMEPLAY;
 			} else {
-				// Only instantly exit if in singleplayer, or already at Game Over
 				steamManager.leaveLobby();
 				isMultiplayer = false;
 				cleanupGame();
@@ -21872,6 +21944,12 @@ void ofApp::startNewTurn() {
 	}
 
 	Player & startingPlayer = players[currentPlayerIndex];
+
+	// Auto-switch viewed opponent to whoever's turn it currently is (if not our turn)
+	int activeTurnOwner = startingPlayer.isMinion ? startingPlayer.ownerID : startingPlayer.playerID;
+	if (activeTurnOwner != myLocalPlayerID) {
+		g_viewedOpponentID = activeTurnOwner;
+	}
 
 	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
@@ -24841,16 +24919,15 @@ void ofApp::simulationTick() {
 	// Run deterministic per-tick game logic (timers, auto-choices, turn flow)
 	updateGameLogic();
 
-	// Deterministic initiative resolution: use frame-counted wait
+	// Deterministic initiative resolution: wait 4.2s (0.8s spin + 3.4s reading pause)
 	if (currentState == STATE_INITIATIVE_ROLL) {
 		initiativeTimerFrames += 1;
-		const int INITIATIVE_THRESHOLD = (int)std::round(2.5f / SIMULATION_TIMESTEP); // Wait 2.5s for dice
+		const int INITIATIVE_THRESHOLD = (int)std::round(4.2f / SIMULATION_TIMESTEP);
 		if (initiativeTimerFrames >= INITIATIVE_THRESHOLD) {
 			activeDiceRolls.clear(); // Clear visual dice
 
 			// The player who won initiative drafts first!
 			currentDraftingOrderIndex = 0;
-			// CRITICAL FIX: Convert the Player ID back into an Array Index safely!
 			draftPlayerIndex = findPlayerIndexByID(matchTurnOrder[0]);
 			if (draftPlayerIndex < 0) draftPlayerIndex = 0; // Failsafe
 
@@ -42090,37 +42167,39 @@ void ofApp::onCardPicked(int optionIndex) {
 }
 //--------------------------------------------------------------
 void ofApp::drawInitiativeRoll() {
-	static int lastDrawFrame = -1;
-	const int currentDrawFrame = ofGetFrameNum();
-	if (lastDrawFrame == currentDrawFrame) return;
-	lastDrawFrame = currentDrawFrame;
-
 	if (activeDiceRolls.size() > 0) {
 		ofCamera & activeCam = getActiveCamera();
 
 		// CRASH FIX: Guard against empty players array (can happen on client races).
 		if (players.empty()) return;
 
-		for (const auto & roll : activeDiceRolls) {
+		int totalDice = (int)activeDiceRolls.size();
+		for (size_t i = 0; i < activeDiceRolls.size(); ++i) {
+			const auto & roll = activeDiceRolls[i];
 			if (roll.purpose != PURPOSE_DEBUG) continue;
 
-			// Fix: roll.associatedUnit is a playerID, not an array index!
-			int pIdx = findPlayerIndexByID(roll.associatedUnit);
-			if (pIdx < 0 || pIdx >= (int)players.size()) continue;
+			int pID = roll.associatedUnit;
+			if (pID < 0 || pID > 3) pID = (int)i;
 
-			// Get screen position of the die safely
-			glm::vec3 worldPos = gridToWorld(players[pIdx].x, players[pIdx].y);
-			glm::vec3 screenPos3D = activeCam.worldToScreen(worldPos + glm::vec3(0, 2.0f, 0));
+			// Position text directly above the physical 3D die
+			glm::vec3 dieWorldPos = getInitiativeDieWorldPos(pID, totalDice, 7.0f);
+			glm::vec3 screenPos3D = activeCam.worldToScreen(dieWorldPos + glm::vec3(0, 1.8f, 0));
 			glm::vec2 screenPos(screenPos3D.x, screenPos3D.y);
 
-			// CRASH FIX: Skip NaN/Inf screen positions and screen coordinates outside the window
 			if (std::isnan(screenPos.x) || std::isnan(screenPos.y) || std::isinf(screenPos.x) || std::isinf(screenPos.y)) continue;
 			if (screenPos.x < -200 || screenPos.x > ofGetWidth() + 200 || screenPos.y < -200 || screenPos.y > ofGetHeight() + 200) continue;
 
-			std::string pName = getPlayerNameByID(roll.associatedUnit);
-			ofColor pColor = (roll.associatedUnit == myLocalPlayerID) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
+			std::string pName = getPlayerNameByID(pID);
+			ofColor pColor = (pID == myLocalPlayerID) ? ofColor(70, 160, 255) : ofColor(255, 120, 120);
 
-			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y, 0.7f, pColor, 1, ofColor(0, 0, 0, 255));
+			// Draw player name
+			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y - 20.0f, 0.75f, pColor, 2, ofColor(0, 0, 0, 255));
+
+			// When die finishes spinning, display their roll directly beneath their name
+			if (roll.isFinishedVisual) {
+				std::string rollStr = "Rolled " + std::to_string(roll.rawResult);
+				drawPixelTextCentered(uiFont, rollStr, screenPos.x, screenPos.y + 10.0f, 0.85f, ofColor::white, 2, ofColor::black);
+			}
 		}
 
 		// Draw Result Message once all dice stop
@@ -43006,8 +43085,16 @@ void ofApp::exit() {
 	timeEndPeriod(1); // Release kernel timer precision
 #endif
 
-	// --- CRITICAL FIX: INSTANT RESIGN ON ALT+F4 OR WINDOW CLOSE ---
-	if (isMultiplayer && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
+	// --- INSTANT RESIGN ON ALT+F4 OR WINDOW CLOSE (HUMAN MATCHES ONLY) ---
+	bool hasHumanOpponents = false;
+	for (const auto & lp : g_lobbyPlayers) {
+		if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+			hasHumanOpponents = true;
+			break;
+		}
+	}
+
+	if (isMultiplayer && hasHumanOpponents && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -43017,8 +43104,6 @@ void ofApp::exit() {
 		strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
 		steamManager.sendPacket(&cmd, sizeof(cmd));
 
-		// Sleep for 50 milliseconds to guarantee the packet enters the OS network hardware buffer
-		// before the process completely dies.
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}
 
@@ -46157,7 +46242,18 @@ void ofApp::thinkRuleBasedAI() {
 				}
 
 				// Specific Power Engine Overrides
-				if (card.type == CARD_STUDY)
+				if (card.type == CARD_AMNESIA) {
+					// High priority: target enemy to burn their deck, or self if basic punches/blocks are in deck
+					score += 1800.0f;
+				} else if (card.type == CARD_FORM_OF_GHOST && !me.inGhostForm) {
+					score += 1600.0f; // Phase through walls & become immune to physical
+				} else if (card.type == CARD_FORM_OF_TORTOISE && !me.inTortoiseForm) {
+					score += 1700.0f; // +5 Max HP, +5 Heal, spike retaliation
+				} else if (card.type == CARD_REPLICATE && !me.replicateQueued) {
+					score += 1400.0f; // Double next spell
+				} else if (card.type == CARD_WARD || card.type == CARD_FORTIFY) {
+					score += 850.0f;
+				} else if (card.type == CARD_STUDY)
 					score += 800.0f;
 				else if (card.type == CARD_TRAIN)
 					score += 750.0f;
@@ -46170,7 +46266,7 @@ void ofApp::thinkRuleBasedAI() {
 				else if (card.type == CARD_MIND_THEFT) {
 					for (size_t k = 0; k < players.size(); ++k) {
 						if (players[k].x == x && players[k].y == y && !players[k].isMinion && players[k].playerID == enemyID) {
-							score += 1600.0f; // High priority to steal good cards from the boss!
+							score += 1600.0f;
 							break;
 						}
 					}
@@ -46298,33 +46394,44 @@ void ofApp::thinkRuleBasedAI() {
 						}
 					}
 
-					// Path toward keys if keys exist
+					// Path aggressively toward keys if any exist
 					if (hasKeysToCollect) {
 						glm::ivec2 targetKey = getBestKeyTarget(me);
 						if (targetKey.x != -1) {
-							auto path = findShortestPathForPlayer(currentPlayerIndex, { (float)nx, (float)ny }, { (float)targetKey.x, (float)targetKey.y });
-							int distToKey = (path.size() > 1) ? (int)path.size() - 1 : 0;
-							moveScore += 350.0f - (distToKey * 15.0f);
+							auto pathNow = findShortestPathForPlayer(currentPlayerIndex, { (float)me.x, (float)me.y }, { (float)targetKey.x, (float)targetKey.y });
+							auto pathNext = findShortestPathForPlayer(currentPlayerIndex, { (float)nx, (float)ny }, { (float)targetKey.x, (float)targetKey.y });
+							int curDist = (pathNow.size() > 1) ? (int)pathNow.size() - 1 : 999;
+							int nextDist = (pathNext.size() > 1) ? (int)pathNext.size() - 1 : 999;
+
+							// Huge bonus for stepping closer to a key
+							if (nextDist < curDist) {
+								moveScore += 1200.0f;
+							}
 						}
 					}
 
-					// --- SELF-PRESERVATION (FLEEING) ---
+					// Move toward enemy to get into melee/spell range
+					if (enemyTargetX != -1 && enemyTargetY != -1) {
+						int curDistToEnemy = std::abs(me.x - enemyTargetX) + std::abs(me.y - enemyTargetY);
+						int nextDistToEnemy = std::abs(nx - enemyTargetX) + std::abs(ny - enemyTargetY);
+						if (nextDistToEnemy < curDistToEnemy) {
+							moveScore += 500.0f;
+						}
+					}
+
+					// Self-preservation: only penalize movement if critically low HP or truly lethal
 					float danger = threatMap[nx][ny];
 					if (danger > 0.0f) {
-						if (danger >= effectiveHP) {
-							moveScore -= 5000.0f; // Lethal tile, RUN AWAY!
-						} else if (effectiveHP <= 8) {
-							moveScore -= (danger * 50.0f); // Low HP, highly risk averse
+						if (danger >= effectiveHP && effectiveHP <= 6) {
+							moveScore -= 2000.0f; // Only flee if actually about to die
+						} else if (effectiveHP <= 5) {
+							moveScore -= (danger * 15.0f);
 						} else {
-							// Courage Buff: If HP is double the threat, don't be scared to advance!
-							if (effectiveHP > danger * 2.5f) {
-								moveScore -= (danger * 5.0f); // Brave!
-							} else {
-								moveScore -= (danger * 15.0f); // General damage avoidance
-							}
+							// Confident: minor deduction that does not override key/enemy hunting
+							moveScore -= (danger * 3.0f);
 						}
 					} else {
-						moveScore += 200.0f; // Safe cover bonus
+						moveScore += 100.0f;
 					}
 
 					moveCandidates.push_back({ nx, ny, moveScore });

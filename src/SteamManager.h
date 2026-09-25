@@ -80,7 +80,10 @@ public:
 
 	void fetchLeaderboard();
 	std::vector<LeaderboardEntry> getLeaderboardEntries();
-
+	void becomeHost();
+	CSteamID getLobbyID() const { return m_LobbyID; }
+	CSteamID getLobbyOwner() const;
+	bool isLocalLobbyOwner() const;
 	// Elo Getters/Setters
 	// Secure LeaverBuster
 	int getLocalElo();

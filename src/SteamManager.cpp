@@ -777,3 +777,22 @@ SteamManager::XPGainResult SteamManager::addXP(int amount) {
 	ofLogNotice("Progression") << "Awarded " << amount << " XP. Current: Level " << curLvl << " (" << curXP << "/" << req << " XP)";
 	return result;
 }
+void SteamManager::becomeHost() {
+	m_bIsHost = true;
+	g_isHostingLobby = true;
+	if (m_hConnection != k_HSteamNetConnection_Invalid) {
+		SteamNetworkingSockets()->CloseConnection(m_hConnection, 0, nullptr, false);
+		m_hConnection = k_HSteamNetConnection_Invalid;
+	}
+	if (m_hListenSocket == k_HSteamListenSocket_Invalid && SteamNetworkingSockets()) {
+		m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
+	}
+}
+CSteamID SteamManager::getLobbyOwner() const {
+	if (!m_bInitialized || !m_LobbyID.IsValid() || !SteamMatchmaking()) return CSteamID();
+	return CSteamID((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
+}
+
+bool SteamManager::isLocalLobbyOwner() const {
+	return getLobbyOwner() == m_LocalID;
+}
