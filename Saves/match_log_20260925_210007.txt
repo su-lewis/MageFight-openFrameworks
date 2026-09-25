@@ -1,0 +1,379 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-25 21:00:07
+End Reason: Draw
+Seed: 3566615286
+Turns: 21
+Winner ID: 2
+
+--- PLAYERS ---
+Player 0: Player
+Player 1: Bot 1
+Player 2: Bot 2
+
+--- EVENT LOG ---
+[20:48:57] --- MATCH STARTED ---
+[20:49:26] Turn 0: Bot 2's turn
+[20:49:26] Autosaved turn-start (autosave.json)
+[20:49:28] Bot 2 moved to (11,0)
+[20:49:28] Bot 2 moved to (11,1)
+[20:49:29] Bot 2 moved to (11,2)
+[20:49:30] Turn 1: Player's turn
+[20:49:30] Autosaved turn-start (autosave.json)
+[20:49:33] Player played Hasten targeting (0,8)
+[20:49:34] Player moved to (0,6)
+[20:49:35] Turn 1: Bot 1's turn
+[20:49:35] Autosaved turn-start (autosave.json)
+[20:49:37] Bot 1 moved to (0,1)
+[20:49:37] Bot 1 moved to (0,2)
+[20:49:38] Bot 1 moved to (0,3)
+[20:49:39] Bot 1 moved to (0,4)
+[20:49:42] Turn 1: Bot 2's turn
+[20:49:42] Autosaved turn-start (autosave.json)
+[20:49:44] Bot 2 moved to (11,3)
+[20:49:47] Turn 2: Player's turn
+[20:49:47] Autosaved turn-start (autosave.json)
+[20:51:17] Turn 2: Bot 1's turn
+[20:51:17] Autosaved turn-start (autosave.json)
+[20:51:19] Bot 1 moved to (0,3)
+[20:51:20] Bot 1 moved to (1,3)
+[20:51:23] Turn 2: Bot 2's turn
+[20:51:23] Autosaved turn-start (autosave.json)
+[20:51:25] Bot 2 played Hasten targeting (11,3)
+[20:51:26] Bot 2 moved to (10,3)
+[20:51:26] Bot 2 moved to (9,3)
+[20:51:27] Bot 2 moved to (8,3)
+[20:51:28] Turn 3: Player's turn
+[20:51:28] Autosaved turn-start (autosave.json)
+[20:52:59] Player forfeited (AFK for 2 consecutive turns).
+[20:52:59] Turn 3: Bot 1's turn
+[20:52:59] Autosaved turn-start (autosave.json)
+[20:53:00] Player has been ELIMINATED!
+[20:53:01] Bot 1 moved to (2,3)
+[20:53:02] Bot 1 moved to (3,3)
+[20:53:03] Bot 1 moved to (4,3)
+[20:53:03] Bot 1 moved to (4,4)
+[20:53:06] Bot 1 moved to (4,5)
+[20:53:07] Turn 3: Bot 2's turn
+[20:53:07] Autosaved turn-start (autosave.json)
+[20:53:09] Bot 2 played Hasten targeting (8,3)
+[20:53:10] Bot 2 moved to (8,4)
+[20:53:12] Bot 2 moved to (8,5)
+[20:53:13] Bot 2 moved to (7,5)
+[20:53:14] Bot 2 moved to (7,6)
+[20:53:15] Bot 2 moved to (6,6)
+[20:53:16] Bot 2 moved to (6,7)
+[20:53:18] Bot 2 moved to (6,8)
+[20:53:19] Bot 2 moved to (7,8)
+[20:53:20] Bot 2 moved to (8,8)
+[20:53:23] Turn 4: Bot 1's turn
+[20:53:23] Autosaved turn-start (autosave.json)
+[20:53:25] Bot 1 moved to (4,4)
+[20:53:26] Bot 1 moved to (4,3)
+[20:53:27] Bot 1 moved to (5,3)
+[20:53:27] Turn 4: Bot 2's turn
+[20:53:27] Autosaved turn-start (autosave.json)
+[20:53:29] Bot 2 played Hasten targeting (8,8)
+[20:53:30] Bot 2 moved to (9,8)
+[20:53:31] Bot 2 moved to (10,8)
+[20:53:32] Bot 2 moved to (11,8)
+[20:53:32] Bot 2 moved to (12,8)
+[20:53:35] Bot 2 moved to (12,7)
+[20:53:36] Bot 2 moved to (12,6)
+[20:53:37] Bot 2 moved to (12,5)
+[20:53:38] Turn 5: Bot 1's turn
+[20:53:38] Autosaved turn-start (autosave.json)
+[20:53:40] Bot 1 moved to (5,2)
+[20:53:40] Bot 1 moved to (6,2)
+[20:53:41] Bot 1 moved to (6,1)
+[20:53:44] Bot 1 moved to (7,1)
+[20:53:45] Bot 1 moved to (7,2)
+[20:53:46] Turn 5: Bot 2's turn
+[20:53:46] Autosaved turn-start (autosave.json)
+[20:53:48] Bot 2 moved to (12,4)
+[20:53:50] Bot 2 moved to (12,3)
+[20:53:51] Bot 2 moved to (12,2)
+[20:53:52] Bot 2 moved to (11,2)
+[20:53:53] Turn 6: Bot 1's turn
+[20:53:53] Autosaved turn-start (autosave.json)
+[20:54:31] Turn 6: Bot 2's turn
+[20:54:31] Autosaved turn-start (autosave.json)
+[20:54:33] Bot 2 played Sprint targeting (11,2)
+[20:54:34] Bot 2 moved to (12,2)
+[20:54:34] Bot 2 moved to (12,3)
+[20:54:35] Bot 2 moved to (12,4)
+[20:54:36] Bot 2 moved to (12,5)
+[20:54:37] Turn 7: Bot 1's turn
+[20:54:37] Autosaved turn-start (autosave.json)
+[20:54:39] Bot 1 moved to (7,1)
+[20:54:40] Bot 1 moved to (7,0)
+[20:54:40] Bot 1 moved to (8,0)
+[20:54:43] Bot 1 moved to (9,0)
+[20:54:44] Turn 7: Bot 2's turn
+[20:54:44] Autosaved turn-start (autosave.json)
+[20:54:46] Bot 2 played Summon Hellhound targeting (12,4)
+[20:54:46] Bot 2 summoned unit kind 3 at (12,4)
+[20:54:47] Turn 8: Bot 1's turn
+[20:54:47] Autosaved turn-start (autosave.json)
+[20:54:49] Bot 1 moved to (8,0)
+[20:54:50] Turn 8: Bot 2's turn
+[20:54:50] Autosaved turn-start (autosave.json)
+[20:54:52] Bot 2 moved to (12,3)
+[20:54:53] Bot 2 moved to (12,2)
+[20:54:54] Bot 2 moved to (12,1)
+[20:54:55] Turn 8: Bot 2's turn
+[20:54:55] Autosaved turn-start (autosave.json)
+[20:54:57] Bot 2 moved to (11,5)
+[20:55:00] Bot 2 moved to (10,5)
+[20:55:00] Bot 2 moved to (9,5)
+[20:55:01] Bot 2 moved to (8,5)
+[20:55:02] Bot 2 moved to (8,6)
+[20:55:03] Bot 2 moved to (7,6)
+[20:55:04] Turn 9: Bot 1's turn
+[20:55:04] Autosaved turn-start (autosave.json)
+[20:55:06] Bot 1 played Chain Lightning targeting (11,0)
+[20:55:13] Bot 1 moved to (7,0)
+[20:55:14] Turn 9: Bot 2's turn
+[20:55:14] Autosaved turn-start (autosave.json)
+[20:55:16] Bot 2 moved to (12,2)
+[20:55:17] Turn 9: Bot 2's turn
+[20:55:17] Autosaved turn-start (autosave.json)
+[20:55:19] Bot 2 moved to (7,7)
+[20:55:20] Turn 10: Bot 1's turn
+[20:55:20] Autosaved turn-start (autosave.json)
+[20:55:58] Turn 10: Bot 2's turn
+[20:55:58] Autosaved turn-start (autosave.json)
+[20:56:00] Bot 2 played Dark Shield targeting (12,2)
+[20:56:00] Bot 2 moved to (12,1)
+[20:56:01] Bot 2 moved to (12,0)
+[20:56:02] Bot 2 moved to (11,0)
+[20:56:03] Bot 2 moved to (10,0)
+[20:56:04] Bot 2 moved to (9,0)
+[20:56:04] Turn 10: Bot 2's turn
+[20:56:04] Autosaved turn-start (autosave.json)
+[20:56:06] Bot 2 played Sprint targeting (7,7)
+[20:56:07] Bot 2 played Hasten targeting (7,7)
+[20:56:08] Bot 2 moved to (7,8)
+[20:56:08] Bot 2 moved to (6,8)
+[20:56:09] Bot 2 moved to (5,8)
+[20:56:10] Bot 2 moved to (4,8)
+[20:56:13] Bot 2 moved to (3,8)
+[20:56:14] Bot 2 moved to (2,8)
+[20:56:14] Turn 11: Bot 1's turn
+[20:56:14] Autosaved turn-start (autosave.json)
+[20:56:16] Bot 1 played Chain Lightning targeting (8,0)
+[20:56:25] Bot 1 moved to (6,0)
+[20:56:26] Bot 1 moved to (5,0)
+[20:56:27] Turn 11: Bot 2's turn
+[20:56:27] Autosaved turn-start (autosave.json)
+[20:56:29] Bot 2 played Hasten targeting (2,8)
+[20:56:29] Bot 2 moved to (1,8)
+[20:56:30] Bot 2 moved to (1,7)
+[20:56:31] Bot 2 moved to (1,6)
+[20:56:32] Bot 2 moved to (1,5)
+[20:56:35] Bot 2 moved to (0,5)
+[20:56:35] Bot 2 moved to (0,4)
+[20:56:36] Turn 12: Bot 1's turn
+[20:56:36] Autosaved turn-start (autosave.json)
+[20:56:40] Bot 1 moved to (4,0)
+[20:56:43] Turn 12: Bot 2's turn
+[20:56:43] Autosaved turn-start (autosave.json)
+[20:56:45] Bot 2 played Summon Assistant targeting (0,3)
+[20:56:45] Bot 2 summoned unit kind 6 at (0,3)
+[20:56:46] Bot 2 played Summon Hellhound targeting (0,5)
+[20:56:46] Bot 2 summoned unit kind 3 at (0,5)
+[20:56:49] Turn 13: Bot 1's turn
+[20:56:49] Autosaved turn-start (autosave.json)
+[20:56:49] Turn 13: Bot 2's turn
+[20:56:49] Autosaved turn-start (autosave.json)
+[20:56:53] Bot 2 played Hand Block targeting (0,3)
+[20:56:53] Turn 13: Bot 2's turn
+[20:56:53] Autosaved turn-start (autosave.json)
+[20:56:55] Bot 2 moved to (1,5)
+[20:56:56] Bot 2 moved to (2,5)
+[20:56:57] Bot 2 moved to (3,5)
+[20:56:58] Bot 2 moved to (4,5)
+[20:56:58] Bot 2 moved to (4,4)
+[20:56:59] Bot 2 moved to (4,3)
+[20:57:00] Bot 2 moved to (4,2)
+[20:57:01] Turn 13: Bot 2's turn
+[20:57:01] Autosaved turn-start (autosave.json)
+[20:57:03] Bot 2 played Summon Assistant targeting (0,5)
+[20:57:03] Bot 2 summoned unit kind 6 at (0,5)
+[20:57:05] Turn 14: Bot 1's turn
+[20:57:05] Autosaved turn-start (autosave.json)
+[20:57:05] Turn 14: Bot 2's turn
+[20:57:05] Autosaved turn-start (autosave.json)
+[20:57:09] Bot 2 played Hand Block targeting (0,3)
+[20:57:09] Turn 14: Bot 2's turn
+[20:57:09] Autosaved turn-start (autosave.json)
+[20:57:11] Bot 2 moved to (4,3)
+[20:57:12] Bot 2 moved to (3,3)
+[20:57:13] Bot 2 moved to (3,2)
+[20:57:14] Bot 2 moved to (4,2)
+[20:57:15] Turn 14: Bot 2's turn
+[20:57:15] Autosaved turn-start (autosave.json)
+[20:57:17] Bot 2 played Hand Block targeting (0,5)
+[20:57:17] Turn 14: Bot 2's turn
+[20:57:17] Autosaved turn-start (autosave.json)
+[20:57:19] Turn 15: Bot 1's turn
+[20:57:19] Autosaved turn-start (autosave.json)
+[20:57:20] Turn 15: Bot 2's turn
+[20:57:20] Autosaved turn-start (autosave.json)
+[20:57:23] Bot 2 played Hand Block targeting (0,3)
+[20:57:24] Turn 15: Bot 2's turn
+[20:57:24] Autosaved turn-start (autosave.json)
+[20:57:26] Bot 2 moved to (4,3)
+[20:57:27] Bot 2 moved to (3,3)
+[20:57:28] Bot 2 moved to (3,2)
+[20:57:28] Bot 2 moved to (4,2)
+[20:57:29] Bot 2 moved to (4,3)
+[20:57:30] Bot 2 moved to (3,3)
+[20:57:31] Bot 2 moved to (3,2)
+[20:57:32] Bot 2 moved to (4,2)
+[20:57:32] Turn 15: Bot 2's turn
+[20:57:32] Autosaved turn-start (autosave.json)
+[20:57:34] Bot 2 played Hand Block targeting (0,5)
+[20:57:35] Turn 15: Bot 2's turn
+[20:57:35] Autosaved turn-start (autosave.json)
+[20:57:37] Turn 16: Bot 1's turn
+[20:57:37] Autosaved turn-start (autosave.json)
+[20:57:37] Turn 16: Bot 2's turn
+[20:57:37] Autosaved turn-start (autosave.json)
+[20:57:41] Bot 2 played Hand Block targeting (0,3)
+[20:57:42] Bot 2 played Lesser Heal targeting (0,4)
+[20:57:42] Turn 16: Bot 2's turn
+[20:57:42] Autosaved turn-start (autosave.json)
+[20:58:20] Turn 16: Bot 2's turn
+[20:58:20] Autosaved turn-start (autosave.json)
+[20:58:22] Bot 2 moved to (1,5)
+[20:58:23] Bot 2 played Lesser Heal targeting (0,4)
+[20:58:24] Bot 2 played Hand Block targeting (1,5)
+[20:58:24] Turn 16: Bot 2's turn
+[20:58:24] Autosaved turn-start (autosave.json)
+[20:58:26] Bot 2 played Hasten targeting (0,4)
+[20:58:27] Bot 2 moved to (0,5)
+[20:58:28] Bot 2 moved to (0,6)
+[20:58:29] Turn 17: Bot 1's turn
+[20:58:29] Autosaved turn-start (autosave.json)
+[20:58:33] Turn 17: Bot 2's turn
+[20:58:33] Autosaved turn-start (autosave.json)
+[20:58:35] Bot 2 played Hand Block targeting (0,3)
+[20:58:35] Turn 17: Bot 2's turn
+[20:58:35] Autosaved turn-start (autosave.json)
+[20:58:37] Bot 2 moved to (4,3)
+[20:58:38] Bot 2 moved to (3,3)
+[20:58:39] Bot 2 moved to (3,2)
+[20:58:40] Bot 2 moved to (4,2)
+[20:58:41] Bot 2 moved to (4,3)
+[20:58:41] Bot 2 moved to (3,3)
+[20:58:42] Bot 2 moved to (3,2)
+[20:58:43] Bot 2 moved to (4,2)
+[20:58:44] Bot 2 moved to (4,3)
+[20:58:45] Bot 2 moved to (3,3)
+[20:58:45] Bot 2 moved to (3,2)
+[20:58:46] Turn 17: Bot 2's turn
+[20:58:46] Autosaved turn-start (autosave.json)
+[20:58:48] Bot 2 played Hand Block targeting (1,5)
+[20:58:49] Turn 17: Bot 2's turn
+[20:58:49] Autosaved turn-start (autosave.json)
+[20:58:51] Bot 2 played Summon Assistant targeting (0,5)
+[20:58:51] Bot 2 summoned unit kind 6 at (0,5)
+[20:58:51] Bot 2 moved to (1,6)
+[20:58:52] Bot 2 played Vampire Bite targeting (1,5)
+[20:58:53] Turn 18: Bot 1's turn
+[20:58:53] Autosaved turn-start (autosave.json)
+[20:58:54] Turn 18: Bot 2's turn
+[20:58:54] Autosaved turn-start (autosave.json)
+[20:58:57] Bot 2 moved to (0,4)
+[20:58:58] Bot 2 played Hand Block targeting (0,4)
+[20:58:59] Turn 18: Bot 2's turn
+[20:58:59] Autosaved turn-start (autosave.json)
+[20:59:01] Bot 2 moved to (4,2)
+[20:59:02] Bot 2 moved to (4,3)
+[20:59:02] Bot 2 moved to (3,3)
+[20:59:03] Turn 18: Bot 2's turn
+[20:59:03] Autosaved turn-start (autosave.json)
+[20:59:05] Bot 2 moved to (1,5)
+[20:59:06] Bot 2 played Hand Block targeting (1,5)
+[20:59:07] Turn 18: Bot 2's turn
+[20:59:07] Autosaved turn-start (autosave.json)
+[20:59:09] Bot 2 moved to (1,7)
+[20:59:10] Bot 2 moved to (1,8)
+[20:59:10] Bot 2 moved to (2,8)
+[20:59:11] Bot 2 moved to (3,8)
+[20:59:12] Turn 19: Bot 1's turn
+[20:59:12] Autosaved turn-start (autosave.json)
+[20:59:16] Turn 19: Bot 2's turn
+[20:59:16] Autosaved turn-start (autosave.json)
+[20:59:18] Bot 2 moved to (0,5)
+[20:59:19] Bot 2 played Hand Block targeting (0,5)
+[20:59:19] Turn 19: Bot 2's turn
+[20:59:19] Autosaved turn-start (autosave.json)
+[20:59:21] Bot 2 moved to (4,3)
+[20:59:22] Bot 2 moved to (4,2)
+[20:59:23] Bot 2 moved to (5,2)
+[20:59:24] Bot 2 moved to (5,1)
+[20:59:25] Bot 2 played Fireball targeting (4,0)
+[20:59:31] Bot 2 moved to (5,0)
+[20:59:32] Bot 2 moved to (6,0)
+[20:59:33] Turn 19: Bot 2's turn
+[20:59:33] Autosaved turn-start (autosave.json)
+[20:59:35] Bot 2 moved to (2,5)
+[20:59:36] Bot 2 played Lesser Heal targeting (0,5)
+[20:59:36] Bot 2 played Hand Block targeting (2,5)
+[20:59:37] Turn 19: Bot 2's turn
+[20:59:37] Autosaved turn-start (autosave.json)
+[20:59:39] Bot 2 played Summon Assistant targeting (2,8)
+[20:59:39] Bot 2 summoned unit kind 6 at (2,8)
+[20:59:40] Bot 2 played Sprint targeting (3,8)
+[20:59:40] Bot 2 moved to (4,8)
+[20:59:41] Bot 2 moved to (5,8)
+[20:59:42] Bot 2 moved to (5,7)
+[20:59:43] Bot 2 moved to (5,6)
+[20:59:43] Bot 2 moved to (5,5)
+[20:59:44] Turn 20: Bot 1's turn
+[20:59:44] Autosaved turn-start (autosave.json)
+[20:59:44] Turn 20: Bot 2's turn
+[20:59:44] Autosaved turn-start (autosave.json)
+[20:59:50] Bot 2 played Hand Block targeting (0,5)
+[20:59:51] Turn 20: Bot 2's turn
+[20:59:51] Autosaved turn-start (autosave.json)
+[20:59:53] Bot 2 moved to (5,0)
+[20:59:54] Bot 2 played Flame Hit targeting (4,0)
+[20:59:54] Turn 20: Bot 2's turn
+[20:59:54] Autosaved turn-start (autosave.json)
+[20:59:56] Bot 2 played Hand Block targeting (2,5)
+[20:59:57] Turn 20: Bot 2's turn
+[20:59:57] Autosaved turn-start (autosave.json)
+[20:59:59] Bot 2 played Lesser Heal targeting (0,5)
+[21:00:00] Bot 2 played Hand Block targeting (2,8)
+[21:00:00] Turn 20: Bot 2's turn
+[21:00:00] Autosaved turn-start (autosave.json)
+[21:00:02] Bot 2 played Hasten targeting (5,5)
+[21:00:03] Bot 2 played Summon Hellhound targeting (4,5)
+[21:00:03] Bot 2 summoned unit kind 3 at (4,5)
+[21:00:04] Bot 2 moved to (5,6)
+[21:00:05] Bot 2 moved to (4,6)
+[21:00:06] Turn 21: Bot 1's turn
+[21:00:06] Autosaved turn-start (autosave.json)
+[21:00:06] Turn 21: Bot 2's turn
+[21:00:06] Autosaved turn-start (autosave.json)
+[21:00:07] Bot 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 1
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 20
+  Cards Played: 122
+  Minions Spawned: 0
+  Total Healing: 0
+Player 2 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 7
+  Total Healing: 0
+=====================

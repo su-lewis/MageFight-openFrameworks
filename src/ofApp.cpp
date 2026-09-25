@@ -102,6 +102,10 @@ static int s_draftNextPlayerIndex = -1;
 static int s_draftNextStage = -1;
 static bool g_isSimulatedMultiplayer = false;
 
+// --- DRAFT BOARD SURVEY / HIDE TOGGLE ---
+static bool s_draftCardsHidden = false;
+static ofRectangle s_draftHideButtonRect;
+
 // --- SPLASH SCREEN SYSTEM ---
 static bool s_showingSplashScreen = true;
 static float s_splashStartTime = -1.0f;
@@ -5720,32 +5724,26 @@ void ofApp::updateStateMachine() {
 			}
 		}
 
-		// If match was purely solo vs bots from the very start and connection is lost, exit directly
-		if (!matchHadHumanOpponents) {
-			if (!steamManager.isConnected()) {
-				ofLogNotice("Network") << "Connection lost during bot-only match. Exiting to main menu.";
-				steamManager.leaveLobby();
-				isMultiplayer = false;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-				return;
-			}
-		}
-
-		// HOST MIGRATION: If host disconnected, promote next valid client to host
-		if (!isHost() && !steamManager.hasOpponent() && steamManager.isConnected()) {
-			if (steamManager.isLocalLobbyOwner()) {
-				ofLogNotice("Network") << "HOST MIGRATION: Host disconnected. Promoting local client to Host.";
-				steamManager.becomeHost();
-				// Broadcast updated lobby and continue match
-				broadcastLobbyState(steamManager);
-			}
-		}
-
 		bool isDisconnected = false;
-		if (matchHadHumanOpponents) {
-			// In matches that had human opponents, disconnects require defeat of remaining bots or trigger penalty
-			isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
+
+		// If match has no human opponents (playing with bots only), NEVER trigger opponent-disconnect checks
+		if (!matchHadHumanOpponents && !hasHumanOpponents) {
+			isDisconnected = false;
+		} else {
+			// HOST MIGRATION: If host disconnected, promote next valid client to host
+			if (!isHost() && !steamManager.hasOpponent() && steamManager.isConnected()) {
+				if (steamManager.isLocalLobbyOwner()) {
+					ofLogNotice("Network") << "HOST MIGRATION: Host disconnected. Promoting local client to Host.";
+					steamManager.becomeHost();
+					// Broadcast updated lobby and continue match
+					broadcastLobbyState(steamManager);
+				}
+			}
+
+			if (matchHadHumanOpponents) {
+				// In matches that had human opponents, disconnects require defeat of remaining bots or trigger penalty
+				isDisconnected = g_isSpectator ? !steamManager.isConnected() : !steamManager.hasOpponent();
+			}
 		}
 
 		if (isDisconnected) {
@@ -14862,6 +14860,22 @@ void ofApp::drawGame() {
 	drawProfile(p0_profileX, profileY, profileW, profileH, true, myName, p0Active, p0Elo);
 	drawProfile(p1_profileX, profileY, profileW, profileH, false, oppName, p1Active, p1Elo);
 
+	// Helper to get distinct player theme colors
+	auto getPlayerThemeColor = [](int pID) -> ofColor {
+		switch (pID) {
+		case 0:
+			return ofColor(255, 80, 80); // P1: Red
+		case 1:
+			return ofColor(80, 220, 80); // P2: Green
+		case 2:
+			return ofColor(70, 170, 255); // P3: Blue
+		case 3:
+			return ofColor(255, 215, 0); // P4: Gold/Yellow
+		default:
+			return ofColor(200, 200, 200);
+		}
+	};
+
 	// --- DRAW OPPONENT SELECTOR TABS (VERTICAL STACK TO THE LEFT OF ENEMY DECK/DISCARD) ---
 	opponentViewTabs.clear();
 
@@ -14896,19 +14910,28 @@ void ofApp::drawGame() {
 
 			bool isHovered = tRect.inside(ofGetMouseX(), ofGetMouseY());
 			bool isActive = (pID == g_viewedOpponentID);
+			ofColor pCol = getPlayerThemeColor(pID);
 
 			ofPushStyle();
-			ofSetColor(isActive ? ofColor(45, 75, 125, 240) : (isHovered ? ofColor(60, 65, 80, 220) : ofColor(30, 32, 40, 200)));
+			// Dark background tinted with their actual player color
+			ofColor bgCol = isActive
+				? ofColor(pCol.r * 0.35f, pCol.g * 0.35f, pCol.b * 0.35f, 240)
+				: (isHovered ? ofColor(pCol.r * 0.20f, pCol.g * 0.20f, pCol.b * 0.20f, 220) : ofColor(25, 27, 35, 200));
+			ofSetColor(bgCol);
 			ofDrawRectRounded(tRect, 6.0f * scale);
 
+			// Border matching their theme color
 			ofNoFill();
-			ofSetLineWidth(isActive ? 2.5f * scale : 1.5f * scale);
-			ofSetColor(isActive ? ofColor(100, 200, 255) : (isHovered ? ofColor(180, 190, 210) : ofColor(70, 75, 90)));
+			ofSetLineWidth(isActive ? 3.0f * scale : 1.5f * scale);
+			ofColor borderCol = isActive ? pCol : (isHovered ? pCol.getLerped(ofColor::white, 0.35f) : ofColor(pCol.r * 0.55f, pCol.g * 0.55f, pCol.b * 0.55f, 180));
+			ofSetColor(borderCol);
 			ofDrawRectRounded(tRect, 6.0f * scale);
 			ofFill();
 
+			// Text labeled and color-coded
 			std::string tabName = "P" + std::to_string(pID + 1);
-			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, isActive ? ofColor::white : ofColor(190, 190, 200), 2, ofColor::black);
+			ofColor textCol = isActive ? ofColor::white : pCol;
+			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, textCol, 2, ofColor::black);
 			safePopStyle();
 		}
 	}
@@ -18733,6 +18756,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
+		// Handle Hide / Show Toggle Button
+		if (s_draftHideButtonRect.inside(x, y)) {
+			s_draftCardsHidden = !s_draftCardsHidden;
+			if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
+			return;
+		}
+
+		// If draft cards are hidden by the user to survey the board, ignore card clicks
+		if (s_draftCardsHidden) {
+			return;
+		}
+
 		// Strictly ignore click events if the accept command was already sent or cards are currently vanishing
 		if (draftAcceptLocked || draftAcceptApplied || draftAcceptUI.state == DRAFT_ANIM_VANISHING) {
 			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent or cards are currently vanishing.";
@@ -26699,6 +26734,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			g_inLobby = false; // Exit lobby visually
 			isMultiplayer = true;
+			isWaitingForMenuTransition = false;
+			currentMenuPanX = 0.0f;
+			targetMenuPanX = 0.0f;
 
 			// Close and minimize the chat box so it doesn't cover the draft/gameplay
 			isChatOpen = false;
@@ -36032,13 +36070,22 @@ bool ofApp::isCurrentPlayerLocal() const {
 	if (isAIvsAI) isBot = true;
 	if (isVsAI && activeID == 1) isBot = true;
 
-	if (isBot) {
-		if (isMultiplayer) return isHost(); // Host executes bot logic
+	// In singleplayer Local PvP, no players or minions are bots
+	if (!isMultiplayer && !isVsAI && !isAIvsAI) {
 		return true;
 	}
 
-	if (isMultiplayer || g_isSimulatedMultiplayer) return activeID == myLocalPlayerID;
-	return true; // Local PvP
+	// For bots in multiplayer, the host owns the execution authority
+	if (isBot) {
+		if (isMultiplayer) return isHost();
+		return true;
+	}
+
+	if (isMultiplayer || g_isSimulatedMultiplayer) {
+		return activeID == myLocalPlayerID;
+	}
+
+	return true; // Local PvP fallback
 }
 
 //--------------------------------------------------------------
@@ -40186,6 +40233,8 @@ void ofApp::cleanupGame() {
 	deckFlashOwnerIndex = -1;
 
 	// Reset all draft state completely
+	s_draftCardsHidden = false;
+	s_draftHideButtonRect.set(0, 0, 0, 0);
 	draftOptions.clear();
 	draftOptionUI.clear();
 	selectedDraftIndices.clear();
@@ -41869,6 +41918,7 @@ void ofApp::drawEncyclopediaState() {
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
 	ofLogNotice("Draft") << "generateDraftOptions called: classTier=" << classTier << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " draftGenerationCounter=" << draftGenerationCounter;
+	s_draftCardsHidden = false; // Always show cards when new options are generated
 	int previousDraftPlayer = lastDraftOptionsPlayer;
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
@@ -42303,21 +42353,18 @@ void ofApp::drawInitiativeRoll() {
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
 	if (draftOptions.empty()) {
-		// If we are actively transitioning to gameplay, skip drawing the overlay entirely!
 		if (draftEndScheduled) return;
 
-		// We still need the overlay if we are genuinely waiting for network packets or async generation
 		ofPushStyle();
 		ofDisableLighting();
 		ofDisableDepthTest();
 		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-		ofSetColor(0, 0, 0, 180);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 		float boxW = std::min(540.0f, ofGetWidth() * 0.72f);
 		float boxH = 96.0f;
 		float boxX = ofGetWidth() * 0.5f - boxW * 0.5f;
 		float boxY = ofGetHeight() * 0.5f - boxH * 0.5f;
+		ofSetColor(20, 22, 28, 230);
 		ofDrawRectRounded(boxX, boxY, boxW, boxH, 12.0f);
 		ofSetColor(ofColor::white);
 		std::string msg = (waitingForDraftOptionsStartTime > 0.0f) ? "Waiting for draft options..." : "Preparing draft...";
@@ -42332,15 +42379,11 @@ void ofApp::drawDraftScreen() {
 	}
 
 	ofPushStyle();
-	// Isolate UI drawing state so other render paths aren't affected.
-	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
 	ofDisableLighting();
 	ofDisableDepthTest();
 	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(255, 255, 255, 255);
-	// Dim the world behind draft cards (modal overlay)
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	// Darkened screen effect removed so the 3D board remains fully clear and visible!
 
 	// 1. Construct Specific Instruction Text
 	string pName = "";
@@ -42496,145 +42539,125 @@ void ofApp::drawDraftScreen() {
 		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0);
 	}
 
-	// Animate per-slot UI and draw scaled cards (frame-based)
-	for (size_t i = 0; i < draftOptions.size(); ++i) {
-		float x = startX + i * (cardW + spacing);
-		ofRectangle cardRect(x, startY, cardW, cardH);
-
-		// Update animation state for this slot
-		if (i < draftOptionUI.size()) {
-			auto & ui = draftOptionUI[i];
-			float elapsedFrames = continuousFrame - (float)ui.startFrame;
-			if (ui.state == DRAFT_ANIM_APPEARING) {
-				float t = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
-				t = std::clamp(t, 0.0f, 1.0f);
-				t = t * t * (3.0f - 2.0f * t);
-				if (t >= 1.0f) {
-					ui.currentScale = ui.targetScale;
-					ui.state = DRAFT_ANIM_IDLE;
-				} else {
-					ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
-				}
-			} else if (ui.state == DRAFT_ANIM_VANISHING) {
-				float t = (draftAnimVanishFrames > 0) ? (elapsedFrames / (float)draftAnimVanishFrames) : 1.0f;
-				t = std::clamp(t, 0.0f, 1.0f);
-				t = t * t * (3.0f - 2.0f * t);
-				if (t >= 1.0f) {
-					ui.currentScale = ui.targetScale;
-					ui.hidden = true;
-					ui.state = DRAFT_ANIM_IDLE;
-				} else {
-					ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
-				}
-			}
-		}
-
-		// Compute scaled rect
-		float scale = 1.0f;
-		if (i < draftOptionUI.size()) scale = draftOptionUI[i].currentScale;
-		float w = cardW * scale;
-		float h = cardH * scale;
-		float drawX = x + (cardW - w) / 2.0f;
-		float drawY = startY + (cardH - h) / 2.0f;
-
-		// Check Selection: compare against authoritative pool index for this slot
-		int slotPoolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
-		bool isSelected = false;
-		if (slotPoolIdx >= 0) {
-			for (int sel : selectedDraftIndices) {
-				if (sel == slotPoolIdx) {
-					isSelected = true;
-					break;
-				}
-			}
-		}
-
-		// Only render selection and hover highlights if the card is visually visible
-		if (scale > 0.08f) {
-			// Use solid fills rendered BEFORE the card graphic to ensure thick borders
-			if (isSelected) {
-				ofPushStyle();
-				ofFill();
-				// Reverse loop so largest polygons are drawn first behind the smaller ones
-				for (int g = 6; g >= 1; --g) {
-					ofSetColor(255, 255, 0, 90 - (g * 14));
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 2.0f);
-				}
-				ofSetColor(ofColor::yellow);
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
-				safePopStyle();
-			}
-
-			bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
-			bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
-
-			if (isLocallyHovered || isOpponentHovered) {
-				ofPushStyle();
-				ofFill();
-				for (int g = 5; g >= 1; --g) {
-					ofSetColor(255, 255, 255, 60 - (g * 10));
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 1.0f);
-				}
-				ofSetColor(ofColor::white);
-				drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
-				safePopStyle();
-			}
-		}
-
-		// Skip hidden slots
-		if (i < draftOptionUI.size() && draftOptionUI[i].hidden) continue;
-
-		ofSetColor(255);
-
-		Player * pPtr = nullptr;
-		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) pPtr = &players[draftPlayerIndex];
-
-		// FOG OF WAR: If an opponent is drafting, hide their card faces with card backs!
-		bool isOpponentDraft = !isLocalDraftingPlayer(draftPlayerIndex);
-		if (g_modifierFogOfWar && isOpponentDraft) {
-			cardBackImage.draw(drawX, drawY, w, h);
-		} else {
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, draftOptions[i], drawX, drawY, w, h, pPtr);
-		}
-	}
-
-	// Throttled draw-time debug: log if we are drawing non-empty options but haven't logged recently
-	float now = ofGetElapsedTimef();
-	if (!draftOptions.empty() && (now - lastDraftDrawLogTime) > 1.0f) {
-		lastDraftDrawLogTime = now;
-		std::string names = "";
+	// Animate per-slot UI and draw scaled cards (frame-based) unless toggled to Hidden
+	if (!s_draftCardsHidden) {
 		for (size_t i = 0; i < draftOptions.size(); ++i) {
-			if (i) names += ", ";
-			names += draftOptions[i].name;
+			float x = startX + i * (cardW + spacing);
+			ofRectangle cardRect(x, startY, cardW, cardH);
+
+			// Update animation state for this slot
+			if (i < draftOptionUI.size()) {
+				auto & ui = draftOptionUI[i];
+				float elapsedFrames = continuousFrame - (float)ui.startFrame;
+				if (ui.state == DRAFT_ANIM_APPEARING) {
+					float t = (draftAnimAppearFrames > 0) ? (elapsedFrames / (float)draftAnimAppearFrames) : 1.0f;
+					t = std::clamp(t, 0.0f, 1.0f);
+					t = t * t * (3.0f - 2.0f * t);
+					if (t >= 1.0f) {
+						ui.currentScale = ui.targetScale;
+						ui.state = DRAFT_ANIM_IDLE;
+					} else {
+						ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
+					}
+				} else if (ui.state == DRAFT_ANIM_VANISHING) {
+					float t = (draftAnimVanishFrames > 0) ? (elapsedFrames / (float)draftAnimVanishFrames) : 1.0f;
+					t = std::clamp(t, 0.0f, 1.0f);
+					t = t * t * (3.0f - 2.0f * t);
+					if (t >= 1.0f) {
+						ui.currentScale = ui.targetScale;
+						ui.hidden = true;
+						ui.state = DRAFT_ANIM_IDLE;
+					} else {
+						ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
+					}
+				}
+			}
+
+			// Compute scaled rect
+			float scale = 1.0f;
+			if (i < draftOptionUI.size()) scale = draftOptionUI[i].currentScale;
+			float w = cardW * scale;
+			float h = cardH * scale;
+			float drawX = x + (cardW - w) / 2.0f;
+			float drawY = startY + (cardH - h) / 2.0f;
+
+			// Check Selection
+			int slotPoolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
+			bool isSelected = false;
+			if (slotPoolIdx >= 0) {
+				for (int sel : selectedDraftIndices) {
+					if (sel == slotPoolIdx) {
+						isSelected = true;
+						break;
+					}
+				}
+			}
+
+			if (scale > 0.08f) {
+				if (isSelected) {
+					ofPushStyle();
+					ofFill();
+					for (int g = 6; g >= 1; --g) {
+						ofSetColor(255, 255, 0, 90 - (g * 14));
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 2.0f);
+					}
+					ofSetColor(ofColor::yellow);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
+					safePopStyle();
+				}
+
+				bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
+				bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
+
+				if (isLocallyHovered || isOpponentHovered) {
+					ofPushStyle();
+					ofFill();
+					for (int g = 5; g >= 1; --g) {
+						ofSetColor(255, 255, 255, 60 - (g * 10));
+						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 1.0f);
+					}
+					ofSetColor(ofColor::white);
+					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
+					safePopStyle();
+				}
+			}
+
+			if (i < draftOptionUI.size() && draftOptionUI[i].hidden) continue;
+
+			ofSetColor(255);
+			Player * pPtr = nullptr;
+			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) pPtr = &players[draftPlayerIndex];
+
+			bool isOpponentDraft = !isLocalDraftingPlayer(draftPlayerIndex);
+			if (g_modifierFogOfWar && isOpponentDraft) {
+				cardBackImage.draw(drawX, drawY, w, h);
+			} else {
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, draftOptions[i], drawX, drawY, w, h, pPtr);
+			}
 		}
-		ofLogNotice("Draft") << "drawDraftScreen: drawing " << draftOptions.size() << " options (player=" << draftPlayerIndex << " stage=" << draftStage << ") names=" << names;
 	}
 
-	// 4. Draw Accept Button
+	// 4. Draw Accept Button and Hearthstone-Style Hide/Show Toggle Button
 	int required = 1;
 	if (!isInGameDraft && draftStage == 0) required = 2;
 
 	bool canAccept = ((int)selectedDraftIndices.size() == required);
-
-	// ONLY show the Accept button if it is the local human player's draft
 	bool showAccept = isLocalDraftingPlayer(draftPlayerIndex);
-	// Hide accept if we've already applied it locally (it should vanish)
-
 	if (draftAcceptApplied) showAccept = false;
 
+	float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
+	float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
+	float gapBelowCards = 40.0f * uiScale;
+	float btnY = startY + cardH + gapBelowCards;
+
+	float maxAllowedBtnY = ofGetHeight() - btnH - (20.0f * uiScale);
+	if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
+
+	// Center the Accept button
+	float btnX = (ofGetWidth() - btnW) / 2.0f;
+	draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
+
 	if (showAccept && !draftOptions.empty()) {
-		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
-		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
-		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		// Ensure a generous gap so the cards never touch the button
-		float gapBelowCards = 40.0f * uiScale;
-		float btnY = startY + cardH + gapBelowCards;
-
-		// Allow the button to move much further down the screen
-		float maxAllowedBtnY = ofGetHeight() - btnH - (20.0f * uiScale);
-		if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
-
-		// Animate Accept button with its UI state
 		float acceptScale = 1.0f;
 		float acceptAlpha = 1.0f;
 		if (draftAcceptUI.state == DRAFT_ANIM_APPEARING) {
@@ -42661,14 +42684,38 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 		acceptScale = draftAcceptUI.currentScale;
-		acceptAlpha = acceptScale; // simple alpha linked to scale for pop-in
+		acceptAlpha = acceptScale;
 
-		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 		if (draftAcceptButtonRect.inside(ofGetMouseX(), ofGetMouseY()) && showAccept && canAccept) g_hoveredButtonId = "draft_accept";
 		drawAcceptButtonShared(draftAcceptButtonRect, canAccept, acceptScale, acceptAlpha);
 	} else {
-		// Hide accept: clear the rect so hits are ignored
 		draftAcceptButtonRect.set(0, 0, 0, 0);
+	}
+
+	// Draw Hide / Show Toggle Button to the right of the Accept button
+	if (!draftOptions.empty() && !draftAcceptApplied) {
+		float hideBtnW = std::clamp(130.0f * uiScale, 90.0f, 180.0f);
+		float hideBtnX = btnX + btnW + (16.0f * uiScale);
+		s_draftHideButtonRect.set(hideBtnX, btnY, hideBtnW, btnH);
+
+		bool hideHover = s_draftHideButtonRect.inside(ofGetMouseX(), ofGetMouseY());
+		if (hideHover) g_hoveredButtonId = "draft_hide_toggle";
+
+		ofPushStyle();
+		ofSetColor(hideHover ? ofColor(55, 60, 75, 240) : ofColor(35, 38, 48, 220));
+		ofDrawRectRounded(s_draftHideButtonRect, 10 * uiScale);
+
+		ofNoFill();
+		ofSetLineWidth(2.0f * uiScale);
+		ofSetColor(hideHover ? ofColor(255, 215, 0) : ofColor(120, 130, 150));
+		ofDrawRectRounded(s_draftHideButtonRect, 10 * uiScale);
+		ofFill();
+
+		std::string hideLabel = s_draftCardsHidden ? _L("UI_DRAFT_SHOW", "Show") : _L("UI_DRAFT_HIDE", "Hide");
+		drawPixelTextCentered(uiFont, hideLabel, s_draftHideButtonRect.getCenter().x, s_draftHideButtonRect.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
+		safePopStyle();
+	} else {
+		s_draftHideButtonRect.set(0, 0, 0, 0);
 	}
 
 	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
