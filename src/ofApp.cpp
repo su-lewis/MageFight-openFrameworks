@@ -109,6 +109,9 @@ static ofRectangle s_draftHideButtonRect;
 // --- AI ACTION BLACKLIST ---
 static std::set<int> s_aiFailedCards;
 
+// --- SETTINGS SLIDER SELECTION FOCUS ---
+static int s_activeSettingsSlider = 1;
+
 // --- DETERMINISTIC PLAYER COLOR PALETTE ---
 static int g_playerColorIndices[4] = { 0, 1, 2, 3 };
 
@@ -956,9 +959,11 @@ extern bool g_isSpectator;
 // Pending macros migrated; use `networkPending.*` fields.
 // --- LOBBY DATA STRUCTURES ---
 static bool g_modifierFogOfWar = false;
+static bool g_modifierCustomMaxHP = false;
+static int g_customStartingMaxHP = 15;
 static bool g_visibleTiles[BOARD_WIDTH][BOARD_HEIGHT];
-static std::map<int, std::set<std::string>> g_seenOpponentCards; // unit playerID -> seen card names
-static std::set<int> g_seenOpponentMinionIDs; // minion playerIDs seen in LoS
+static std::map<int, std::set<std::string>> g_seenOpponentCards;
+static std::set<int> g_seenOpponentMinionIDs;
 
 struct LobbyPlayer {
 	uint32_t playerID = 0;
@@ -980,14 +985,18 @@ ofRectangle lobbyForceStartBtn;
 ofRectangle lobbyReadyBtn;
 ofRectangle lobbyLeaveBtn;
 ofRectangle lobbyModFoWBtn;
+ofRectangle lobbyModCustomHpBtn;
+ofRectangle lobbyModCustomHpLeftBtn;
+ofRectangle lobbyModCustomHpRightBtn;
 ofRectangle lobbyAddAIBtn;
 
-static const uint8_t PKT_LOBBY_UPDATE = 245; // Fixed: Unique ID to prevent collision with PKT_AUTH_TICKET (250)
+static const uint8_t PKT_LOBBY_UPDATE = 245;
 #pragma pack(push, 1)
 struct LobbyUpdatePacket {
 	PacketHeader header;
 	uint8_t numPlayers;
-	uint8_t modifiers; // Bitmask: Bit 0 = Fog of War
+	uint8_t modifiers; // Bit 0 = FoW, Bit 1 = Custom Max HP
+	uint8_t customMaxHP;
 	struct {
 		uint32_t playerID;
 		int32_t elo;
@@ -1004,7 +1013,8 @@ void broadcastLobbyState(SteamManager & steamManager) {
 	lup.header.type = PKT_LOBBY_UPDATE;
 	lup.header.playerID = 0;
 	lup.numPlayers = std::min((int)g_lobbyPlayers.size(), 4);
-	lup.modifiers = g_modifierFogOfWar ? 1 : 0;
+	lup.modifiers = (g_modifierFogOfWar ? 1 : 0) | (g_modifierCustomMaxHP ? 2 : 0);
+	lup.customMaxHP = (uint8_t)std::clamp(g_customStartingMaxHP, 1, 99);
 	for (int i = 0; i < lup.numPlayers; i++) {
 		lup.players[i].playerID = g_lobbyPlayers[i].playerID;
 		lup.players[i].elo = g_lobbyPlayers[i].elo;
@@ -1229,6 +1239,20 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			}
 
 			drawRichEffectText(font, effectText, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+		} else if (card.type == CARD_CONSTITUTION_BOON) {
+			int base = g_modifierCustomMaxHP ? g_customStartingMaxHP : 15;
+			int t1_0 = base + 1, t1_1 = base + 5;
+			int t2_0 = base + 6, t2_1 = base + 10;
+			int t3_0 = base + 11, t3_1 = base + 15;
+			int winVal = base + 16;
+
+			std::string dynamicDesc = "Check **Max Health**. "
+				+ ofToString(t1_0) + "-" + ofToString(t1_1) + ": **Draft** Class 1. "
+				+ ofToString(t2_0) + "-" + ofToString(t2_1) + ": **Draft** Class 2. "
+				+ ofToString(t3_0) + "-" + ofToString(t3_1) + ": **Draft** Class 3. "
+				+ ofToString(winVal) + "+: Win the game.";
+
+			drawRichEffectText(font, dynamicDesc, g_effectTextRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
 		}
 
 		ofPopMatrix();
@@ -3053,7 +3077,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (!summonAPLayout.first.empty()) drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
 		if (!summonHPLayout.first.empty()) drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
 
-		if (normalizeCardKey(rec.name) != "master fist") {
+		if (normalizeCardKey(rec.name) != "master fist" && normalizeCardKey(rec.name) != "constitution boon") {
 			drawRichEffectText(renderEffectFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, ofColor(12, 12, 12, 255));
 		}
 
@@ -8400,8 +8424,19 @@ void ofApp::updateMenuRects() {
 		lobbyChatPanelRect.set(oX + 1.1f * menuTileSize + (colW + colGap) * 2.0f, panelY, colW, panelH);
 
 		// Modifiers logic:
-		float btnY = lobbyModifiersPanelRect.y + menuTileSize * 1.5f;
-		lobbyModFoWBtn.set(lobbyModifiersPanelRect.x + 20 * uiScale, btnY, lobbyModifiersPanelRect.width - 40 * uiScale, 50 * uiScale);
+		float btnY = lobbyModifiersPanelRect.y + menuTileSize * 0.95f;
+		float modBtnW = lobbyModifiersPanelRect.width - 32.0f * uiScale;
+		float modBtnX = lobbyModifiersPanelRect.x + 16.0f * uiScale;
+
+		lobbyModFoWBtn.set(modBtnX, btnY, modBtnW, 44.0f * uiScale);
+
+		btnY += 56.0f * uiScale;
+		lobbyModCustomHpBtn.set(modBtnX, btnY, modBtnW, 44.0f * uiScale);
+
+		btnY += 46.0f * uiScale;
+		float arrowW = 34.0f * uiScale;
+		lobbyModCustomHpLeftBtn.set(modBtnX, btnY, arrowW, 36.0f * uiScale);
+		lobbyModCustomHpRightBtn.set(modBtnX + modBtnW - arrowW, btnY, arrowW, 36.0f * uiScale);
 
 		// Players Logic: Add AI button below the last active player
 		float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
@@ -8471,10 +8506,14 @@ void ofApp::updateMenuRects() {
 	settingsTabGameRect.set(sTabStartX + (sTabW + sTabSpacing) * 2, setTabsY, sTabW, 48.0f * uiScale);
 	settingsTabControlsRect.set(sTabStartX + (sTabW + sTabSpacing) * 3, setTabsY, sTabW, 48.0f * uiScale);
 
-	float sliderW = 520.0f * uiScale;
-	settingsAudioMasterSlider.set(setX - sliderW / 2, setTabsY + 48 * uiScale + 90 * uiScale, sliderW, 28 * uiScale);
-	settingsAudioVolumeSlider.set(setX - sliderW / 2, settingsAudioMasterSlider.y + 60 * uiScale, sliderW, 28 * uiScale);
-	settingsAudioSfxSlider.set(setX - sliderW / 2, settingsAudioVolumeSlider.y + 60 * uiScale, sliderW, 28 * uiScale);
+	float sliderW = 380.0f * uiScale;
+	float sliderH = 28.0f * uiScale;
+	float audioSpacing = 110.0f * uiScale;
+	float audioStartY = setTabsY + 48 * uiScale + 65.0f * uiScale;
+
+	settingsAudioMasterSlider.set(setX - sliderW / 2, audioStartY, sliderW, sliderH);
+	settingsAudioVolumeSlider.set(setX - sliderW / 2, audioStartY + audioSpacing, sliderW, sliderH);
+	settingsAudioSfxSlider.set(setX - sliderW / 2, audioStartY + audioSpacing * 2, sliderW, sliderH);
 	settingsFramerateSlider.set(setX - 160 * uiScale, setTabsY + 48 * uiScale + 130 * uiScale, 320 * uiScale, 32 * uiScale);
 	settingsFullscreenButton.set(setX - 125 * uiScale, settingsFramerateSlider.y + 100 * uiScale, 250 * uiScale, 50 * uiScale);
 }
@@ -8912,50 +8951,55 @@ void ofApp::drawSettingsMenu() {
 		SafeDrawText(uiFont, fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
 	}
 
-	// AUDIO tab: simple slider + mute/loop toggles
+	// AUDIO tab: spacious, elegant layout matching the Video tab
 	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-		ofSetColor(ofColor::white);
-		float sliderY = contentY + 60.0f * uiScale;
-		float sliderW = 520.0f * uiScale;
+		float sliderW = 380.0f * uiScale;
 		float sliderH = 28.0f * uiScale;
+		float audioSpacing = 110.0f * uiScale; // 110px spacing leaves a clean 68px gap between sliders
+		float sliderY = contentY + 40.0f * uiScale;
 
-		// Master slider (dark background)
-		settingsAudioMasterSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
-		ofSetColor(ofColor(35));
-		ofDrawRectangle(settingsAudioMasterSlider);
-		float masterFill = settingsAudioMasterSlider.width * settingsMasterVolume;
-		ofSetColor(ofColor::white);
-		ofDrawRectangle(settingsAudioMasterSlider.x, settingsAudioMasterSlider.y, masterFill, settingsAudioMasterSlider.height);
-		ofSetColor(ofColor::white);
-		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
-		ofRectangle mlb = getCachedBounds(masterLabel);
-		SafeDrawText(uiFont, masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10.0f * uiScale);
+		auto drawAudioSlider = [&](ofRectangle & sliderRect, float yPos, float value, const string & label, int sliderID) {
+			sliderRect.set(centerX - sliderW / 2, yPos, sliderW, sliderH);
 
-		// Music slider (Controls both Menu and Game Music)
-		sliderY += 60;
-		settingsAudioVolumeSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
-		ofSetColor(ofColor(35));
-		ofDrawRectangle(settingsAudioVolumeSlider);
-		float menuFill = settingsAudioVolumeSlider.width * settingsMenuVolume;
-		ofSetColor(ofColor::white);
-		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
-		ofSetColor(ofColor::white);
-		string menuLabel = "Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
-		ofRectangle ml2 = getCachedBounds(menuLabel);
-		SafeDrawText(uiFont, menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10.0f * uiScale);
+			// Draw Label comfortably above the slider (14px baseline clearance)
+			ofSetColor(ofColor::white);
+			ofRectangle lb = getCachedBounds(label);
+			SafeDrawText(uiFont, label, centerX - lb.width / 2, sliderRect.y - 14.0f * uiScale);
 
-		// SFX slider
-		sliderY += 60.0f * uiScale;
-		settingsAudioSfxSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
-		ofSetColor(ofColor(35));
-		ofDrawRectangle(settingsAudioSfxSlider);
-		float sfxFill = settingsAudioSfxSlider.width * settingsSfxVolume;
-		ofSetColor(ofColor::white);
-		ofDrawRectangle(settingsAudioSfxSlider.x, settingsAudioSfxSlider.y, sfxFill, settingsAudioSfxSlider.height);
-		ofSetColor(ofColor::white);
-		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
-		ofRectangle slb = getCachedBounds(sfxLabel);
-		SafeDrawText(uiFont, sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10.0f * uiScale);
+			// Background track with rounded corners
+			ofSetColor(ofColor(35));
+			ofDrawRectRounded(sliderRect, 6.0f * uiScale);
+
+			// Progress fill with rounded corners
+			float fillW = sliderRect.width * std::clamp(value, 0.0f, 1.0f);
+			ofSetColor(ofColor::white);
+			ofDrawRectRounded(sliderRect.x, sliderRect.y, fillW, sliderRect.height, 6.0f * uiScale);
+
+			// Handle knob matching the Video tab
+			float handleX = sliderRect.x + fillW;
+			ofSetColor(ofColor::white);
+			ofDrawCircle(handleX, sliderRect.getCenter().y, 14.0f * uiScale);
+
+			// Focus outline when selected
+			if (s_activeSettingsSlider == sliderID) {
+				ofNoFill();
+				ofSetLineWidth(2.0f * uiScale);
+				ofSetColor(255, 215, 0, 220); // Gold focus border
+				ofDrawRectRounded(sliderRect.x - 3 * uiScale, sliderRect.y - 3 * uiScale, sliderRect.width + 6 * uiScale, sliderRect.height + 6 * uiScale, 8.0f * uiScale);
+				ofFill();
+			}
+		};
+
+		string masterLabel = "Master Volume: " + ofToString((int)std::round(settingsMasterVolume * 100)) + "%";
+		drawAudioSlider(settingsAudioMasterSlider, sliderY, settingsMasterVolume, masterLabel, 1);
+
+		sliderY += audioSpacing;
+		string menuLabel = "Music Volume: " + ofToString((int)std::round(settingsMenuVolume * 100)) + "%";
+		drawAudioSlider(settingsAudioVolumeSlider, sliderY, settingsMenuVolume, menuLabel, 2);
+
+		sliderY += audioSpacing;
+		string sfxLabel = "Game SFX Volume: " + ofToString((int)std::round(settingsSfxVolume * 100)) + "%";
+		drawAudioSlider(settingsAudioSfxSlider, sliderY, settingsSfxVolume, sfxLabel, 3);
 	}
 
 	// CONTROLS tab: show all current game controls (read-only) with scrolling
@@ -9330,15 +9374,16 @@ void ofApp::drawLobby() {
 	drawMenuPlaquePanel(lobbyModifiersPanelRect);
 	drawPixelTextCentered(titleFont, _L("UI_LOBBY_MODIFIERS", "Modifiers"), lobbyModifiersPanelRect.getCenter().x, lobbyModifiersPanelRect.y + (menuTileSize * 0.5f), 1.1f, ofColor::white);
 
-	// CRITICAL FIX: Draw the button directly from its panned hitbox so clicks match 1:1
 	bool isModHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
-	bool isHovered = lobbyModFoWBtn.inside(ofGetMouseX(), ofGetMouseY());
-	if (isHovered && isModHost) g_hoveredButtonId = "mod_fow";
 
-	ofColor baseColor = g_modifierFogOfWar ? ofColor(50, 180, 50) : ofColor(40, 40, 50);
-	if (isHovered && isModHost) baseColor.setBrightness(std::min(255, (int)baseColor.getBrightness() + 30));
+	// 1. Fog of War Toggle
+	bool isFowHovered = lobbyModFoWBtn.inside(ofGetMouseX(), ofGetMouseY());
+	if (isFowHovered && isModHost) g_hoveredButtonId = "mod_fow";
 
-	ofSetColor(baseColor);
+	ofColor fowBaseColor = g_modifierFogOfWar ? ofColor(50, 180, 50) : ofColor(40, 40, 50);
+	if (isFowHovered && isModHost) fowBaseColor.setBrightness(std::min(255, (int)fowBaseColor.getBrightness() + 30));
+
+	ofSetColor(fowBaseColor);
 	ofDrawRectRounded(lobbyModFoWBtn, 8);
 	ofNoFill();
 	ofSetLineWidth(2.0f);
@@ -9348,6 +9393,60 @@ void ofApp::drawLobby() {
 
 	std::string fowText = _L("MOD_FOW", "Fog of War");
 	drawPixelTextCentered(uiFont, fowText, lobbyModFoWBtn.getCenter().x, lobbyModFoWBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
+
+	// 2. Custom Max HP Toggle
+	bool isHpHovered = lobbyModCustomHpBtn.inside(ofGetMouseX(), ofGetMouseY());
+	if (isHpHovered && isModHost) g_hoveredButtonId = "mod_custom_hp";
+
+	ofColor hpBaseColor = g_modifierCustomMaxHP ? ofColor(50, 180, 50) : ofColor(40, 40, 50);
+	if (isHpHovered && isModHost) hpBaseColor.setBrightness(std::min(255, (int)hpBaseColor.getBrightness() + 30));
+
+	ofSetColor(hpBaseColor);
+	ofDrawRectRounded(lobbyModCustomHpBtn, 8);
+	ofNoFill();
+	ofSetLineWidth(2.0f);
+	ofSetColor(g_modifierCustomMaxHP ? ofColor(100, 255, 100) : ofColor(100, 100, 100));
+	ofDrawRectRounded(lobbyModCustomHpBtn, 8);
+	ofFill();
+
+	std::string hpToggleText = g_modifierCustomMaxHP ? "Max Health: ON" : "Max Health: OFF";
+	drawPixelTextCentered(uiFont, hpToggleText, lobbyModCustomHpBtn.getCenter().x, lobbyModCustomHpBtn.getCenter().y, 0.95f * uiScale, ofColor::white);
+
+	// 3. Connected HP Value Adjustment Row (shows when ON)
+	if (g_modifierCustomMaxHP) {
+		float ctrlX = lobbyModCustomHpLeftBtn.x;
+		float ctrlY = lobbyModCustomHpLeftBtn.y;
+		float ctrlW = lobbyModCustomHpBtn.width;
+		float ctrlH = lobbyModCustomHpLeftBtn.height;
+		ofRectangle ctrlRowRect(ctrlX, ctrlY, ctrlW, ctrlH);
+
+		// Connected background panel
+		ofSetColor(26, 28, 36, 240);
+		ofDrawRectRounded(ctrlRowRect, 6);
+		ofNoFill();
+		ofSetLineWidth(1.5f);
+		ofSetColor(80, 85, 100);
+		ofDrawRectRounded(ctrlRowRect, 6);
+		ofFill();
+
+		// Left Arrow (<)
+		bool leftHover = isModHost && lobbyModCustomHpLeftBtn.inside(ofGetMouseX(), ofGetMouseY());
+		if (leftHover) g_hoveredButtonId = "mod_hp_left";
+		ofSetColor(leftHover ? ofColor(60, 65, 80) : ofColor(40, 45, 55));
+		ofDrawRectRounded(lobbyModCustomHpLeftBtn, 4);
+		drawPixelTextCentered(uiFont, "<", lobbyModCustomHpLeftBtn.getCenter().x, lobbyModCustomHpLeftBtn.getCenter().y, 0.9f * uiScale, ofColor::white);
+
+		// Right Arrow (>)
+		bool rightHover = isModHost && lobbyModCustomHpRightBtn.inside(ofGetMouseX(), ofGetMouseY());
+		if (rightHover) g_hoveredButtonId = "mod_hp_right";
+		ofSetColor(rightHover ? ofColor(60, 65, 80) : ofColor(40, 45, 55));
+		ofDrawRectRounded(lobbyModCustomHpRightBtn, 4);
+		drawPixelTextCentered(uiFont, ">", lobbyModCustomHpRightBtn.getCenter().x, lobbyModCustomHpRightBtn.getCenter().y, 0.9f * uiScale, ofColor::white);
+
+		// Center Value in crisp white text
+		std::string hpValueText = ofToString(g_customStartingMaxHP) + " HP";
+		drawPixelTextCentered(uiFont, hpValueText, ctrlRowRect.getCenter().x, ctrlRowRect.getCenter().y, 1.0f * uiScale, ofColor::white, 2, ofColor::black);
+	}
 
 	// --- Column 3: Chat Panel Background ---
 	drawMenuPlaquePanel(lobbyChatPanelRect);
@@ -10143,15 +10242,16 @@ void ofApp::setupGame() {
 	buildFloorMesh();
 
 	// --- PLAYER CREATION ---
+	int startingHP = g_modifierCustomMaxHP ? std::clamp(g_customStartingMaxHP, 1, 99) : 15;
 	players.clear();
 	if (isMultiplayer && g_lobbyPlayers.size() > 0) {
 		int numLobbyPlayers = (int)g_lobbyPlayers.size();
 		for (size_t i = 0; i < g_lobbyPlayers.size(); i++) {
 			Player p = {};
 			p.playerID = g_lobbyPlayers[i].playerID;
-			p.health = 15;
-			p.maxHealth = 15;
-			p.summonedOnTurnCycle = -1; // Main players do not suffer from summoning sickness!
+			p.health = startingHP;
+			p.maxHealth = startingHP;
+			p.summonedOnTurnCycle = -1;
 			p.deck.clear();
 
 			// Corner Placement: 2-Player matches place P1 at Top-Right (opposite corner)
@@ -10205,8 +10305,8 @@ void ofApp::setupGame() {
 		p1.playerID = 0;
 		p1.visualPos = gridToWorld(p1.x, p1.y);
 		p1.summonedOnTurnCycle = -1;
-		p1.health = 15;
-		p1.maxHealth = 15;
+		p1.health = startingHP;
+		p1.maxHealth = startingHP;
 		p1.deck.clear();
 		players.push_back(p1);
 
@@ -10216,8 +10316,8 @@ void ofApp::setupGame() {
 		p2.playerID = 1;
 		p2.visualPos = gridToWorld(p2.x, p2.y);
 		p2.summonedOnTurnCycle = -1;
-		p2.health = 15;
-		p2.maxHealth = 15;
+		p2.health = startingHP;
+		p2.maxHealth = startingHP;
 		p2.deck.clear();
 		players.push_back(p2);
 
@@ -18127,6 +18227,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 						g_modifierFogOfWar = !g_modifierFogOfWar;
 						broadcastLobbyState(steamManager);
 						return;
+					}
+
+					// Toggle Custom Max HP Modifier
+					if (isHostUser && lobbyModCustomHpBtn.inside(x, y)) {
+						g_modifierCustomMaxHP = !g_modifierCustomMaxHP;
+						broadcastLobbyState(steamManager);
+						return;
+					}
+
+					// Adjust Custom Max HP Value
+					if (isHostUser && g_modifierCustomMaxHP) {
+						if (lobbyModCustomHpLeftBtn.inside(x, y)) {
+							g_customStartingMaxHP = std::max(1, g_customStartingMaxHP - 1);
+							broadcastLobbyState(steamManager);
+							return;
+						}
+						if (lobbyModCustomHpRightBtn.inside(x, y)) {
+							g_customStartingMaxHP = std::min(99, g_customStartingMaxHP + 1);
+							broadcastLobbyState(steamManager);
+							return;
+						}
 					}
 
 					// Add AI Bot
@@ -33115,15 +33236,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		beginEffectSequence();
 
 		int mh = currentPlayer.maxHealth;
+		int baseHP = g_modifierCustomMaxHP ? g_customStartingMaxHP : 15;
+
 		int tier = 0;
-		if (mh >= 16 && mh <= 20)
+		if (mh >= baseHP + 1 && mh <= baseHP + 5)
 			tier = 1;
-		else if (mh >= 21 && mh <= 25)
+		else if (mh >= baseHP + 6 && mh <= baseHP + 10)
 			tier = 2;
-		else if (mh >= 26 && mh <= 30)
+		else if (mh >= baseHP + 11 && mh <= baseHP + 15)
 			tier = 3;
 
-		if (mh >= 31) {
+		if (mh >= baseHP + 16) {
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
 			g_isGameOver = true;
@@ -36417,7 +36540,7 @@ std::string ofApp::buildSnapshotString() {
 		}
 	}
 
-	ss << "MODIFIERS\t" << (g_modifierFogOfWar ? 1 : 0) << "\n";
+	ss << "MODIFIERS\t" << (g_modifierFogOfWar ? 1 : 0) << "\t" << (g_modifierCustomMaxHP ? 1 : 0) << "\t" << g_customStartingMaxHP << "\n";
 
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)syncState
@@ -36991,6 +37114,10 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 				}
 			} else if (parts[0] == "MODIFIERS" && parts.size() >= 2) {
 				g_modifierFogOfWar = (std::stoi(parts[1]) != 0);
+				if (parts.size() >= 4) {
+					g_modifierCustomMaxHP = (std::stoi(parts[2]) != 0);
+					g_customStartingMaxHP = std::clamp(std::stoi(parts[3]), 1, 99);
+				}
 			} else if (parts[0] == "BOARD" && parts.size() >= 3) {
 				const std::string & walls = parts[1];
 				const std::string & magicWalls = parts[2];
@@ -43749,6 +43876,10 @@ void ofApp::processNetworkPackets() {
 				if (!isHost()) {
 					LobbyUpdatePacket * lup = (LobbyUpdatePacket *)header;
 					g_modifierFogOfWar = (lup->modifiers & 1) != 0;
+					g_modifierCustomMaxHP = (lup->modifiers & 2) != 0;
+					if (lup->customMaxHP >= 1 && lup->customMaxHP <= 99) {
+						g_customStartingMaxHP = (int)lup->customMaxHP;
+					}
 					g_lobbyPlayers.clear();
 					int safePlayerCount = std::min((int)lup->numPlayers, 4); // Clamped to struct array limit
 					for (int i = 0; i < safePlayerCount; i++) {
