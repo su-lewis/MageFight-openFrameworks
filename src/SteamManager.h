@@ -63,7 +63,6 @@ public:
 	CSteamID getOpponentSteamID() const;
 	CSteamID getLocalSteamID() const;
 	bool getAvatarImage(const CSteamID & id, ofImage & outImage, int size = 64) const;
-	void updateRichPresence(const std::string & status);
 
 	// Connection Flags
 	bool checkAndClearDisconnectFlag();
@@ -83,16 +82,37 @@ public:
 	std::vector<LeaderboardEntry> getLeaderboardEntries();
 
 	// Elo Getters/Setters
-	int getLocalElo();
-	void setLocalElo(int newElo);
-	bool areStatsLoaded() const { return m_bStatsLoaded; }
-
 	// Secure LeaverBuster
+	int getLocalElo();
+	void setLocalElo(int elo);
+	bool areStatsLoaded() const { return m_bStatsLoaded; }
 	void armLeaverBuster(int oppElo);
 	void disarmLeaverBuster();
 	int checkLeaverBuster();
+	void updateRichPresence(const std::string & presenceText);
+
+	// XP & Level Progression System
+	struct XPGainResult {
+		int xpEarned = 0;
+		int oldXP = 0;
+		int newXP = 0;
+		int oldLevel = 1;
+		int newLevel = 1;
+		int xpRequiredForNext = 1000;
+		bool leveledUp = false;
+	};
+
+	int getLocalXP();
+	int getLocalLevel();
+	int getXPRequiredForLevel(int level);
+	XPGainResult addXP(int amount);
 
 private:
+	int m_cachedXP = -1;
+	int m_cachedLevel = -1;
+	void loadLocalProgressionBackup();
+	void saveLocalProgressionBackup(int xp, int level);
+
 	bool m_lobbyCreationSucceeded = false;
 	bool m_lobbyCreationFailed = false;
 	//ELO

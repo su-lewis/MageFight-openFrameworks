@@ -27,6 +27,7 @@ int SteamAPI_ISteamFriends_GetLargeFriendAvatar(intptr_t instancePtr, uint64_t s
 void SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(intptr_t instancePtr, uint64_t steamIDLobby);
 bool SteamAPI_ISteamFriends_SetRichPresence(intptr_t instancePtr, const char * pchKey, const char * pchValue);
 
+uint64_t SteamAPI_ISteamUserStats_RequestUserStats(intptr_t instancePtr, uint64_t steamIDUser);
 uint64_t SteamAPI_ISteamUserStats_FindLeaderboard(intptr_t instancePtr, const char * pchLeaderboardName);
 uint64_t SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardDataRequest, int nRangeStart, int nRangeEnd);
 bool SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(intptr_t instancePtr, uint64_t hSteamLeaderboardEntries, int index, void * pLeaderboardEntry, int32_t * pDetails, int cDetailsMax);
@@ -102,6 +103,13 @@ void SteamManager::setup() {
 		if (SteamNetworkingUtils()) {
 			SteamNetworkingUtils()->InitRelayNetworkAccess();
 		}
+
+		// Request user stats from Steamworks backend for local player
+		if (SteamUserStats()) {
+			SteamAPI_ISteamUserStats_RequestUserStats((intptr_t)SteamUserStats(), m_LocalID.ConvertToUint64());
+		}
+		loadLocalProgressionBackup();
+
 		ofLogNotice("Steam") << "Initialized. LocalID: " << m_LocalID.ConvertToUint64();
 
 		// Handle Cold-Boot Invites (+connect_lobby)
@@ -666,4 +674,106 @@ void SteamManager::onUserStatsReceived(UserStatsReceived_t * pCallback) {
 	if (pCallback && pCallback->m_eResult == k_EResultOK) {
 		m_bStatsLoaded = true;
 	}
+}
+
+// --- XP & LEVEL SYSTEM IMPLEMENTATION ---
+int SteamManager::getXPRequiredForLevel(int level) {
+	if (level <= 0) level = 1;
+	// Smooth progression: Level 1 requires 1000 XP, Level 2 requires 1500 XP, Level 3 requires 2000 XP, etc.
+	return 500 + (level * 500);
+}
+
+void SteamManager::loadLocalProgressionBackup() {
+	std::string path = "Saves/progression.json";
+	if (ofFile(path).exists()) {
+		try {
+			ofJson j = ofLoadJson(path);
+			m_cachedXP = j.value("xp", 0);
+			m_cachedLevel = j.value("level", 1);
+		} catch (...) {
+			m_cachedXP = 0;
+			m_cachedLevel = 1;
+		}
+	} else {
+		m_cachedXP = 0;
+		m_cachedLevel = 1;
+	}
+}
+
+void SteamManager::saveLocalProgressionBackup(int xp, int level) {
+	try {
+		ofJson j;
+		j["xp"] = xp;
+		j["level"] = level;
+		ofSaveJson("Saves/progression.json", j);
+	} catch (...) {
+		ofLogWarning("Steam") << "Failed to save local progression backup.";
+	}
+}
+
+int SteamManager::getLocalXP() {
+	if (m_bInitialized && SteamUserStats()) {
+		int32_t xpVal = 0;
+		if (SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "player_xp", &xpVal)) {
+			m_cachedXP = (int)xpVal;
+			return m_cachedXP;
+		}
+	}
+	if (m_cachedXP < 0) loadLocalProgressionBackup();
+	return std::max(0, m_cachedXP);
+}
+
+int SteamManager::getLocalLevel() {
+	if (m_bInitialized && SteamUserStats()) {
+		int32_t lvlVal = 1;
+		if (SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "player_level", &lvlVal)) {
+			m_cachedLevel = std::max(1, (int)lvlVal);
+			return m_cachedLevel;
+		}
+	}
+	if (m_cachedLevel < 1) loadLocalProgressionBackup();
+	return std::max(1, m_cachedLevel);
+}
+
+SteamManager::XPGainResult SteamManager::addXP(int amount) {
+	XPGainResult result;
+	if (amount < 0) amount = 0;
+	result.xpEarned = amount;
+
+	int curXP = getLocalXP();
+	int curLvl = getLocalLevel();
+
+	result.oldXP = curXP;
+	result.oldLevel = curLvl;
+
+	curXP += amount;
+	int req = getXPRequiredForLevel(curLvl);
+
+	// Process potential level-ups
+	while (curXP >= req) {
+		curXP -= req;
+		curLvl++;
+		result.leveledUp = true;
+		req = getXPRequiredForLevel(curLvl);
+	}
+
+	result.newXP = curXP;
+	result.newLevel = curLvl;
+	result.xpRequiredForNext = req;
+
+	m_cachedXP = curXP;
+	m_cachedLevel = curLvl;
+
+	// Save to Steamworks backend if available
+	if (m_bInitialized && SteamUserStats()) {
+		SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "player_xp", curXP);
+		SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "player_level", curLvl);
+		SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
+	}
+
+	// Always update local disk backup
+	saveLocalProgressionBackup(curXP, curLvl);
+
+	ofLogNotice("Progression") << "Awarded " << amount << " XP. Current: Level " << curLvl << " (" << curXP << "/" << req << " XP)";
+	return result;
 }

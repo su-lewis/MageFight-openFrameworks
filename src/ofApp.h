@@ -1162,10 +1162,14 @@ public:
 	uint32_t localSeedComponent = 0;
 	bool waitingForClientHandshake = false;
 
+	int eloChange = 0;
 	int myElo = 1000;
 	int opponentElo = 1000;
-	int eloChange = 0;
 	bool eloCalculated = false;
+
+	// Progression outcome for Game Over display
+	SteamManager::XPGainResult lastMatchXPResult;
+	bool progressionAwardedThisMatch = false;
 
 	bool headless = false;
 	bool hasReceivedHandshake = false;

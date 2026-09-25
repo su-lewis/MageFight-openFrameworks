@@ -6075,7 +6075,33 @@ void ofApp::update() {
 		matchLogSaved = false;
 	}
 
-	// --- PAIRWISE ELO CALCULATION & WEBHOOK ---
+	// --- MATCH PROGRESSION & XP AWARDING (ALL MATCHES) ---
+	if (g_isGameOver && !progressionAwardedThisMatch && currentState != STATE_DESYNC) {
+		progressionAwardedThisMatch = true;
+
+		int localID = myLocalPlayerID;
+		if (localID < 0 || localID > 3) localID = 0;
+
+		// 1. Base outcome XP
+		int earnedXP = 150; // Base participation XP
+		if (g_winnerID == localID) {
+			earnedXP += 350; // Victory bonus (+500 total)
+		} else if (g_winnerID == 2) {
+			earnedXP += 150; // Draw bonus (+300 total)
+		}
+
+		// 2. Performance-based XP bonuses
+		earnedXP += std::min(400, matchStats[localID].totalDamageDealt * 2);
+		earnedXP += std::min(200, matchStats[localID].totalHealing * 2);
+		earnedXP += std::min(150, matchStats[localID].minionsSpawned * 15);
+		earnedXP += std::min(150, matchStats[localID].cardsPlayed * 5);
+
+		// Clamp match XP reward to reasonable limits
+		earnedXP = std::clamp(earnedXP, 100, 2000);
+		lastMatchXPResult = steamManager.addXP(earnedXP);
+	}
+
+	// --- PAIRWISE ELO CALCULATION & WEBHOOK (ONLINE VERSUS REAL PLAYERS ONLY) ---
 	if (g_isGameOver && !eloCalculated && isMultiplayer && !g_isSpectator && myLocalPlayerID != 255 && currentState != STATE_DESYNC) {
 		if (myElo <= 0) myElo = steamManager.getLocalElo();
 
@@ -7743,6 +7769,32 @@ void ofApp::draw() {
 				ofSetLineWidth(3.0f * uiScaleL);
 				ofDrawRectRounded(panel, 16.0f * uiScaleL);
 				ofFill();
+
+				// Display Level & XP Progress Banner
+				int curLvl = steamManager.getLocalLevel();
+				int curXP = steamManager.getLocalXP();
+				int nextReq = steamManager.getXPRequiredForLevel(curLvl);
+				float xpPct = (nextReq > 0) ? std::clamp((float)curXP / (float)nextReq, 0.0f, 1.0f) : 1.0f;
+
+				float xpBarW = panelW * 0.70f;
+				float xpBarH = 14.0f * uiScaleL;
+				float xpBarX = cx - xpBarW * 0.5f;
+				float xpBarY = cy - 255.0f * uiScaleL;
+
+				// Background
+				ofSetColor(20, 20, 30, 230);
+				ofDrawRectRounded(xpBarX - 4.0f, xpBarY - 4.0f, xpBarW + 8.0f, xpBarH + 8.0f, 6.0f * uiScaleL);
+				ofSetColor(50, 50, 65);
+				ofDrawRectRounded(xpBarX, xpBarY, xpBarW, xpBarH, 4.0f * uiScaleL);
+
+				// Fill
+				ofSetColor(70, 180, 255);
+				ofDrawRectRounded(xpBarX, xpBarY, xpBarW * xpPct, xpBarH, 4.0f * uiScaleL);
+
+				// Level & XP Text
+				std::string xpText = "Level " + std::to_string(curLvl) + "  •  " + std::to_string(curXP) + " / " + std::to_string(nextReq) + " XP (+" + std::to_string(lastMatchXPResult.xpEarned) + " XP)";
+				if (lastMatchXPResult.leveledUp) xpText = "★ LEVEL UP! ★  " + xpText;
+				drawPixelTextCentered(uiFont, xpText, cx, xpBarY - 12.0f * uiScaleL, 0.85f * uiScaleL, ofColor(255, 230, 120), 2, ofColor::black);
 
 				// Table Headers
 				float curY = panel.y + 40 * uiScaleL;
@@ -9499,12 +9551,13 @@ void ofApp::setupGame() {
 	simulationFrame = 0;
 	simulationAccumulator = 0.0f;
 
-	// Reset Stats & Replays
+	// Reset Stats, Progression & Replays
 	for (int i = 0; i < 4; i++) {
 		matchStats[i] = PlayerMatchStats();
 		afkStrikeCounts[i] = 0;
 	}
 	replaySavedThisMatch = false;
+	progressionAwardedThisMatch = false;
 
 	// Only clear the log if we aren't currently WATCHING a replay
 	if (!isReplayMode) {
@@ -9711,14 +9764,26 @@ void ofApp::setupGame() {
 		}
 
 		// CRASH FIX: Ensure opponentElo has a valid value before arming the trap.
-		// If the lobby doesn't have an opponent yet (uninitialized), fall back to 1000.
 		if (opponentElo <= 0 || opponentElo > 5000) {
-			ofLogWarning("Setup") << "opponentElo invalid (" << opponentElo << "), defaulting to 1000";
 			opponentElo = 1000;
 		}
 
-		// ARM THE LEAVERBUSTER TRAP (SECURE STEAM BACKEND)
-		steamManager.armLeaverBuster(opponentElo);
+		// Only arm LeaverBuster if playing against at least one real human opponent
+		bool hasHumanOpponent = false;
+		for (const auto & lp : g_lobbyPlayers) {
+			if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+				hasHumanOpponent = true;
+				break;
+			}
+		}
+
+		if (hasHumanOpponent) {
+			steamManager.armLeaverBuster(opponentElo);
+			ofLogNotice("Setup") << "LeaverBuster armed against human opponent (Rating: " << opponentElo << ")";
+		} else {
+			steamManager.disarmLeaverBuster();
+			ofLogNotice("Setup") << "LeaverBuster disarmed: Solo or Bot match.";
+		}
 
 		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
 
@@ -14624,7 +14689,8 @@ void ofApp::drawGame() {
 
 		if (elo >= 0) {
 			auto rank = getMageRank(elo);
-			std::string rankStr = rank.first + " (" + std::to_string(elo) + ")";
+			int playerLevel = isLocal ? steamManager.getLocalLevel() : 1;
+			std::string rankStr = "Lv." + std::to_string(playerLevel) + " " + rank.first + " (" + std::to_string(elo) + ")";
 
 			std::string h2hStr = "";
 			if (!isLocal && isMultiplayer) {
