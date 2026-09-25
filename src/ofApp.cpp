@@ -3508,7 +3508,7 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 		he.hasTracers = true;
 	}
 
-	// Capture Shoot Arrow sacrifices or Mind Theft stolen targets
+	// Capture Shoot Arrow sacrifices, Mind Theft stolen targets, or Master Fist destroyed cards
 	if (playedCard.type == CARD_SHOOT_ARROW && currentCardOutcome.destroyedCardType != CARD_NONE) {
 		for (const auto & base : allCards) {
 			if (base.type == currentCardOutcome.destroyedCardType) {
@@ -3523,7 +3523,12 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 			he.destroyedCardNames.push_back(players[tidx].deck.back().name);
 		}
 	}
-
+	if (playedCard.type == CARD_MASTER_FIST && currentCardOutcome.targetPlayerIndex >= 0) {
+		int tidx = currentCardOutcome.targetPlayerIndex;
+		if (tidx < (int)players.size() && !players[tidx].deck.empty()) {
+			he.destroyedCardNames.push_back(players[tidx].deck.back().name);
+		}
+	}
 	// FOG OF WAR: If an enemy acted out of line of sight, hide their action in history!
 	if (g_modifierFogOfWar && playerIndex >= 0 && playerIndex < (int)players.size()) {
 		int owner = players[playerIndex].isMinion ? players[playerIndex].ownerID : players[playerIndex].playerID;
@@ -7728,7 +7733,11 @@ void ofApp::draw() {
 						ofSetColor(24, 28, 38);
 						ofDrawRectRounded(iconRect, 6);
 						ofNoFill();
-						ofSetColor(0, 255, 120);
+						// Movement arrow strictly matches the moving unit's player color
+						ofColor arrowCol = (g_actionHistory[i].playerID >= 0)
+							? getPlayerThemeColor(g_actionHistory[i].playerID)
+							: ofColor(0, 255, 120);
+						ofSetColor(arrowCol);
 						ofSetLineWidth(3 * scale);
 						ofDrawLine(iconRect.x + 10 * scale, iconRect.getBottom() - 10 * scale, iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale);
 						ofDrawLine(iconRect.getRight() - 10 * scale, iconRect.y + 10 * scale, iconRect.getRight() - 18 * scale, iconRect.y + 10 * scale);
@@ -7740,27 +7749,7 @@ void ofApp::draw() {
 
 					if (s_hoveredHistoryIndex == (int)i) {
 						const auto & entry = g_actionHistory[i];
-						isShowingTooltip = true;
-						tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-
-						if (entry.cardName == "?") {
-							tooltipText = "Unknown Enemy Action";
-						} else if (entry.isMovement) {
-							int steps = std::max(0, (int)entry.movementPath.size() - 1);
-							tooltipText = "Unit Moved (" + ofToString(steps) + " " + (steps == 1 ? "tile" : "tiles") + ")";
-						} else {
-							tooltipText = entry.cardName;
-							if (entry.rangeRoll > 0) tooltipText += " [Range Roll: " + ofToString(entry.rangeRoll) + " ft]";
-							if (entry.damageRoll > 0) tooltipText += " [Dmg Roll: " + ofToString(entry.damageRoll) + "]";
-							if (!entry.destroyedCardNames.empty()) {
-								tooltipText += " (Destroyed: ";
-								for (size_t c = 0; c < entry.destroyedCardNames.size(); c++) {
-									if (c > 0) tooltipText += ", ";
-									tooltipText += entry.destroyedCardNames[c];
-								}
-								tooltipText += ")";
-							}
-						}
+						// Tooltip at cursor completely removed so only the Action Details box opens
 
 						float hoverW = kCardPixelWidth * kHandCardVisualScale * scale * kHandHoverScale;
 						float hoverH = kCardPixelHeight * kHandCardVisualScale * scale * kHandHoverScale;
@@ -7782,77 +7771,102 @@ void ofApp::draw() {
 
 						if (entry.isMovement) {
 							hasDetails = true;
-							lineCount = 2; // Cleaned up: only shows Action name and Tiles Moved
+							lineCount = 2;
 						} else {
-							if (entry.rangeRoll > 0 && isRangedSpell) {
-								hasDetails = true;
+							hasDetails = true;
+							if (entry.damageRoll > 0) lineCount++;
+							if (entry.rangeRoll > 0 && isRangedSpell) lineCount++;
+							if (entry.utilityRoll > 0) lineCount++;
+							if (!entry.menuChoice.empty()) lineCount++;
+							if (entry.card.type == CARD_MASTER_FIST)
+								lineCount += 2; // +1 Luck, +1 Max HP
+							else if (entry.card.type == CARD_FOUR_LEAF_CLOVER)
 								lineCount++;
-							}
-							if (entry.damageRoll > 0) {
-								hasDetails = true;
+							else if (entry.card.baseHeal > 0 || entry.card.healAmount > 0)
 								lineCount++;
-							}
-							if (entry.utilityRoll > 0) {
-								hasDetails = true;
-								lineCount++;
-							}
-							if (!entry.menuChoice.empty()) {
-								hasDetails = true;
-								lineCount++;
-							}
+							if (entry.card.blockAmount > 0 || entry.card.wardAmount > 0 || entry.card.barrierAmount > 0 || entry.card.fortifyAmount > 0 || entry.card.holyBlockAmount > 0) lineCount++;
+							if (entry.card.apGain > 0 || entry.card.apGainNextTurn > 0) lineCount++;
 							if (!entry.destroyedCardNames.empty()) {
-								hasDetails = true;
 								lineCount += 1 + (int)entry.destroyedCardNames.size();
 							}
 						}
 
 						if (hasDetails) {
-							float infoW = 220.0f * scale;
-							float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 10.0f * scale);
+							// Widen panel from 220px to 280px to fit labels and values cleanly
+							float infoW = 280.0f * scale;
+							float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 12.0f * scale);
 							float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
-							if (infoX + infoW > ofGetWidth() - 10.0f) infoX = hoverX - infoW - 10.0f * scale;
+							if (infoX + infoW > ofGetWidth() - 10.0f) infoX = hoverX - infoW - 12.0f * scale;
 
-							float dynamicH = (45.0f + lineCount * 26.0f + 16.0f) * scale;
+							float dynamicH = (38.0f + lineCount * 26.0f + 16.0f) * scale;
 							ofRectangle infoRect(infoX, infoY, infoW, dynamicH);
 
-							ofSetColor(18, 18, 22, 235);
-							ofDrawRectRounded(infoRect, 12 * scale);
+							ofSetColor(18, 18, 24, 245);
+							ofDrawRectRounded(infoRect, 10 * scale);
 							ofNoFill();
 							ofSetLineWidth(2 * scale);
-							ofSetColor(120, 120, 140, 200);
-							ofDrawRectRounded(infoRect, 12 * scale);
+							ofSetColor(100, 105, 125, 220);
+							ofDrawRectRounded(infoRect, 10 * scale);
 							ofFill();
 
 							float curY = infoRect.y + 24 * scale;
+							// Dedicated columns: label at x+16, value at x+135
 							auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
 								ofSetColor(180, 180, 190);
-								SafeDrawText(uiFont, label, infoRect.x + 14 * scale, curY);
+								SafeDrawText(uiFont, label, infoRect.x + 16 * scale, curY);
 								ofSetColor(valCol);
-								SafeDrawText(uiFont, val, infoRect.x + 110 * scale, curY);
+								SafeDrawText(uiFont, val, infoRect.x + 135 * scale, curY);
 								curY += 26 * scale;
 							};
 
 							ofSetColor(255, 215, 0);
-							SafeDrawText(uiFont, "Action Details", infoRect.x + 14 * scale, curY);
-							curY += 30 * scale;
+							SafeDrawText(uiFont, "Action Details", infoRect.x + 16 * scale, curY);
+							curY += 28 * scale;
 
 							if (entry.isMovement) {
 								int steps = std::max(0, (int)entry.movementPath.size() - 1);
 								drawLine("Action:", "Unit Movement", ofColor::cyan);
 								drawLine("Tiles Moved:", ofToString(steps), ofColor::gold);
 							} else {
+								if (entry.damageRoll > 0) {
+									std::string typeStr = (entry.card.damageType == DAMAGE_PHYSICAL) ? " Phys" : ((entry.card.damageType == DAMAGE_FIRE) ? " Fire" : ((entry.card.damageType == DAMAGE_HOLY) ? " Holy" : ((entry.card.damageType == DAMAGE_ELECTRIC) ? " Elec" : ((entry.card.damageType == DAMAGE_MAGIC) ? " Magic" : ((entry.card.damageType == DAMAGE_PIERCING) ? " Pierce" : "")))));
+									drawLine("Damage:", ofToString(entry.damageRoll) + typeStr, ofColor(240, 75, 75));
+								}
 								if (entry.rangeRoll > 0 && isRangedSpell) drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
-								if (entry.damageRoll > 0) drawLine("Damage:", ofToString(entry.damageRoll), ofColor::indianRed);
 								if (entry.utilityRoll > 0) drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
 								if (!entry.menuChoice.empty()) drawLine("Choice:", entry.menuChoice, ofColor::gold);
+
+								// Master Fist specific stats
+								if (entry.card.type == CARD_MASTER_FIST) {
+									drawLine("Luck:", "+1", ofColor(50, 220, 90));
+									drawLine("Max HP:", "+1", ofColor(50, 220, 90));
+								} else if (entry.card.type == CARD_FOUR_LEAF_CLOVER) {
+									drawLine("Luck:", "+1", ofColor(50, 220, 90));
+								} else if (entry.card.baseHeal > 0 || entry.card.healAmount > 0) {
+									drawLine("Healed:", "+" + ofToString(entry.card.baseHeal > 0 ? entry.card.baseHeal : entry.card.healAmount) + " HP", ofColor::green);
+								}
+
+								// Defensive stats
+								if (entry.card.blockAmount > 0) drawLine("Block:", "+" + ofToString(entry.card.blockAmount), ofColor::gray);
+								if (entry.card.wardAmount > 0) drawLine("Ward:", "+" + ofToString(entry.card.wardAmount), ofColor(180, 140, 255));
+								if (entry.card.barrierAmount > 0) drawLine("Barrier:", "+" + ofToString(entry.card.barrierAmount), ofColor::hotPink);
+								if (entry.card.fortifyAmount > 0) drawLine("Fortify:", "+" + ofToString(entry.card.fortifyAmount), ofColor::lightGray);
+								if (entry.card.holyBlockAmount > 0) drawLine("Holy Block:", "+" + ofToString(entry.card.holyBlockAmount), ofColor::yellow);
+
+								// AP gains
+								if (entry.card.apGain > 0 || entry.card.apGainNextTurn > 0) {
+									drawLine("AP Gain:", "+" + ofToString(entry.card.apGain > 0 ? entry.card.apGain : entry.card.apGainNextTurn) + " AP", ofColor::cyan);
+								}
+
+								// Destroyed cards list
 								if (!entry.destroyedCardNames.empty()) {
-									curY += 6 * scale;
+									curY += 4 * scale;
 									ofSetColor(240, 100, 100);
-									SafeDrawText(uiFont, "Destroyed:", infoRect.x + 14 * scale, curY);
+									SafeDrawText(uiFont, "Destroyed Card:", infoRect.x + 16 * scale, curY);
 									curY += 22 * scale;
 									for (const auto & cName : entry.destroyedCardNames) {
 										ofSetColor(255, 255, 255);
-										SafeDrawText(uiFont, "- " + cName, infoRect.x + 22 * scale, curY);
+										SafeDrawText(uiFont, "- " + cName, infoRect.x + 24 * scale, curY);
 										curY += 22 * scale;
 									}
 								}
@@ -11002,8 +11016,8 @@ void ofApp::prepareGameVisualState() {
 		int ownerID = players[i].ownerID;
 		if (ownerID == myLocalPlayerID) {
 			p0_minionIndices.push_back(i);
-		} else {
-			// FOG OF WAR: Only show enemy minions if you have seen them at least once!
+		} else if (ownerID == g_viewedOpponentID) {
+			// Only display minions belonging to the currently inspected opponent (P2, P3, or P4)
 			if (!g_modifierFogOfWar || g_seenOpponentMinionIDs.count(players[i].playerID) > 0) {
 				p1_minionIndices.push_back(i);
 			}
@@ -14977,6 +14991,18 @@ void ofApp::drawGame() {
 		float startY = midY - (totalH * 0.5f);
 		float tabX = p1_deckRect.x - tabW - marginFromDeck;
 
+		auto getTabShortName = [](int id) -> std::string {
+			std::string fullName = getPlayerNameByID(id);
+			if (fullName.rfind("Bot ", 0) == 0 && fullName.size() > 4) {
+				return "B" + fullName.substr(4); // "Bot 1" -> "B1", "Bot 2" -> "B2"
+			}
+			if (fullName.rfind("Player ", 0) == 0 && fullName.size() > 7) {
+				return "P" + fullName.substr(7); // "Player 2" -> "P2"
+			}
+			if (fullName.size() <= 3) return fullName;
+			return fullName.substr(0, 2);
+		};
+
 		for (size_t i = 0; i < opponentIDs.size(); ++i) {
 			int pID = opponentIDs[i];
 			float tabY = startY + i * (tabH + tabGap);
@@ -14989,22 +15015,27 @@ void ofApp::drawGame() {
 			ofColor pCol = getPlayerThemeColor(pID);
 
 			ofPushStyle();
+			// Active tab gets an illuminated tint of its own player color (never hardcoded blue)
 			ofColor bgCol = isActive
-				? ofColor(pCol.r * 0.35f, pCol.g * 0.35f, pCol.b * 0.35f, 240)
-				: (isHovered ? ofColor(pCol.r * 0.20f, pCol.g * 0.20f, pCol.b * 0.20f, 220) : ofColor(25, 27, 35, 200));
+				? ofColor(pCol.r * 0.40f, pCol.g * 0.40f, pCol.b * 0.40f, 245)
+				: (isHovered ? ofColor(pCol.r * 0.22f, pCol.g * 0.22f, pCol.b * 0.22f, 220) : ofColor(22, 24, 30, 210));
 			ofSetColor(bgCol);
 			ofDrawRectRounded(tRect, 6.0f * scale);
 
+			// Border strictly uses the player's own theme color
 			ofNoFill();
 			ofSetLineWidth(isActive ? 3.0f * scale : 1.5f * scale);
-			ofColor borderCol = isActive ? pCol : (isHovered ? pCol.getLerped(ofColor::white, 0.35f) : ofColor(pCol.r * 0.55f, pCol.g * 0.55f, pCol.b * 0.55f, 180));
+			ofColor borderCol = isActive
+				? pCol
+				: (isHovered ? pCol.getLerped(ofColor::white, 0.4f) : ofColor(pCol.r * 0.55f, pCol.g * 0.55f, pCol.b * 0.55f, 180));
 			ofSetColor(borderCol);
 			ofDrawRectRounded(tRect, 6.0f * scale);
 			ofFill();
 
-			std::string tabName = "P" + std::to_string(pID + 1);
+			// Clean label: "B1" for Bot 1, "B2" for Bot 2, matching the top-right profile box
+			std::string tabName = getTabShortName(pID);
 			ofColor textCol = isActive ? ofColor::white : pCol;
-			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, textCol, 2, ofColor::black);
+			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.95f * scale, textCol, 2, ofColor::black);
 			safePopStyle();
 		}
 	}
@@ -17702,6 +17733,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 		for (const auto & tab : opponentViewTabs) {
 			if (tab.rect.inside(x, y)) {
 				g_viewedOpponentID = tab.playerID;
+				g_p1_minionScrollIndex = 0; // Reset scroll so new opponent's minions start at the top
+
+				// Immediately refresh open deck/discard inspect panel to show the newly selected opponent's cards
+				if (isShowingPileView && currentPileViewPlayerIndex != -1) {
+					for (int i = 0; i < (int)players.size(); i++) {
+						if (!players[i].isMinion && players[i].playerID == g_viewedOpponentID) {
+							currentPileViewPlayerIndex = i;
+							hoveredPilePlayerIndex = i;
+							break;
+						}
+					}
+				}
+
 				if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
 				return;
 			}
