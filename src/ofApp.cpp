@@ -3508,7 +3508,7 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 		he.hasTracers = true;
 	}
 
-	// Capture Shoot Arrow sacrifices, Mind Theft stolen targets, or Master Fist destroyed cards
+	// Capture Shoot Arrow sacrifices, Mind Theft stolen cards, or Master Fist / Ethereal Jolt destroyed cards
 	if (playedCard.type == CARD_SHOOT_ARROW && currentCardOutcome.destroyedCardType != CARD_NONE) {
 		for (const auto & base : allCards) {
 			if (base.type == currentCardOutcome.destroyedCardType) {
@@ -3517,7 +3517,7 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 			}
 		}
 	}
-	if (playedCard.type == CARD_MIND_THEFT && currentCardOutcome.targetPlayerIndex >= 0) {
+	if ((playedCard.type == CARD_MIND_THEFT || playedCard.type == CARD_MASTER_FIST || playedCard.type == CARD_ETHEREAL_JOLT) && currentCardOutcome.targetPlayerIndex >= 0) {
 		int tidx = currentCardOutcome.targetPlayerIndex;
 		if (tidx < (int)players.size() && !players[tidx].deck.empty()) {
 			he.destroyedCardNames.push_back(players[tidx].deck.back().name);
@@ -7749,129 +7749,203 @@ void ofApp::draw() {
 
 					if (s_hoveredHistoryIndex == (int)i) {
 						const auto & entry = g_actionHistory[i];
-						// Tooltip at cursor completely removed so only the Action Details box opens
 
-						float hoverW = kCardPixelWidth * kHandCardVisualScale * scale * kHandHoverScale;
-						float hoverH = kCardPixelHeight * kHandCardVisualScale * scale * kHandHoverScale;
-						float hoverX = iconRect.getCenter().x - hoverW / 2.0f;
-						float hoverY = iconRect.getBottom() + 10.0f * scale;
+						// 1. Gather all action details
+						struct DetailLine {
+							std::string label;
+							std::string value;
+							ofColor color;
+						};
+						std::vector<DetailLine> lines;
 
-						if (hoverY + hoverH > ofGetHeight() - 10.0f) hoverY = ofGetHeight() - hoverH - 10.0f;
-						if (hoverX < 10.0f) hoverX = 10.0f;
-						if (hoverX + hoverW > ofGetWidth() - 10.0f) hoverX = ofGetWidth() - hoverW - 10.0f;
-
-						if (!entry.isMovement) {
-							ofSetColor(255);
-							drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, hoverX, hoverY, hoverW, hoverH, nullptr);
-						}
-
-						bool hasDetails = false;
-						int lineCount = 0;
 						bool isRangedSpell = (entry.card.type == CARD_FIREBALL || entry.card.type == CARD_CHAIN_LIGHTNING || entry.card.type == CARD_MAGIC_BOLT || entry.card.type == CARD_MAGIC_BLAST || entry.card.type == CARD_SHOOT_ARROW || entry.card.type == CARD_ETHEREAL_JOLT);
 
 						if (entry.isMovement) {
-							hasDetails = true;
-							lineCount = 2;
+							int steps = std::max(0, (int)entry.movementPath.size() - 1);
+							lines.push_back({ "Action:", "Unit Movement", ofColor::cyan });
+							lines.push_back({ "Tiles Moved:", ofToString(steps), ofColor::gold });
 						} else {
-							hasDetails = true;
-							if (entry.damageRoll > 0) lineCount++;
-							if (entry.rangeRoll > 0 && isRangedSpell) lineCount++;
-							if (entry.utilityRoll > 0) lineCount++;
-							if (!entry.menuChoice.empty()) lineCount++;
-							if (entry.card.type == CARD_MASTER_FIST)
-								lineCount += 2; // +1 Luck, +1 Max HP
-							else if (entry.card.type == CARD_FOUR_LEAF_CLOVER)
-								lineCount++;
-							else if (entry.card.baseHeal > 0 || entry.card.healAmount > 0)
-								lineCount++;
-							if (entry.card.blockAmount > 0 || entry.card.wardAmount > 0 || entry.card.barrierAmount > 0 || entry.card.fortifyAmount > 0 || entry.card.holyBlockAmount > 0) lineCount++;
-							if (entry.card.apGain > 0 || entry.card.apGainNextTurn > 0) lineCount++;
-							if (!entry.destroyedCardNames.empty()) {
-								lineCount += 1 + (int)entry.destroyedCardNames.size();
+							// Damage
+							if (entry.damageRoll > 0) {
+								std::string typeStr = (entry.card.damageType == DAMAGE_PHYSICAL) ? " Phys" : ((entry.card.damageType == DAMAGE_FIRE) ? " Fire" : ((entry.card.damageType == DAMAGE_HOLY) ? " Holy" : ((entry.card.damageType == DAMAGE_ELECTRIC) ? " Elec" : ((entry.card.damageType == DAMAGE_MAGIC) ? " Magic" : ((entry.card.damageType == DAMAGE_PIERCING) ? " Pierce" : "")))));
+								lines.push_back({ "Damage:", ofToString(entry.damageRoll) + typeStr, ofColor(240, 75, 75) });
+							}
+
+							// Range
+							if (entry.rangeRoll > 0 && isRangedSpell) {
+								lines.push_back({ "Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan });
+							}
+
+							// Menu choice
+							if (!entry.menuChoice.empty()) {
+								lines.push_back({ "Choice:", entry.menuChoice, ofColor::gold });
+							}
+
+							// Specific card effects
+							if (entry.card.type == CARD_MASTER_FIST) {
+								lines.push_back({ "Luck:", "+1", ofColor(50, 220, 90) });
+								lines.push_back({ "Max Health:", "+1", ofColor(50, 220, 90) });
+							} else if (entry.card.type == CARD_FOUR_LEAF_CLOVER) {
+								lines.push_back({ "Luck:", "+1", ofColor(50, 220, 90) });
+							} else if (entry.card.type == CARD_NECROMANCER_S_BLESSING) {
+								lines.push_back({ "Luck:", "+1 per Skeleton", ofColor(50, 220, 90) });
+							} else if (entry.card.type == CARD_CONSUME_HEALTH_POTION) {
+								lines.push_back({ "Max Health:", "+1 Max HP", ofColor(50, 220, 90) });
+							} else if (entry.card.type == CARD_CONSUME_HEALTH_FLAGON) {
+								lines.push_back({ "Max Health:", "+3 Max HP", ofColor(50, 220, 90) });
+								lines.push_back({ "Healed:", "+1 HP", ofColor(50, 220, 90) });
+							} else if (entry.card.type == CARD_FULL_RESTORE) {
+								lines.push_back({ "Restored:", "Max Health", ofColor(50, 220, 90) });
+								lines.push_back({ "Purged:", "All Debuffs", ofColor::cyan });
+							} else if (entry.card.type == CARD_SPRINT) {
+								lines.push_back({ "AP Gain:", "+2 AP Now, +2 Next Turn", ofColor::cyan });
+								lines.push_back({ "Bonus:", "Kick costs 0 AP", ofColor::gold });
+							} else if (entry.card.type == CARD_HASTEN) {
+								lines.push_back({ "Next Turn:", "1d10 AP Roll", ofColor::cyan });
+								lines.push_back({ "Draw:", "+1 Extra Card", ofColor::magenta });
+							} else if (entry.card.type == CARD_STUDY) {
+								lines.push_back({ "Draft:", "Class 2 Card", ofColor::gold });
+								lines.push_back({ "Draw:", "+1 Extra Card Next Turn", ofColor::magenta });
+							} else if (entry.card.type == CARD_DEMOLITION) {
+								lines.push_back({ "Destroyed:", "Adjacent Wall", ofColor::red });
+								lines.push_back({ "AP Gain:", "+6 AP Next Turn", ofColor::cyan });
+							} else if (entry.card.type == CARD_SHOCK) {
+								lines.push_back({ "AP Gain:", "+2 AP Next Turn", ofColor::cyan });
+							} else if (entry.card.type == CARD_CHAIN_LIGHTNING) {
+								lines.push_back({ "AP Gain:", "+3 AP Next Turn", ofColor::cyan });
+							} else if (entry.card.type == CARD_TIME_VORTEX) {
+								lines.push_back({ "Turns:", "+" + ofToString(entry.utilityRoll > 0 ? entry.utilityRoll : 1) + " Extra Turns", ofColor::magenta });
+							} else if (entry.card.type == CARD_FORM_OF_TORTOISE) {
+								lines.push_back({ "Transformed:", "Tortoise (5 HP)", ofColor::green });
+								lines.push_back({ "Stats:", "+5 Max HP, Restore 5", ofColor(50, 220, 90) });
+								lines.push_back({ "Spikes:", "3 Dmg on Heal/Def", ofColor::orange });
+							} else if (entry.card.type == CARD_FORM_OF_GHOST) {
+								lines.push_back({ "Transformed:", "Ghost (4 HP)", ofColor(150, 150, 255) });
+								lines.push_back({ "Passive:", "Immune Phys/Pierce", ofColor::cyan });
+								lines.push_back({ "Trait:", "Phase through walls", ofColor::magenta });
+							} else if (entry.card.type == CARD_REPLICATE) {
+								lines.push_back({ "Buff:", "Copies next card to hand", ofColor::cyan });
+							} else if (entry.card.type == CARD_STRENGTHEN_ELEMENTS) {
+								lines.push_back({ "Buff (3 Turns):", "Copies Fire/Elec cards", ofColor::orange });
+							} else if (entry.card.type == CARD_ADD_POISON) {
+								lines.push_back({ "Buff:", "Adds 1d6 Poison to attack", ofColor::green });
+							} else if (entry.card.type == CARD_FLURRY_OF_FISTS) {
+								lines.push_back({ "Buff:", "Doubles Hand cards", ofColor::orange });
+							} else if (entry.card.type == CARD_RENEWED_INSPIRATION) {
+								lines.push_back({ "Effect:", "Discard cards & Draw x2", ofColor::cyan });
+							} else if (entry.card.type == CARD_SPARK_OF_GENIUS) {
+								lines.push_back({ "Drawn:", ofToString(entry.utilityRoll > 0 ? entry.utilityRoll : 1) + " Cards", ofColor::cyan });
+							} else if (entry.card.type == CARD_TELEPORT) {
+								lines.push_back({ "Action:", "Teleport to Tile", ofColor::cyan });
+							} else if (entry.card.type == CARD_EARTHQUAKE) {
+								lines.push_back({ "Action:", "All Units Move 1d4 Tiles", ofColor::orange });
+							} else if (entry.card.type == CARD_GIANT_MAGIC_HAND) {
+								lines.push_back({ "Action:", entry.menuChoice == "push" ? "Push Wall (2d4 Dmg)" : "Pull Wall", ofColor::cyan });
+							} else if (entry.card.type == CARD_CONSTITUTION_BOON) {
+								lines.push_back({ "Checked:", "Max Health Tier", ofColor::gold });
+							} else if (entry.card.type == CARD_BLOCKING_BOON) {
+								lines.push_back({ "Rolled:", "Draft & Coin Flips", ofColor::gold });
+							} else if (entry.card.type == CARD_DEATH) {
+								lines.push_back({ "Roll 1d20:", "Execute or Sleep", ofColor::magenta });
+							} else if (entry.card.type == CARD_RAISE_DEAD) {
+								lines.push_back({ "Summoned:", "Skeleton (1d6 HP)", ofColor(180, 180, 190) });
+							} else if (entry.card.type == CARD_SUMMON_GOLEM) {
+								lines.push_back({ "Summoned:", "Golem (Adaptive)", ofColor(140, 140, 170) });
+							} else if (entry.card.type == CARD_SUMMON_HELLHOUND) {
+								lines.push_back({ "Summoned:", "Hellhound (2d6 HP)", ofColor(255, 100, 50) });
+							} else if (entry.card.type == CARD_SUMMON_DEMON) {
+								lines.push_back({ "Summoned:", "Demon (3d10 HP)", ofColor(220, 50, 50) });
+							} else if (entry.card.type == CARD_SUMMON_KOBOLD_KING) {
+								lines.push_back({ "Summoned:", "Kobold King", ofColor(220, 180, 50) });
+							} else if (entry.card.type == CARD_CALL_FOR_KOBOLDS) {
+								lines.push_back({ "Summoned:", "1d4 Kobolds (1 HP)", ofColor(180, 160, 50) });
+							} else if (entry.card.type == CARD_CALL_FOR_WOLVES) {
+								lines.push_back({ "Summoned:", "Wolf (4 HP)", ofColor(160, 160, 180) });
+							} else if (entry.card.type == CARD_SUMMON_ASSISTANT) {
+								lines.push_back({ "Summoned:", "Assistant (+1 Luck)", ofColor(100, 220, 120) });
+							} else if (entry.card.type == CARD_SUMMON_FAERIE) {
+								lines.push_back({ "Summoned:", "Faerie (Resurrects)", ofColor(120, 220, 255) });
+							} else if (entry.card.type == CARD_SUMMON_WALL || entry.card.type == CARD_CREATE_WALL) {
+								lines.push_back({ "Created:", "Stone Wall", ofColor::gray });
+							} else if (entry.card.type == CARD_SUMMON_MAGIC_WALL) {
+								lines.push_back({ "Created:", "Magic Wall (x2 Magic)", ofColor::purple });
+							} else if (entry.card.type == CARD_TRANSFORM_WALL) {
+								lines.push_back({ "Transformed:", "Wall into Minion", ofColor::lightGray });
+							} else if (entry.card.baseHeal > 0 || entry.card.healAmount > 0) {
+								lines.push_back({ "Healed:", "+" + ofToString(entry.card.baseHeal > 0 ? entry.card.baseHeal : entry.card.healAmount) + " HP", ofColor::green });
+							}
+
+							// Defensive stats
+							if (entry.card.blockAmount > 0) lines.push_back({ "Block:", "+" + ofToString(entry.card.blockAmount), ofColor::gray });
+							if (entry.card.wardAmount > 0) lines.push_back({ "Ward:", "+" + ofToString(entry.card.wardAmount), ofColor(180, 140, 255) });
+							if (entry.card.barrierAmount > 0) lines.push_back({ "Barrier:", "+" + ofToString(entry.card.barrierAmount), ofColor::hotPink });
+							if (entry.card.fortifyAmount > 0) lines.push_back({ "Fortify:", "+" + ofToString(entry.card.fortifyAmount), ofColor::lightGray });
+							if (entry.card.holyBlockAmount > 0) lines.push_back({ "Holy Block:", "+" + ofToString(entry.card.holyBlockAmount), ofColor::yellow });
+
+							// AP gain
+							if (entry.card.type != CARD_SPRINT && entry.card.type != CARD_SHOCK && entry.card.type != CARD_CHAIN_LIGHTNING && entry.card.type != CARD_DEMOLITION && (entry.card.apGain > 0 || entry.card.apGainNextTurn > 0)) {
+								lines.push_back({ "AP Gain:", "+" + ofToString(entry.card.apGain > 0 ? entry.card.apGain : entry.card.apGainNextTurn) + " AP", ofColor::cyan });
+							}
+
+							// Destroyed cards
+							for (const auto & cName : entry.destroyedCardNames) {
+								lines.push_back({ "Destroyed:", cName, ofColor(255, 90, 90) });
 							}
 						}
 
-						if (hasDetails) {
-							// Widen panel from 220px to 280px to fit labels and values cleanly
-							float infoW = 280.0f * scale;
-							float infoX = (entry.isMovement) ? (iconRect.getCenter().x - infoW / 2.0f) : (hoverX + hoverW + 12.0f * scale);
-							float infoY = (entry.isMovement) ? (iconRect.getBottom() + 15.0f * scale) : hoverY;
-							if (infoX + infoW > ofGetWidth() - 10.0f) infoX = hoverX - infoW - 12.0f * scale;
+						// 2. Compute Layout for Card and Panel (Side-by-side)
+						float cardFullW = 310.0f * scale;
+						float cardFullH = cardFullW * 1.43f; // Full card aspect ratio (443px at 1080p)
+						float infoW = 310.0f * scale;
+						float dynamicH = std::max(cardFullH, (38.0f + (float)lines.size() * 26.0f + 16.0f) * scale);
 
-							float dynamicH = (38.0f + lineCount * 26.0f + 16.0f) * scale;
-							ofRectangle infoRect(infoX, infoY, infoW, dynamicH);
+						float totalGroupW = entry.isMovement ? infoW : (cardFullW + 16.0f * scale + infoW);
+						float groupStartX = iconRect.getCenter().x - (totalGroupW * 0.5f);
+						groupStartX = std::clamp(groupStartX, 15.0f * scale, ofGetWidth() - totalGroupW - 15.0f * scale);
 
-							ofSetColor(18, 18, 24, 245);
-							ofDrawRectRounded(infoRect, 10 * scale);
-							ofNoFill();
-							ofSetLineWidth(2 * scale);
-							ofSetColor(100, 105, 125, 220);
-							ofDrawRectRounded(infoRect, 10 * scale);
-							ofFill();
-
-							float curY = infoRect.y + 24 * scale;
-							// Dedicated columns: label at x+16, value at x+135
-							auto drawLine = [&](const std::string & label, const std::string & val, ofColor valCol) {
-								ofSetColor(180, 180, 190);
-								SafeDrawText(uiFont, label, infoRect.x + 16 * scale, curY);
-								ofSetColor(valCol);
-								SafeDrawText(uiFont, val, infoRect.x + 135 * scale, curY);
-								curY += 26 * scale;
-							};
-
-							ofSetColor(255, 215, 0);
-							SafeDrawText(uiFont, "Action Details", infoRect.x + 16 * scale, curY);
-							curY += 28 * scale;
-
-							if (entry.isMovement) {
-								int steps = std::max(0, (int)entry.movementPath.size() - 1);
-								drawLine("Action:", "Unit Movement", ofColor::cyan);
-								drawLine("Tiles Moved:", ofToString(steps), ofColor::gold);
-							} else {
-								if (entry.damageRoll > 0) {
-									std::string typeStr = (entry.card.damageType == DAMAGE_PHYSICAL) ? " Phys" : ((entry.card.damageType == DAMAGE_FIRE) ? " Fire" : ((entry.card.damageType == DAMAGE_HOLY) ? " Holy" : ((entry.card.damageType == DAMAGE_ELECTRIC) ? " Elec" : ((entry.card.damageType == DAMAGE_MAGIC) ? " Magic" : ((entry.card.damageType == DAMAGE_PIERCING) ? " Pierce" : "")))));
-									drawLine("Damage:", ofToString(entry.damageRoll) + typeStr, ofColor(240, 75, 75));
-								}
-								if (entry.rangeRoll > 0 && isRangedSpell) drawLine("Range:", ofToString(entry.rangeRoll) + " ft", ofColor::cyan);
-								if (entry.utilityRoll > 0) drawLine("Utility:", ofToString(entry.utilityRoll), ofColor::magenta);
-								if (!entry.menuChoice.empty()) drawLine("Choice:", entry.menuChoice, ofColor::gold);
-
-								// Master Fist specific stats
-								if (entry.card.type == CARD_MASTER_FIST) {
-									drawLine("Luck:", "+1", ofColor(50, 220, 90));
-									drawLine("Max HP:", "+1", ofColor(50, 220, 90));
-								} else if (entry.card.type == CARD_FOUR_LEAF_CLOVER) {
-									drawLine("Luck:", "+1", ofColor(50, 220, 90));
-								} else if (entry.card.baseHeal > 0 || entry.card.healAmount > 0) {
-									drawLine("Healed:", "+" + ofToString(entry.card.baseHeal > 0 ? entry.card.baseHeal : entry.card.healAmount) + " HP", ofColor::green);
-								}
-
-								// Defensive stats
-								if (entry.card.blockAmount > 0) drawLine("Block:", "+" + ofToString(entry.card.blockAmount), ofColor::gray);
-								if (entry.card.wardAmount > 0) drawLine("Ward:", "+" + ofToString(entry.card.wardAmount), ofColor(180, 140, 255));
-								if (entry.card.barrierAmount > 0) drawLine("Barrier:", "+" + ofToString(entry.card.barrierAmount), ofColor::hotPink);
-								if (entry.card.fortifyAmount > 0) drawLine("Fortify:", "+" + ofToString(entry.card.fortifyAmount), ofColor::lightGray);
-								if (entry.card.holyBlockAmount > 0) drawLine("Holy Block:", "+" + ofToString(entry.card.holyBlockAmount), ofColor::yellow);
-
-								// AP gains
-								if (entry.card.apGain > 0 || entry.card.apGainNextTurn > 0) {
-									drawLine("AP Gain:", "+" + ofToString(entry.card.apGain > 0 ? entry.card.apGain : entry.card.apGainNextTurn) + " AP", ofColor::cyan);
-								}
-
-								// Destroyed cards list
-								if (!entry.destroyedCardNames.empty()) {
-									curY += 4 * scale;
-									ofSetColor(240, 100, 100);
-									SafeDrawText(uiFont, "Destroyed Card:", infoRect.x + 16 * scale, curY);
-									curY += 22 * scale;
-									for (const auto & cName : entry.destroyedCardNames) {
-										ofSetColor(255, 255, 255);
-										SafeDrawText(uiFont, "- " + cName, infoRect.x + 24 * scale, curY);
-										curY += 22 * scale;
-									}
-								}
-							}
+						float groupY = iconRect.getBottom() + 12.0f * scale;
+						if (groupY + dynamicH > ofGetHeight() - 15.0f) {
+							groupY = ofGetHeight() - dynamicH - 15.0f;
 						}
+
+						float cardDrawX = groupStartX;
+						float infoDrawX = entry.isMovement ? groupStartX : (groupStartX + cardFullW + 16.0f * scale);
+
+						// Draw full-size card on the left
+						if (!entry.isMovement) {
+							ofPushStyle();
+							// Card drop shadow and backplate
+							ofSetColor(12, 14, 18, 240);
+							ofDrawRectRounded(cardDrawX - 4 * scale, groupY - 4 * scale, cardFullW + 8 * scale, cardFullH + 8 * scale, 12 * scale);
+							ofSetColor(255);
+							drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, cardDrawX, groupY, cardFullW, cardFullH, nullptr);
+							safePopStyle();
+						}
+
+						// Draw Action Details box on the right
+						ofRectangle infoRect(infoDrawX, groupY, infoW, dynamicH);
+						ofPushStyle();
+						ofSetColor(18, 18, 24, 245);
+						ofDrawRectRounded(infoRect, 10 * scale);
+						ofNoFill();
+						ofSetLineWidth(2 * scale);
+						ofSetColor(100, 105, 125, 220);
+						ofDrawRectRounded(infoRect, 10 * scale);
+						ofFill();
+
+						float curY = infoRect.y + 24 * scale;
+						ofSetColor(255, 215, 0);
+						SafeDrawText(uiFont, "Action Details", infoRect.x + 16 * scale, curY);
+						curY += 28 * scale;
+
+						for (const auto & item : lines) {
+							ofSetColor(180, 180, 190);
+							SafeDrawText(uiFont, item.label, infoRect.x + 16 * scale, curY);
+							ofSetColor(item.color);
+							SafeDrawText(uiFont, item.value, infoRect.x + 120 * scale, curY);
+							curY += 26 * scale;
+						}
+						safePopStyle();
 					}
 				}
 			}
@@ -42472,6 +42546,11 @@ void ofApp::drawDraftScreen() {
 		ofDisableDepthTest();
 		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
+		if (!s_draftCardsHidden) {
+			ofSetColor(0, 0, 0, 180);
+			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		}
+
 		float boxW = std::min(540.0f, ofGetWidth() * 0.72f);
 		float boxH = 96.0f;
 		float boxX = ofGetWidth() * 0.5f - boxW * 0.5f;
@@ -42491,11 +42570,18 @@ void ofApp::drawDraftScreen() {
 	}
 
 	ofPushStyle();
+	// Isolate UI drawing state so other render paths aren't affected.
+	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
 	ofDisableLighting();
 	ofDisableDepthTest();
 	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(255, 255, 255, 255);
-	// Darkened screen effect removed so the 3D board remains fully clear and visible!
+
+	// Darkness overlay is active while drafting, but hides when "Hide" is clicked
+	if (!s_draftCardsHidden) {
+		ofSetColor(0, 0, 0, 180);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	}
 
 	// 1. Construct Specific Instruction Text
 	string pName = "";
