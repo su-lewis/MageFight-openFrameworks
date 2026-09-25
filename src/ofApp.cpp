@@ -925,6 +925,20 @@ static void safePopStyle() {
 		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); \
 	}
 
+// Helper that skips the pixel filter pass for card backs and renders them crisp in the overlay pass
+static void drawCardBackSafe(const ofImage & cardBack, float x, float y, float w, float h) {
+	if (!cardBack.isAllocated()) return;
+	if (g_isFboPass && !g_renderText) return;
+
+	TEXT_PASS_BEGIN()
+	cardBack.draw(x, y, w, h);
+	TEXT_PASS_END()
+}
+
+static void drawCardBackSafe(const ofImage & cardBack, const ofRectangle & rect) {
+	drawCardBackSafe(cardBack, rect.x, rect.y, rect.width, rect.height);
+}
+
 static void SafeDrawText(const ofTrueTypeFont & font, const std::string & text, float x, float y) {
 	if (!g_renderText || g_suppressText || text.empty() || !font.isLoaded()) return;
 	TEXT_PASS_BEGIN()
@@ -15304,7 +15318,7 @@ void ofApp::drawGame() {
 		// P0 Deck (LOCAL player's deck)
 		if (!localPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
-			cardBackImage.draw(p0_deckRect);
+			drawCardBackSafe(cardBackImage, p0_deckRect);
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_deckRect, 10 * scale);
@@ -15359,7 +15373,6 @@ void ofApp::drawGame() {
 				int owner = opponentPlayer->isMinion ? opponentPlayer->ownerID : opponentPlayer->playerID;
 				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
 				if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
-					// Only show face if local player witnessed it!
 					if (g_seenOpponentCards[opponentPlayer->playerID].count(opponentPlayer->discardPile.back().name) == 0) {
 						showFace = false;
 					}
@@ -15369,7 +15382,7 @@ void ofApp::drawGame() {
 			if (showFace) {
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, opponentPlayer->discardPile.back(), p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, opponentPlayer);
 			} else {
-				cardBackImage.draw(p1_discardRect);
+				drawCardBackSafe(cardBackImage, p1_discardRect);
 			}
 		} else {
 			ofSetColor(0, 0, 0, 150);
@@ -15399,7 +15412,7 @@ void ofApp::drawGame() {
 		// P1 Deck (OPPONENT player's deck)
 		if (!opponentPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
-			cardBackImage.draw(p1_deckRect);
+			drawCardBackSafe(cardBackImage, p1_deckRect);
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
@@ -16967,23 +16980,23 @@ cursor_check_done:;
 		int newHoveredPileIndex = -1;
 
 		int localId = myLocalPlayerID;
-		int opponentId = (myLocalPlayerID == 0) ? 1 : 0;
+		int opponentId = g_viewedOpponentID; // Dynamically tracks the currently switched opponent!
 		if (p0_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == localId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == localId) newHoveredPileIndex = i;
 		} else if (p0_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == localId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == localId) newHoveredPileIndex = i;
 		} else if (p1_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == opponentId) newHoveredPileIndex = i;
 		} else if (p1_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == opponentId) newHoveredPileIndex = i;
 		}
 
 		if (newHoveredPileIndex == -1) {
@@ -17557,23 +17570,23 @@ cursor_check_done:;
 		int newHoveredPileIndex = -1;
 
 		int localId = myLocalPlayerID;
-		int opponentId = (myLocalPlayerID == 0) ? 1 : 0;
+		int opponentId = g_viewedOpponentID; // Dynamically tracks the currently switched opponent!
 		if (p0_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == localId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == localId) newHoveredPileIndex = i;
 		} else if (p0_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == localId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == localId) newHoveredPileIndex = i;
 		} else if (p1_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == opponentId) newHoveredPileIndex = i;
 		} else if (p1_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
+				if (!players[i].isMinion && players[i].playerID == opponentId) newHoveredPileIndex = i;
 		}
 
 		if (newHoveredPileIndex == -1) {
@@ -42377,16 +42390,10 @@ void ofApp::drawInitiativeRoll() {
 			if (screenPos.x < -200 || screenPos.x > ofGetWidth() + 200 || screenPos.y < -200 || screenPos.y > ofGetHeight() + 200) continue;
 
 			std::string pName = getPlayerNameByID(pID);
-			ofColor pColor = (pID == myLocalPlayerID) ? ofColor(70, 160, 255) : ofColor(255, 120, 120);
+			ofColor pColor = getPlayerThemeColor(pID);
 
-			// Draw player name
-			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y - 20.0f, 0.75f, pColor, 2, ofColor(0, 0, 0, 255));
-
-			// When die finishes spinning, display their roll directly beneath their name
-			if (roll.isFinishedVisual) {
-				std::string rollStr = "Rolled " + std::to_string(roll.rawResult);
-				drawPixelTextCentered(uiFont, rollStr, screenPos.x, screenPos.y + 10.0f, 0.85f, ofColor::white, 2, ofColor::black);
-			}
+			// Draw player name above their initiative die
+			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y - 12.0f, 0.75f, pColor, 2, ofColor(0, 0, 0, 255));
 		}
 
 		// Draw Result Message once all dice stop
