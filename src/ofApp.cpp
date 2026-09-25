@@ -9002,76 +9002,89 @@ void ofApp::drawSettingsMenu() {
 		drawAudioSlider(settingsAudioSfxSlider, sliderY, settingsSfxVolume, sfxLabel, 3);
 	}
 
-	// CONTROLS tab: show all current game controls (read-only) with scrolling
+	// CONTROLS tab: spacious scrollable list with clean clearance above the Back button
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-		// compact title removed; show a scrollable list and ensure Back button doesn't overlap
-		float listY = contentY + 20.0f * uiScale;
-		float itemH = 36.0f * uiScale;
+		float listY = contentY + 16.0f * uiScale;
+		float itemH = 40.0f * uiScale;
+		float itemGap = 6.0f * uiScale;
+		float rowStep = itemH + itemGap;
 		float itemW = 760.0f * uiScale;
-		float startX = centerX - itemW / 2;
+		float startX = centerX - itemW / 2.0f;
 
-		// Prepare a static list of current controls sorted by importance (most important first)
 		std::vector<std::pair<std::string, std::string>> controls = {
-			{ "Left Click", "Select" },
-			{ "Left Drag", "Drag cards (play via release)" },
-			{ "Enter", "Open Chat" },
-			{ "Esc", "Open Menu" },
+			{ "Left Click", "Select unit, tile, or card in hand" },
+			{ "Left Drag", "Drag cards to play / survey targeting" },
+			{ "Enter", "Open / Close chat window" },
+			{ "Esc", "Open / Close Pause Menu" },
 			{ "E", "End Turn" },
-			{ "F", "Draw (click your deck)" },
-			{ "Mouse Wheel", "Zoom" },
-			{ "Middle Mouse + Drag", "Pan camera" },
-			{ "Right Click", "Cancel" },
-			{ "Tab", "Switch Chat Tab" },
+			{ "F", "Quick Draw (draw cards from your deck)" },
+			{ "Mouse Wheel", "Zoom in / out on arena (or scroll menus)" },
+			{ "Middle Mouse + Drag", "Pan camera around board" },
+			{ "Right Click", "Cancel card drag / cancel targeting" },
+			{ "Tab", "Switch Chat Tab (Chat / Log / Debug)" },
 			{ "T", "Toggle Top-down View" },
-			{ "P", "Cycle Pixel / C64 / Off" },
+			{ "P", "Cycle Pixel / C64 / Off shaders" },
 			{ "C", "Open Card Spawner (Singleplayer)" }
 		};
 
-		// Calculate content bounds so Back button doesn't overlap
-		float contentBottom = ofGetHeight() * 0.8f - 20.0f; // leave margin for back button area
+		// 24px clearance above the Back button so content never touches it
+		float contentBottom = settingsBackButton.y - 24.0f * uiScale;
 		float contentHeight = std::max(0.0f, contentBottom - listY);
 
-		// Compute total content height and scrolling limits
-		float totalContentHeight = controls.size() * (itemH + 8.0f);
+		float totalContentHeight = (float)controls.size() * rowStep;
 		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 		settingsControlsScrollOffset = std::clamp(settingsControlsScrollOffset, 0, (int)maxScroll);
 
-		// Clip rendering to content area so text never appears under the Back button
+		// Scissor clipping ensures rows are never drawn outside the content area
 		ofPushStyle();
-		if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
-		int scX = (int)startX;
-		int scW = (int)itemW;
-		int scY = (int)(ofGetHeight() - (listY + contentHeight));
-		int scH = (int)contentHeight;
+		glEnable(GL_SCISSOR_TEST);
+		float sfX = (float)ofGetViewportWidth() / (float)ofGetWidth();
+		float sfY = (float)ofGetViewportHeight() / (float)ofGetHeight();
+
+		int scX = (int)((startX - 4.0f * uiScale) * sfX);
+		int scW = (int)((itemW + 20.0f * uiScale) * sfX);
+		int scY = g_isFboPass ? (int)(listY * sfY) : (int)((ofGetHeight() - contentBottom) * sfY);
+		int scH = (int)(contentHeight * sfY);
 		glScissor(scX, scY, scW, scH);
 
-		// Draw each control row with vertical offset
 		for (size_t i = 0; i < controls.size(); ++i) {
-			float drawY = listY + i * (itemH + 8.0f) - settingsControlsScrollOffset;
+			float drawY = listY + i * rowStep - settingsControlsScrollOffset;
+			if (drawY + itemH < listY || drawY > contentBottom) continue;
+
 			ofRectangle itemRect(startX, drawY, itemW, itemH);
-			ofSetColor(ofColor(40));
-			ofDrawRectangle(itemRect);
-			ofSetColor(ofColor::white);
-			std::string keyLabel = controls[i].first;
-			std::string desc = controls[i].second;
-			SafeDrawText(uiFont, keyLabel, itemRect.x + 12, itemRect.y + 24);
-			SafeDrawText(uiFont, desc, itemRect.x + itemRect.width * 0.35f, itemRect.y + 24);
+
+			// Row background & subtle outline
+			ofSetColor(28, 30, 38, 240);
+			ofDrawRectRounded(itemRect, 6.0f * uiScale);
+			ofNoFill();
+			ofSetLineWidth(1.5f * uiScale);
+			ofSetColor(55, 60, 75, 200);
+			ofDrawRectRounded(itemRect, 6.0f * uiScale);
+			ofFill();
+
+			// Key Binding Label on the left (Gold)
+			drawPixelTextBaseline(uiFont, controls[i].first, itemRect.x + 16.0f * uiScale, itemRect.getCenter().y + 7.0f * uiScale, 0.95f * uiScale, ofColor::gold, 2, ofColor::black);
+
+			// Description text on the right (Clean white)
+			drawPixelTextBaseline(uiFont, controls[i].second, itemRect.x + 230.0f * uiScale, itemRect.getCenter().y + 7.0f * uiScale, 0.90f * uiScale, ofColor(225, 230, 245));
 		}
 
-		if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+		glDisable(GL_SCISSOR_TEST);
 		safePopStyle();
 
-		// Draw scrollbar if needed (right side of list)
+		// Draw Scrollbar track and thumb on the right
 		if (maxScroll > 0.0f) {
-			float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
-			scrollBarHeight = std::max(28.0f, scrollBarHeight);
-			float scrollBarY = listY + ((float)settingsControlsScrollOffset / maxScroll) * (contentHeight - scrollBarHeight);
-			ofSetColor(80, 80, 80, 220);
-			float scrollBarX = startX + itemW + 6.0f;
-			ofDrawRectRounded(scrollBarX, scrollBarY, 8, scrollBarHeight, 4);
+			float trackX = startX + itemW + 8.0f * uiScale;
+			float trackW = 6.0f * uiScale;
+			ofSetColor(35, 38, 48, 180);
+			ofDrawRectRounded(trackX, listY, trackW, contentHeight, 3.0f * uiScale);
+
+			float thumbH = std::max(28.0f * uiScale, contentHeight * (contentHeight / totalContentHeight));
+			float thumbY = listY + ((float)settingsControlsScrollOffset / maxScroll) * (contentHeight - thumbH);
+			ofSetColor(120, 130, 155, 240);
+			ofDrawRectRounded(trackX, thumbY, trackW, thumbH, 3.0f * uiScale);
 		}
 	}
-
 	// --- Draw Back Button (common) ---
 	float menuBtnW = 420.0f * uiScale;
 	float menuBtnH = 72.0f * uiScale;
@@ -21384,25 +21397,26 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		}
 	}
 
-	// Settings -> Controls scrolling by mouse wheel when the mouse is over the controls list
+	// Settings -> Controls scrolling by mouse wheel
 	if (currentState == STATE_SETTINGS && currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-		float centerX = ofGetWidth() / 2.0f;
+		float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 		float tabsY = ofGetHeight() * 0.22f;
-		float tabH = 48;
-		float contentY = tabsY + tabH + 30;
-		float listY = contentY + 20;
-		float itemH = 36.0f;
-		float itemW = 760.0f;
-		float startX = centerX - itemW / 2.0f;
-		int controlsCount = 13;
-		float contentBottom = ofGetHeight() * 0.8f - 20.0f;
+		float tabH = 48.0f * uiScale;
+		float contentY = tabsY + tabH + 30.0f * uiScale;
+		float listY = contentY + 16.0f * uiScale;
+
+		float contentBottom = settingsBackButton.y - 24.0f * uiScale;
 		float contentHeight = std::max(0.0f, contentBottom - listY);
-		float totalContentHeight = controlsCount * (itemH + 8.0f);
+
+		float itemH = 40.0f * uiScale;
+		float itemGap = 6.0f * uiScale;
+		float rowStep = itemH + itemGap;
+		int controlsCount = 13;
+		float totalContentHeight = (float)controlsCount * rowStep;
 		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 
-		ofRectangle hitRect(startX, listY, itemW, contentHeight);
-		if (contentHeight > 0 && hitRect.inside(x, y) && maxScroll > 0.0f) {
-			settingsControlsScrollOffset -= (int)(scrollY * 40.0f);
+		if (maxScroll > 0.0f) {
+			settingsControlsScrollOffset -= (int)(scrollY * 45.0f * uiScale);
 			settingsControlsScrollOffset = std::clamp(settingsControlsScrollOffset, 0, (int)maxScroll);
 			return;
 		}
