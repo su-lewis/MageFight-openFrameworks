@@ -106,6 +106,31 @@ static bool g_isSimulatedMultiplayer = false;
 static bool s_draftCardsHidden = false;
 static ofRectangle s_draftHideButtonRect;
 
+// --- DETERMINISTIC PLAYER COLOR PALETTE ---
+static int g_playerColorIndices[4] = { 0, 1, 2, 3 };
+
+static ofColor getPaletteColor(int colorIndex) {
+	switch (colorIndex) {
+	case 0:
+		return ofColor(240, 65, 65); // Crimson Red
+	case 1:
+		return ofColor(50, 220, 90); // Emerald Green
+	case 2:
+		return ofColor(55, 160, 255); // Arcane Blue
+	case 3:
+		return ofColor(255, 215, 35); // Radiant Gold
+	default:
+		return ofColor(210, 210, 210);
+	}
+}
+
+static ofColor getPlayerThemeColor(int playerID) {
+	if (playerID >= 0 && playerID < 4) {
+		return getPaletteColor(g_playerColorIndices[playerID]);
+	}
+	return ofColor(210, 210, 210);
+}
+
 // --- SPLASH SCREEN SYSTEM ---
 static bool s_showingSplashScreen = true;
 static float s_splashStartTime = -1.0f;
@@ -6318,8 +6343,8 @@ void ofApp::update() {
 			ofLogNotice("Elo") << "Solo / Bot Match Over. No ELO change.";
 		}
 
-		// --- DISCORD GAME HISTORY WEBHOOK (HOST ONLY) ---
-		if (steamManager.isHost()) {
+		// --- DISCORD GAME HISTORY WEBHOOK (HOST ONLY - HUMAN MATCHES ONLY) ---
+		if (steamManager.isHost() && matchHadHumanOpponents && hasHumanOpponents) {
 			std::string historyWebhook = "https://discord.com/api/webhooks/1519852851357028425/8KkKbpFAtvrjvu0B5XmKArUT3bHmdz4AeyBKkL9K5VWjcMzBIZbY_spi4-5NVVQvQ3mZ";
 
 			std::string winnerName = (g_winnerID == 2) ? "Draw (Tie)" : getPlayerNameByID(g_winnerID);
@@ -7668,11 +7693,9 @@ void ofApp::draw() {
 				for (size_t i = 0; i < g_actionHistory.size(); ++i) {
 					ofRectangle iconRect(startX + i * (iconSize + spacing), startY, iconSize, iconSize);
 
-					ofColor borderColor = ofColor::white;
-					if (g_actionHistory[i].playerID == 0)
-						borderColor = ofColor(255, 120, 120);
-					else if (g_actionHistory[i].playerID == 1)
-						borderColor = ofColor(120, 255, 120);
+					ofColor borderColor = (g_actionHistory[i].playerID >= 0)
+						? getPlayerThemeColor(g_actionHistory[i].playerID)
+						: ofColor::white;
 					ofSetColor(borderColor);
 					ofDrawRectRounded(iconRect.x - 3, iconRect.y - 3, iconSize + 6, iconSize + 6, 6);
 
@@ -9837,6 +9860,16 @@ void ofApp::setupGame() {
 	opponentInteraction.targetIndex = -1;
 	opponentInteraction.hoveredChoice = -1;
 	opponentInteraction.cardIndex = -1;
+
+	// Deterministically randomize player colors using the shared match seed
+	{
+		std::vector<int> palette = { 0, 1, 2, 3 };
+		std::mt19937 colorRng(currentMapSeed ^ 0xC01075U);
+		std::shuffle(palette.begin(), palette.end(), colorRng);
+		for (int i = 0; i < 4; ++i) {
+			g_playerColorIndices[i] = palette[i];
+		}
+	}
 
 	// --- MULTIPLAYER SYNC ---
 	if (isMultiplayer) {
@@ -12879,12 +12912,8 @@ void ofApp::drawGame() {
 				}
 			}
 
-			ofColor unitTint = ofColor::white;
 			int effectiveOwner = player.isMinion ? player.ownerID : player.playerID;
-			if (effectiveOwner == 0)
-				unitTint = ofColor(255, 60, 60); // Player 1: Strong Red
-			else if (effectiveOwner == 1)
-				unitTint = ofColor(60, 255, 60); // Player 2: Strong Green
+			ofColor unitTint = getPlayerThemeColor(effectiveOwner);
 
 			// --- DRAW TEAM INDICATOR RING ---
 			// This explicitly shows which team the unit is on without ruining the model's texture.
@@ -14280,7 +14309,8 @@ void ofApp::drawGame() {
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 					arrowOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 				}
-				ofColor arrowCol = (arrowOwner == 0) ? ofColor(255, 60, 60, 230) : ofColor(60, 255, 60, 230);
+				ofColor arrowCol = getPlayerThemeColor(arrowOwner);
+				arrowCol.a = 230;
 
 				// Use Gold for placement actions
 				if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
@@ -14762,12 +14792,14 @@ void ofApp::drawGame() {
 		}
 	}
 
-	auto drawProfile = [&](float x, float y, float w, float h, bool isLocal, string name, bool isActive, int elo) {
+	auto drawProfile = [&](float x, float y, float w, float h, int playerID, string name, bool isActive, int elo) {
+		bool isLocal = (playerID == myLocalPlayerID);
+
 		ofSetColor(20, 20, 25, 210);
 		ofDrawRectangle(x, y, w, h); // Non-rounded
 
-		ofColor teamColor = isLocal ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
-		ofColor strokeColor = (isActive && currentState == STATE_GAMEPLAY) ? teamColor : ofColor(teamColor.r * 0.4f, teamColor.g * 0.4f, teamColor.b * 0.4f, 180);
+		ofColor teamColor = getPlayerThemeColor(playerID);
+		ofColor strokeColor = (isActive && currentState == STATE_GAMEPLAY) ? teamColor : ofColor(teamColor.r * 0.45f, teamColor.g * 0.45f, teamColor.b * 0.45f, 190);
 
 		ofPath p;
 		p.rectangle(x, y, w, h);
@@ -14857,8 +14889,8 @@ void ofApp::drawGame() {
 	std::string myName = getPlayerNameByID(myLocalPlayerID);
 	std::string oppName = getPlayerNameByID(g_viewedOpponentID);
 
-	drawProfile(p0_profileX, profileY, profileW, profileH, true, myName, p0Active, p0Elo);
-	drawProfile(p1_profileX, profileY, profileW, profileH, false, oppName, p1Active, p1Elo);
+	drawProfile(p0_profileX, profileY, profileW, profileH, myLocalPlayerID, myName, p0Active, p0Elo);
+	drawProfile(p1_profileX, profileY, profileW, profileH, g_viewedOpponentID, oppName, p1Active, p1Elo);
 
 	// Helper to get distinct player theme colors
 	auto getPlayerThemeColor = [](int pID) -> ofColor {
@@ -14913,14 +14945,12 @@ void ofApp::drawGame() {
 			ofColor pCol = getPlayerThemeColor(pID);
 
 			ofPushStyle();
-			// Dark background tinted with their actual player color
 			ofColor bgCol = isActive
 				? ofColor(pCol.r * 0.35f, pCol.g * 0.35f, pCol.b * 0.35f, 240)
 				: (isHovered ? ofColor(pCol.r * 0.20f, pCol.g * 0.20f, pCol.b * 0.20f, 220) : ofColor(25, 27, 35, 200));
 			ofSetColor(bgCol);
 			ofDrawRectRounded(tRect, 6.0f * scale);
 
-			// Border matching their theme color
 			ofNoFill();
 			ofSetLineWidth(isActive ? 3.0f * scale : 1.5f * scale);
 			ofColor borderCol = isActive ? pCol : (isHovered ? pCol.getLerped(ofColor::white, 0.35f) : ofColor(pCol.r * 0.55f, pCol.g * 0.55f, pCol.b * 0.55f, 180));
@@ -14928,7 +14958,6 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(tRect, 6.0f * scale);
 			ofFill();
 
-			// Text labeled and color-coded
 			std::string tabName = "P" + std::to_string(pID + 1);
 			ofColor textCol = isActive ? ofColor::white : pCol;
 			drawPixelTextCentered(uiFont, tabName, tRect.getCenter().x, tRect.getCenter().y, 0.9f * scale, textCol, 2, ofColor::black);
@@ -43758,7 +43787,7 @@ void ofApp::processNetworkPackets() {
 
 			static float lastDesyncReportTime = 0.0f;
 			float nowTime = ofGetElapsedTimef();
-			if (steamManager.isHost() && (nowTime - lastDesyncReportTime > 10.0f)) {
+			if (steamManager.isHost() && matchHadHumanOpponents && (nowTime - lastDesyncReportTime > 10.0f)) {
 				lastDesyncReportTime = nowTime;
 
 				std::string matchLog = "=== MATCH SUMMARY ===\n";
