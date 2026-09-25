@@ -2757,61 +2757,88 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofFbo fboText; // <-- NEW
 	ofFboSettings fboSettings;
 
-	// Check if cached atlas exists and whether it is up to date
-	std::string spritePath = "UI/card_sprite_generated.png";
-	std::string textPath = "UI/card_text_generated.png";
-	std::string tagPath = "UI/atlas_v2.tag";
-	if (!ofFile(spritePath).exists()) spritePath = "bin/data/" + spritePath;
-	if (!ofFile(textPath).exists()) textPath = "bin/data/" + textPath;
-	if (!ofFile(tagPath).exists()) tagPath = "bin/data/" + tagPath;
+	// Check if cached atlas exists and verify content hash of all card text and assets
+	std::string spritePath = ofToDataPath("UI/card_sprite_generated.png", true);
+	std::string textPath = ofToDataPath("UI/card_text_generated.png", true);
+	std::string hashFilePath = ofToDataPath("UI/card_atlas.hash", true);
 
-	auto isCacheOutOfDate = [&](const std::string & sPath, const std::string & tPath) -> bool {
-		try {
-			namespace fs = std::filesystem;
-			if (!fs::exists(sPath) || !fs::exists(tPath) || !fs::exists(tagPath)) return true;
-			auto sTime = fs::last_write_time(sPath);
-			auto tTime = fs::last_write_time(tPath);
-			auto cacheTime = std::min(sTime, tTime);
+	// Compute a fast 64-bit content hash of cards.md, cards.json, language files, and art directory
+	auto computeCardSourceHash = [&]() -> uint64_t {
+		const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+		const uint64_t FNV_PRIME = 1099511628211ULL;
+		uint64_t h = FNV_OFFSET;
 
-			// Check config, template markdown, and template frame files
-			std::vector<std::string> deps = {
-				"Config/cards.json", "bin/data/Config/cards.json", "data/Config/cards.json",
-				"UI/cards.md", "bin/data/UI/cards.md", "data/UI/cards.md",
-				"UI/CardTemplateBronze.PNG", "UI/CardTemplateSilver.PNG", "UI/CardTemplateGold.PNG",
-				"UI/DamageTypeBanner.PNG", "UI/TargetingTypeArea.PNG", "UI/APHP.PNG",
-				actualTemplatePath
-			};
-			for (const auto & dep : deps) {
-				if (fs::exists(dep) && fs::last_write_time(dep) > cacheTime) return true;
-			}
-
-			// Check all card art folders for new/modified PNGs
-			std::vector<std::string> artDirs = {
-				"UI/Cards/Art", "bin/data/UI/Cards/Art", "data/UI/Cards/Art", "Cards/Art"
-			};
-			for (const auto & ad : artDirs) {
-				if (fs::exists(ad) && fs::is_directory(ad)) {
-					for (const auto & entry : fs::directory_iterator(ad)) {
-						if (entry.is_regular_file() && entry.last_write_time() > cacheTime) {
-							ofLogNotice("Cards") << "Atlas cache out of date: modified art file " << entry.path().filename().string();
-							return true;
-						}
-					}
+		auto hashFile = [&](const std::string & relPath) {
+			std::string fullPath = ofToDataPath(relPath, true);
+			if (ofFile(fullPath).exists()) {
+				ofBuffer buf = ofBufferFromFile(fullPath);
+				for (char c : buf) {
+					h ^= (unsigned char)c;
+					h *= FNV_PRIME;
 				}
 			}
-			return false;
-		} catch (...) {
-			return true;
+		};
+
+		// 1. Hash text definitions & card stats
+		hashFile(markdownPath);
+		hashFile("UI/cards.md");
+		hashFile("Config/cards.json");
+		hashFile("Config/lang_en.json");
+		hashFile("Config/lang_es.json");
+		hashFile("Config/lang_zh.json");
+		hashFile("Config/lang_fr.json");
+		hashFile("Config/lang_de.json");
+
+		// 2. Hash template frame paths
+		hashFile("UI/CardTemplateBronze.PNG");
+		hashFile("UI/CardTemplateSilver.PNG");
+		hashFile("UI/CardTemplateGold.PNG");
+		hashFile(actualTemplatePath);
+
+		// 3. Hash art directory contents and timestamps
+		std::string artDir = ofToDataPath("UI/Cards/Art", true);
+		if (ofFile(artDir).exists()) {
+			try {
+				for (const auto & entry : std::filesystem::directory_iterator(artDir)) {
+					if (entry.is_regular_file()) {
+						for (char c : entry.path().filename().string()) {
+							h ^= (unsigned char)c;
+							h *= FNV_PRIME;
+						}
+						auto ftime = entry.last_write_time().time_since_epoch().count();
+						h ^= (uint64_t)ftime;
+						h *= FNV_PRIME;
+					}
+				}
+			} catch (...) { }
 		}
+
+		return h;
 	};
 
-	if (ofFile(spritePath).exists() && ofFile(textPath).exists() && !isCacheOutOfDate(spritePath, textPath)) {
+	uint64_t currentSourceHash = computeCardSourceHash();
+	uint64_t savedSourceHash = 0;
+	if (ofFile(hashFilePath).exists()) {
+		ofBuffer hashBuf = ofBufferFromFile(hashFilePath);
+		std::string hashStr = hashBuf.getText();
+		if (!hashStr.empty()) {
+			try {
+				savedSourceHash = std::stoull(hashStr);
+			} catch (...) {
+				savedSourceHash = 0;
+			}
+		}
+	}
+
+	bool cacheUpToDate = ofFile(spritePath).exists() && ofFile(textPath).exists() && (savedSourceHash == currentSourceHash) && (savedSourceHash != 0);
+
+	if (cacheUpToDate) {
 		if (outSpriteSheet.load(spritePath) && outTextSheet.load(textPath)) {
-			ofLogNotice("Cards") << "Loaded pre-baked atlases inside generator. Skipping FBO rendering!";
+			ofLogNotice("Cards") << "Loaded pre-baked atlases (Content hash matched: " << currentSourceHash << "). Skipping FBO rendering!";
 			return true;
 		}
 	} else {
-		ofLogNotice("Cards") << "Atlas cache missing or out of date. Regenerating card sprite sheet from art files...";
+		ofLogNotice("Cards") << "Card text, art, or configuration modified! Regenerating card sprite sheets...";
 	}
 
 	fboSettings.width = sheetW;
@@ -3087,21 +3114,23 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	fboText.readToPixels(textPixels);
 	outTextSheet.setFromPixels(textPixels);
 
-	// Save generated sprite sheets and version tag
+	// Save generated sprite sheets and update content hash
 	try {
-		std::string outPath = "UI/card_sprite_generated.png";
+		std::string outPath = ofToDataPath("UI/card_sprite_generated.png", true);
 		if (outSpriteSheet.isAllocated()) {
 			outSpriteSheet.save(outPath);
 			ofLogNotice("Cards") << "Saved generated card art sheet to " << outPath;
 		}
-		std::string outTextPath = "UI/card_text_generated.png";
+		std::string outTextPath = ofToDataPath("UI/card_text_generated.png", true);
 		if (outTextSheet.isAllocated()) {
 			outTextSheet.save(outTextPath);
 			ofLogNotice("Cards") << "Saved generated frame & text sheet to " << outTextPath;
 		}
-		ofFile tagF("UI/atlas_v2.tag", ofFile::WriteOnly);
-		tagF << "v2";
-		tagF.close();
+
+		// Store current hash so future runs load instantly until another change is made
+		ofFile hashF(hashFilePath, ofFile::WriteOnly);
+		hashF << std::to_string(currentSourceHash);
+		hashF.close();
 	} catch (...) {
 		ofLogWarning("Cards") << "Failed to save generated sprite sheet (ignored).";
 	}
