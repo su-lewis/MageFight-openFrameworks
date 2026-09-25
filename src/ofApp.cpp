@@ -1117,7 +1117,14 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 			flushWord();
 			tokens.push_back({ "\n", currentBold, 0.0f });
 		} else {
-			currentWord += text[i];
+			// If trailing punctuation (e.g. , . ; : ! ? ) directly follows bold closing **, attach it to the preceding token
+			if (currentWord.empty() && !tokens.empty() && (text[i] == ',' || text[i] == '.' || text[i] == ';' || text[i] == ':' || text[i] == '!' || text[i] == '?' || text[i] == ')')) {
+				tokens.back().text += text[i];
+				tokens.back().w = font.getStringBoundingBox(tokens.back().text, 0, 0).width * drawScale;
+				if (tokens.back().bold) tokens.back().w += 1.0f * drawScale;
+			} else {
+				currentWord += text[i];
+			}
 		}
 	}
 	flushWord();
@@ -1130,7 +1137,9 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 			currentLine = Line();
 			continue;
 		}
-		if (currentLine.width + t.w > fitW && !currentLine.toks.empty()) {
+		// Pure punctuation tokens must never wrap onto a line by themselves
+		bool isPunct = (t.text.size() == 1 && (t.text[0] == ',' || t.text[0] == '.' || t.text[0] == ';' || t.text[0] == ':' || t.text[0] == '!' || t.text[0] == '?' || t.text[0] == ')'));
+		if (!isPunct && currentLine.width + t.w > fitW && !currentLine.toks.empty()) {
 			if (t.text == " ") continue;
 			lines.push_back(currentLine);
 			currentLine = Line();
@@ -1854,26 +1863,9 @@ static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, cons
 		std::string word;
 		std::string current;
 		while (wordStream >> word) {
-			// If a single token is wider than the allowed width, split it into
-			// the largest character chunks that fit to guarantee in-rect rendering.
-			if (font.getStringBoundingBox(word, 0, 0).getWidth() > maxWidthUnscaled) {
-				if (!current.empty()) {
-					out.push_back(current);
-					current.clear();
-				}
-				std::string chunk;
-				for (char ch : word) {
-					std::string candidate = chunk + ch;
-					if (!chunk.empty() && font.getStringBoundingBox(candidate, 0, 0).getWidth() > maxWidthUnscaled) {
-						out.push_back(chunk);
-						chunk = std::string(1, ch);
-					} else {
-						chunk = candidate;
-					}
-				}
-				if (!chunk.empty()) {
-					current = chunk;
-				}
+			bool isPurePunct = (word.size() == 1 && (word[0] == ',' || word[0] == '.' || word[0] == ';' || word[0] == ':' || word[0] == '!' || word[0] == '?'));
+			if (isPurePunct && !current.empty()) {
+				current += word;
 				continue;
 			}
 
@@ -7135,6 +7127,13 @@ void ofApp::draw() {
 						std::string currentLine;
 
 						while (wordStream >> word) {
+							// If word is pure punctuation, keep it glued to the current line
+							bool isPurePunct = (word.size() == 1 && (word[0] == ',' || word[0] == '.' || word[0] == ';' || word[0] == ':' || word[0] == '!' || word[0] == '?'));
+							if (isPurePunct && !currentLine.empty()) {
+								currentLine += word;
+								continue;
+							}
+
 							std::string testLine = currentLine.empty() ? word : (currentLine + " " + word);
 							if (uiFont.stringWidth(testLine) <= maxWidth) {
 								currentLine = testLine;
@@ -7142,21 +7141,8 @@ void ofApp::draw() {
 								if (!currentLine.empty()) {
 									lines.push_back(currentLine);
 								}
-								if (uiFont.stringWidth(word) > maxWidth) {
-									std::string subWord;
-									for (char c : word) {
-										std::string testChar = subWord + c;
-										if (uiFont.stringWidth(testChar) <= maxWidth) {
-											subWord = testChar;
-										} else {
-											lines.push_back(subWord);
-											subWord = std::string(1, c);
-										}
-									}
-									currentLine = subWord;
-								} else {
-									currentLine = word;
-								}
+								// Wrap whole word to the new line without splitting letters
+								currentLine = word;
 							}
 						}
 						if (!currentLine.empty() || lines.empty()) {
