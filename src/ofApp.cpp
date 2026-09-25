@@ -106,6 +106,9 @@ static bool g_isSimulatedMultiplayer = false;
 static bool s_draftCardsHidden = false;
 static ofRectangle s_draftHideButtonRect;
 
+// --- AI ACTION BLACKLIST ---
+static std::set<int> s_aiFailedCards;
+
 // --- DETERMINISTIC PLAYER COLOR PALETTE ---
 static int g_playerColorIndices[4] = { 0, 1, 2, 3 };
 
@@ -5738,9 +5741,13 @@ void ofApp::updateStateMachine() {
 			draftEndScheduled = false;
 			initialDraftComplete = true;
 
+			// Clear all draft options so no ghost buttons or text linger on screen
+			draftOptions.clear();
+			draftOptionUI.clear();
+			selectedDraftIndices.clear();
+
 			ofLogNotice("Draft") << "Draft end timer hit! Starting match. nextPlayer=" << draftEndNextPlayerIndex;
 			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
-				// Pre-set currentPlayerIndex so startNewTurn() advances TO the winner.
 				currentPlayerIndex = (draftEndNextPlayerIndex - 1 + players.size()) % players.size();
 			}
 
@@ -7019,8 +7026,8 @@ void ofApp::draw() {
 		case STATE_PAUSED:
 		case STATE_SAVE_BROWSER:
 			drawGame();
-			if (currentState == STATE_INITIATIVE_ROLL || pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
-			if (currentState == STATE_DRAFTING || pausedFromState == STATE_DRAFTING) drawDraftScreen();
+			if (currentState == STATE_INITIATIVE_ROLL || (currentState == STATE_PAUSED && pausedFromState == STATE_INITIATIVE_ROLL)) drawInitiativeRoll();
+			if ((currentState == STATE_DRAFTING || (currentState == STATE_PAUSED && pausedFromState == STATE_DRAFTING)) && !draftOptions.empty()) drawDraftScreen();
 			if (currentState == STATE_PAUSED) drawPause = true;
 			if (currentState == STATE_SAVE_BROWSER) drawSaveBrowser();
 			break;
@@ -7897,7 +7904,9 @@ void ofApp::draw() {
 						float cardFullW = 310.0f * scale;
 						float cardFullH = cardFullW * 1.43f; // Full card aspect ratio (443px at 1080p)
 						float infoW = 310.0f * scale;
-						float dynamicH = std::max(cardFullH, (38.0f + (float)lines.size() * 26.0f + 16.0f) * scale);
+
+						// Box height tightly hugs only the lines of text present
+						float dynamicH = (38.0f + (float)lines.size() * 26.0f + 14.0f) * scale;
 
 						float totalGroupW = entry.isMovement ? infoW : (cardFullW + 16.0f * scale + infoW);
 						float groupStartX = iconRect.getCenter().x - (totalGroupW * 0.5f);
@@ -7913,16 +7922,21 @@ void ofApp::draw() {
 
 						// Draw full-size card on the left
 						if (!entry.isMovement) {
+							float cardY = groupY;
+							if (cardY + cardFullH > ofGetHeight() - 15.0f) {
+								cardY = ofGetHeight() - cardFullH - 15.0f;
+							}
+
 							ofPushStyle();
 							// Card drop shadow and backplate
 							ofSetColor(12, 14, 18, 240);
-							ofDrawRectRounded(cardDrawX - 4 * scale, groupY - 4 * scale, cardFullW + 8 * scale, cardFullH + 8 * scale, 12 * scale);
+							ofDrawRectRounded(cardDrawX - 4 * scale, cardY - 4 * scale, cardFullW + 8 * scale, cardFullH + 8 * scale, 12 * scale);
 							ofSetColor(255);
-							drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, cardDrawX, groupY, cardFullW, cardFullH, nullptr);
+							drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, entry.card, cardDrawX, cardY, cardFullW, cardFullH, nullptr);
 							safePopStyle();
 						}
 
-						// Draw Action Details box on the right
+						// Draw Action Details box on the right (hugs only the content height)
 						ofRectangle infoRect(infoDrawX, groupY, infoW, dynamicH);
 						ofPushStyle();
 						ofSetColor(18, 18, 24, 245);
@@ -10611,14 +10625,16 @@ void ofApp::prepareGameVisualState() {
 				}
 
 				if (!resultText.empty()) {
-					// FOG OF WAR: Suppress result text if the rolling unit is out of Line of Sight
+					// FOG OF WAR: Suppress result text if rolling unit is out of Line of Sight, except during Initiative
 					bool showResultText = true;
 					if (g_modifierFogOfWar && it->associatedUnit >= 0 && it->associatedUnit < (int)players.size()) {
-						int owner = players[it->associatedUnit].isMinion ? players[it->associatedUnit].ownerID : players[it->associatedUnit].playerID;
-						int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
-						if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
-							if (!g_visibleTiles[players[it->associatedUnit].x][players[it->associatedUnit].y]) {
-								showResultText = false;
+						if (currentState != STATE_INITIATIVE_ROLL && !isInitiativeRolling) {
+							int owner = players[it->associatedUnit].isMinion ? players[it->associatedUnit].ownerID : players[it->associatedUnit].playerID;
+							int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+							if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+								if (!g_visibleTiles[players[it->associatedUnit].x][players[it->associatedUnit].y]) {
+									showResultText = false;
+								}
 							}
 						}
 					}
@@ -11979,7 +11995,12 @@ void ofApp::updateGameLogic() {
 			draftPicksRemaining = 1;
 			selectedDraftIndices.clear();
 			draftStage = 0;
-			currentState = STATE_DRAFTING;
+
+			if (currentState == STATE_PAUSED) {
+				pausedFromState = STATE_DRAFTING;
+			} else {
+				currentState = STATE_DRAFTING;
+			}
 			resetDraftPhaseTimerWindow();
 
 			// Only activate opponent decision timer if the drafting unit is an opponent acting off-turn
@@ -13318,6 +13339,8 @@ void ofApp::drawGame() {
 		diceMaterial.begin();
 
 		auto isDiceVisible = [&](int associatedUnit) {
+			// In Fog of War, all players must always see all initiative dice rolls
+			if (currentState == STATE_INITIATIVE_ROLL || isInitiativeRolling) return true;
 			if (!g_modifierFogOfWar) return true;
 			if (associatedUnit < 0 || associatedUnit >= (int)players.size()) return true;
 			int owner = players[associatedUnit].isMinion ? players[associatedUnit].ownerID : players[associatedUnit].playerID;
@@ -15023,22 +15046,6 @@ void ofApp::drawGame() {
 
 	drawProfile(p0_profileX, profileY, profileW, profileH, myLocalPlayerID, myName, p0Active, p0Elo);
 	drawProfile(p1_profileX, profileY, profileW, profileH, g_viewedOpponentID, oppName, p1Active, p1Elo);
-
-	// Helper to get distinct player theme colors
-	auto getPlayerThemeColor = [](int pID) -> ofColor {
-		switch (pID) {
-		case 0:
-			return ofColor(255, 80, 80); // P1: Red
-		case 1:
-			return ofColor(80, 220, 80); // P2: Green
-		case 2:
-			return ofColor(70, 170, 255); // P3: Blue
-		case 3:
-			return ofColor(255, 215, 0); // P4: Gold/Yellow
-		default:
-			return ofColor(200, 200, 200);
-		}
-	};
 
 	// --- DRAW OPPONENT SELECTOR TABS (VERTICAL STACK TO THE LEFT OF ENEMY DECK/DISCARD) ---
 	opponentViewTabs.clear();
@@ -17953,6 +17960,95 @@ void ofApp::mousePressed(int x, int y, int button) {
 			handDragInValidPlayZone = false;
 			handDragVelocity.set(0.0f, 0.0f);
 		}
+	}
+
+	// 1. HIGHEST PRIORITY: When paused, the Pause Menu strictly consumes all clicks
+	if (currentState == STATE_PAUSED) {
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			if (pauseMenuResumeButton.inside(x, y)) {
+				currentState = pausedFromState;
+				return;
+			}
+			if (isMultiplayer) {
+				auto sendDrawAction = [&](const std::string & actionStr) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = 0;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					strncpy(cmd.stringData, actionStr.c_str(), sizeof(cmd.stringData) - 1);
+					sendInputCommand(cmd, true);
+				};
+
+				if (g_drawOfferPlayerID == -1 && g_pauseMenuDrawButton.inside(x, y) && !g_isGameOver) {
+					sendDrawAction("OfferDraw");
+					return;
+				} else if (g_drawOfferPlayerID == myLocalPlayerID && g_pauseMenuDrawButton.inside(x, y) && !g_isGameOver) {
+					sendDrawAction("CancelDraw");
+					return;
+				} else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID && !g_isGameOver) {
+					if (g_pauseMenuDrawYesButton.inside(x, y)) {
+						sendDrawAction("AcceptDraw");
+						return;
+					} else if (g_pauseMenuDrawNoButton.inside(x, y)) {
+						sendDrawAction("DeclineDraw");
+						return;
+					}
+				}
+			}
+
+			if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
+				bool ok = saveGameStateToFile("manual_save.json");
+				if (ok) {
+					std::string stamped = "manual_save_turn_" + std::to_string(globalTurnCounter) + ".json";
+					saveGameStateToFile(stamped);
+					pruneOldSaves(10);
+					addGameLog("Game saved to manual_save.json");
+					g_gameSavedNotificationTimer = ofGetElapsedTimef();
+				}
+				return;
+			}
+			if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
+				saveBrowserReturnState = STATE_PAUSED;
+				currentState = STATE_SAVE_BROWSER;
+				return;
+			}
+			if (pauseMenuSettingsButton.inside(x, y)) {
+				stateBeforeSettings = STATE_PAUSED;
+				currentState = STATE_SETTINGS;
+				return;
+			}
+			if (pauseMenuQuitButton.inside(x, y)) {
+				bool hasHumanOpponents = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+						hasHumanOpponents = true;
+						break;
+					}
+				}
+				if (isMultiplayer && hasHumanOpponents && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = 0;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+					sendInputCommand(cmd, true);
+					currentState = STATE_GAMEPLAY;
+				} else {
+					steamManager.leaveLobby();
+					isMultiplayer = false;
+					cleanupGame();
+					currentState = STATE_MAIN_MENU;
+				}
+				return;
+			}
+		}
+		// While paused, swallow all clicks so card menus, drafts, and board tiles never interfere
+		return;
 	}
 
 	// If a card modal/menu/status is open, process menu clicks and consume the press
@@ -25096,9 +25192,9 @@ void ofApp::processCommandQueue() {
 
 		int cmdType = cmd.commandType;
 
-		// If a gameplay command arrives but we are still stuck on the initial draft screen,
-		// the draft is already over on the network. Fast-forward immediately to gameplay!
-		if (currentState == STATE_DRAFTING && !isInGameDraft && (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_END_TURN)) {
+		// If a gameplay command arrives while drafting, fast-forward to gameplay without closing the pause menu if open
+		bool isDraftScreenActive = (currentState == STATE_DRAFTING || (currentState == STATE_PAUSED && pausedFromState == STATE_DRAFTING));
+		if (isDraftScreenActive && !isInGameDraft && (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS || cmdType == CMD_END_TURN)) {
 			draftEndScheduled = false;
 			draftNextScheduled = false;
 			initialDraftComplete = true;
@@ -37304,6 +37400,16 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 		ofLogNotice("Snapshot") << "Restored Map Seed: " << currentMapSeed;
 	}
 
+	// Synchronize player colors from the restored match seed
+	{
+		std::vector<int> palette = { 0, 1, 2, 3 };
+		std::mt19937 colorRng(currentMapSeed ^ 0xC01075U);
+		std::shuffle(palette.begin(), palette.end(), colorRng);
+		for (int i = 0; i < 4; ++i) {
+			g_playerColorIndices[i] = palette[i];
+		}
+	}
+
 	// Reset transient visuals and interaction state
 	// CRITICAL FIX: Clear lockstep queues so rewinds/reconnects don't process stale future commands!
 	commandQueue.clear();
@@ -42844,8 +42950,23 @@ void ofApp::drawDraftScreen() {
 			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) pPtr = &players[draftPlayerIndex];
 
 			bool isOpponentDraft = !isLocalDraftingPlayer(draftPlayerIndex);
-			if (g_modifierFogOfWar && isOpponentDraft) {
-				cardBackImage.draw(drawX, drawY, w, h);
+			bool drafterInLineOfSight = false;
+			if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+				int dx = players[draftPlayerIndex].x;
+				int dy = players[draftPlayerIndex].y;
+				if (dx >= 0 && dx < BOARD_WIDTH && dy >= 0 && dy < BOARD_HEIGHT) {
+					drafterInLineOfSight = g_visibleTiles[dx][dy];
+				}
+			}
+			int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+			if (g_isSpectator || localTeam == 255 || !g_modifierFogOfWar) {
+				drafterInLineOfSight = true;
+			}
+
+			// In Fog of War, only hide the options if the drafting unit is out of your Line of Sight
+			bool hideOptions = (g_modifierFogOfWar && isOpponentDraft && !drafterInLineOfSight);
+			if (hideOptions) {
+				drawCardBackSafe(cardBackImage, drawX, drawY, w, h);
 			} else {
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, draftOptions[i], drawX, drawY, w, h, pPtr);
 			}
@@ -42968,6 +43089,26 @@ void ofApp::drawActiveDraftPickedMoves() {
 			if (owner == localTeam) isMyMove = true;
 		}
 
+		bool drafterInLineOfSight = false;
+		if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) {
+			int px = players[mv.ownerIndex].x;
+			int py = players[mv.ownerIndex].y;
+			if (px >= 0 && px < BOARD_WIDTH && py >= 0 && py < BOARD_HEIGHT) {
+				drafterInLineOfSight = g_visibleTiles[px][py];
+			}
+		}
+		int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+		if (g_isSpectator || localTeam == 255 || !g_modifierFogOfWar) {
+			drafterInLineOfSight = true;
+		}
+
+		bool hideChosenCard = (g_modifierFogOfWar && !isMyMove && !drafterInLineOfSight);
+
+		// If witnessed in line of sight, remember this card in opponent's deck memory
+		if (!hideChosenCard && !isMyMove && mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) {
+			g_seenOpponentCards[players[mv.ownerIndex].playerID].insert(mv.card.name);
+		}
+
 		if (elapsedFrames < mv.delayFrames) {
 			float drawW = cardW;
 			float drawH = cardH;
@@ -42978,9 +43119,8 @@ void ofApp::drawActiveDraftPickedMoves() {
 			Player * pPtr = nullptr;
 			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) pPtr = &players[mv.ownerIndex];
 
-			// FOG OF WAR: If an opponent picked this card, keep it face-down during the stationary hover
-			if (g_modifierFogOfWar && !isMyMove) {
-				cardBackImage.draw(dx, dy, drawW, drawH);
+			if (hideChosenCard) {
+				drawCardBackSafe(cardBackImage, dx, dy, drawW, drawH);
 			} else {
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
 			}
@@ -43000,16 +43140,8 @@ void ofApp::drawActiveDraftPickedMoves() {
 			Player * pPtr = nullptr;
 			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) pPtr = &players[mv.ownerIndex];
 
-			// FOG OF WAR: Check ownership directly to guarantee opponent cards fly face-down
-			bool isMyMove = false;
-			if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size()) {
-				int owner = players[mv.ownerIndex].isMinion ? players[mv.ownerIndex].ownerID : players[mv.ownerIndex].playerID;
-				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
-				if (owner == localTeam) isMyMove = true;
-			}
-
-			if (g_modifierFogOfWar && !isMyMove) {
-				cardBackImage.draw(dx, dy, drawW, drawH);
+			if (hideChosenCard) {
+				drawCardBackSafe(cardBackImage, dx, dy, drawW, drawH);
 			} else {
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, mv.card, dx, dy, drawW, drawH, pPtr);
 			}
@@ -45530,9 +45662,10 @@ void ofApp::thinkRuleBasedAI() {
 		}
 
 		aiStuckCounter++;
-		if (aiStuckCounter > 60) {
-			ofLogWarning("AI") << "AI GOT STUCK! Failsafe Triggered. Forcing End Turn.";
+		if (aiStuckCounter > 15) {
+			ofLogWarning("AI") << "AI action failed or stalled. Resetting state and passing turn.";
 			cancelAllTargeting();
+			s_aiFailedCards.clear();
 
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
@@ -46111,13 +46244,20 @@ void ofApp::thinkRuleBasedAI() {
 		}
 
 		if (drawScore > 0.0f) {
+			// Calculate draw count including Hasten / Study extra draw buffs
+			int baseDraw = me.isDemon ? 3 : 2;
+			int cycle = me.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+			int count = (me.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+			int extra = (me.nextTurnExtraDraw && globalTurnCounter > cycle) ? (count > 0 ? count : 1) : 0;
+			int cardsToDraw = baseDraw + extra;
+
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = activeID;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_DRAW_CARDS;
 			cmd.params[0] = currentPlayerIndex;
-			cmd.params[1] = me.isDemon ? 3 : 2;
+			cmd.params[1] = cardsToDraw;
 			sendInputCommand(cmd, true);
 			return;
 		}
@@ -46150,7 +46290,6 @@ void ofApp::thinkRuleBasedAI() {
 
 	// --- FIX: Bulletproof Anti-Freeze Memory ---
 	// If the AI's AP hasn't changed since the last frame, it remembers what failed.
-	static std::set<int> s_aiFailedCards;
 	if (currentAP != aiLastAP) {
 		s_aiFailedCards.clear();
 		aiLastAP = currentAP;
@@ -46667,7 +46806,7 @@ void ofApp::thinkRuleBasedAI() {
 	interactingCardIndex = savedIdx;
 	calculateTargetHighlights(interactingCardIndex);
 
-	// EXECUTE HIGHEST-SCORING PLAYABLE CARD IMMEDIATELY
+	// EXECUTE HIGHEST-SCORING ACTION (MOVE OR PLAY)
 	if (!candidates.empty()) {
 		std::sort(candidates.begin(), candidates.end(), [](const ScoredAction & a, const ScoredAction & b) {
 			return a.score > b.score;
@@ -46675,20 +46814,40 @@ void ofApp::thinkRuleBasedAI() {
 
 		const auto & best = candidates.front();
 
-		// Add to blacklist. If the card succeeds, AP will drop and the list will wipe next frame.
-		// If it gets rejected by the game rules, AP stays the same, and the AI skips it next frame!
-		s_aiFailedCards.insert(best.cardIdx);
+		// Handle strategic movement action (step into sightline / cardinal alignment)
+		if (best.type == ScoredAction::MOVE) {
+			aiLastAttemptedCardIdx = -1;
+			aiLastMovedFromTile = { me.x, me.y };
 
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = activeID;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_PLAY_CARD;
-		cmd.params[0] = best.cardIdx;
-		cmd.params[1] = best.tx;
-		cmd.params[2] = best.ty;
-		sendInputCommand(cmd, true);
-		return;
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = activeID;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_MOVE_UNIT;
+			cmd.params[0] = me.x;
+			cmd.params[1] = me.y;
+			cmd.params[2] = best.tx;
+			cmd.params[3] = best.ty;
+			sendInputCommand(cmd, true);
+			return;
+		}
+		// Handle card play action
+		else if (best.type == ScoredAction::PLAY) {
+			if (best.cardIdx >= 0 && best.cardIdx < (int)me.hand.size()) {
+				s_aiFailedCards.insert(best.cardIdx);
+
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = activeID;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_PLAY_CARD;
+				cmd.params[0] = best.cardIdx;
+				cmd.params[1] = best.tx;
+				cmd.params[2] = best.ty;
+				sendInputCommand(cmd, true);
+				return;
+			}
+		}
 	}
 
 	// =========================================================================
@@ -47868,9 +48027,16 @@ void ofApp::executeAIAction(int actionIndex) {
 		endTurnLocked = true;
 		sendInputCommand(cmd, true);
 	} else if (actionIndex == 1) {
+		const Player & p = players[currentPlayerIndex];
+		int baseDraw = p.isDemon ? 3 : 2;
+		int cycle = p.nextTurnExtraDrawSetOnCycle & 0xFFFF;
+		int count = (p.nextTurnExtraDrawSetOnCycle >> 16) & 0xFFFF;
+		int extra = (p.nextTurnExtraDraw && globalTurnCounter > cycle) ? (count > 0 ? count : 1) : 0;
+		int cardsToDraw = baseDraw + extra;
+
 		cmd.commandType = CMD_DRAW_CARDS;
 		cmd.params[0] = currentPlayerIndex;
-		cmd.params[1] = players[currentPlayerIndex].isDemon ? 3 : 2;
+		cmd.params[1] = cardsToDraw;
 		sendInputCommand(cmd, true);
 	} else if (actionIndex == 2) {
 		int assistantIndex = -1;
