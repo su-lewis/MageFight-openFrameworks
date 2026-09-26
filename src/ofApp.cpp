@@ -9808,7 +9808,7 @@ void ofApp::applySettings() {
 
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
-		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
+		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_FALSE); // <--- FIX: Prevents Proton/Wine from hanging on Alt+Tab!
 		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
 	}
 
