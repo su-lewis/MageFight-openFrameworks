@@ -398,7 +398,18 @@ static void SendLocalAuthSessionTicket(SteamManager & steamMgr, int localPlayerI
 	uint32_t ticketSize = 0;
 
 	// CRITICAL FIX: This is the exact function that crashed the game on the Start Button click!
+#ifdef _WIN32
+	__try {
+		g_localAuthTicket = SteamAPI_ISteamUser_GetAuthSessionTicket((intptr_t)SteamUser(), ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		g_localAuthTicket = k_HAuthTicketInvalid;
+		ticketSize = 0;
+		ofLogError("SteamAuth") << "Structured exception thrown while calling SteamAPI_ISteamUser_GetAuthSessionTicket";
+		persistCrashReason("SteamAuth", "SEH exception in SteamAPI_ISteamUser_GetAuthSessionTicket");
+	}
+#else
 	g_localAuthTicket = SteamAPI_ISteamUser_GetAuthSessionTicket((intptr_t)SteamUser(), ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
+#endif
 
 	if (g_localAuthTicket != k_HAuthTicketInvalid && ticketSize > 0) {
 		AuthTicketPacket pkt = {};
@@ -509,6 +520,23 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 	ofFile file(filename, ofFile::Append);
 	file << logLine;
 	*/
+}
+
+// Forward declaration for helper used by persistCrashReason
+static std::string makeSavePath(const std::string & p);
+
+// Persist a short crash/reason message to disk for postmortem analysis
+static void persistCrashReason(const std::string & tag, const std::string & reason) {
+	try {
+		std::string path = makeSavePath("startmatch_crash.log");
+		ofFile f(path, ofFile::Append);
+		std::string timeStr = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
+		f << "[" << timeStr << "] [" << tag << "] " << reason << "\n";
+		f.close();
+		ofLogNotice("CrashLog") << "Wrote crash reason to " << path;
+	} catch (...) {
+		ofLogWarning("CrashLog") << "Failed to persist crash reason.";
+	}
 }
 
 #ifdef _WIN32
@@ -27296,60 +27324,86 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		std::string actionName = cmd.stringData;
 
 		if (actionName == "StartMatch") {
-			// CRASH FIX: Force isMultiplayer to true immediately so the lobby validations pass!
-			isMultiplayer = true;
-			g_inLobby = false; // Exit lobby visually
-			isWaitingForMenuTransition = false;
-			currentMenuPanX = 0.0f;
-			targetMenuPanX = 0.0f;
+			try {
+				ofLogNotice("Network") << "StartMatch pseudo-action received: commandId=" << cmd.commandId << " seedParam=" << cmd.params[0] << " isHost=" << steamManager.isHost();
+				ofLogNotice("Network") << "Lobby snapshot: size=" << g_lobbyPlayers.size() << " localPlayerID=" << myLocalPlayerID;
+				for (const auto & _lp : g_lobbyPlayers) {
+					ofLogNotice("Network") << "  LobbyPlayer id=" << _lp.playerID << " name='" << _lp.name << "' bot=" << _lp.isBot << " ready=" << _lp.isReady;
+				}
 
-			// Close and minimize the chat box so it doesn't cover the draft/gameplay
-			isChatOpen = false;
-			isChatMinimized = true;
-			chatInput = "";
+				persistCrashReason("StartMatch", "Received StartMatch cmdId=" + std::to_string(cmd.commandId) + " seed=" + std::to_string(cmd.params[0]));
 
-			// Client must have a valid lobby roster before we build players.
-			if (!steamManager.isHost()) {
-				sanitizeLobbyPlayersForMatchStart();
-				bool localPlayerPresent = false;
-				for (const auto & lp : g_lobbyPlayers) {
-					if ((int)lp.playerID == myLocalPlayerID) {
-						localPlayerPresent = true;
+				// CRASH FIX: Force isMultiplayer to true immediately so the lobby validations pass!
+				isMultiplayer = true;
+				g_inLobby = false; // Exit lobby visually
+				isWaitingForMenuTransition = false;
+				currentMenuPanX = 0.0f;
+				targetMenuPanX = 0.0f;
+
+				// Close and minimize the chat box so it doesn't cover the draft/gameplay
+				isChatOpen = false;
+				isChatMinimized = true;
+				chatInput = "";
+
+				// Client must have a valid lobby roster before we build players.
+				if (!steamManager.isHost()) {
+					sanitizeLobbyPlayersForMatchStart();
+					bool localPlayerPresent = false;
+					for (const auto & lp : g_lobbyPlayers) {
+						if ((int)lp.playerID == myLocalPlayerID) {
+							localPlayerPresent = true;
+							break;
+						}
+					}
+					if (g_lobbyPlayers.empty() || g_lobbyPlayers.size() < 2 || (!localPlayerPresent && myLocalPlayerID != 255)) {
+						ofLogWarning("Network") << "StartMatch received on client but lobby roster is stale or incomplete (players=" << g_lobbyPlayers.size() << ", localPlayerID=" << myLocalPlayerID << "). Requesting resync.";
+						persistCrashReason("StartMatch", "Client stale roster: players=" + std::to_string(g_lobbyPlayers.size()) + " localPlayerID=" + std::to_string(myLocalPlayerID));
+						HandshakePacket probe = {};
+						probe.type = PKT_HANDSHAKE;
+						probe.playerID = myLocalPlayerID;
+						probe.seq = 1002;
+						probe.seed = localSeedComponent;
+						probe.elo = myElo;
+						steamManager.sendPacket(&probe, sizeof(probe));
 						break;
 					}
 				}
-				if (g_lobbyPlayers.empty() || g_lobbyPlayers.size() < 2 || (!localPlayerPresent && myLocalPlayerID != 255)) {
-					ofLogWarning("Network") << "StartMatch received on client but lobby roster is stale or incomplete (players=" << g_lobbyPlayers.size() << ", localPlayerID=" << myLocalPlayerID << "). Requesting resync.";
-					HandshakePacket probe = {};
-					probe.type = PKT_HANDSHAKE;
-					probe.playerID = myLocalPlayerID;
-					probe.seq = 1002;
-					probe.seed = localSeedComponent;
-					probe.elo = myElo;
-					steamManager.sendPacket(&probe, sizeof(probe));
+
+				// Set the deterministic seed provided by the Host
+				currentMapSeed = cmd.params[0];
+				ofLogNotice("Network") << "Seeding gameplayRNG with seed=" << currentMapSeed;
+				gameplayRNG.seed(currentMapSeed);
+				seedVisualRng(visualRNG, currentMapSeed);
+
+				// Call setupGame() which will read the lobby players and roll initiative
+				setupGame();
+
+				ofLogNotice("Network") << "setupGame() returned; players vector size=" << players.size();
+				for (const auto & _p : players) {
+					ofLogNotice("Network") << "  Player playerID=" << _p.playerID << " isMinion=" << _p.isMinion << " x=" << _p.x << " y=" << _p.y;
+				}
+
+				// CRASH FIX: If setupGame() aborted due to empty players, do not advance sequence counters.
+				// This keeps the queue consistent so the host can retry.
+				if (players.empty() && isMultiplayer) {
+					ofLogError("Network") << "setupGame() failed to populate players. Not advancing command sequence.";
+					persistCrashReason("StartMatch", "setupGame() failed to populate players after StartMatch; players.size=0");
 					break;
 				}
-			}
 
-			// Set the deterministic seed provided by the Host
-			currentMapSeed = cmd.params[0];
-			gameplayRNG.seed(currentMapSeed);
-			seedVisualRng(visualRNG, currentMapSeed);
-
-			// Call setupGame() which will read the lobby players and roll initiative
-			setupGame();
-
-			// CRASH FIX: If setupGame() aborted due to empty players, do not advance sequence counters.
-			// This keeps the queue consistent so the host can retry.
-			if (players.empty() && isMultiplayer) {
-				ofLogError("Network") << "setupGame() failed to populate players. Not advancing command sequence.";
+				// CRITICAL FIX: Restore the sequence counters so the queue doesn't swallow the next commands!
+				nextCommandId = cmd.commandId + 1;
+				lastProcessedCommandId = cmd.commandId;
+				break;
+			} catch (const std::exception & e) {
+				ofLogError("Network") << "Exception in StartMatch handler: " << e.what();
+				persistCrashReason("StartMatchException", std::string("std::exception: ") + e.what());
+				break;
+			} catch (...) {
+				ofLogError("Network") << "Unknown exception in StartMatch handler.";
+				persistCrashReason("StartMatchException", "Unknown exception");
 				break;
 			}
-
-			// CRITICAL FIX: Restore the sequence counters so the queue doesn't swallow the next commands!
-			nextCommandId = cmd.commandId + 1;
-			lastProcessedCommandId = cmd.commandId;
-			break;
 		}
 
 		if (actionName == "Desync") {
