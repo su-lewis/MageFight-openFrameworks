@@ -499,7 +499,6 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 	file << logLine;
 	*/
 }
-	
 
 #ifdef _WIN32
 static int runHiddenWindowsCommand(const std::string & cmd) {
@@ -10242,9 +10241,9 @@ void ofApp::setupGame() {
 
 		// --- LOCKSTEP TRACING: Reset logs for new match ---
 		std::string role = steamManager.isHost() ? "host" : "client";
-        
-        // REMOVED: ofFile::removeFile() calls here, as instantly deleting and re-opening 
-        // files causes catastrophic crashes on Proton/Wine due to file handle locks!
+
+		// REMOVED: ofFile::removeFile() calls here, as instantly deleting and re-opening
+		// files causes catastrophic crashes on Proton/Wine due to file handle locks!
 
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "MATCH STARTED. Seed: " + std::to_string(currentMapSeed));
 
@@ -12653,6 +12652,163 @@ void ofApp::drawGame() {
 		ofMultMatrix(glm::toMat4(finalDrawQuat));
 	};
 
+	auto renderKeys3D = [&]() {
+		if (g_isSecondPass) return;
+		if (keyAnimSequence.empty() || (floatingKeyInstances.empty() && pendingVisualKeyDraftQueue.empty())) return;
+
+		ofCamera & activeCam = getActiveCamera();
+		activeCam.begin();
+		ofEnableDepthTest();
+		glDepthMask(GL_TRUE);
+		glClear(GL_DEPTH_BUFFER_BIT); // Clear depth to draw cleanly over the flattened FBO
+
+		// --- QUICK DEPTH PRE-PASS FOR WALLS ---
+		// Render walls to the depth buffer only, so high-res keys are properly occluded by pixelated walls!
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		if (levelMesh.getNumVertices() > 0) levelMesh.draw();
+		if (levelMeshDark.getNumVertices() > 0) levelMeshDark.draw();
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+		int seqIdx = keyAnimSequence[keyAnimSeqPos];
+		std::vector<FloatingKey> visibleKeyInstances = floatingKeyInstances;
+
+		// Add visual-only keys
+		for (const auto & pending : pendingVisualKeyDraftQueue) {
+			if (pending.tileX < 0 || pending.tileX >= BOARD_WIDTH || pending.tileY < 0 || pending.tileY >= BOARD_HEIGHT) continue;
+			bool alreadyVisible = false;
+			for (const auto & inst : visibleKeyInstances) {
+				if (inst.pos.x == pending.tileX && inst.pos.y == pending.tileY) {
+					alreadyVisible = true;
+					break;
+				}
+			}
+			if (alreadyVisible) continue;
+
+			int visualKeySet = 1;
+			if (pending.classTier == 2)
+				visualKeySet = 2;
+			else if (pending.classTier == 1)
+				visualKeySet = 3;
+			visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
+		}
+
+		// Draw Metallic Ground Circles
+		for (const auto & inst : visibleKeyInstances) {
+			if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
+
+			ofColor circleCol = ofColor(255, 215, 0); // Gold
+			if (inst.set == 2)
+				circleCol = ofColor(200, 200, 220); // Silver
+			else if (inst.set == 3)
+				circleCol = ofColor(205, 127, 50); // Bronze
+
+			glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
+
+			ofPushStyle();
+			ofEnableDepthTest();
+			glDepthMask(GL_FALSE);
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+			ofPushMatrix();
+			ofTranslate(worldPos.x, 0.02f, worldPos.z);
+			ofRotateXDeg(90);
+
+			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 60);
+			ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
+
+			ofNoFill();
+			ofSetLineWidth(2.5f);
+			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 220);
+			ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
+
+			ofPopMatrix();
+			glDepthMask(GL_TRUE);
+			safePopStyle();
+		}
+
+		// Draw Vertical Billboards
+		for (const auto & inst : visibleKeyInstances) {
+			if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
+
+			const std::vector<ofTexture> * setTex = nullptr;
+			if (inst.set == 1)
+				setTex = &keyTextures;
+			else if (inst.set == 2)
+				setTex = &keyTexturesSilver;
+			else if (inst.set == 3)
+				setTex = &keyTexturesBronze;
+
+			if (!setTex || setTex->empty()) continue;
+			if (seqIdx < 0 || seqIdx >= (int)setTex->size()) continue;
+
+			glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
+			glm::vec3 pos = worldPos + glm::vec3(0, 0.75f, 0);
+
+			float texW = (float)(*setTex)[seqIdx].getWidth();
+			float texH = (float)(*setTex)[seqIdx].getHeight();
+			float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
+
+			float heightWorld = TILE_SIZE * keyRenderScale;
+			float widthWorld = heightWorld * aspect;
+			float halfW = widthWorld * 0.5f;
+			float halfH = heightWorld * 0.5f;
+
+			float yaw = shouldFlipCamera() ? 180.0f : 0.0f;
+
+			glm::vec3 p0(-halfW, -halfH, 0);
+			glm::vec3 p1(halfW, -halfH, 0);
+			glm::vec3 p2(halfW, halfH, 0);
+			glm::vec3 p3(-halfW, halfH, 0);
+
+			static ofMesh quad;
+			quad.clear();
+			quad.setMode(OF_PRIMITIVE_TRIANGLES);
+
+			ofPushMatrix();
+			ofTranslate(pos.x, pos.y, pos.z);
+			ofRotateYDeg(yaw);
+			ofRotateXDeg(-15.0f);
+
+			quad.addVertex(p0);
+			quad.addTexCoord(glm::vec2(0, 1));
+			quad.addVertex(p1);
+			quad.addTexCoord(glm::vec2(1, 1));
+			quad.addVertex(p2);
+			quad.addTexCoord(glm::vec2(1, 0));
+			quad.addVertex(p3);
+			quad.addTexCoord(glm::vec2(0, 0));
+
+			quad.addIndex(0);
+			quad.addIndex(1);
+			quad.addIndex(2);
+			quad.addIndex(0);
+			quad.addIndex(2);
+			quad.addIndex(3);
+
+			glEnable(GL_ALPHA_TEST);
+			glAlphaFunc(GL_GREATER, 0.05f);
+
+			int setSize = (int)setTex->size();
+			int curIdx = keyAnimSequence[keyAnimSeqPos] % setSize;
+
+			glEnable(GL_DEPTH_TEST);
+			glDepthMask(GL_FALSE);
+			ofDisableLighting();
+			ofSetColor(255, 200);
+			(*setTex)[curIdx].bind();
+			quad.draw();
+			(*setTex)[curIdx].unbind();
+			ofPopMatrix();
+
+			ofEnableLighting();
+			glDepthMask(GL_TRUE);
+			glDisable(GL_ALPHA_TEST);
+		}
+
+		activeCam.end();
+		ofDisableDepthTest();
+	};
+
 	auto renderCoins3D = [&]() {
 		ofCamera & activeCam = getActiveCamera();
 		activeCam.begin();
@@ -12969,192 +13125,7 @@ void ofApp::drawGame() {
 			}
 		}
 
-		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS ---
-		// Draw after walls so depth buffer contains wall depths and keys are
-		// correctly occluded when behind walls.
-		if (!keyAnimSequence.empty() && (!floatingKeyInstances.empty() || !pendingVisualKeyDraftQueue.empty())) {
-			int seqIdx = keyAnimSequence[keyAnimSeqPos];
-			std::vector<FloatingKey> visibleKeyInstances = floatingKeyInstances;
-
-			// Add visual-only keys that were already consumed by lockstep command
-			// execution but should remain visible until movement animation arrives.
-			for (const auto & pending : pendingVisualKeyDraftQueue) {
-				if (pending.tileX < 0 || pending.tileX >= BOARD_WIDTH
-					|| pending.tileY < 0 || pending.tileY >= BOARD_HEIGHT) {
-					continue;
-				}
-
-				bool alreadyVisible = false;
-				for (const auto & inst : visibleKeyInstances) {
-					if (inst.pos.x == pending.tileX && inst.pos.y == pending.tileY) {
-						alreadyVisible = true;
-						break;
-					}
-				}
-				if (alreadyVisible) continue;
-
-				int visualKeySet = 1;
-				if (pending.classTier == 2)
-					visualKeySet = 2;
-				else if (pending.classTier == 1)
-					visualKeySet = 3;
-
-				visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
-			}
-
-			// Draw Metallic Ground Circles for Key Tiles (Includes all active and pending keys)
-			for (const auto & inst : visibleKeyInstances) {
-				if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
-
-				ofColor circleCol = ofColor(255, 215, 0); // Gold
-				if (inst.set == 2)
-					circleCol = ofColor(200, 200, 220); // Silver
-				else if (inst.set == 3)
-					circleCol = ofColor(205, 127, 50); // Bronze
-
-				glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
-
-				ofPushStyle();
-				ofEnableDepthTest();
-				glDepthMask(GL_FALSE);
-				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-				ofPushMatrix();
-				ofTranslate(worldPos.x, 0.02f, worldPos.z);
-				ofRotateXDeg(90);
-
-				// Low-transparency metallic fill
-				ofSetColor(circleCol.r, circleCol.g, circleCol.b, 60);
-				ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
-
-				// High-contrast metallic ring
-				ofNoFill();
-				ofSetLineWidth(2.5f);
-				ofSetColor(circleCol.r, circleCol.g, circleCol.b, 220);
-				ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
-
-				ofPopMatrix();
-				glDepthMask(GL_TRUE);
-				safePopStyle();
-			}
-
-			// Add visual-only keys that were already consumed by lockstep command
-			// execution but should remain visible until movement animation arrives.
-			for (const auto & pending : pendingVisualKeyDraftQueue) {
-				if (pending.tileX < 0 || pending.tileX >= BOARD_WIDTH
-					|| pending.tileY < 0 || pending.tileY >= BOARD_HEIGHT) {
-					continue;
-				}
-
-				bool alreadyVisible = false;
-				for (const auto & inst : visibleKeyInstances) {
-					if (inst.pos.x == pending.tileX && inst.pos.y == pending.tileY) {
-						alreadyVisible = true;
-						break;
-					}
-				}
-				if (alreadyVisible) continue;
-
-				int visualKeySet = 1;
-				if (pending.classTier == 2)
-					visualKeySet = 2;
-				else if (pending.classTier == 1)
-					visualKeySet = 3;
-
-				visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
-			}
-
-			// Always use the local player's camera and flip logic so keys face the local view
-			ofCamera & localCamera = getActiveCamera();
-			(void)localCamera; // Suppress unused warning
-			bool flipForLocal = shouldFlipCamera();
-			(void)flipForLocal; // Suppress unused warning
-			for (const auto & inst : visibleKeyInstances) {
-				if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
-
-				const std::vector<ofTexture> * setTex = nullptr;
-				if (inst.set == 1)
-					setTex = &keyTextures;
-				else if (inst.set == 2)
-					setTex = &keyTexturesSilver;
-				else if (inst.set == 3)
-					setTex = &keyTexturesBronze;
-				if (!setTex || setTex->empty()) continue;
-				if (seqIdx < 0 || seqIdx >= (int)setTex->size()) continue;
-				glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
-				// Place keys closer to the floor so they sit visually nearer ground tiles
-				glm::vec3 pos = worldPos + glm::vec3(0, 0.75f, 0);
-
-				float texW = (float)(*setTex)[seqIdx].getWidth();
-				float texH = (float)(*setTex)[seqIdx].getHeight();
-				float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
-
-				// Apply configurable render scale to key world height (lowered to sit closer to floor)
-				float heightWorld = TILE_SIZE * keyRenderScale;
-				float widthWorld = heightWorld * aspect;
-				float halfW = widthWorld * 0.5f;
-				float halfH = heightWorld * 0.5f;
-
-				// Always face the local camera dynamically
-				float yaw = shouldFlipCamera() ? 180.0f : 0.0f;
-
-				float u0 = 0.0f;
-				float u1 = 1.0f;
-
-				glm::vec3 p0(-halfW, -halfH, 0);
-				glm::vec3 p1(halfW, -halfH, 0);
-				glm::vec3 p2(halfW, halfH, 0);
-				glm::vec3 p3(-halfW, halfH, 0);
-
-				static ofMesh quad;
-				quad.clear();
-				quad.setMode(OF_PRIMITIVE_TRIANGLES);
-
-				// Transform the quad via matrix so it dynamically billboards
-				ofPushMatrix();
-				ofTranslate(pos.x, pos.y, pos.z);
-				ofRotateYDeg(yaw); // Face camera horizontally
-				ofRotateXDeg(-15.0f); // Slight backward tilt
-
-				quad.addVertex(p0);
-				quad.addTexCoord(glm::vec2(u0, 1));
-				quad.addVertex(p1);
-				quad.addTexCoord(glm::vec2(u1, 1));
-				quad.addVertex(p2);
-				quad.addTexCoord(glm::vec2(u1, 0));
-				quad.addVertex(p3);
-				quad.addTexCoord(glm::vec2(u0, 0));
-
-				quad.addIndex(0);
-				quad.addIndex(1);
-				quad.addIndex(2);
-				quad.addIndex(0);
-				quad.addIndex(2);
-				quad.addIndex(3);
-
-				// Alpha-test: don't write depth for transparent pixels so occluders can show
-				glEnable(GL_ALPHA_TEST);
-				glAlphaFunc(GL_GREATER, 0.05f);
-
-				// Draw the current frame only (no cross-fade). Draw after walls so
-				// walls in front occlude keys; keep depth test but disable depth writes
-				int setSize = (int)setTex->size();
-				int curIdx = keyAnimSequence[keyAnimSeqPos] % setSize;
-
-				// Ensure depth testing is enabled so keys are tested against wall depth
-				glEnable(GL_DEPTH_TEST);
-				glDepthMask(GL_FALSE);
-				ofDisableLighting();
-				ofSetColor(255, 200);
-				(*setTex)[curIdx].bind();
-				quad.draw();
-				(*setTex)[curIdx].unbind();
-				ofPopMatrix(); // Revert billboard translation
-				ofEnableLighting();
-				glDepthMask(GL_TRUE);
-				glDisable(GL_ALPHA_TEST);
-			}
-		}
+		// (Floating keys rendering moved to renderKeys3D to bypass pixel shaders)
 
 		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
@@ -14960,7 +14931,6 @@ void ofApp::drawGame() {
 	if (g_isSecondPass) {
 		// Do absolutely nothing for the 3D backgrounds in Pass 2
 	} else if (usePost && !g_isFboPass) {
-		// (The existing code for rendering worldFbo and applying normal shaders...)
 		if (enablePixelArt && pixelArtShaderLoaded) {
 			int pw = std::max(2, (int)(ofGetWidth() / 2.0f)); // Forced 2.0x downscale
 			int ph = std::max(2, (int)(ofGetHeight() / 2.0f));
@@ -14990,7 +14960,6 @@ void ofApp::drawGame() {
 			glDepthMask(GL_TRUE);
 			ofClear(22, 22, 22, 255);
 
-			// --- Render world, but DO NOT render coins yet! ---
 			renderWorld3D(false);
 			pixelLowFbo.end();
 
@@ -14998,11 +14967,11 @@ void ofApp::drawGame() {
 			cam2.setAspectRatio(oldAspectCam2);
 
 			ofDisableDepthTest();
-			ofSetColor(255, 255, 255, 255); // CRITICAL: Reset color so FBO doesn't draw invisible!
+			ofSetColor(255, 255, 255, 255);
 
 			pixelArtShader.begin();
 			pixelArtShader.setUniformTexture("tex0", pixelLowFbo.getTexture(), 0);
-			pixelArtShader.setUniform1i("levels", 28); // Fixed at 28
+			pixelArtShader.setUniform1i("levels", 28);
 			pixelArtShader.setUniform1i("useDither", 0);
 			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
 			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
@@ -15012,7 +14981,8 @@ void ofApp::drawGame() {
 			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			pixelArtShader.end();
 
-			// --- DRAW HIGH-RES COINS OVER THE PIXEL FILTER ---
+			// --- DRAW HIGH-RES KEYS AND COINS OVER THE PIXEL FILTER ---
+			renderKeys3D();
 			renderCoins3D();
 
 		} else {
@@ -15024,7 +14994,7 @@ void ofApp::drawGame() {
 				worldFbo.end();
 
 				ofDisableDepthTest();
-				ofSetColor(255, 255, 255, 255); // CRITICAL: Reset color so FBO doesn't draw invisible!
+				ofSetColor(255, 255, 255, 255);
 
 				if (enableC64Shader && c64ShaderLoaded) {
 					c64Shader.begin();
@@ -15051,14 +15021,17 @@ void ofApp::drawGame() {
 					worldPostShader.end();
 				}
 
+				renderKeys3D();
 				renderCoins3D();
 
 			} else {
 				renderWorld3D(true);
+				renderKeys3D();
 			}
 		}
 	} else {
 		renderWorld3D(true);
+		renderKeys3D();
 	}
 
 	safeEnableAlphaBlending();
