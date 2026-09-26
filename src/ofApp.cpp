@@ -6690,9 +6690,10 @@ void ofApp::update() {
 					for (size_t i = 0; i < s_ambienceTracks.size(); i++) {
 						s_ambiencePlaylist.push_back(i);
 					}
-					// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 					std::mt19937 g((uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF));
-					std::shuffle(s_ambiencePlaylist.begin(), s_ambiencePlaylist.end(), g);
+
+					// CRITICAL FIX: Do not use std::shuffle on MinGW arrays
+					robust_deterministic_shuffle(s_ambiencePlaylist, g);
 				}
 
 				int nextTrack = s_ambiencePlaylist.back();
@@ -10221,7 +10222,11 @@ void ofApp::setupGame() {
 	{
 		std::vector<int> palette = { 0, 1, 2, 3 };
 		std::mt19937 colorRng(currentMapSeed ^ 0xC01075U);
-		std::shuffle(palette.begin(), palette.end(), colorRng);
+
+		// CRITICAL FIX: Replace std::shuffle with robust_deterministic_shuffle
+		// to prevent cross-compiler desyncs and memory corruption
+		robust_deterministic_shuffle(palette, colorRng);
+
 		for (int i = 0; i < 4; ++i) {
 			g_playerColorIndices[i] = palette[i];
 		}
@@ -27253,10 +27258,20 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		std::string actionName = cmd.stringData;
 
 		if (actionName == "StartMatch") {
-			// CRASH FIX: Client must have a valid lobby roster before we build players.
-			// If our local player ID is missing or the lobby state is still stale, ignore
-			// the command and request a fresh sync instead of crashing the match start.
-			if (isMultiplayer && !steamManager.isHost()) {
+			// CRASH FIX: Force isMultiplayer to true immediately so the lobby validations pass!
+			isMultiplayer = true;
+			g_inLobby = false; // Exit lobby visually
+			isWaitingForMenuTransition = false;
+			currentMenuPanX = 0.0f;
+			targetMenuPanX = 0.0f;
+
+			// Close and minimize the chat box so it doesn't cover the draft/gameplay
+			isChatOpen = false;
+			isChatMinimized = true;
+			chatInput = "";
+
+			// Client must have a valid lobby roster before we build players.
+			if (!steamManager.isHost()) {
 				bool localPlayerPresent = false;
 				for (const auto & lp : g_lobbyPlayers) {
 					if ((int)lp.playerID == myLocalPlayerID) {
@@ -27276,17 +27291,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					break;
 				}
 			}
-
-			g_inLobby = false; // Exit lobby visually
-			isMultiplayer = true;
-			isWaitingForMenuTransition = false;
-			currentMenuPanX = 0.0f;
-			targetMenuPanX = 0.0f;
-
-			// Close and minimize the chat box so it doesn't cover the draft/gameplay
-			isChatOpen = false;
-			isChatMinimized = true;
-			chatInput = "";
 
 			// Set the deterministic seed provided by the Host
 			currentMapSeed = cmd.params[0];

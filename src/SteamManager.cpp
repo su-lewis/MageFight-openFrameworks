@@ -377,8 +377,8 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 
 	if (imageId <= 0) return false;
 	uint32_t width = 0, height = 0;
-    
-    // CRITICAL FIX: Use the flat C-API to prevent Proton ABI Segfaults!
+
+	// CRITICAL FIX: Use the flat C-API to prevent Proton ABI Segfaults!
 	if (!SteamAPI_ISteamUtils_GetImageSize((intptr_t)SteamUtils(), imageId, &width, &height) || width == 0 || height == 0) return false;
 
 	ofPixels pixels;
@@ -549,7 +549,10 @@ bool SteamManager::isMatchStarted() const {
 }
 void SteamManager::setLobbySeed(uint32_t seed) {
 	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid()) {
-		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed", std::to_string(seed).c_str());
+		// CRITICAL FIX: Buffer the string statically to prevent MinGW to MSVC ABI Segfaults
+		static char seedBuffer[64];
+		snprintf(seedBuffer, sizeof(seedBuffer), "%u", seed);
+		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed", seedBuffer);
 	}
 }
 uint32_t SteamManager::getLobbySeed() const {
