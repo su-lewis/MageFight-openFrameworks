@@ -162,7 +162,7 @@ void SteamManager::update() {
 			lastReconnectTime = ofGetElapsedTimef();
 			if (SteamMatchmaking()) {
 				CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
-				if (owner.IsValid()) {
+				if (owner.IsValid() && SteamNetworkingSockets()) {
 					SteamNetworkingIdentity identity;
 					identity.SetSteamID(owner);
 					HSteamNetConnection conn = SteamNetworkingSockets()->ConnectP2P(identity, 0, 0, nullptr);
@@ -176,6 +176,8 @@ void SteamManager::update() {
 	}
 
 	ISteamNetworkingSockets * net = SteamNetworkingSockets();
+	if (!net) return;
+
 	const int MAX_MSGS = 32;
 	SteamNetworkingMessage_t * msgs[MAX_MSGS];
 
@@ -311,7 +313,7 @@ void SteamManager::closeConnection() {
 }
 
 bool SteamManager::sendPacket(const void * data, uint32_t size) {
-	if (!m_bInitialized) return false;
+	if (!m_bInitialized || !SteamNetworkingSockets()) return false;
 
 	if (!m_bIsHost && m_hConnection == k_HSteamNetConnection_Invalid) {
 		if (m_LobbyID.IsValid() && SteamMatchmaking()) {
@@ -670,9 +672,10 @@ int SteamManager::checkLeaverBuster() {
 	return (int)oppElo;
 }
 void SteamManager::updateRichPresence(const std::string & presenceText) {
-	if (!SteamAPI_IsSteamRunning() || !SteamFriends()) return;
-	SteamFriends()->SetRichPresence("status", presenceText.c_str());
-	SteamFriends()->SetRichPresence("steam_display", "#Status");
+	if (!m_bInitialized || !SteamAPI_IsSteamRunning() || !SteamFriends()) return;
+	// Use flat C API to prevent Proton/GCC vtable mismatch crashes
+	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "status", presenceText.c_str());
+	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "steam_display", "#Status");
 }
 void SteamManager::onUserStatsReceived(UserStatsReceived_t * pCallback) {
 	if (pCallback && pCallback->m_eResult == k_EResultOK) {

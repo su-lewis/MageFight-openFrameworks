@@ -1308,7 +1308,8 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		std::string costStr = ofToString(effCost);
 		float costScale = (costStr.size() > 1) ? 2.40f : 3.15f;
 		ofRectangle costGemRect(8, 8, 176, 176);
-		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, ofColor::black, 4);
+		// outlinePx set to 0 removes the black outline
+		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, ofColor::black, 0);
 
 		// 2. Fetch Card Template Text Records
 		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
@@ -7343,6 +7344,8 @@ void ofApp::draw() {
 						float historyLeft = (ofGetWidth() / 2.0f) - (maxHistoryW / 2.0f);
 						float safetyBuffer = 10.0f * scale;
 						chatMaxWidth = std::min(chatMaxWidth, historyLeft - chatX - safetyBuffer);
+						// Safety clamp: Ensure chat box width is never negative or zero
+						chatMaxWidth = std::max(160.0f * scale, chatMaxWidth);
 					}
 
 					if (isChatOpen) {
@@ -8374,19 +8377,8 @@ void ofApp::draw() {
 		}
 	}
 
-	// Hover sound resolution safely at the end
+	// Hover sound disabled
 	if (!g_isSecondPass) {
-		static std::string lastHoveredButtonId = "";
-		if (g_hoveredButtonId != lastHoveredButtonId) {
-			if (!g_hoveredButtonId.empty()) {
-				if (s_sfxHoverButton.isLoaded()) {
-					float sfxVol = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.25f, 0.0f, 1.0f);
-					s_sfxHoverButton.setVolume(sfxVol);
-					s_sfxHoverButton.play();
-				}
-			}
-			lastHoveredButtonId = g_hoveredButtonId;
-		}
 		g_hoveredButtonId = "";
 	}
 }
@@ -10272,21 +10264,21 @@ void ofApp::setupGame() {
 
 		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
 
-		if (isHost()) {
+		if (isHost() && steamManager.isConnected()) {
 			steamManager.setLobbySeed(currentMapSeed);
 			steamManager.setMatchStarted();
 		}
 
-		if (isMultiplayer && myLocalPlayerID != 2) {
-			// Broadcast our actual local Steam name to the opponent to fix the "Opponent" API delay bug!
+		// Only send peer packet if there is an actual connected peer
+		if (isMultiplayer && myLocalPlayerID != 2 && steamManager.hasOpponent()) {
 			std::string myName = steamManager.getLocalPlayerName();
 			if (myName.empty()) myName = (myLocalPlayerID == 0) ? "Player 1" : "Player 2";
 			ChatMessagePacket syncPkt = {};
 			syncPkt.type = PKT_CHAT_MESSAGE;
 			syncPkt.playerID = myLocalPlayerID;
 			std::string payload = "\aSYNC_NAME:" + myName;
-			strncpy(syncPkt.message, payload.c_str(), sizeof(syncPkt.message) - 1); // <--- FIXED
-			syncPkt.message[sizeof(syncPkt.message) - 1] = '\0'; // <--- FIXED
+			strncpy(syncPkt.message, payload.c_str(), sizeof(syncPkt.message) - 1);
+			syncPkt.message[sizeof(syncPkt.message) - 1] = '\0';
 			steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
 		}
 	}
@@ -15216,13 +15208,15 @@ void ofApp::drawGame() {
 		float textX = isLocal ? (avatarX + avatarSize + 12.0f * scale) : (x + 12.0f * scale);
 		float textW = w - avatarSize - 24.0f * scale;
 
+		if (name.empty()) name = isLocal ? "Player 1" : "Bot";
+
 		if (elo >= 0) {
 			auto rank = getMageRank(elo);
 			int playerLevel = isLocal ? steamManager.getLocalLevel() : 1;
 			std::string rankStr = "Lv." + std::to_string(playerLevel) + " " + rank.first + " (" + std::to_string(elo) + ")";
 
 			std::string h2hStr = "";
-			if (!isLocal && isMultiplayer) {
+			if (!isLocal && isMultiplayer && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0) {
 				std::string oppIDStr = std::to_string(steamManager.getOpponentSteamID().ConvertToUint64());
 				if (h2hStatsMap.find(oppIDStr) != h2hStatsMap.end()) {
 					const auto & h2h = h2hStatsMap[oppIDStr];
@@ -15233,7 +15227,8 @@ void ofApp::drawGame() {
 
 			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
 			float fontS = 1.0f;
-			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+			if (nameBox.width > 0.0f && nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+			fontS = std::clamp(fontS, 0.4f, 1.2f);
 
 			float qFontS = std::max(0.5f, std::round(fontS * 2.0f) / 2.0f);
 			float ny = y + h * 0.35f;
@@ -26953,10 +26948,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 			int nowFrameLocal = (int)simulationFrame;
 
+			// Use the authoritative classTier from the command
 			const std::vector<Card> * poolAnim = &class1Cards;
-			if (currentDraftClassTier == 2) poolAnim = &class2Cards;
-			if (currentDraftClassTier == 3) poolAnim = &class3Cards;
+			if (classTier == 2) poolAnim = &class2Cards;
+			if (classTier == 3) poolAnim = &class3Cards;
+
 			for (int poolIdx : picks) {
+				// Safety check: ensure poolIdx is within bounds before dereferencing
+				if (!poolAnim || poolIdx < 0 || poolIdx >= (int)poolAnim->size()) continue;
+
 				int slot = -1;
 				for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
 					if (currentDraftOptionPoolIndices[si] == poolIdx) {
