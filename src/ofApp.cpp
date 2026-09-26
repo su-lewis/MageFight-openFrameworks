@@ -12727,6 +12727,9 @@ void ofApp::drawGame() {
 		}
 
 		// Draw Vertical Billboards
+		ofPushStyle();
+		ofEnableAlphaBlending(); // <--- CRITICAL FIX: Re-enable transparency after pixel shader
+
 		for (const auto & inst : visibleKeyInstances) {
 			if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
 
@@ -12785,9 +12788,6 @@ void ofApp::drawGame() {
 			quad.addIndex(2);
 			quad.addIndex(3);
 
-			glEnable(GL_ALPHA_TEST);
-			glAlphaFunc(GL_GREATER, 0.05f);
-
 			int setSize = (int)setTex->size();
 			int curIdx = keyAnimSequence[keyAnimSeqPos] % setSize;
 
@@ -12795,15 +12795,18 @@ void ofApp::drawGame() {
 			glDepthMask(GL_FALSE);
 			ofDisableLighting();
 			ofSetColor(255, 200);
+
 			(*setTex)[curIdx].bind();
 			quad.draw();
 			(*setTex)[curIdx].unbind();
-			ofPopMatrix();
 
-			ofEnableLighting();
-			glDepthMask(GL_TRUE);
-			glDisable(GL_ALPHA_TEST);
+			ofPopMatrix();
 		}
+
+		ofEnableLighting();
+		glDepthMask(GL_TRUE);
+		ofDisableAlphaBlending();
+		safePopStyle();
 
 		activeCam.end();
 		ofDisableDepthTest();
