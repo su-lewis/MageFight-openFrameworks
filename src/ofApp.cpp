@@ -488,6 +488,7 @@ static std::pair<std::string, ofColor> getMageRank(int elo) {
 
 static void writeLockstepTrace(bool isHost, int turn, const std::string & eventStr) {
 	// Use a fixed filename so it overwrites every match and prevents folder bloat
+	/*
 	std::string role = isHost ? "host" : "client";
 	std::string filename = "lockstep_trace_" + role + ".log";
 
@@ -496,7 +497,9 @@ static void writeLockstepTrace(bool isHost, int turn, const std::string & eventS
 
 	ofFile file(filename, ofFile::Append);
 	file << logLine;
+	*/
 }
+	
 
 #ifdef _WIN32
 static int runHiddenWindowsCommand(const std::string & cmd) {
@@ -9809,7 +9812,7 @@ void ofApp::applySettings() {
 
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
-		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_FALSE); // <--- FIX: Prevents Proton/Wine from hanging on Alt+Tab!
+		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE); // <--- FIX: Prevents Proton/Wine from hanging on Alt+Tab!
 		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
 	}
 
@@ -9925,6 +9928,29 @@ void ofApp::setupGame() {
 		ofLogError("Setup") << "setupGame() aborted: multiplayer but g_lobbyPlayers is empty!";
 		addGameLog("Waiting for lobby data...");
 		return;
+	}
+
+	if (isMultiplayer && myLocalPlayerID != 255) {
+		bool localPlayerPresent = false;
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID == myLocalPlayerID) {
+				localPlayerPresent = true;
+				break;
+			}
+		}
+		if (!localPlayerPresent) {
+			ofLogError("Setup") << "setupGame() aborted: myLocalPlayerID " << myLocalPlayerID
+								<< " is not present in g_lobbyPlayers; requesting lobby resync.";
+			HandshakePacket probe = {};
+			probe.type = PKT_HANDSHAKE;
+			probe.playerID = myLocalPlayerID;
+			probe.seq = 1002;
+			probe.seed = localSeedComponent;
+			probe.elo = myElo;
+			steamManager.sendPacket(&probe, sizeof(probe));
+			addGameLog("Waiting for lobby data...");
+			return;
+		}
 	}
 
 	// --- BULLETPROOF REMATCH RESET ---
@@ -10216,8 +10242,10 @@ void ofApp::setupGame() {
 
 		// --- LOCKSTEP TRACING: Reset logs for new match ---
 		std::string role = steamManager.isHost() ? "host" : "client";
-		ofFile::removeFile("lockstep_trace_" + role + ".log");
-		ofFile::removeFile("deck_states_" + role + ".log");
+        
+        // REMOVED: ofFile::removeFile() calls here, as instantly deleting and re-opening 
+        // files causes catastrophic crashes on Proton/Wine due to file handle locks!
+
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "MATCH STARTED. Seed: " + std::to_string(currentMapSeed));
 
 		// Track whether this match started with human players (persists even if humans disconnect or die)
@@ -10406,12 +10434,11 @@ void ofApp::setupGame() {
 
 		// Remove keys on tiles where a player starts (unoccupied corners keep their keys)
 		for (const auto & p : players) {
-			floatingKeyInstances.erase(
-				std::remove_if(floatingKeyInstances.begin(), floatingKeyInstances.end(),
-					[&](const FloatingKey & k) {
-						return k.pos.x == p.x && k.pos.y == p.y;
-					}),
-				floatingKeyInstances.end());
+			for (int k = (int)floatingKeyInstances.size() - 1; k >= 0; --k) {
+				if (floatingKeyInstances[k].pos.x == p.x && floatingKeyInstances[k].pos.y == p.y) {
+					floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+				}
+			}
 		}
 	} else {
 		// Singleplayer Fallback
@@ -27250,20 +27277,28 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		std::string actionName = cmd.stringData;
 
 		if (actionName == "StartMatch") {
-			// CRASH FIX: Client must have lobby data before we can build the players array.
-			// If we're a client and lobby state is missing, ignore this command —
-			// the host will keep broadcasting lobby state and can resend StartMatch.
-			if (isMultiplayer && !steamManager.isHost() && g_lobbyPlayers.empty()) {
-				ofLogWarning("Network") << "StartMatch received on client but g_lobbyPlayers is empty! Ignoring command and requesting resync.";
-				// Request a fresh lobby state from host by sending a handshake probe
-				HandshakePacket probe = {};
-				probe.type = PKT_HANDSHAKE;
-				probe.playerID = myLocalPlayerID;
-				probe.seq = 1002;
-				probe.seed = localSeedComponent;
-				probe.elo = myElo;
-				steamManager.sendPacket(&probe, sizeof(probe));
-				break;
+			// CRASH FIX: Client must have a valid lobby roster before we build players.
+			// If our local player ID is missing or the lobby state is still stale, ignore
+			// the command and request a fresh sync instead of crashing the match start.
+			if (isMultiplayer && !steamManager.isHost()) {
+				bool localPlayerPresent = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if ((int)lp.playerID == myLocalPlayerID) {
+						localPlayerPresent = true;
+						break;
+					}
+				}
+				if (g_lobbyPlayers.empty() || (!localPlayerPresent && myLocalPlayerID != 255)) {
+					ofLogWarning("Network") << "StartMatch received on client but lobby roster is stale or incomplete. Requesting resync.";
+					HandshakePacket probe = {};
+					probe.type = PKT_HANDSHAKE;
+					probe.playerID = myLocalPlayerID;
+					probe.seq = 1002;
+					probe.seed = localSeedComponent;
+					probe.elo = myElo;
+					steamManager.sendPacket(&probe, sizeof(probe));
+					break;
+				}
 			}
 
 			g_inLobby = false; // Exit lobby visually
