@@ -1,0 +1,101 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-09-27 00:36:45
+End Reason: Victory
+Seed: 630468147
+Turns: 9
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[00:34:04] --- MATCH STARTED ---
+[00:34:36] Turn 1: Player's turn
+[00:34:36] Autosaved turn-start (autosave.json)
+[00:34:39] Player moved to (1,5)
+[00:34:42] Player moved to (2,5)
+[00:34:43] Turn 1: Bot 1's turn
+[00:34:43] Autosaved turn-start (autosave.json)
+[00:34:44] Bot 1 played Train targeting (12,0)
+[00:34:45] Bot 1 played Train targeting (12,0)
+[00:34:45] Bot 1 moved to (12,1)
+[00:34:46] Bot 1 played Train targeting (12,1)
+[00:34:47] Bot 1 played Train targeting (12,1)
+[00:34:47] Bot 1 moved to (12,2)
+[00:34:48] Bot 1 played Train targeting (12,2)
+[00:34:49] Bot 1 played Train targeting (12,2)
+[00:34:49] Bot 1 moved to (12,3)
+[00:34:50] Bot 1 played Train targeting (12,3)
+[00:34:51] Bot 1 played Train targeting (12,3)
+[00:34:51] Bot 1 moved to (11,3)
+[00:34:54] Bot 1 moved to (10,3)
+[00:34:55] Bot 1 moved to (9,3)
+[00:34:56] Turn 2: Player's turn
+[00:34:56] Autosaved turn-start (autosave.json)
+[00:34:58] Player moved to (4,4)
+[00:35:02] Player moved to (5,6)
+[00:35:06] Turn 2: Bot 1's turn
+[00:35:06] Autosaved turn-start (autosave.json)
+[00:35:08] Bot 1 moved to (8,3)
+[00:35:09] Turn 3: Player's turn
+[00:35:09] Autosaved turn-start (autosave.json)
+[00:35:12] Player moved to (6,6)
+[00:35:16] Player played Summon Hellhound targeting (7,6)
+[00:35:16] Player summoned unit kind 3 at (7,6)
+[00:35:18] Turn 3: Bot 1's turn
+[00:35:18] Autosaved turn-start (autosave.json)
+[00:35:20] Bot 1 played Chain Lightning targeting (8,5)
+[00:35:27] Bot 1 moved to (8,4)
+[00:35:30] Bot 1 moved to (8,5)
+[00:35:31] Turn 4: Player's turn
+[00:35:31] Autosaved turn-start (autosave.json)
+[00:35:36] Player played Summon Hellhound targeting (7,6)
+[00:35:37] Player summoned unit kind 3 at (7,6)
+[00:35:38] Player moved to (6,7)
+[00:35:40] Turn 4: Bot 1's turn
+[00:35:40] Autosaved turn-start (autosave.json)
+[00:35:42] Bot 1 played Chain Lightning targeting (7,6)
+[00:35:51] Bot 1 moved to (9,5)
+[00:35:52] Bot 1 moved to (10,5)
+[00:35:53] Bot 1 moved to (11,5)
+[00:35:56] Turn 5: Player's turn
+[00:35:56] Autosaved turn-start (autosave.json)
+[00:36:02] Player moved to (8,8)
+[00:36:05] Turn 5: Bot 1's turn
+[00:36:05] Autosaved turn-start (autosave.json)
+[00:36:05] Turn 6: Player's turn
+[00:36:05] Autosaved turn-start (autosave.json)
+[00:36:05] Turn 6: Bot 1's turn
+[00:36:05] Autosaved turn-start (autosave.json)
+[00:36:05] Turn 7: Player's turn
+[00:36:05] Autosaved turn-start (autosave.json)
+[00:36:16] Player played Lesser Heal targeting (8,8)
+[00:36:17] Player moved to (11,8)
+[00:36:18] Turn 7: Bot 1's turn
+[00:36:18] Autosaved turn-start (autosave.json)
+[00:36:18] Turn 8: Player's turn
+[00:36:18] Autosaved turn-start (autosave.json)
+[00:36:24] Player moved to (11,6)
+[00:36:26] Player played Fireball targeting (11,5)
+[00:36:32] Turn 8: Bot 1's turn
+[00:36:32] Autosaved turn-start (autosave.json)
+[00:36:38] Bot 1 moved to (10,5)
+[00:36:39] Turn 9: Player's turn
+[00:36:39] Autosaved turn-start (autosave.json)
+[00:36:43] Player moved to (11,5)
+[00:36:44] Player played Shock targeting (10,5)
+[00:36:45] Bot 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 4
+  Cards Played: 5
+  Minions Spawned: 2
+  Total Healing: 6
+Player 1 Stats:
+  Max Dmg/Turn: 21
+  Cards Played: 10
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

@@ -51,54 +51,13 @@ static const int MENU_MAGIC_HAND_RELOCATE = 999;
 #include <assimp/scene.h>
 
 extern "C" {
-// Fix: Corrected parameter order and types to prevent MSVC stack corruption
-uint32_t SteamAPI_ISteamUser_GetAuthSessionTicket(intptr_t instancePtr, void * pTicket, int cbMaxTicket, uint32_t * pcbTicket, const void * pIdentityRemote);
-void SteamAPI_ISteamUser_CancelAuthTicket(intptr_t instancePtr, uint32_t hAuthTicket);
-void SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, uint64_t steamID);
+// CRITICAL FIX: Flat C API to prevent MinGW C++ VTable crashes
+bool SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pchName, int32_t * pData);
+bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
+bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
+bool SteamAPI_ISteamApps_BIsSubscribed(intptr_t instancePtr);
 }
 // ----------------------------------------------------------------------------------------
-
-static const uint8_t PKT_AUTH_TICKET = 250;
-
-#pragma pack(push, 1)
-struct AuthTicketPacket {
-	PacketHeader header;
-	uint32_t ticketSize;
-	uint8_t ticketData[1024];
-};
-#pragma pack(pop)
-
-static HAuthTicket g_localAuthTicket = k_HAuthTicketInvalid;
-static CSteamID g_activeAuthPeerSteamID;
-static bool g_peerAuthValidated = false;
-
-class SteamAuthValidator {
-public:
-	SteamAuthValidator()
-		: m_CallbackValidateAuthTicket(this, &SteamAuthValidator::OnValidateAuthTicketResponse) {
-	}
-
-	void OnValidateAuthTicketResponse(ValidateAuthTicketResponse_t * pResponse) {
-		if (!pResponse) return;
-
-		if (pResponse->m_eAuthSessionResponse == k_EAuthSessionResponseOK) {
-			ofLogNotice("SteamAuth") << "Steam validated peer authentication ticket successfully for SteamID: " << pResponse->m_SteamID.ConvertToUint64();
-			g_peerAuthValidated = true;
-		} else {
-			ofLogError("SteamAuth") << "CRITICAL: Peer authentication ticket rejected by Steam! Response code: " << (int)pResponse->m_eAuthSessionResponse;
-			g_peerAuthValidated = false;
-			if (SteamUser() && g_activeAuthPeerSteamID.IsValid()) {
-				// CRITICAL FIX: Flat C API
-				SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
-				g_activeAuthPeerSteamID.Clear();
-			}
-		}
-	}
-
-	CCallback<SteamAuthValidator, ValidateAuthTicketResponse_t> m_CallbackValidateAuthTicket;
-};
-
-static SteamAuthValidator g_steamAuthValidator;
 
 // --- BROWSER FLAGS ---
 static bool g_saveBrowserIsReplayMode = false;
@@ -383,46 +342,6 @@ static std::string getAlphaTaggedName(std::string name, uint64_t steamID) {
 		return "[Alpha] " + name;
 	}
 	return name;
-}
-
-static void SendLocalAuthSessionTicket(SteamManager & steamMgr, int localPlayerID) {
-	if (!SteamUser()) return;
-
-	if (g_localAuthTicket != k_HAuthTicketInvalid) {
-		// CRITICAL FIX: Flat C API
-		SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
-		g_localAuthTicket = k_HAuthTicketInvalid;
-	}
-
-	uint8_t ticketBuffer[1024];
-	uint32_t ticketSize = 0;
-
-	// CRITICAL FIX: This is the exact function that crashed the game on the Start Button click!
-#ifdef _WIN32
-	__try {
-		g_localAuthTicket = SteamAPI_ISteamUser_GetAuthSessionTicket((intptr_t)SteamUser(), ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
-	} __except (EXCEPTION_EXECUTE_HANDLER) {
-		g_localAuthTicket = k_HAuthTicketInvalid;
-		ticketSize = 0;
-		ofLogError("SteamAuth") << "Structured exception thrown while calling SteamAPI_ISteamUser_GetAuthSessionTicket";
-		persistCrashReason("SteamAuth", "SEH exception in SteamAPI_ISteamUser_GetAuthSessionTicket");
-	}
-#else
-	g_localAuthTicket = SteamAPI_ISteamUser_GetAuthSessionTicket((intptr_t)SteamUser(), ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
-#endif
-
-	if (g_localAuthTicket != k_HAuthTicketInvalid && ticketSize > 0) {
-		AuthTicketPacket pkt = {};
-		pkt.header.type = PKT_AUTH_TICKET;
-		pkt.header.playerID = localPlayerID;
-		pkt.ticketSize = ticketSize;
-		memcpy(pkt.ticketData, ticketBuffer, std::min((size_t)ticketSize, sizeof(pkt.ticketData)));
-
-		steamMgr.sendPacket(&pkt, sizeof(pkt));
-		ofLogNotice("SteamAuth") << "Sent local Steam Auth Session Ticket (" << ticketSize << " bytes) to peer.";
-	} else {
-		ofLogError("SteamAuth") << "Failed to generate Steam Auth Session Ticket.";
-	}
 }
 
 // Converts Assimp row-major matrix to GLM column-major format
@@ -3317,7 +3236,7 @@ void applyChatPenalty() {
 	if (!SteamUserStats()) return;
 
 	int32_t strikes = 0;
-	SteamUserStats()->GetStat("chat_strikes", &strikes);
+	SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "chat_strikes", &strikes);
 	strikes++; // Increment offense count
 
 	int penaltySeconds = 0;
@@ -3357,9 +3276,9 @@ void applyChatPenalty() {
 
 	int32_t expiryTime = (int32_t)std::time(nullptr) + penaltySeconds;
 
-	SteamUserStats()->SetStat("chat_strikes", strikes);
-	SteamUserStats()->SetStat("ban_expiry_time", expiryTime);
-	SteamUserStats()->StoreStats();
+	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "chat_strikes", strikes);
+	SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "ban_expiry_time", expiryTime);
+	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
 
 	ofLogNotice("Ban") << "Player issued strike " << strikes << ". Banned from Online for " << penaltyText;
 }
@@ -5066,7 +4985,7 @@ void ofApp::setup() {
 	if (steamManager.isConnected()) {
 		ofLogNotice("Steam") << "Steam integration active.";
 		// Verify license if connected
-		if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr && SteamApps() && !SteamApps()->BIsSubscribed()) {
+		if (std::getenv("MAGEFIGHT_HEADLESS") == nullptr && SteamApps() && !SteamAPI_ISteamApps_BIsSubscribed((intptr_t)SteamApps())) {
 			ofLogError("SteamDRM") << "Active Steam account does not own App ID " << k_uSteamAppId;
 			std::exit(0);
 			return;
@@ -5206,7 +5125,7 @@ void ofApp::setup() {
 		}
 
 		// --- SET DEFAULTS BEFORE LOADING ---
-		g_windowModeState = 2; // Default to Borderless Windowed (Safest for Linux/Wayland)
+		g_windowModeState = 1; // Default to True Fullscreen (Guarantees Alt+Tab in Proton)
 		isFullscreen = true;
 
 		int monitorRefreshRate = 60;
@@ -6114,20 +6033,6 @@ void ofApp::updateStateMachine() {
 			// Auto-quit after 10 seconds of being in the desync screen
 			if (ofGetElapsedTimef() - g_desyncStartTime >= 10.0f) {
 				if (isMultiplayer) {
-					if (SteamUser()) {
-						if (g_localAuthTicket != k_HAuthTicketInvalid) {
-							// CRITICAL FIX
-							SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
-							g_localAuthTicket = k_HAuthTicketInvalid;
-						}
-						if (g_activeAuthPeerSteamID.IsValid()) {
-							// CRITICAL FIX
-							SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
-							g_activeAuthPeerSteamID.Clear();
-						}
-					}
-					g_peerAuthValidated = false;
-
 					steamManager.leaveLobby();
 					isMultiplayer = false;
 					hasReceivedHandshake = false;
@@ -6818,10 +6723,6 @@ void ofApp::update() {
 						// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 						localSeedComponent = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 						myElo = steamManager.getLocalElo();
-
-						// FIX: Only generate and send the heavy Auth Session Ticket ONCE!
-						// Generating a crypto ticket every 1 second caused massive mouse stuttering.
-						SendLocalAuthSessionTicket(steamManager, 0);
 					} else {
 						ofLogNotice("Network") << "Host: Handshake retry sent...";
 					}
@@ -9816,6 +9717,14 @@ void ofApp::applySettings() {
 	int finalW = std::max(800, (int)res.x);
 	int finalH = std::max(600, (int)res.y);
 
+	// CRITICAL PROTON FIX: Set these attributes BEFORE changing window states
+	// so the Window Manager / Proton knows exactly how to handle the transition!
+	if (win) {
+		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
+		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE); // Allows Alt+Tab to minimize the game
+		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+	}
+
 	// WAYLAND / PROTON FULLSCREEN FIX:
 	if (g_windowModeState == 1 || g_windowModeState == 2) {
 		finalW = std::max(800, ofGetScreenWidth());
@@ -9824,9 +9733,13 @@ void ofApp::applySettings() {
 		if (g_windowModeState == 1) {
 			// True Fullscreen
 			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
-			if (ofGetWindowMode() != OF_FULLSCREEN) {
-				ofSetFullscreen(true);
+
+			// Force a state update for Proton by briefly stepping out of fullscreen on boot
+			if (ofGetWindowMode() == OF_FULLSCREEN && ofGetFrameNum() < 10) {
+				ofSetFullscreen(false);
 			}
+			ofSetFullscreen(true);
+
 		} else {
 			// Borderless Windowed
 			if (ofGetWindowMode() == OF_FULLSCREEN) {
@@ -9849,12 +9762,6 @@ void ofApp::applySettings() {
 			ofSetWindowPosition((ofGetScreenWidth() - finalW) / 2, (ofGetScreenHeight() - finalH) / 2);
 		}
 		isFullscreen = false;
-	}
-
-	if (win) {
-		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
-		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE); // <--- FIX: Prevents Proton/Wine from hanging on Alt+Tab!
-		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
 	}
 
 	// CRITICAL MOUSE & FBO FIX: Always recalculate UI and FBOs when applying settings,
@@ -21691,6 +21598,26 @@ void ofApp::keyPressed(int key) {
 		isMultiplayer = true;
 		myLocalPlayerID = 1; // You are Player 1 (The Client)
 		isVsAI = true; // The Host is the AI
+
+		// --- FIX: Populate a fake lobby so setupGame() doesn't abort! ---
+		g_lobbyPlayers.clear();
+		LobbyPlayer hostBot;
+		hostBot.playerID = 0;
+		hostBot.isBot = true;
+		hostBot.isReady = true;
+		hostBot.name = "AI Host";
+		g_lobbyPlayers.push_back(hostBot);
+
+		LobbyPlayer localClient;
+		localClient.playerID = 1;
+		localClient.isBot = false;
+		localClient.isReady = true;
+		localClient.name = "Local Client";
+		g_lobbyPlayers.push_back(localClient);
+
+		currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
+		// ----------------------------------------------------------------
+
 		isLoadingGame = true;
 		ofLogNotice("Dev") << "=== LAUNCHING SIMULATED MULTIPLAYER (YOU ARE CLIENT) ===";
 		return;
@@ -40860,20 +40787,6 @@ void ofApp::cleanupGame() {
 	s_pendingRemoteChecksums.clear();
 	s_pendingLocalChecksums.clear();
 
-	if (SteamUser()) {
-		if (g_localAuthTicket != k_HAuthTicketInvalid) {
-			// CRITICAL FIX
-			SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
-			g_localAuthTicket = k_HAuthTicketInvalid;
-		}
-		if (g_activeAuthPeerSteamID.IsValid()) {
-			// CRITICAL FIX
-			SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
-			g_activeAuthPeerSteamID.Clear();
-		}
-	}
-	g_peerAuthValidated = false;
-
 	s_hasCachedGameOverVisuals = false;
 	s_gameOverScreenStartTime = 0.0f;
 
@@ -43962,20 +43875,6 @@ void ofApp::exit() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}
 
-	// Clean up Steam authentication tickets & sessions
-	if (SteamUser()) {
-		if (g_localAuthTicket != k_HAuthTicketInvalid) {
-			// CRITICAL FIX
-			SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
-			g_localAuthTicket = k_HAuthTicketInvalid;
-		}
-		if (g_activeAuthPeerSteamID.IsValid()) {
-			// CRITICAL FIX
-			SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
-			g_activeAuthPeerSteamID.Clear();
-		}
-	}
-
 	// 1. Close network sockets first
 	if (zmqSocket) {
 		zmqSocket->close();
@@ -44142,11 +44041,6 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 
-			// Safely drop auth ticket packets in network loop if unneeded
-			if (header->type == PKT_AUTH_TICKET) {
-				continue;
-			}
-
 			if (header->type == PKT_HANDSHAKE) {
 				if (buffer.size() < sizeof(HandshakePacket)) continue;
 				HandshakePacket * pkt = (HandshakePacket *)header;
@@ -44232,8 +44126,6 @@ void ofApp::processNetworkPackets() {
 					currentState = STATE_MULTIPLAYER_MENU;
 					isChatOpen = true;
 					isChatMinimized = false;
-
-					SendLocalAuthSessionTicket(steamManager, myLocalPlayerID);
 
 					// Sync our Steam name with the host
 					std::string myName = steamManager.getLocalPlayerName();
