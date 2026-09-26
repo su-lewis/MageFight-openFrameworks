@@ -530,7 +530,9 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 }
 
 void SteamManager::setMatchStarted() {
-	if (m_LobbyID.IsValid()) SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started", "1");
+	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid()) {
+		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started", "1");
+	}
 }
 bool SteamManager::isMatchStarted() const {
 	if (!m_LobbyID.IsValid()) return false;
@@ -539,7 +541,9 @@ bool SteamManager::isMatchStarted() const {
 	return std::string(val) == "1";
 }
 void SteamManager::setLobbySeed(uint32_t seed) {
-	if (m_LobbyID.IsValid()) SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed", std::to_string(seed).c_str());
+	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid()) {
+		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed", std::to_string(seed).c_str());
+	}
 }
 uint32_t SteamManager::getLobbySeed() const {
 	if (!m_LobbyID.IsValid()) return 0;

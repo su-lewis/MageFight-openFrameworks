@@ -1275,23 +1275,22 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 	float safeW = std::max(1.0f, w);
 	float safeH = std::max(1.0f, h);
 
-	// PASS 1: Base Card Art
+	// PASS 1: Base Card Art & Frame Geometry
 	if (g_renderGeometryMask) {
 		drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
 			card.textureRect.x, card.textureRect.y,
 			card.textureRect.width, card.textureRect.height);
-	}
 
-	// PASS 2: Crisp Text Overlay
-	if (g_renderText) {
-		TEXT_PASS_BEGIN()
-		// Draw the transparent text sprite sheet perfectly aligned over the card
+		// Draw card template frame/border in geometry pass so it survives screen dimming
 		if (g_cardTextSpriteSheet.isAllocated()) {
 			drawCardSpriteSubsectionSafe(g_cardTextSpriteSheet, drawX, drawY, safeW, safeH,
 				card.textureRect.x, card.textureRect.y,
 				card.textureRect.width, card.textureRect.height);
 		}
-		TEXT_PASS_END()
+	}
+
+	// PASS 2: Crisp Text Overlay
+	if (g_renderText) {
 
 		ofPushMatrix();
 		ofTranslate(drawX, drawY);
@@ -9818,7 +9817,7 @@ void ofApp::applySettings() {
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
 		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
-		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_TRUE);
+		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
 	}
 
 	// CRITICAL MOUSE & FBO FIX: Always recalculate UI and FBOs when applying settings,
@@ -15206,8 +15205,10 @@ void ofApp::drawGame() {
 			if (!name.empty()) init += name[0];
 			size_t sp = name.find(' ');
 			if (sp != string::npos && sp + 1 < name.size()) init += name[sp + 1];
+			if (init.empty()) init = "?";
 			ofRectangle ib = titleFont.getStringBoundingBox(init, 0, 0);
-			float iscale = (avatarSize * 0.5f) / std::max(ib.width, ib.height);
+			float maxDim = std::max(1.0f, std::max(ib.width, ib.height));
+			float iscale = (avatarSize * 0.5f) / maxDim;
 			drawPixelTextCentered(titleFont, init, avatarX + avatarSize / 2, avatarY + avatarSize / 2, iscale, ofColor::white);
 		}
 
@@ -38843,6 +38844,7 @@ void ofApp::drawDiceLabel(const string & message, ofColor color, float yPos) {
 }
 //--------------------------------------------------------------
 void ofApp::drawMenuOverlay() {
+	if (g_isSecondPass) return; // Prevent eraser mode from wiping screen text
 	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(0, 0, 0, 180 * g_menuAlphaMult);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
@@ -43018,9 +43020,6 @@ void ofApp::drawDraftScreen() {
 		// Start text block strictly below the bottom of the Turn Indicator
 		float scale1080 = (float)ofGetHeight() / 1080.0f;
 		float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
-		if (endTurnButtonRect.height > 0) {
-			indicatorBottomY = endTurnButtonRect.getBottom();
-		}
 
 		// Account for font height because drawString draws UPWARDS from the baseline
 		ofRectangle headerMeasureBox = titleFont.getStringBoundingBox(header, 0, 0);
@@ -43651,11 +43650,8 @@ void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCard
 	float uiScale = std::clamp(screenScale * settingsUIScale, 0.75f, 1.25f);
 	float scale1080 = (float)ofGetHeight() / 1080.0f;
 
-	// Calculate bottom of the Turn Indicator button
+	// Use fixed, stable baseline below the top bar so AI drafts never pull the screen upward
 	float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
-	if (endTurnButtonRect.height > 0) {
-		indicatorBottomY = endTurnButtonRect.getBottom();
-	}
 
 	// Align cards to sit with a 24px gap below Line 3 ("Class 1")
 	float line1BaselineY = indicatorBottomY + (22.0f * uiScale) + (38.0f * uiScale);
@@ -43684,10 +43680,12 @@ void ofApp::drawPauseMenu() {
 	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float centerX = ofGetWidth() / 2.0f;
 
-	// Dim background
-	ofSetColor(0, 0, 0, 190);
-	ofFill();
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	// Dim background (only in Pass 1; never erase text with fullscreen dim in Pass 2)
+	if (!g_isSecondPass) {
+		ofSetColor(0, 0, 0, 190);
+		ofFill();
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	}
 
 	// Determine how many rows of buttons we need
 	int numRows = !isMultiplayer ? 5 : 4;

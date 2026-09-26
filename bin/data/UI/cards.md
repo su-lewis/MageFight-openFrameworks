@@ -5,7 +5,7 @@
 - **AP Cost:** 1
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Hand-related. 
+- **Effect Text:** Deal 2 damage to an adjacent unit. **Hand-related**. 
 ---
 
 ## 2. Kick
@@ -20,7 +20,7 @@
 - **AP Cost:** 1
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain +2 **Block** until your next turn. Hand-related.
+- **Effect Text:** Gain +2 **Block** until your next turn. **Hand-related**.
 ---
 
 ## 4. Bash
@@ -28,7 +28,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2d4 damage to an adjacent unit. Hand-related.
+- **Effect Text:** Deal 2d4 damage to an adjacent unit. **Hand-related**.
 ---
 
 ## 5. Ward
@@ -209,14 +209,14 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card played this turn. **Restore** Health equal to damage dealt. Hand-related.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card played this turn. **Restore** Health equal to damage dealt. **Hand-related**.
 ---
 
 ## 28. Double Handed
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Choose One:** Shuffle 2x Punch; or 2x Hand Block into your deck or an adjacent unit's deck. Hand-related.
+- **Effect Text:** **Choose One:** Shuffle 2x Punch; or 2x Hand Block into your deck or an adjacent unit's deck. **Hand-related**.
 ---
 
 ## 29. Blocking Boon
@@ -255,7 +255,7 @@
 - **AP Cost:** 2
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Deal [X] Physical damage to an adjacent unit. This deals 2 damage for each **Hand-related** card in your discard pile. Gain +1 **Luck** and +1 **Max Health**. **Destroy** their top card. Hand-related.
+- **Effect Text:** Deal [X] Physical damage to an adjacent unit. This deals 2 damage for each **Hand-related** card in your discard pile. Gain +1 **Luck** and +1 **Max Health**. **Destroy** their top card. **Hand-related**.
 ---
 
 ## 34. Magic Bolt
@@ -354,7 +354,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = Flurry of Fists played this turn).
+- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = Flurry of Fists played this turn). **Hand-related**.
 ---
 
 ## 46. Form of Tortoise
@@ -447,7 +447,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Choose One:** Push an adjacent wall 1 tile (moving with it), dealing 2d4 damage to units hit (if trapped, they are **Executed**); or pull it 1 tile. Hand-related.
+- **Effect Text:** **Choose One:** Push an adjacent wall 1 tile (moving with it), dealing 2d4 damage to units hit (if trapped, they are **Executed**); or pull it 1 tile. **Hand-related**.
 ---
 
 ## 58. Consume Health Flagon
