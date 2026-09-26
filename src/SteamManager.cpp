@@ -1,4 +1,5 @@
 #include "SteamManager.h"
+#include <algorithm> // <--- Moved safely out of extern "C"
 
 // Define the safe Flat C API functions manually to avoid Valve's broken include paths
 // This completely fixes the MinGW vtable crash without needing steam_api_flat.h
@@ -19,7 +20,6 @@ int SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, uint64_t
 int SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit(intptr_t instancePtr, uint64_t steamIDLobby);
 
 const char * SteamAPI_ISteamFriends_GetPersonaName(intptr_t instancePtr);
-#include <algorithm>
 const char * SteamAPI_ISteamFriends_GetFriendPersonaName(intptr_t instancePtr, uint64_t steamIDFriend);
 int SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
 int SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
