@@ -36,6 +36,9 @@ bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pc
 bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
 uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardUploadScoreMethod, int32_t nScore, const int32_t * pScoreDetails, int cScoreDetailsCount);
 int SteamAPI_ISteamApps_GetLaunchCommandLine(intptr_t instancePtr, char * pszCommandLine, int cubCommandLine);
+
+bool SteamAPI_ISteamUtils_GetImageSize(intptr_t instancePtr, int iImage, uint32_t * pnWidth, uint32_t * pnHeight);
+bool SteamAPI_ISteamUtils_GetImageRGBA(intptr_t instancePtr, int iImage, uint8_t * pubDest, int nDestBufferSize);
 }
 
 #ifdef _WIN32
@@ -374,11 +377,13 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 
 	if (imageId <= 0) return false;
 	uint32_t width = 0, height = 0;
-	if (!SteamUtils()->GetImageSize(imageId, &width, &height) || width == 0 || height == 0) return false;
+    
+    // CRITICAL FIX: Use the flat C-API to prevent Proton ABI Segfaults!
+	if (!SteamAPI_ISteamUtils_GetImageSize((intptr_t)SteamUtils(), imageId, &width, &height) || width == 0 || height == 0) return false;
 
 	ofPixels pixels;
 	pixels.allocate(width, height, OF_PIXELS_RGBA);
-	if (!SteamUtils()->GetImageRGBA(imageId, pixels.getData(), width * height * 4)) return false;
+	if (!SteamAPI_ISteamUtils_GetImageRGBA((intptr_t)SteamUtils(), imageId, pixels.getData(), width * height * 4)) return false;
 
 	outImage.setFromPixels(pixels);
 	return true;

@@ -1308,8 +1308,9 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		std::string costStr = ofToString(effCost);
 		float costScale = (costStr.size() > 1) ? 2.40f : 3.15f;
 		ofRectangle costGemRect(8, 8, 176, 176);
-		// outlinePx set to 0 removes the black outline
-		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, ofColor::black, 0);
+
+		// Set outlinePx to 4 for a thick, readable black outline
+		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, ofColor::black, 4);
 
 		// 2. Fetch Card Template Text Records
 		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
