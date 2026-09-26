@@ -50,6 +50,14 @@ static const int MENU_MAGIC_HAND_RELOCATE = 999;
 #include "steam_api.h"
 #include <assimp/scene.h>
 
+extern "C" {
+// Fix: Corrected parameter order and types to prevent MSVC stack corruption
+uint32_t SteamAPI_ISteamUser_GetAuthSessionTicket(intptr_t instancePtr, void * pTicket, int cbMaxTicket, uint32_t * pcbTicket, const void * pIdentityRemote);
+void SteamAPI_ISteamUser_CancelAuthTicket(intptr_t instancePtr, uint32_t hAuthTicket);
+void SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, uint64_t steamID);
+}
+// ----------------------------------------------------------------------------------------
+
 static const uint8_t PKT_AUTH_TICKET = 250;
 
 #pragma pack(push, 1)
@@ -80,7 +88,8 @@ public:
 			ofLogError("SteamAuth") << "CRITICAL: Peer authentication ticket rejected by Steam! Response code: " << (int)pResponse->m_eAuthSessionResponse;
 			g_peerAuthValidated = false;
 			if (SteamUser() && g_activeAuthPeerSteamID.IsValid()) {
-				SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+				// CRITICAL FIX: Flat C API
+				SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
 				g_activeAuthPeerSteamID.Clear();
 			}
 		}
@@ -380,14 +389,16 @@ static void SendLocalAuthSessionTicket(SteamManager & steamMgr, int localPlayerI
 	if (!SteamUser()) return;
 
 	if (g_localAuthTicket != k_HAuthTicketInvalid) {
-		SteamUser()->CancelAuthTicket(g_localAuthTicket);
+		// CRITICAL FIX: Flat C API
+		SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
 		g_localAuthTicket = k_HAuthTicketInvalid;
 	}
 
 	uint8_t ticketBuffer[1024];
 	uint32_t ticketSize = 0;
 
-	g_localAuthTicket = SteamUser()->GetAuthSessionTicket(ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
+	// CRITICAL FIX: This is the exact function that crashed the game on the Start Button click!
+	g_localAuthTicket = SteamAPI_ISteamUser_GetAuthSessionTicket((intptr_t)SteamUser(), ticketBuffer, sizeof(ticketBuffer), &ticketSize, nullptr);
 
 	if (g_localAuthTicket != k_HAuthTicketInvalid && ticketSize > 0) {
 		AuthTicketPacket pkt = {};
@@ -6077,11 +6088,13 @@ void ofApp::updateStateMachine() {
 				if (isMultiplayer) {
 					if (SteamUser()) {
 						if (g_localAuthTicket != k_HAuthTicketInvalid) {
-							SteamUser()->CancelAuthTicket(g_localAuthTicket);
+							// CRITICAL FIX
+							SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
 							g_localAuthTicket = k_HAuthTicketInvalid;
 						}
 						if (g_activeAuthPeerSteamID.IsValid()) {
-							SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+							// CRITICAL FIX
+							SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
 							g_activeAuthPeerSteamID.Clear();
 						}
 					}
@@ -9916,9 +9929,30 @@ void ofApp::recalculateUI(int w, int h) {
 		pauseMenuLoadButton.set(0, 0, 0, 0);
 	}
 }
+static void sanitizeLobbyPlayersForMatchStart() {
+	if (!g_lobbyPlayers.empty()) {
+		std::set<uint32_t> seenPlayerIDs;
+		std::vector<LobbyPlayer> sanitized;
+		sanitized.reserve(g_lobbyPlayers.size());
+		for (const auto & lp : g_lobbyPlayers) {
+			if ((int)lp.playerID < 0 || lp.playerID > 3) continue;
+			if (!seenPlayerIDs.insert(lp.playerID).second) continue;
+			sanitized.push_back(lp);
+		}
+		if (sanitized.size() != g_lobbyPlayers.size()) {
+			ofLogWarning("Network") << "Sanitized stale/duplicate lobby roster from " << g_lobbyPlayers.size() << " to " << sanitized.size() << " valid entries before match start.";
+			g_lobbyPlayers.swap(sanitized);
+		}
+	}
+}
+
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	ensureModelsLoaded();
+
+	if (isMultiplayer) {
+		sanitizeLobbyPlayersForMatchStart();
+	}
 
 	// --- CRASH FIX: Ensure lobby state is populated before building players ---
 	// If we're the client and haven't received the LobbyUpdate yet, abort setup.
@@ -10302,7 +10336,7 @@ void ofApp::setupGame() {
 			steamManager.setMatchStarted();
 		}
 
-		// Only send peer packet if there is an actual connected peer
+		// Only send peer packet if there is an actual connected peer. Safe string evaluation.
 		if (isMultiplayer && myLocalPlayerID != 2 && steamManager.hasOpponent()) {
 			std::string myName = steamManager.getLocalPlayerName();
 			if (myName.empty()) myName = (myLocalPlayerID == 0) ? "Player 1" : "Player 2";
@@ -10310,8 +10344,12 @@ void ofApp::setupGame() {
 			syncPkt.type = PKT_CHAT_MESSAGE;
 			syncPkt.playerID = myLocalPlayerID;
 			std::string payload = "\aSYNC_NAME:" + myName;
-			strncpy(syncPkt.message, payload.c_str(), sizeof(syncPkt.message) - 1);
-			syncPkt.message[sizeof(syncPkt.message) - 1] = '\0';
+
+			// CRITICAL FIX: Cast and safely pad the buffer bounds
+			size_t copyLen = std::min(payload.size(), sizeof(syncPkt.message) - 1);
+			strncpy(syncPkt.message, payload.c_str(), copyLen);
+			syncPkt.message[copyLen] = '\0';
+
 			steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
 		}
 	}
@@ -27272,6 +27310,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			// Client must have a valid lobby roster before we build players.
 			if (!steamManager.isHost()) {
+				sanitizeLobbyPlayersForMatchStart();
 				bool localPlayerPresent = false;
 				for (const auto & lp : g_lobbyPlayers) {
 					if ((int)lp.playerID == myLocalPlayerID) {
@@ -27279,8 +27318,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 						break;
 					}
 				}
-				if (g_lobbyPlayers.empty() || (!localPlayerPresent && myLocalPlayerID != 255)) {
-					ofLogWarning("Network") << "StartMatch received on client but lobby roster is stale or incomplete. Requesting resync.";
+				if (g_lobbyPlayers.empty() || g_lobbyPlayers.size() < 2 || (!localPlayerPresent && myLocalPlayerID != 255)) {
+					ofLogWarning("Network") << "StartMatch received on client but lobby roster is stale or incomplete (players=" << g_lobbyPlayers.size() << ", localPlayerID=" << myLocalPlayerID << "). Requesting resync.";
 					HandshakePacket probe = {};
 					probe.type = PKT_HANDSHAKE;
 					probe.playerID = myLocalPlayerID;
@@ -40769,11 +40808,13 @@ void ofApp::cleanupGame() {
 
 	if (SteamUser()) {
 		if (g_localAuthTicket != k_HAuthTicketInvalid) {
-			SteamUser()->CancelAuthTicket(g_localAuthTicket);
+			// CRITICAL FIX
+			SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
 			g_localAuthTicket = k_HAuthTicketInvalid;
 		}
 		if (g_activeAuthPeerSteamID.IsValid()) {
-			SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+			// CRITICAL FIX
+			SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
 			g_activeAuthPeerSteamID.Clear();
 		}
 	}
@@ -43870,11 +43911,13 @@ void ofApp::exit() {
 	// Clean up Steam authentication tickets & sessions
 	if (SteamUser()) {
 		if (g_localAuthTicket != k_HAuthTicketInvalid) {
-			SteamUser()->CancelAuthTicket(g_localAuthTicket);
+			// CRITICAL FIX
+			SteamAPI_ISteamUser_CancelAuthTicket((intptr_t)SteamUser(), g_localAuthTicket);
 			g_localAuthTicket = k_HAuthTicketInvalid;
 		}
 		if (g_activeAuthPeerSteamID.IsValid()) {
-			SteamUser()->EndAuthSession(g_activeAuthPeerSteamID);
+			// CRITICAL FIX
+			SteamAPI_ISteamUser_EndAuthSession((intptr_t)SteamUser(), g_activeAuthPeerSteamID.ConvertToUint64());
 			g_activeAuthPeerSteamID.Clear();
 		}
 	}

@@ -2,14 +2,21 @@
 #include <algorithm> // <--- Moved safely out of extern "C"
 
 // Define the safe Flat C API functions manually to avoid Valve's broken include paths
-// This completely fixes the MinGW vtable crash without needing steam_api_flat.h
 extern "C" {
 uint64_t SteamAPI_ISteamUser_GetSteamID(intptr_t instancePtr);
+
+uint32_t SteamAPI_ISteamUser_GetAuthSessionTicket(intptr_t instancePtr, void * pTicket, int cbMaxTicket, uint32_t * pcbTicket, void * pIdentityRemote);
+void SteamAPI_ISteamUser_CancelAuthTicket(intptr_t instancePtr, uint32_t hAuthTicket);
+void SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, uint64_t steamID);
+
 uint64_t SteamAPI_ISteamMatchmaking_CreateLobby(intptr_t instancePtr, int eLobbyType, int cMaxMembers);
 void SteamAPI_ISteamMatchmaking_LeaveLobby(intptr_t instancePtr, uint64_t steamIDLobby);
 uint64_t SteamAPI_ISteamMatchmaking_GetLobbyOwner(intptr_t instancePtr, uint64_t steamIDLobby);
+
+// CRITICAL FIX: Ensure Windows __cdecl compatibility for Lobby Set/Get Data
 bool SteamAPI_ISteamMatchmaking_SetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey, const char * pchValue);
 const char * SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey);
+
 uint64_t SteamAPI_ISteamMatchmaking_JoinLobby(intptr_t instancePtr, uint64_t steamIDLobby);
 void SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter(intptr_t instancePtr, int cMaxResults);
 void SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(intptr_t instancePtr, const char * pchKeyToMatch, const char * pchValueToMatch, int eComparisonType);
@@ -35,8 +42,10 @@ bool SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pc
 bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
 bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
 uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardUploadScoreMethod, int32_t nScore, const int32_t * pScoreDetails, int cScoreDetailsCount);
+
 int SteamAPI_ISteamApps_GetLaunchCommandLine(intptr_t instancePtr, char * pszCommandLine, int cubCommandLine);
 
+// CRITICAL FIX: Safe integer sizes for SteamUtils API to prevent MSVC stack corruption on Avatar fetching!
 bool SteamAPI_ISteamUtils_GetImageSize(intptr_t instancePtr, int iImage, uint32_t * pnWidth, uint32_t * pnHeight);
 bool SteamAPI_ISteamUtils_GetImageRGBA(intptr_t instancePtr, int iImage, uint8_t * pubDest, int nDestBufferSize);
 }
@@ -396,8 +405,8 @@ void SteamManager::openFriendOverlay() {
 }
 
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
-	// CRASH FIX: pCallback can be null if the call failed before dispatch.
 	if (!pCallback || bIOFailure || pCallback->m_eResult != k_EResultOK) {
+
 		ofLogError("Steam") << "OnLobbyCreated: FAILED. bIOFailure=" << (bIOFailure ? 1 : 0)
 							<< " result=" << (pCallback ? (int)pCallback->m_eResult : -1);
 		m_bIsHost = false;
@@ -416,11 +425,14 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 
 	if (!SteamMatchmaking()) return;
 
+	// CRITICAL FIX: Static buffer to prevent string destruction ABI crashes
+	static char nameBuffer[256];
 	std::string lobbyName = getLocalPlayerName() + "'s Game";
-	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "name", lobbyName.c_str());
+	snprintf(nameBuffer, sizeof(nameBuffer), "%s", lobbyName.c_str());
+
+	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "name", nameBuffer);
 	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "MageFightLobby", "Active");
 
-	// CRASH FIX: Verify SteamNetworkingSockets() is valid before using it.
 	if (SteamNetworkingSockets()) {
 		m_hListenSocket = SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr);
 	}
@@ -549,7 +561,7 @@ bool SteamManager::isMatchStarted() const {
 }
 void SteamManager::setLobbySeed(uint32_t seed) {
 	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid()) {
-		// CRITICAL FIX: Buffer the string statically to prevent MinGW to MSVC ABI Segfaults
+		// CRITICAL FIX: Use static buffer so the pointer remains alive in memory
 		static char seedBuffer[64];
 		snprintf(seedBuffer, sizeof(seedBuffer), "%u", seed);
 		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed", seedBuffer);
@@ -681,8 +693,12 @@ int SteamManager::checkLeaverBuster() {
 }
 void SteamManager::updateRichPresence(const std::string & presenceText) {
 	if (!m_bInitialized || !SteamAPI_IsSteamRunning() || !SteamFriends()) return;
-	// Use flat C API to prevent Proton/GCC vtable mismatch crashes
-	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "status", presenceText.c_str());
+
+	// CRITICAL FIX: Buffer the string so Steam's background threads don't read destroyed memory
+	static char presenceBuffer[256];
+	snprintf(presenceBuffer, sizeof(presenceBuffer), "%s", presenceText.c_str());
+
+	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "status", presenceBuffer);
 	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "steam_display", "#Status");
 }
 void SteamManager::onUserStatsReceived(UserStatsReceived_t * pCallback) {
