@@ -6074,7 +6074,7 @@ void ofApp::updateStateMachine() {
 		}
 	}
 }
-
+//--------------------------------------------------------------
 void ofApp::update() {
 
 	// --- SPLASH SCREEN PROGRESSION ---
@@ -6082,18 +6082,27 @@ void ofApp::update() {
 		if (s_splashStartTime < 0.0f) {
 			s_splashStartTime = ofGetElapsedTimef();
 		}
-
-		// Continue loading 3D models in background while splash plays
 		if (s_modelLoadStep <= 6 && !headless) {
 			loadNextModelBatch();
 		}
-
-		// After 5 seconds, finish splash screen and enter Main Menu
 		if (ofGetElapsedTimef() - s_splashStartTime >= 5.0f) {
 			s_showingSplashScreen = false;
 		}
-		return; // Pause game/menu state machine until splash screen completes
+		return;
 	}
+
+	// --- WINDOWS ALT-TAB BUG FIX ---
+	// Windows GLFW often traps the game in an un-alt-tabbable "Topmost" state on boot.
+	// Toggling fullscreen OFF and ON after the window is fully mapped completely fixes it.
+	static bool s_bootFullscreenToggle = false;
+	if (!s_bootFullscreenToggle && ofGetFrameNum() > 5) {
+		s_bootFullscreenToggle = true;
+		if (g_windowModeState == 1) {
+			ofSetFullscreen(false);
+			ofSetFullscreen(true);
+		}
+	}
+
 	// --- DELAYED CARD REBUILD (Fixes Settings Menu Lag) ---
 	if (g_cardsNeedTranslationRebuild && ofGetElapsedTimef() - g_languageChangedTime > 0.5f) {
 		loadCardData("Config/cards.json");
@@ -9739,11 +9748,6 @@ void ofApp::applySettings() {
 		if (g_windowModeState == 1) {
 			// True Fullscreen
 			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
-
-			// Force a state update for Proton by briefly stepping out of fullscreen on boot
-			if (ofGetWindowMode() == OF_FULLSCREEN && ofGetFrameNum() < 10) {
-				ofSetFullscreen(false);
-			}
 			ofSetFullscreen(true);
 
 		} else {
