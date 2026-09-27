@@ -22,6 +22,17 @@
 #include <sstream>
 #include <unordered_map>
 
+// --- GLOBAL TEXT CACHES ---
+static std::unordered_map<std::string, float> g_wordWidthCache;
+static std::unordered_map<char, float> g_charWidthCache;
+static std::unordered_map<std::string, ofRectangle> g_stringBoundsCache;
+
+static void clearTextCaches() {
+	g_wordWidthCache.clear();
+	g_charWidthCache.clear();
+	g_stringBoundsCache.clear();
+}
+
 #ifdef _WIN32
 	#include <timeapi.h>
 	#include <windows.h>
@@ -294,6 +305,9 @@ std::vector<ofUnicode::range> buildLocRanges() {
 }
 
 void ofApp::reloadFonts() {
+	// CRITICAL FPS FIX: Clear the caches so the new font scale/language takes effect!
+	clearTextCaches();
+
 	// If Chinese, use the Chinese font. Otherwise use the standard English/Spanish font.
 	std::string fontPath = (g_currentLanguage == "zh") ? "UI/zpix.ttf" : "UI/m6x11plus.ttf";
 
@@ -1102,13 +1116,11 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	TEXT_PASS_BEGIN()
 
-	// --- CRITICAL FPS FIX: Cache word widths so we don't calculate 3D meshes 10,000 times a frame! ---
-	static std::unordered_map<std::string, float> wordWidthCache;
 	auto getWordWidth = [&](const std::string & w) {
-		auto it = wordWidthCache.find(w);
-		if (it != wordWidthCache.end()) return it->second;
+		auto it = g_wordWidthCache.find(w);
+		if (it != g_wordWidthCache.end()) return it->second;
 		float width = font.getStringBoundingBox(w, 0, 0).width;
-		wordWidthCache[w] = width;
+		g_wordWidthCache[w] = width;
 		return width;
 	};
 
@@ -1237,7 +1249,6 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	TEXT_PASS_END()
 }
-
 static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner) {
 	ofPushStyle();
 	ofSetColor(255, 255, 255, 255);
@@ -1958,13 +1969,11 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const st
 
 	TEXT_PASS_BEGIN()
 
-	// --- CRITICAL FPS FIX: Cache String bounds ---
-	static std::unordered_map<std::string, ofRectangle> stringBoundsCache;
 	auto getBounds = [&](const std::string & t) {
-		auto it = stringBoundsCache.find(t);
-		if (it != stringBoundsCache.end()) return it->second;
+		auto it = g_stringBoundsCache.find(t);
+		if (it != g_stringBoundsCache.end()) return it->second;
 		ofRectangle bounds = font.getStringBoundingBox(t, 0, 0);
-		stringBoundsCache[t] = bounds;
+		g_stringBoundsCache[t] = bounds;
 		return bounds;
 	};
 
@@ -2008,13 +2017,11 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const
 
 	const float localEndDrop = endDropPx;
 
-	// --- CRITICAL FPS FIX: Cache character widths so we don't recalculate thousands of meshes ---
-	static std::unordered_map<char, float> charWidthCache;
 	auto getCharWidth = [&](char c) {
-		auto it = charWidthCache.find(c);
-		if (it != charWidthCache.end()) return it->second;
+		auto it = g_charWidthCache.find(c);
+		if (it != g_charWidthCache.end()) return it->second;
 		float width = font.getStringBoundingBox(std::string(1, c), 0, 0).width;
-		charWidthCache[c] = width;
+		g_charWidthCache[c] = width;
 		return width;
 	};
 
@@ -2039,7 +2046,6 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const
 		return;
 	}
 
-	// Calculate total box height efficiently
 	float textHeightUnscaled = font.getStringBoundingBox("A", 0, 0).height;
 	float totalWidth = totalWidthUnscaled * scale;
 	float startX = rect.x + (rect.width - totalWidth) * 0.5f;
@@ -2071,7 +2077,6 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const
 		ofTranslate(tx, ty);
 		ofScale(scale, scale);
 
-		// --- CRITICAL FPS FIX: 8-Way Outline instead of 49-Way Area Fill! ---
 		int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
 		for (auto & off : offsets) {
 			ofPushMatrix();
@@ -2089,6 +2094,7 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const
 
 	TEXT_PASS_END()
 }
+
 // Text-drawing helpers consolidated into rendering utilities.
 
 static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
@@ -36440,16 +36446,13 @@ void ofApp::cancelTargetingMode() {
 std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 	std::vector<glm::vec2> path;
 
-	// Reset
-	for (int i = 0; i < BOARD_WIDTH; i++)
-		for (int j = 0; j < BOARD_HEIGHT; j++) {
-			board[i][j].visited = false;
-			board[i][j].parent = { -1, -1 };
-		}
+	// Use FAST local memory arrays instead of modifying the global board!
+	bool visited[BOARD_WIDTH][BOARD_HEIGHT] = { false };
+	glm::vec2 parent[BOARD_WIDTH][BOARD_HEIGHT];
 
 	std::queue<glm::vec2> q;
 	q.push(start);
-	board[(int)start.x][(int)start.y].visited = true;
+	visited[(int)start.x][(int)start.y] = true;
 
 	// Ghost Check
 	bool isGhost = false;
@@ -39066,9 +39069,11 @@ void ofApp::drawCardSpawnerUI() {
 
 //--------------------------------------------------------------
 void ofApp::drawCardEncyclopediaUI() {
+	int mx = ofGetMouseX();
+	int my = ofGetMouseY();
+
 	drawMenuOverlay();
 
-	// Encyclopedia panel
 	float panelWidth = ofGetWidth() * 0.85f;
 	float panelHeight = ofGetHeight() * 0.85f;
 	float panelX = (ofGetWidth() - panelWidth) / 2.0f;
@@ -39079,23 +39084,19 @@ void ofApp::drawCardEncyclopediaUI() {
 	ofSetColor(25, 25, 30, 250);
 	ofDrawRectRounded(encyclopediaRect, 15);
 
-	// Title bar
 	ofSetColor(40, 40, 50);
 	ofDrawRectRounded(panelX, panelY, panelWidth, 50, 15);
-	// Fix bottom corners of title bar
 	ofDrawRectangle(panelX, panelY + 35, panelWidth, 15);
 
-	// Title will be drawn based on mode below
-
-	// Close button
 	encyclopediaCloseButton.set(panelX + panelWidth - 45, panelY + 10, 30, 30);
-	if (encyclopediaCloseButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "ency_close";
+
+	// --- OPTIMIZED CACHED MOUSE CALL ---
+	if (encyclopediaCloseButton.inside(mx, my)) g_hoveredButtonId = "ency_close";
 	ofSetColor(100, 40, 40);
 	ofDrawRectRounded(encyclopediaCloseButton, 5);
 	ofSetColor(ofColor::white);
 	SafeDrawText(uiFont, "X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
 
-	// Card grid - 10 cards per row, fills width; vertical scrolling for extra rows
 	const float encyCardAspect = 1.4f;
 
 	float contentY = panelY + 60;
@@ -39105,7 +39106,6 @@ void ofApp::drawCardEncyclopediaUI() {
 	float contentBottom = acceptY - 12.0f;
 	float contentHeight = std::max(0.0f, contentBottom - contentY);
 
-	// Build displayed list depending on current encyclopedia mode
 	std::vector<Card> displayList;
 	string titleSuffix = "";
 	if (encyclopediaMode == ENC_SPAWN_TO_HAND) {
@@ -39131,7 +39131,6 @@ void ofApp::drawCardEncyclopediaUI() {
 		titleSuffix = "All Cards";
 	}
 
-	// Update title depending on mode
 	string titleMode = "Select to Add";
 	if (encyclopediaMode == ENC_REMOVE_FROM_PILE) titleMode = "Select to Remove";
 	if (encyclopediaMode == ENC_SPAWN_TO_HAND) titleMode = "Select then Accept (adds to hand)";
@@ -39140,15 +39139,13 @@ void ofApp::drawCardEncyclopediaUI() {
 	ofRectangle titleBox2 = uiFont.getStringBoundingBox(titleFull, 0, 0);
 	SafeDrawText(uiFont, titleFull, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
-	// Fixed horizontal layout (10 columns)
 	int totalCards = displayList.size();
 	if (totalCards == 0) return;
 
-	// Keep exactly 10 cards per row and use scroll for additional rows.
 	const int cols = 10;
 	const float padX = 8.0f;
 	const float padY = 10.0f;
-	const float nameBand = 16.0f; // reserved text strip below each card
+	const float nameBand = 16.0f;
 	float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
 	cardW = std::max(12.0f, cardW);
 	float cardH = cardW * encyCardAspect;
@@ -39160,7 +39157,6 @@ void ofApp::drawCardEncyclopediaUI() {
 	float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 	encyclopediaScrollOffset = ofClamp(encyclopediaScrollOffset, 0.0f, maxScroll);
 
-	// Check for hover and update hover state
 	int currentHoveredIndex = -1;
 	int row = 0;
 	int col = 0;
@@ -39170,7 +39166,8 @@ void ofApp::drawCardEncyclopediaUI() {
 
 		if (drawY + cardH > contentY && drawY < contentBottom) {
 			ofRectangle cardRect(drawX, drawY, cardW, cardH);
-			if (cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY && drawY < contentBottom) {
+			// --- OPTIMIZED CACHED MOUSE CALL ---
+			if (cardRect.inside(mx, my) && drawY >= contentY && drawY < contentBottom) {
 				currentHoveredIndex = i;
 				break;
 			}
@@ -39183,7 +39180,6 @@ void ofApp::drawCardEncyclopediaUI() {
 		}
 	}
 
-	// Update hover timing
 	if (currentHoveredIndex != encyclopediaHoveredIndex) {
 		encyclopediaHoveredIndex = currentHoveredIndex;
 		encyclopediaHoverStartTime = ofGetElapsedTimef();
@@ -39195,7 +39191,6 @@ void ofApp::drawCardEncyclopediaUI() {
 		}
 	}
 
-	// Clip card rendering to content area so cards never obscure Accept button
 	ofPushStyle();
 	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
 	int scX = (int)panelX;
@@ -39204,7 +39199,6 @@ void ofApp::drawCardEncyclopediaUI() {
 	int scH = (int)contentHeight;
 	glScissor(scX, scY, scW, scH);
 
-	// Draw cards (draw non-hovered first, then hovered on top)
 	row = 0;
 	col = 0;
 	for (int pass = 0; pass < 2; pass++) {
@@ -39224,11 +39218,9 @@ void ofApp::drawCardEncyclopediaUI() {
 			float baseDrawX = startX + col * (cardW + padX);
 			float baseDrawY = contentY + row * rowStep - encyclopediaScrollOffset;
 
-			// Only draw if visible
 			if (baseDrawY + cardH > contentY && baseDrawY < contentBottom) {
 				const Card & card = displayList[i];
 
-				// Apply hover scale
 				float thisCardW = cardW;
 				float thisCardH = cardH;
 				float drawX = baseDrawX;
@@ -39238,11 +39230,9 @@ void ofApp::drawCardEncyclopediaUI() {
 					float scaleUp = 1.8f;
 					thisCardW = cardW * scaleUp;
 					thisCardH = cardH * scaleUp;
-					// Center the scaled card on its original position
 					drawX = baseDrawX - (thisCardW - cardW) / 2.0f;
 					drawY = baseDrawY - (thisCardH - cardH) / 2.0f;
 
-					// Add glow for scaled card
 					ofPushStyle();
 					ofNoFill();
 					const float lineW = 5.0f;
@@ -39252,10 +39242,8 @@ void ofApp::drawCardEncyclopediaUI() {
 					safePopStyle();
 				}
 
-				// Card rect for interaction
 				ofRectangle cardRect(drawX, drawY, thisCardW, thisCardH);
 
-				// Hover glow for non-scaled hover
 				bool isHovered = (int)i == encyclopediaHoveredIndex && !encyclopediaHoverScaled;
 				if (isHovered) {
 					ofPushStyle();
@@ -39267,7 +39255,6 @@ void ofApp::drawCardEncyclopediaUI() {
 					safePopStyle();
 				}
 
-				// Draw card art
 				ofSetColor(255);
 
 				Player * pPtr = nullptr;
@@ -39277,7 +39264,6 @@ void ofApp::drawCardEncyclopediaUI() {
 
 				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, card, drawX, drawY, thisCardW, thisCardH, pPtr);
 
-				// If selected, draw a yellow outline
 				if (std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i) != encyclopediaSelectedIndices.end()) {
 					ofNoFill();
 					const float lineW = 6.0f;
@@ -39287,7 +39273,6 @@ void ofApp::drawCardEncyclopediaUI() {
 					ofFill();
 				}
 
-				// Draw card name below
 				if (isHovered || isThisCardHovered)
 					ofSetColor(255, 255, 100);
 				else
@@ -39311,7 +39296,6 @@ void ofApp::drawCardEncyclopediaUI() {
 	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
 	safePopStyle();
 
-	// Scroll indicator
 	if (maxScroll > 0.0f) {
 		float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
 		scrollBarHeight = std::max(28.0f, scrollBarHeight);
@@ -39321,10 +39305,10 @@ void ofApp::drawCardEncyclopediaUI() {
 		ofDrawRectRounded(scrollBarX, scrollBarY, 8, scrollBarHeight, 4);
 	}
 
-	// Draw Accept button at bottom center
 	encyclopediaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
 	ofSetColor(0, 160, 0);
-	if (encyclopediaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) {
+	// --- OPTIMIZED CACHED MOUSE CALL ---
+	if (encyclopediaAcceptButton.inside(mx, my)) {
 		ofSetColor(0, 200, 0);
 		g_hoveredButtonId = "ency_accept";
 	}
@@ -41948,6 +41932,9 @@ void ofApp::cancelMagicHand() {
 }
 
 void ofApp::drawEncyclopediaState() {
+	int mx = ofGetMouseX();
+	int my = ofGetMouseY();
+
 	draw2DMenuBackground();
 	drawMainMenu();
 
@@ -41959,10 +41946,10 @@ void ofApp::drawEncyclopediaState() {
 
 	drawPixelTextCentered(titleFont, _L("UI_ENCY_TITLE", "RULES & CARDS"), cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
 
-	// Tabs: 0 = HOW TO PLAY, 1 = MINIONS, 2 = ALL CARDS
 	auto drawTab = [&](ofRectangle r, string label, int index) {
 		bool active = (encyclopediaMainTab == index);
-		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
+		// --- OPTIMIZED CACHED MOUSE CALL ---
+		bool hovered = r.inside(mx, my);
 		if (hovered) g_hoveredButtonId = "ency_tab_" + ofToString(index);
 		ofSetColor(active ? ofColor(80, 100, 140) : (hovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
 		ofDrawRectRounded(r, 8);
@@ -41974,8 +41961,8 @@ void ofApp::drawEncyclopediaState() {
 	drawTab(encyTabMinions, _L("UI_ENCY_MINIONS", "MINIONS"), 1);
 	drawTab(encyTabCards, _L("UI_ENCY_CARDS", "ALL CARDS"), 2);
 
-	// Back Button
-	bool backHover = encyBtnBack.inside(ofGetMouseX(), ofGetMouseY());
+	// --- OPTIMIZED CACHED MOUSE CALL ---
+	bool backHover = encyBtnBack.inside(mx, my);
 	drawMenuPlaqueButton(encyBtnBack, "Back", backHover);
 
 	float contentY = 230 * uiScale;
@@ -41986,15 +41973,11 @@ void ofApp::drawEncyclopediaState() {
 	drawMenuPlaquePanel(panelRect);
 
 	if (encyclopediaMainTab == 0) {
-		// =====================================================================
-		// TAB 0: HOW TO PLAY (Underlined Headers & Sub-Headers)
-		// =====================================================================
 		float colW = (panelWidth - 60.0f * uiScale) * 0.5f;
 		float leftColX = cx - (panelWidth * 0.5f) + 20.0f * uiScale;
 		float rightColX = leftColX + colW + 20.0f * uiScale;
 		float visibleH = contentBottom - contentY;
 
-		// --- LEFT COLUMN ---
 		{
 			ofRectangle leftBox(leftColX, contentY, colW, visibleH);
 			ofSetColor(22, 24, 32, 235);
@@ -42005,7 +41988,6 @@ void ofApp::drawEncyclopediaState() {
 			ofDrawRectRounded(leftBox, 10 * uiScale);
 			ofFill();
 
-			// Main Title + Underline
 			float curY = leftBox.y + 36 * uiScale;
 			drawPixelTextCentered(titleFont, "HOW TO PLAY", leftBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
 			float mainTitleW = titleFont.getStringBoundingBox("HOW TO PLAY", 0, 0).width * 1.1f * uiScale;
@@ -42014,7 +41996,6 @@ void ofApp::drawEncyclopediaState() {
 
 			curY += 50 * uiScale;
 
-			// Subheadings + Underlines
 			auto drawGuideBlock = [&](const std::string & heading, const std::vector<std::string> & bullets, ofColor headCol = ofColor(100, 215, 255)) {
 				drawPixelTextBaseline(titleFont, heading, leftBox.x + 18 * uiScale, curY, 0.85f * uiScale, headCol, 2, ofColor::black);
 				float hWidth = titleFont.getStringBoundingBox(heading, 0, 0).width * 0.85f * uiScale;
@@ -42043,7 +42024,6 @@ void ofApp::drawEncyclopediaState() {
 			drawGuideBlock("4. Floating Keys & Victory", { "- Keys: Moving onto keys grants instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3.", "- Victory: Be the last wizard standing! Defeat enemy wizards by reducing their HP to 0 or through card Exhaustion." });
 		}
 
-		// --- RIGHT COLUMN ---
 		{
 			ofRectangle rightBox(rightColX, contentY, colW, visibleH);
 			ofSetColor(22, 24, 32, 235);
@@ -42104,7 +42084,6 @@ void ofApp::drawEncyclopediaState() {
 			for (size_t si = 0; si < sections.size(); ++si) {
 				const auto & sec = sections[si];
 
-				// Section Header + Underline
 				drawPixelTextBaseline(titleFont, sec.title, rightBox.x + 18 * uiScale, curY, 0.90f * uiScale, sec.titleColor, 2, ofColor::black);
 				float secTitleW = titleFont.getStringBoundingBox(sec.title, 0, 0).width * 0.90f * uiScale;
 				ofSetColor(sec.titleColor);
@@ -42112,7 +42091,6 @@ void ofApp::drawEncyclopediaState() {
 				curY += 38 * uiScale;
 
 				for (const auto & itm : sec.entries) {
-					// Sub-header + Underline
 					drawPixelTextBaseline(titleFont, itm.name, rightBox.x + 18 * uiScale, curY, 0.85f * uiScale, itm.nameColor, 2, itm.outlineColor);
 					float subTitleW = titleFont.getStringBoundingBox(itm.name, 0, 0).width * 0.85f * uiScale;
 					ofSetColor(itm.nameColor);
@@ -42143,15 +42121,12 @@ void ofApp::drawEncyclopediaState() {
 
 	} else if (encyclopediaMainTab == 1) {
 		ensureModelsLoaded();
-		// =====================================================================
-		// TAB 1: MINIONS (Expanded Bottom Clearance)
-		// =====================================================================
+
 		float leftColumnW = panelWidth * 0.35f;
 		float leftColumnX = cx - (panelWidth * 0.5f) + 20 * uiScale;
 		float rightColumnW = panelWidth * 0.61f;
 		float rightColumnX = leftColumnX + leftColumnW + 24 * uiScale;
 
-		// --- LEFT COLUMN ---
 		{
 			float totalLeftHeight = contentBottom - contentY;
 			float cardDisplayW = std::min(leftColumnW - 20.0f * uiScale, 375.0f * uiScale);
@@ -42247,7 +42222,6 @@ void ofApp::drawEncyclopediaState() {
 			}
 		}
 
-		// --- RIGHT COLUMN ---
 		struct MinionEntryData {
 			std::string name;
 			std::string ap;
@@ -42278,7 +42252,6 @@ void ofApp::drawEncyclopediaState() {
 		float totalContentH = (float)minionList.size() * (itemH + itemGap);
 		float visibleH = contentBottom - contentY;
 
-		// Generous bottom clearance (+ 80 * uiScale) guarantees full scroll down to the last item
 		float maxScroll = std::max(0.0f, totalContentH - visibleH + 80.0f * uiScale);
 		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
 
@@ -42410,9 +42383,6 @@ void ofApp::drawEncyclopediaState() {
 		}
 
 	} else if (encyclopediaMainTab == 2) {
-		// =====================================================================
-		// TAB 2: ALL CARDS (Expanded Bottom Clearance)
-		// =====================================================================
 		const int cols = 10;
 		const float padX = 8.0f * uiScale;
 		const float padY = 10.0f * uiScale;
@@ -42429,7 +42399,6 @@ void ofApp::drawEncyclopediaState() {
 		float totalContentHeight = (float)totalRows * rowStep;
 		float contentH = contentBottom - contentY;
 
-		// Generous bottom padding (+ 90 * uiScale) ensures row 7 and its names are 100% visible
 		float maxScroll = std::max(0.0f, totalContentHeight - contentH + 90.0f * uiScale);
 		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
 
@@ -42931,6 +42900,9 @@ void ofApp::drawInitiativeRoll() {
 }
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
+	int mx = ofGetMouseX();
+	int my = ofGetMouseY();
+
 	if (draftOptions.empty()) {
 		if (draftEndScheduled) return;
 
@@ -42963,20 +42935,16 @@ void ofApp::drawDraftScreen() {
 	}
 
 	ofPushStyle();
-	// Isolate UI drawing state so other render paths aren't affected.
-	// Disable depth and lighting for 2D UI; enable alpha blend explicitly.
 	ofDisableLighting();
 	ofDisableDepthTest();
 	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(255, 255, 255, 255);
 
-	// Darkness overlay is active while drafting, but hides when "Hide" is clicked
 	if (!s_draftCardsHidden) {
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 	}
 
-	// 1. Construct Specific Instruction Text
 	string pName = "";
 	if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
 		if (isInGameDraft && players[draftPlayerIndex].isMinion) {
@@ -43004,15 +42972,10 @@ void ofApp::drawDraftScreen() {
 		}
 	}
 
-	// Prepare UI scale and card sizing so header/instruction can be positioned
-	// relative to the card area (we want header above cards and accept below).
 	float cardW, cardH, spacing, startX, startY;
 	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
-	// 2. Header & instruction: snappy pop-in that scales and fades as cards appear
-	// Continuous fractional frame keeps the draft UI smooth at 144Hz.
 	float continuousFrame = (float)simulationFrame + (simulationAccumulator / SIMULATION_TIMESTEP);
-	// Compute uiScale (kept in sync with getDraftCardMetrics)
 	float uiScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
 	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
 	float appearT = 0.0f;
@@ -43025,43 +42988,38 @@ void ofApp::drawDraftScreen() {
 		appearT = std::clamp(appearT, 0.0f, 1.0f);
 	}
 
-	// Ease-out cubic for a snappy feel, add a small overshoot for pop
 	float t = appearT;
 	float easeOutCubic = 1.0f - powf(1.0f - t, 3);
-	float scale = 0.8f + 0.28f * easeOutCubic; // starts smaller, overshoots to ~1.08
+	float scale = 0.8f + 0.28f * easeOutCubic;
 	float alpha = appearT;
 
 	if (alpha > 0.001f && !draftAcceptApplied) {
 		int shadowA = (int)(255.0f * alpha);
 		int fgA = (int)(255.0f * alpha);
 
-		// Determine class tier text
 		std::string classTierText = "";
 		ofColor classTierColor = ofColor::white;
 		if (!isInGameDraft) {
 			if (draftStage == 0) {
 				classTierText = "Class 1";
-				classTierColor = ofColor(205, 127, 50); // Bronze
+				classTierColor = ofColor(205, 127, 50);
 			} else if (draftStage == 1) {
 				classTierText = "Class 2";
-				classTierColor = ofColor(192, 192, 192); // Silver
+				classTierColor = ofColor(192, 192, 192);
 			}
 		}
 
-		// Start text block strictly below the bottom of the Turn Indicator
 		float scale1080 = (float)ofGetHeight() / 1080.0f;
 		float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
 
-		// Account for font height because drawString draws UPWARDS from the baseline
 		ofRectangle headerMeasureBox = titleFont.getStringBoundingBox(header, 0, 0);
 		float fontHeightScaled = (headerMeasureBox.height > 0 ? headerMeasureBox.height : 36.0f) * scale;
-		float textTopMargin = 22.0f * uiScale; // 22px clear gap below indicator
+		float textTopMargin = 22.0f * uiScale;
 
 		float ty = indicatorBottomY + textTopMargin + fontHeightScaled;
-		float instrTy = ty + 48.0f * uiScale; // Line 2
-		float classTy = instrTy + 44.0f * uiScale; // Line 3
+		float instrTy = ty + 48.0f * uiScale;
+		float classTy = instrTy + 44.0f * uiScale;
 
-		// --- MINI DECISION TIMER FOR OPPONENT DRAFTS ---
 		int activeTurnOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
 			? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID)
 			: -1;
@@ -43101,13 +43059,11 @@ void ofApp::drawDraftScreen() {
 		ofTranslate(tx, ty);
 		ofScale(scale, scale);
 		ofSetColor(0, 0, 0, shadowA);
-		// Shadow offset must be scaled back to pixel units
 		SafeDrawText(titleFont, header, 2.0f / scale, 2.0f / scale);
 		ofSetColor(ofColor(255, 255, 255, fgA));
 		SafeDrawText(titleFont, header, 0, 0);
 		ofPopMatrix();
 
-		// Instruction line below header: place just above the cards with a small gap
 		ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
 		float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width * scale / 2.0f);
 		ofPushMatrix();
@@ -43133,24 +43089,17 @@ void ofApp::drawDraftScreen() {
 		}
 	}
 
-	// 3. Draw Cards
-	// Keep the same uiScale/cardW/cardH computed above (with draft size reduction)
-	// Note: spacing/startX/startY are already provided by getDraftCardMetrics
-
-	// Throttled debug: if we're in draft state but have no options, log mapping once per second
 	float nowDbg = ofGetElapsedTimef();
 	if (draftOptions.empty() && currentState == STATE_DRAFTING && (nowDbg - lastDraftDrawLogTime) > 1.0f) {
 		lastDraftDrawLogTime = nowDbg;
-		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0);
+		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty()";
 	}
 
-	// Animate per-slot UI and draw scaled cards (frame-based) unless toggled to Hidden
 	if (!s_draftCardsHidden) {
 		for (size_t i = 0; i < draftOptions.size(); ++i) {
 			float x = startX + i * (cardW + spacing);
 			ofRectangle cardRect(x, startY, cardW, cardH);
 
-			// Update animation state for this slot
 			if (i < draftOptionUI.size()) {
 				auto & ui = draftOptionUI[i];
 				float elapsedFrames = continuousFrame - (float)ui.startFrame;
@@ -43178,7 +43127,6 @@ void ofApp::drawDraftScreen() {
 				}
 			}
 
-			// Compute scaled rect
 			float scale = 1.0f;
 			if (i < draftOptionUI.size()) scale = draftOptionUI[i].currentScale;
 			float w = cardW * scale;
@@ -43186,7 +43134,6 @@ void ofApp::drawDraftScreen() {
 			float drawX = x + (cardW - w) / 2.0f;
 			float drawY = startY + (cardH - h) / 2.0f;
 
-			// Check Selection
 			int slotPoolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
 			bool isSelected = false;
 			if (slotPoolIdx >= 0) {
@@ -43211,7 +43158,8 @@ void ofApp::drawDraftScreen() {
 					safePopStyle();
 				}
 
-				bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY()));
+				// --- OPTIMIZED CACHED MOUSE CALL ---
+				bool isLocallyHovered = (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(mx, my));
 				bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
 
 				if (isLocallyHovered || isOpponentHovered) {
@@ -43247,7 +43195,6 @@ void ofApp::drawDraftScreen() {
 				drafterInLineOfSight = true;
 			}
 
-			// In Fog of War, only hide the options if the drafting unit is out of your Line of Sight
 			bool hideOptions = (g_modifierFogOfWar && isOpponentDraft && !drafterInLineOfSight);
 			if (hideOptions) {
 				drawCardBackSafe(cardBackImage, drawX, drawY, w, h);
@@ -43257,28 +43204,22 @@ void ofApp::drawDraftScreen() {
 		}
 	}
 
-	// 4. Draw Accept Button and Hearthstone-Style Hide/Show Toggle Button
-	int required = 1;
-	if (!isInGameDraft && draftStage == 0) required = 2;
-
+	int required = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 	bool canAccept = ((int)selectedDraftIndices.size() == required);
 	bool showAccept = isLocalDraftingPlayer(draftPlayerIndex);
 	if (draftAcceptApplied) showAccept = false;
 
-	// Bigger, chunkier button dimensions
 	float btnW = std::clamp(260.0f * uiScale, 180.0f, 360.0f);
 	float btnH = std::clamp(72.0f * uiScale, 52.0f, 100.0f);
 	float hideBtnW = std::clamp(140.0f * uiScale, 100.0f, 200.0f);
 	float buttonGap = 16.0f * uiScale;
 
-	// Tighter gap below the cards so buttons sit closer to them
 	float gapBelowCards = 22.0f * uiScale;
 	float btnY = startY + cardH + gapBelowCards;
 
 	float maxAllowedBtnY = ofGetHeight() - btnH - (20.0f * uiScale);
 	if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
 
-	// Center the buttons nicely
 	float btnX = 0.0f;
 	float hideBtnX = 0.0f;
 
@@ -43323,13 +43264,14 @@ void ofApp::drawDraftScreen() {
 		acceptScale = draftAcceptUI.currentScale;
 		acceptAlpha = acceptScale;
 
-		if (draftAcceptButtonRect.inside(ofGetMouseX(), ofGetMouseY()) && showAccept && canAccept) g_hoveredButtonId = "draft_accept";
+		// --- OPTIMIZED CACHED MOUSE CALL ---
+		if (draftAcceptButtonRect.inside(mx, my) && showAccept && canAccept) g_hoveredButtonId = "draft_accept";
 		drawAcceptButtonShared(draftAcceptButtonRect, canAccept, acceptScale, acceptAlpha);
 	}
 
-	// Draw Hide / Show Toggle Button right next to Accept
 	if (!draftOptions.empty() && !draftAcceptApplied) {
-		bool hideHover = s_draftHideButtonRect.inside(ofGetMouseX(), ofGetMouseY());
+		// --- OPTIMIZED CACHED MOUSE CALL ---
+		bool hideHover = s_draftHideButtonRect.inside(mx, my);
 		if (hideHover) g_hoveredButtonId = "draft_hide_toggle";
 
 		ofPushStyle();
@@ -43351,7 +43293,6 @@ void ofApp::drawDraftScreen() {
 		drawPileViewFor(currentPileViewPlayerIndex, currentPileView);
 	}
 
-	// Restore blend mode & style before exiting
 	safeDisableBlendMode();
 	safePopStyle();
 }
