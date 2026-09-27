@@ -1,5 +1,5 @@
 #include "SteamManager.h"
-#include <algorithm> // <--- Moved safely out of extern "C"
+#include <algorithm>
 
 #ifdef _WIN32
 	#define S_CALLTYPE __cdecl
@@ -19,7 +19,6 @@ uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_CreateLobby(intptr_t instancePtr,
 void S_CALLTYPE SteamAPI_ISteamMatchmaking_LeaveLobby(intptr_t instancePtr, uint64_t steamIDLobby);
 uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyOwner(intptr_t instancePtr, uint64_t steamIDLobby);
 
-// CRITICAL FIX: Ensure Windows __cdecl compatibility for Lobby Set/Get Data
 bool S_CALLTYPE SteamAPI_ISteamMatchmaking_SetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey, const char * pchValue);
 const char * S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey);
 
@@ -51,11 +50,9 @@ uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t ins
 
 int S_CALLTYPE SteamAPI_ISteamApps_GetLaunchCommandLine(intptr_t instancePtr, char * pszCommandLine, int cubCommandLine);
 
-// CRITICAL FIX: Safe integer sizes for SteamUtils API to prevent MSVC stack corruption on Avatar fetching!
 bool S_CALLTYPE SteamAPI_ISteamUtils_GetImageSize(intptr_t instancePtr, int iImage, uint32_t * pnWidth, uint32_t * pnHeight);
 bool S_CALLTYPE SteamAPI_ISteamUtils_GetImageRGBA(intptr_t instancePtr, int iImage, uint8_t * pubDest, int nDestBufferSize);
 }
-
 #ifdef _WIN32
 	#pragma comment(lib, "steam_api64.lib")
 	#include <windows.h>

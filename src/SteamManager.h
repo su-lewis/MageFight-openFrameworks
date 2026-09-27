@@ -3,7 +3,7 @@
 #include "NetworkData.h"
 #pragma pack(pop)
 #include "ofMain.h"
-#include "steam_api.h"
+#include "steam/steam_api.h"
 #include <queue>
 #include <vector>
 

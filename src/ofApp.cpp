@@ -47,7 +47,7 @@
 static const int PSEUDO_CARD_MAGIC_HAND_RELOCATE = 998;
 static const int MENU_MAGIC_HAND_RELOCATE = 999;
 
-#include "steam_api.h"
+#include "steam/steam_api.h"
 #include <assimp/scene.h>
 
 #ifdef _WIN32
