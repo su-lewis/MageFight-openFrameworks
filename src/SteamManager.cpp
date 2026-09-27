@@ -60,8 +60,6 @@ int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection(intp
 int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_AcceptConnection(intptr_t instancePtr, HSteamNetConnection hConn);
 bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseConnection(intptr_t instancePtr, HSteamNetConnection hPeer, int nReason, const char * pszDebug, bool bEnableLinger);
 bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseListenSocket(intptr_t instancePtr, HSteamListenSocket hSocket);
-
-// ADD THIS NEW LINE: Safe memory release for network packets!
 void S_CALLTYPE SteamAPI_SteamNetworkingMessage_t_Release(SteamNetworkingMessage_t * pMsg);
 }
 
@@ -82,7 +80,6 @@ bool g_isSpectator = false;
 SteamManager::SteamManager()
 	: m_bInitialized(false)
 	, m_bIsHost(false)
-	, m_CallbackUserStatsReceived(this, &SteamManager::onUserStatsReceived)
 	, m_hListenSocket(k_HSteamListenSocket_Invalid)
 	, m_hConnection(k_HSteamNetConnection_Invalid) {
 }
@@ -105,6 +102,9 @@ void SteamManager::setup() {
 
 	if (SteamAPI_Init()) {
 		m_bInitialized = true;
+
+		// Tells Steam to hold callbacks in a Flat C queue instead of using C++ VTables
+		SteamAPI_ManualDispatch_Init();
 
 		if (!SteamAPI_IsSteamRunning()) {
 			ofLogError("Steam") << "SteamAPI_Init() succeeded but SteamAPI_IsSteamRunning() is false.";
@@ -169,7 +169,62 @@ bool SteamManager::hasOpponent() const {
 
 void SteamManager::update() {
 	if (!m_bInitialized) return;
-	SteamAPI_RunCallbacks();
+
+	// --- NEW FLAT C CALLBACK ROUTER ---
+	int32_t hPipe = SteamAPI_GetHSteamPipe();
+	SteamAPI_ManualDispatch_RunFrame(hPipe);
+
+	CallbackMsg_t callbackMsg;
+	while (SteamAPI_ManualDispatch_GetNextCallback(hPipe, &callbackMsg)) {
+
+		// 1. Check for Async Call Results (Lobby Creation, Leaderboards, etc)
+		if (callbackMsg.m_iCallback == SteamAPICallCompleted_t::k_iCallback) {
+			SteamAPICallCompleted_t * pCallCompleted = (SteamAPICallCompleted_t *)callbackMsg.m_pubParam;
+			void * pData = malloc(pCallCompleted->m_cubParam);
+			bool bFailed = false;
+
+			if (SteamAPI_ManualDispatch_GetAPICallResult(hPipe, pCallCompleted->m_hAsyncCall, pData, pCallCompleted->m_cubParam, pCallCompleted->m_iCallback, &bFailed)) {
+				switch (pCallCompleted->m_iCallback) {
+				case LobbyCreated_t::k_iCallback:
+					OnLobbyCreated((LobbyCreated_t *)pData, bFailed);
+					break;
+				case LobbyEnter_t::k_iCallback:
+					OnLobbyEnter((LobbyEnter_t *)pData, bFailed);
+					break;
+				case LobbyMatchList_t::k_iCallback:
+					OnLobbyMatchList((LobbyMatchList_t *)pData, bFailed);
+					break;
+				case LeaderboardFindResult_t::k_iCallback:
+					OnLeaderboardFindResult((LeaderboardFindResult_t *)pData, bFailed);
+					break;
+				case LeaderboardScoresDownloaded_t::k_iCallback:
+					OnLeaderboardScoresDownloaded((LeaderboardScoresDownloaded_t *)pData, bFailed);
+					break;
+				}
+			}
+			free(pData);
+		}
+		// 2. Check for Standard Callbacks (Join Requests, Network Events, etc)
+		else {
+			switch (callbackMsg.m_iCallback) {
+			case UserStatsReceived_t::k_iCallback:
+				onUserStatsReceived((UserStatsReceived_t *)callbackMsg.m_pubParam);
+				break;
+			case GameLobbyJoinRequested_t::k_iCallback:
+				OnGameLobbyJoinRequested((GameLobbyJoinRequested_t *)callbackMsg.m_pubParam);
+				break;
+			case GameRichPresenceJoinRequested_t::k_iCallback:
+				OnGameJoinRequested((GameRichPresenceJoinRequested_t *)callbackMsg.m_pubParam);
+				break;
+			case SteamNetConnectionStatusChangedCallback_t::k_iCallback:
+				OnNetConnectionStatusChanged((SteamNetConnectionStatusChangedCallback_t *)callbackMsg.m_pubParam);
+				break;
+			}
+		}
+
+		SteamAPI_ManualDispatch_FreeLastCallback(hPipe);
+	}
+	// --- END FLAT C ROUTER ---
 
 	if (!m_bIsHost && m_LobbyID.IsValid() && m_hConnection == k_HSteamNetConnection_Invalid) {
 		static float lastReconnectTime = 0.0f;
@@ -179,6 +234,7 @@ void SteamManager::update() {
 				CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 				if (owner.IsValid() && SteamNetworkingSockets()) {
 					SteamNetworkingIdentity identity;
+					memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
 					identity.SetSteamID(owner);
 					HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
 					if (conn != k_HSteamNetConnection_Invalid) {
@@ -249,15 +305,8 @@ bool SteamManager::createLobby() {
 	}
 	if (m_bIsHost) return true;
 
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_CreateLobby((intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 4);
-
-	if (hSteamAPICall == k_uAPICallInvalid) {
-		m_bIsHost = true;
-		return true;
-	}
-
+	SteamAPI_ISteamMatchmaking_CreateLobby((intptr_t)SteamMatchmaking(), k_ELobbyTypePublic, 4);
 	m_bIsHost = true;
-	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 	return true;
 }
 
@@ -320,6 +369,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 			if (owner.IsValid()) {
 				SteamNetworkingIdentity identity;
+				memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
 				identity.SetSteamID(owner);
 				HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
 				if (conn != k_HSteamNetConnection_Invalid) {
@@ -437,6 +487,7 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 		m_bIsHost = false;
 		if (owner.IsValid() && owner.ConvertToUint64() != 0) {
 			SteamNetworkingIdentity identity;
+			memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
 			identity.SetSteamID(owner);
 			m_hConnection = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
 		} else {
@@ -502,8 +553,7 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 }
 
 void SteamManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback) {
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), pCallback->m_steamIDLobby.ConvertToUint64());
-	m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
+	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), pCallback->m_steamIDLobby.ConvertToUint64());
 	g_isConnectingToLobby = true;
 }
 
@@ -513,8 +563,7 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 	if (split != std::string::npos) {
 		try {
 			CSteamID id(std::stoull(cmd.substr(split + 15)));
-			SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), id.ConvertToUint64());
-			m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
+			SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), id.ConvertToUint64());
 			g_isConnectingToLobby = true;
 		} catch (...) { }
 	}
@@ -563,8 +612,7 @@ void SteamManager::refreshLobbies() {
 	SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter((intptr_t)SteamMatchmaking(), 50);
 	SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter((intptr_t)SteamMatchmaking(), 3);
 	SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter((intptr_t)SteamMatchmaking(), "MageFightLobby", "Active", 0);
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_RequestLobbyList((intptr_t)SteamMatchmaking());
-	m_LobbyMatchListCallResult.Set(hSteamAPICall, this, &SteamManager::OnLobbyMatchList);
+	SteamAPI_ISteamMatchmaking_RequestLobbyList((intptr_t)SteamMatchmaking());
 }
 void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailure) {
 	currentLobbies.clear();
@@ -584,19 +632,16 @@ void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailur
 std::vector<SteamManager::LobbyInfo> SteamManager::getLobbyList() { return currentLobbies; }
 void SteamManager::joinLobbyByID(CSteamID lobbyID) {
 	if (!SteamMatchmaking()) return;
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
-	m_cbLobbyEntered.Set(hSteamAPICall, this, &SteamManager::OnLobbyEnter);
+	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
 }
 void SteamManager::fetchLeaderboard() {
 	if (!SteamUserStats()) return;
-	SteamAPICall_t hSteamAPICall = SteamAPI_ISteamUserStats_FindLeaderboard((intptr_t)SteamUserStats(), "Global_Rankings");
-	m_LeaderboardFindCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardFindResult);
+	SteamAPI_ISteamUserStats_FindLeaderboard((intptr_t)SteamUserStats(), "Global_Rankings");
 }
 void SteamManager::OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, bool bIOFailure) {
 	if (!bIOFailure && pCallback->m_bLeaderboardFound) {
 		currentLeaderboardHandle = pCallback->m_hSteamLeaderboard;
-		SteamAPICall_t hSteamAPICall = SteamAPI_ISteamUserStats_DownloadLeaderboardEntries((intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 100);
-		m_LeaderboardScoresDownloadedCallResult.Set(hSteamAPICall, this, &SteamManager::OnLeaderboardScoresDownloaded);
+		SteamAPI_ISteamUserStats_DownloadLeaderboardEntries((intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 100);
 	}
 }
 void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t * pCallback, bool bIOFailure) {

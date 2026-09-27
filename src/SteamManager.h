@@ -84,8 +84,8 @@ public:
 	CSteamID getLobbyID() const { return m_LobbyID; }
 	CSteamID getLobbyOwner() const;
 	bool isLocalLobbyOwner() const;
-	// Elo Getters/Setters
-	// Secure LeaverBuster
+
+	// Elo Getters/Setters & Secure LeaverBuster
 	int getLocalElo();
 	void setLocalElo(int elo);
 	bool areStatsLoaded() const { return m_bStatsLoaded; }
@@ -118,9 +118,9 @@ private:
 
 	bool m_lobbyCreationSucceeded = false;
 	bool m_lobbyCreationFailed = false;
-	//ELO
+
+	// ELO
 	bool m_bStatsLoaded = false;
-	STEAM_CALLBACK(SteamManager, onUserStatsReceived, UserStatsReceived_t, m_CallbackUserStatsReceived);
 
 	CSteamID m_OpponentID;
 	uint32_t m_nextSeq = 1;
@@ -139,26 +139,21 @@ private:
 	std::vector<LeaderboardEntry> currentLeaderboard;
 	SteamLeaderboard_t currentLeaderboardHandle;
 
-	CCallResult<SteamManager, LobbyMatchList_t> m_LobbyMatchListCallResult;
+	// -------------------------------------------------------------
+	// FLAT C CALLBACK TARGETS
+	// All STEAM_CALLBACK and CCallResult macros have been removed.
+	// These are now just standard C++ functions called by our Manual Dispatch router!
+	// -------------------------------------------------------------
+	void onUserStatsReceived(UserStatsReceived_t * pCallback);
+	void OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback);
+	void OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallback);
+	void OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t * pInfo);
+
 	void OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailure);
-
-	CCallResult<SteamManager, LeaderboardFindResult_t> m_LeaderboardFindCallResult;
 	void OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, bool bIOFailure);
-
-	CCallResult<SteamManager, LeaderboardScoresDownloaded_t> m_LeaderboardScoresDownloadedCallResult;
 	void OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t * pCallback, bool bIOFailure);
-
-	// Callbacks
-	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
-	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
-	STEAM_CALLBACK(SteamManager, OnNetConnectionStatusChanged, SteamNetConnectionStatusChangedCallback_t);
-
-	// CallResults
 	void OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure);
-	void OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure); // <-- Added here!
-
-	CCallResult<SteamManager, LobbyCreated_t> m_cbLobbyCreated;
-	CCallResult<SteamManager, LobbyEnter_t> m_cbLobbyEntered;
+	void OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure);
 
 	void closeConnection();
 };
