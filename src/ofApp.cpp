@@ -1102,7 +1102,16 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	TEXT_PASS_BEGIN()
 
-	// Ensure any occurrence of "hand-related" is automatically bolded
+	// --- CRITICAL FPS FIX: Cache word widths so we don't calculate 3D meshes 10,000 times a frame! ---
+	static std::unordered_map<std::string, float> wordWidthCache;
+	auto getWordWidth = [&](const std::string & w) {
+		auto it = wordWidthCache.find(w);
+		if (it != wordWidthCache.end()) return it->second;
+		float width = font.getStringBoundingBox(w, 0, 0).width;
+		wordWidthCache[w] = width;
+		return width;
+	};
+
 	std::string processedText = "";
 	{
 		std::string lowerText = text;
@@ -1128,11 +1137,9 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 		}
 	}
 
-	// FIX: Use 0.5x half-steps. Keeps pixels uniform but prevents massive text shrinkage.
 	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
 	float fitW = std::max(1.0f, rect.width - 2.0f);
-
-	float customSpaceW = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f) * drawScale;
+	float customSpaceW = std::max(2.0f, getWordWidth("A") * 0.4f) * drawScale;
 
 	std::vector<Token> tokens;
 	bool currentBold = false;
@@ -1140,8 +1147,8 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	auto flushWord = [&]() {
 		if (!currentWord.empty()) {
-			float fw = font.getStringBoundingBox(currentWord, 0, 0).width * drawScale;
-			if (currentBold) fw += 3.0f; // Reserve 3 screen pixels for extra-heavy bold
+			float fw = getWordWidth(currentWord) * drawScale;
+			if (currentBold) fw += 3.0f;
 			tokens.push_back({ currentWord, currentBold, fw });
 			currentWord.clear();
 		}
@@ -1159,10 +1166,9 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 			flushWord();
 			tokens.push_back({ "\n", currentBold, 0.0f });
 		} else {
-			// If trailing punctuation directly follows bold closing **, attach it to the preceding token
 			if (currentWord.empty() && !tokens.empty() && (processedText[i] == ',' || processedText[i] == '.' || processedText[i] == ';' || processedText[i] == ':' || processedText[i] == '!' || processedText[i] == '?' || processedText[i] == ')')) {
 				tokens.back().text += processedText[i];
-				tokens.back().w = font.getStringBoundingBox(tokens.back().text, 0, 0).width * drawScale;
+				tokens.back().w = getWordWidth(tokens.back().text) * drawScale;
 				if (tokens.back().bold) tokens.back().w += 3.0f;
 			} else {
 				currentWord += processedText[i];
@@ -1179,7 +1185,6 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 			currentLine = Line();
 			continue;
 		}
-		// Pure punctuation tokens must never wrap onto a line by themselves
 		bool isPunct = (t.text.size() == 1 && (t.text[0] == ',' || t.text[0] == '.' || t.text[0] == ';' || t.text[0] == ':' || t.text[0] == '!' || t.text[0] == '?' || t.text[0] == ')'));
 		if (!isPunct && currentLine.width + t.w > fitW && !currentLine.toks.empty()) {
 			if (t.text == " ") continue;
@@ -1218,7 +1223,6 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 			if (t.text != " " && t.text != "\n") {
 				font.drawString(t.text, 0, 0);
 				if (t.bold) {
-					// 4-strike bold stamping for heavy, distinct pixel-art weight
 					font.drawString(t.text, 1.0f / drawScale, 0);
 					font.drawString(t.text, 2.0f / drawScale, 0);
 					font.drawString(t.text, 1.0f / drawScale, -0.75f / drawScale);
@@ -1949,23 +1953,24 @@ static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, cons
 	return out;
 }
 
-static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
-	const std::string & text,
-	const ofRectangle & rect,
-	float scale,
-	const ofColor & fillColor,
-	const ofColor & outlineColor,
-	int outlinePx) {
-
+static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx) {
 	if (!g_renderText || g_suppressText || text.empty() || !font.isLoaded()) return;
 
 	TEXT_PASS_BEGIN()
 
-	// Pixel-font stability: quantize scale to half-steps (0.5x).
-	// Prevents random thick/thin letters without shrinking text too much.
+	// --- CRITICAL FPS FIX: Cache String bounds ---
+	static std::unordered_map<std::string, ofRectangle> stringBoundsCache;
+	auto getBounds = [&](const std::string & t) {
+		auto it = stringBoundsCache.find(t);
+		if (it != stringBoundsCache.end()) return it->second;
+		ofRectangle bounds = font.getStringBoundingBox(t, 0, 0);
+		stringBoundsCache[t] = bounds;
+		return bounds;
+	};
+
 	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
-	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	// Center by the text bounding-box center, then snap to integer pixels
+	ofRectangle b = getBounds(text);
+
 	float centerX = rect.x + rect.width * 0.5f;
 	float centerY = rect.y + rect.height * 0.5f;
 	float textCenterX = (b.x + b.width * 0.5f) * drawScale;
@@ -1979,7 +1984,6 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		for (auto & off : offsets) {
 			ofSetColor(outlineColor);
 			ofPushMatrix();
-			// Multiply outline radius by drawScale so outlines shrink with the card!
 			ofTranslate(txSnap + (float)(off[0] * r) * drawScale, tySnap + (float)(off[1] * r) * drawScale);
 			ofScale(drawScale, drawScale);
 			font.drawString(text, 0, 0);
@@ -1997,37 +2001,32 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	TEXT_PASS_END()
 }
 // Simplified arc text drawing with fixed scale and basic fan curve
-static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
-	const std::string & text,
-	const ofRectangle & rect,
-	float scale,
-	float endDropPx,
-	float clampXMin,
-	float clampXMax,
-	float clampBottomY,
-	const ofColor & fillColor,
-	const ofColor & outlineColor,
-	int outlinePx) {
-
+static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float endDropPx, float clampXMin, float clampXMax, float clampBottomY, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx) {
 	if (!g_renderText || g_suppressText || text.empty()) return;
 
 	TEXT_PASS_BEGIN()
 
 	const float localEndDrop = endDropPx;
 
+	// --- CRITICAL FPS FIX: Cache character widths so we don't recalculate thousands of meshes ---
+	static std::unordered_map<char, float> charWidthCache;
+	auto getCharWidth = [&](char c) {
+		auto it = charWidthCache.find(c);
+		if (it != charWidthCache.end()) return it->second;
+		float width = font.getStringBoundingBox(std::string(1, c), 0, 0).width;
+		charWidthCache[c] = width;
+		return width;
+	};
+
 	std::vector<float> advances;
 	advances.reserve(text.size());
 	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
-	float spaceWidth = std::max(2.0f, font.getStringBoundingBox("A", 0, 0).width * 0.4f); // Tight, dynamic space
+	float spaceWidth = std::max(2.0f, getCharWidth('A') * 0.4f);
 	float totalWidthUnscaled = 0.0f;
 
 	for (char ch : text) {
-		std::string glyph(1, ch);
-		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
-
-		// Add 1px of tracking to prevent any ink overlap!
+		float adv = getCharWidth(ch);
 		if (adv > 0.0f) adv += 1.0f;
-
 		if (ch == ' ') adv = spaceWidth;
 		if (adv <= 0.0f) adv = fallbackAdvance;
 
@@ -2040,15 +2039,15 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		return;
 	}
 
-	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+	// Calculate total box height efficiently
+	float textHeightUnscaled = font.getStringBoundingBox("A", 0, 0).height;
 	float totalWidth = totalWidthUnscaled * scale;
 	float startX = rect.x + (rect.width - totalWidth) * 0.5f;
 	float centerY = (rect.y + rect.getBottom()) * 0.5f;
-	float baselineY = centerY - (b.y + b.height * 0.5f) * scale;
+	float baselineY = centerY + (textHeightUnscaled * 0.5f) * scale;
 
 	const int r = std::max(1, outlinePx);
 
-	// Simple smoothstep for smooth curve
 	auto smoothstep01 = [](float t) {
 		t = std::clamp(t, 0.0f, 1.0f);
 		return t * t * (3.0f - 2.0f * t);
@@ -2060,7 +2059,6 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		float charCenterX = cursorX + glyphWidth * 0.5f;
 		float drawY = baselineY;
 
-		// Fan curve: longer names arc more strongly (Hearthstone-like banner fan)
 		float normalizedPos = (charCenterX - startX) / std::max(0.1f, totalWidth);
 		float edgeDistance = std::abs(normalizedPos - 0.5f) * 1.2f;
 		float curveFactor = smoothstep01(edgeDistance);
@@ -2072,15 +2070,14 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		float ty = std::round(drawY);
 		ofTranslate(tx, ty);
 		ofScale(scale, scale);
-		for (int dy = -r; dy <= r; ++dy) {
-			for (int dx = -r; dx <= r; ++dx) {
-				if (dx == 0 && dy == 0) continue;
-				if (dx * dx + dy * dy > r * r) continue;
-				ofPushMatrix();
-				ofTranslate((float)dx, (float)dy);
-				font.drawString(std::string(1, text[i]), 0, 0);
-				ofPopMatrix();
-			}
+
+		// --- CRITICAL FPS FIX: 8-Way Outline instead of 49-Way Area Fill! ---
+		int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
+		for (auto & off : offsets) {
+			ofPushMatrix();
+			ofTranslate((float)(off[0] * r), (float)(off[1] * r));
+			font.drawString(std::string(1, text[i]), 0, 0);
+			ofPopMatrix();
 		}
 
 		ofSetColor(fillColor);
