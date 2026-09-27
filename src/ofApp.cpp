@@ -18289,7 +18289,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					clickedUI = true;
 					if (steamManager.isConnected() && SteamUserStats()) {
 						int32_t expiryTime = 0;
-						SteamUserStats()->GetStat("ban_expiry_time", &expiryTime);
+						SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "ban_expiry_time", &expiryTime);
 						if ((int32_t)std::time(nullptr) < expiryTime) {
 							queueFloatingTextVisual(glm::vec3(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 0), "You are banned.", ofColor::red);
 							playHandFeedbackSfx(0.78f, 0.10f);
