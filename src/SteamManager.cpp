@@ -1,53 +1,59 @@
 #include "SteamManager.h"
 #include <algorithm> // <--- Moved safely out of extern "C"
 
+#ifdef _WIN32
+	#define S_CALLTYPE __cdecl
+#else
+	#define S_CALLTYPE
+#endif
+
 // Define the safe Flat C API functions manually to avoid Valve's broken include paths
 extern "C" {
-uint64_t SteamAPI_ISteamUser_GetSteamID(intptr_t instancePtr);
+uint64_t S_CALLTYPE SteamAPI_ISteamUser_GetSteamID(intptr_t instancePtr);
 
-uint32_t SteamAPI_ISteamUser_GetAuthSessionTicket(intptr_t instancePtr, void * pTicket, int cbMaxTicket, uint32_t * pcbTicket, void * pIdentityRemote);
-void SteamAPI_ISteamUser_CancelAuthTicket(intptr_t instancePtr, uint32_t hAuthTicket);
-void SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, uint64_t steamID);
+uint32_t S_CALLTYPE SteamAPI_ISteamUser_GetAuthSessionTicket(intptr_t instancePtr, void * pTicket, int cbMaxTicket, uint32_t * pcbTicket, void * pIdentityRemote);
+void S_CALLTYPE SteamAPI_ISteamUser_CancelAuthTicket(intptr_t instancePtr, uint32_t hAuthTicket);
+void S_CALLTYPE SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, uint64_t steamID);
 
-uint64_t SteamAPI_ISteamMatchmaking_CreateLobby(intptr_t instancePtr, int eLobbyType, int cMaxMembers);
-void SteamAPI_ISteamMatchmaking_LeaveLobby(intptr_t instancePtr, uint64_t steamIDLobby);
-uint64_t SteamAPI_ISteamMatchmaking_GetLobbyOwner(intptr_t instancePtr, uint64_t steamIDLobby);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_CreateLobby(intptr_t instancePtr, int eLobbyType, int cMaxMembers);
+void S_CALLTYPE SteamAPI_ISteamMatchmaking_LeaveLobby(intptr_t instancePtr, uint64_t steamIDLobby);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyOwner(intptr_t instancePtr, uint64_t steamIDLobby);
 
 // CRITICAL FIX: Ensure Windows __cdecl compatibility for Lobby Set/Get Data
-bool SteamAPI_ISteamMatchmaking_SetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey, const char * pchValue);
-const char * SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey);
+bool S_CALLTYPE SteamAPI_ISteamMatchmaking_SetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey, const char * pchValue);
+const char * S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey);
 
-uint64_t SteamAPI_ISteamMatchmaking_JoinLobby(intptr_t instancePtr, uint64_t steamIDLobby);
-void SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter(intptr_t instancePtr, int cMaxResults);
-void SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(intptr_t instancePtr, const char * pchKeyToMatch, const char * pchValueToMatch, int eComparisonType);
-void SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter(intptr_t instancePtr, int eLobbyDistanceFilter);
-uint64_t SteamAPI_ISteamMatchmaking_RequestLobbyList(intptr_t instancePtr);
-uint64_t SteamAPI_ISteamMatchmaking_GetLobbyByIndex(intptr_t instancePtr, int iLobby);
-int SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, uint64_t steamIDLobby);
-int SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit(intptr_t instancePtr, uint64_t steamIDLobby);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_JoinLobby(intptr_t instancePtr, uint64_t steamIDLobby);
+void S_CALLTYPE SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter(intptr_t instancePtr, int cMaxResults);
+void S_CALLTYPE SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(intptr_t instancePtr, const char * pchKeyToMatch, const char * pchValueToMatch, int eComparisonType);
+void S_CALLTYPE SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter(intptr_t instancePtr, int eLobbyDistanceFilter);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_RequestLobbyList(intptr_t instancePtr);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyByIndex(intptr_t instancePtr, int iLobby);
+int S_CALLTYPE SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, uint64_t steamIDLobby);
+int S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit(intptr_t instancePtr, uint64_t steamIDLobby);
 
-const char * SteamAPI_ISteamFriends_GetPersonaName(intptr_t instancePtr);
-const char * SteamAPI_ISteamFriends_GetFriendPersonaName(intptr_t instancePtr, uint64_t steamIDFriend);
-int SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
-int SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
-int SteamAPI_ISteamFriends_GetLargeFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
-void SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(intptr_t instancePtr, uint64_t steamIDLobby);
-bool SteamAPI_ISteamFriends_SetRichPresence(intptr_t instancePtr, const char * pchKey, const char * pchValue);
+const char * S_CALLTYPE SteamAPI_ISteamFriends_GetPersonaName(intptr_t instancePtr);
+const char * S_CALLTYPE SteamAPI_ISteamFriends_GetFriendPersonaName(intptr_t instancePtr, uint64_t steamIDFriend);
+int S_CALLTYPE SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
+int S_CALLTYPE SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
+int S_CALLTYPE SteamAPI_ISteamFriends_GetLargeFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
+void S_CALLTYPE SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(intptr_t instancePtr, uint64_t steamIDLobby);
+bool S_CALLTYPE SteamAPI_ISteamFriends_SetRichPresence(intptr_t instancePtr, const char * pchKey, const char * pchValue);
 
-uint64_t SteamAPI_ISteamUserStats_RequestUserStats(intptr_t instancePtr, uint64_t steamIDUser);
-uint64_t SteamAPI_ISteamUserStats_FindLeaderboard(intptr_t instancePtr, const char * pchLeaderboardName);
-uint64_t SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardDataRequest, int nRangeStart, int nRangeEnd);
-bool SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(intptr_t instancePtr, uint64_t hSteamLeaderboardEntries, int index, void * pLeaderboardEntry, int32_t * pDetails, int cDetailsMax);
-bool SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pchName, int32_t * pData);
-bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
-bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
-uint64_t SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardUploadScoreMethod, int32_t nScore, const int32_t * pScoreDetails, int cScoreDetailsCount);
+uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_RequestUserStats(intptr_t instancePtr, uint64_t steamIDUser);
+uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_FindLeaderboard(intptr_t instancePtr, const char * pchLeaderboardName);
+uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardDataRequest, int nRangeStart, int nRangeEnd);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(intptr_t instancePtr, uint64_t hSteamLeaderboardEntries, int index, void * pLeaderboardEntry, int32_t * pDetails, int cDetailsMax);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pchName, int32_t * pData);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
+uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_UploadLeaderboardScore(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardUploadScoreMethod, int32_t nScore, const int32_t * pScoreDetails, int cScoreDetailsCount);
 
-int SteamAPI_ISteamApps_GetLaunchCommandLine(intptr_t instancePtr, char * pszCommandLine, int cubCommandLine);
+int S_CALLTYPE SteamAPI_ISteamApps_GetLaunchCommandLine(intptr_t instancePtr, char * pszCommandLine, int cubCommandLine);
 
 // CRITICAL FIX: Safe integer sizes for SteamUtils API to prevent MSVC stack corruption on Avatar fetching!
-bool SteamAPI_ISteamUtils_GetImageSize(intptr_t instancePtr, int iImage, uint32_t * pnWidth, uint32_t * pnHeight);
-bool SteamAPI_ISteamUtils_GetImageRGBA(intptr_t instancePtr, int iImage, uint8_t * pubDest, int nDestBufferSize);
+bool S_CALLTYPE SteamAPI_ISteamUtils_GetImageSize(intptr_t instancePtr, int iImage, uint32_t * pnWidth, uint32_t * pnHeight);
+bool S_CALLTYPE SteamAPI_ISteamUtils_GetImageRGBA(intptr_t instancePtr, int iImage, uint8_t * pubDest, int nDestBufferSize);
 }
 
 #ifdef _WIN32
