@@ -50,12 +50,18 @@ static const int MENU_MAGIC_HAND_RELOCATE = 999;
 #include "steam_api.h"
 #include <assimp/scene.h>
 
+#ifdef _WIN32
+	#define S_CALLTYPE __cdecl
+#else
+	#define S_CALLTYPE
+#endif
+
 extern "C" {
 // CRITICAL FIX: Flat C API to prevent MinGW C++ VTable crashes
-bool SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pchName, int32_t * pData);
-bool SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
-bool SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
-bool SteamAPI_ISteamApps_BIsSubscribed(intptr_t instancePtr);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_GetStatInt32(intptr_t instancePtr, const char * pchName, int32_t * pData);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_SetStatInt32(intptr_t instancePtr, const char * pchName, int32_t nData);
+bool S_CALLTYPE SteamAPI_ISteamUserStats_StoreStats(intptr_t instancePtr);
+bool S_CALLTYPE SteamAPI_ISteamApps_BIsSubscribed(intptr_t instancePtr);
 }
 // ----------------------------------------------------------------------------------------
 
