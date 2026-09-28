@@ -36447,12 +36447,19 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 	std::vector<glm::vec2> path;
 
 	// Use FAST local memory arrays instead of modifying the global board!
-	bool visited[BOARD_WIDTH][BOARD_HEIGHT] = { false };
-	glm::vec2 parent[BOARD_WIDTH][BOARD_HEIGHT];
+	bool localVisited[BOARD_WIDTH][BOARD_HEIGHT] = { false };
+	glm::vec2 localParent[BOARD_WIDTH][BOARD_HEIGHT];
+
+	// Initialize parents to -1,-1
+	for (int x = 0; x < BOARD_WIDTH; ++x) {
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			localParent[x][y] = glm::vec2(-1, -1);
+		}
+	}
 
 	std::queue<glm::vec2> q;
 	q.push(start);
-	visited[(int)start.x][(int)start.y] = true;
+	localVisited[(int)start.x][(int)start.y] = true;
 
 	// Ghost Check
 	bool isGhost = false;
@@ -36471,17 +36478,19 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 		glm::vec2 neighbors[4] = { { current.x, current.y + 1 }, { current.x, current.y - 1 }, { current.x + 1, current.y }, { current.x - 1, current.y } };
 		for (auto & neighbor : neighbors) {
 			int nx = (int)neighbor.x, ny = (int)neighbor.y;
-			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited) {
+
+			// FIX: Check the local array, not the global board!
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !localVisited[nx][ny]) {
 
 				// --- WALL & PLAYER CHECK ---
 				bool isBlocked = false;
-				// FIX: Allow the pathfinder to reach the END destination tile even if occupied by an enemy/key!
+				// Allow the pathfinder to reach the END destination tile even if occupied by an enemy/key!
 				if (board[nx][ny].hasPlayer && !isGhost && !(nx == (int)end.x && ny == (int)end.y)) isBlocked = true;
 				if (board[nx][ny].hasWall && !isGhost) isBlocked = true;
 
 				if (!isBlocked) {
-					board[nx][ny].visited = true;
-					board[nx][ny].parent = current;
+					localVisited[nx][ny] = true; // FIX: Update the local array
+					localParent[nx][ny] = current; // FIX: Update the local array
 					q.push(neighbor);
 				}
 			}
@@ -36491,7 +36500,7 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 		glm::vec2 current = end;
 		while (current.x != -1) {
 			path.push_back(current);
-			current = board[(int)current.x][(int)current.y].parent;
+			current = localParent[(int)current.x][(int)current.y]; // FIX: Read from the local array
 		}
 		std::reverse(path.begin(), path.end());
 	}
