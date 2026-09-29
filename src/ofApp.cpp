@@ -6590,14 +6590,14 @@ void ofApp::update() {
 	// Cache Steam avatars for turn indicator (THROTTLED to prevent massive FPS drops!)
 	if (isMultiplayer && steamManager.isConnected()) {
 		static float lastAvatarFetchTimeUpdate = 0.0f;
-		if (!localAvatarReady || (!opponentAvatarReady && steamManager.getOpponentSteamID().IsValid())) {
+		if (!localAvatarReady || (!opponentAvatarReady && steamManager.hasOpponent() && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0)) {
 			if (ofGetElapsedTimef() - lastAvatarFetchTimeUpdate > 2.0f) {
 				lastAvatarFetchTimeUpdate = ofGetElapsedTimef();
 
-				if (!localAvatarReady) {
+				if (!localAvatarReady && steamManager.getLocalSteamID().IsValid()) {
 					localAvatarReady = steamManager.getAvatarImage(steamManager.getLocalSteamID(), localAvatarImage, 64);
 				}
-				if (!opponentAvatarReady && steamManager.getOpponentSteamID().IsValid()) {
+				if (!opponentAvatarReady && steamManager.hasOpponent() && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0) {
 					opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
 				}
 			}
@@ -10008,12 +10008,14 @@ void ofApp::setupGame() {
 	g_isHostingLobby = false;
 	g_isConnectingToLobby = false;
 
-	commandQueue.clear();
-	queuedCommandKeys.clear();
-	executedCommandKeys.clear();
-	skippedOptimisticCommands.clear();
-	provisionalSnapshots.clear();
-	provisionalCommands.clear();
+	if (!isExecutingLockstepCommand) {
+		commandQueue.clear();
+		queuedCommandKeys.clear();
+		executedCommandKeys.clear();
+		skippedOptimisticCommands.clear();
+		provisionalSnapshots.clear();
+		provisionalCommands.clear();
+	}
 
 	// Reset simulation time so replays start from frame 0!
 	simulationFrame = 0;
@@ -18426,7 +18428,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 								if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 							}
 							if (allReady) {
-								// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
@@ -18435,11 +18436,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 								startCmd.params[0] = (int)currentMapSeed;
 								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-								sendInputCommand(startCmd, true);
+								sendInputCommand(startCmd, false);
+								queueInputCommand(startCmd);
 							}
 						} else if (lobbyForceStartBtn.inside(x, y)) {
 							if (g_lobbyPlayers.size() > 1) {
-								// FIX: std::random_device crashes Arch Linux/Proton. Use safe cross-platform seed.
 								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
@@ -18448,7 +18449,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								startCmd.params[0] = (int)currentMapSeed;
 								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-								sendInputCommand(startCmd, true);
+								sendInputCommand(startCmd, false);
+								queueInputCommand(startCmd);
 							}
 						}
 					} else {
@@ -45817,16 +45819,18 @@ ofApp::AITurnPlan ofApp::findBestTurnPlan(int actorIdx) {
 // MAIN TACTICAL AI DECISION ENGINE
 // =============================================================================
 void ofApp::thinkRuleBasedAI() {
-	if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+	if (players.empty()) return;
 
-	int activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-
-	// Check if we are responding to an opponent's spell during THEIR turn
 	int aiFocusIndex = currentPlayerIndex;
-	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
+	if (currentState == STATE_DRAFTING) {
+		aiFocusIndex = draftPlayerIndex;
+	} else if (opponentDecisionTimerActive && opponentDecisionPlayerIndex >= 0) {
 		aiFocusIndex = opponentDecisionPlayerIndex;
-		activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
 	}
+
+	if (aiFocusIndex < 0 || aiFocusIndex >= (int)players.size()) return;
+
+	int activeID = players[aiFocusIndex].isMinion ? players[aiFocusIndex].ownerID : players[aiFocusIndex].playerID;
 
 	// In 3 or 4-player FFA, find the closest opposing team leader rather than assuming player 0 or 1
 	int enemyID = -1;
