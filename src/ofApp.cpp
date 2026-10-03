@@ -388,12 +388,14 @@ static glm::mat4 convertAssimpMatrix(const aiMatrix4x4 & from) {
 	return to;
 }
 
-// Recursively accumulates transforms up to the root node
+// Safely accumulates transforms up to the root node with cycle & depth guard
 static glm::mat4 getAssimpNodeWorldMatrix(aiNode * node) {
 	glm::mat4 transform = glm::mat4(1.0f);
-	while (node != nullptr) {
+	int depthGuard = 0;
+	while (node != nullptr && depthGuard < 64) {
 		transform = convertAssimpMatrix(node->mTransformation) * transform;
 		node = node->mParent;
+		depthGuard++;
 	}
 	return transform;
 }
@@ -13378,14 +13380,13 @@ void ofApp::drawGame() {
 				}
 				ofPopMatrix();
 
-				// Fixed-Function Ghost path for Weapon attachment
-				if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
+				// Fixed-Function path for Weapon attachment
+				if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && playerModel.getAssimpScene() != nullptr) {
 					aiNode * handNode = cachedPlayerHandNode;
-					if (handNode) {
+					if (handNode != nullptr && staffModel.getMeshCount() > 0) {
 						glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
 
 						ofPushMatrix();
-						// Multiplied by currentModel->getModelMatrix() to prevent staff scale collapse
 						ofMultMatrix(modelMat * currentModel->getModelMatrix() * handWorld * staffSocketOffset);
 						staffModel.drawFaces();
 						ofPopMatrix();
@@ -18441,8 +18442,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								startCmd.params[0] = (int)currentMapSeed;
 								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-								sendInputCommand(startCmd, false);
-								queueInputCommand(startCmd);
+								// Apply locally via standard lockstep dispatcher only once
+								sendInputCommand(startCmd, true);
 							}
 						} else if (lobbyForceStartBtn.inside(x, y)) {
 							if (g_lobbyPlayers.size() > 1) {
@@ -27317,6 +27318,18 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				isWaitingForMenuTransition = false;
 				currentMenuPanX = 0.0f;
 				targetMenuPanX = 0.0f;
+
+				// Check if this lobby match is exclusively against bots
+				bool hasHumanOpponentInLobby = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+						hasHumanOpponentInLobby = true;
+						break;
+					}
+				}
+				if (!hasHumanOpponentInLobby) {
+					isVsAI = true;
+				}
 
 				// Close and minimize the chat box so it doesn't cover the draft/gameplay
 				isChatOpen = false;
