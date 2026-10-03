@@ -60,7 +60,6 @@ int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection(intp
 int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_AcceptConnection(intptr_t instancePtr, HSteamNetConnection hConn);
 bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseConnection(intptr_t instancePtr, HSteamNetConnection hPeer, int nReason, const char * pszDebug, bool bEnableLinger);
 bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseListenSocket(intptr_t instancePtr, HSteamListenSocket hSocket);
-void S_CALLTYPE SteamAPI_SteamNetworkingMessage_t_Release(SteamNetworkingMessage_t * pMsg);
 }
 
 #ifdef _WIN32
@@ -256,7 +255,7 @@ void SteamManager::update() {
 			auto * msg = msgs[i];
 			std::vector<char> buffer((char *)msg->m_pData, (char *)msg->m_pData + msg->m_cbSize);
 			packetQueue.push(buffer);
-			SteamAPI_SteamNetworkingMessage_t_Release(msg);
+			msg->Release();
 		}
 	}
 
@@ -267,7 +266,7 @@ void SteamManager::update() {
 				auto * msg = msgs[i];
 				std::vector<char> buffer((char *)msg->m_pData, (char *)msg->m_pData + msg->m_cbSize);
 				packetQueue.push(buffer);
-				SteamAPI_SteamNetworkingMessage_t_Release(msg);
+				msg->Release();
 			}
 		}
 	}
@@ -278,7 +277,7 @@ void SteamManager::update() {
 			auto * msg = msgs[i];
 			std::vector<char> buffer((char *)msg->m_pData, (char *)msg->m_pData + msg->m_cbSize);
 			packetQueue.push(buffer);
-			SteamAPI_SteamNetworkingMessage_t_Release(msg);
+			msg->Release();
 		}
 	}
 }
@@ -539,10 +538,15 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 			if (std::find(g_activeClientConnections.begin(), g_activeClientConnections.end(), pInfo->m_hConn) == g_activeClientConnections.end()) {
 				g_activeClientConnections.push_back(pInfo->m_hConn);
 			}
+			if (pInfo->m_info.m_identityRemote.GetSteamID64() != 0) {
+				m_OpponentID = CSteamID(pInfo->m_info.m_identityRemote.GetSteamID64());
+				opponentReconnected = true;
+			}
 		} else {
 			m_hConnection = pInfo->m_hConn;
 			if (pInfo->m_info.m_identityRemote.GetSteamID64() != 0) {
 				m_OpponentID = CSteamID(pInfo->m_info.m_identityRemote.GetSteamID64());
+				opponentReconnected = true;
 			}
 		}
 		break;

@@ -61,10 +61,12 @@ static const int MENU_MAGIC_HAND_RELOCATE = 999;
 #include "steam/steam_api.h"
 #include <assimp/scene.h>
 
-#ifdef _WIN32
-	#define S_CALLTYPE __cdecl
-#else
-	#define S_CALLTYPE
+#ifndef S_CALLTYPE
+	#ifdef _WIN32
+		#define S_CALLTYPE __cdecl
+	#else
+		#define S_CALLTYPE
+	#endif
 #endif
 
 extern "C" {
@@ -5952,7 +5954,10 @@ void ofApp::updateStateMachine() {
 					if (getOwnerIdForActorIndex(currentPlayerIndex) == disconnectedOwner) isOpponentsTurn = true;
 				}
 
-				if (isOpponentsTurn && !g_isGameOver) {
+				// The client must accumulate disconnect time regardless of whose turn it is if connection to host is severed
+				bool shouldAccumulateDisconnect = (!isHost()) || (isHost() && isOpponentsTurn);
+
+				if (shouldAccumulateDisconnect && !g_isGameOver) {
 					reconnectForfeitStartTime += ofGetLastFrameTime(); // Accumulate delta time
 					if (reconnectForfeitStartTime >= 45.0f) {
 						if (isHost()) {
@@ -10287,7 +10292,7 @@ void ofApp::setupGame() {
 		}
 
 		// Only send peer packet if there is an actual connected peer. Safe string evaluation.
-		if (isMultiplayer && myLocalPlayerID != 2 && steamManager.hasOpponent()) {
+		if (isMultiplayer && myLocalPlayerID != 255 && steamManager.hasOpponent()) {
 			std::string myName = steamManager.getLocalPlayerName();
 			if (myName.empty()) myName = (myLocalPlayerID == 0) ? "Player 1" : "Player 2";
 			ChatMessagePacket syncPkt = {};
@@ -15137,7 +15142,7 @@ void ofApp::drawGame() {
 	float p0_profileX = sideInset;
 	float p1_profileX = ofGetWidth() - sideInset - profileW;
 
-	int viewID = (myLocalPlayerID == 2) ? 0 : myLocalPlayerID;
+	int viewID = (myLocalPlayerID == 255) ? 0 : myLocalPlayerID;
 	string p0Name = (viewID == 0) ? player0SteamName : player1SteamName;
 	string p1Name = (viewID == 0) ? player1SteamName : player0SteamName;
 	if (!isMultiplayer) {
@@ -23351,7 +23356,7 @@ void ofApp::continueNewTurn() {
 	// before reaching here, so no need to check again.
 
 	// BROADCAST CHECKSUM: Ensures the opponent verifies lockstep sync at the start of every turn
-	if (isMultiplayer && myLocalPlayerID != 2) {
+	if (isMultiplayer && myLocalPlayerID != 255) {
 		int uniqueTurnId = ((globalTurnCounter & 0x7FFF) << 16) | ((currentPlayerIndex & 0xFF) << 8) | (players[currentPlayerIndex].bonusTurns & 0xFF);
 		long long mySum = calculateChecksum();
 		s_pendingLocalChecksums[uniqueTurnId] = mySum;
@@ -25497,6 +25502,22 @@ void ofApp::processCommandQueue() {
 		// Draft commands must NEVER be paused behind gameplay/card animations
 		bool isDraftCommand = (cmdType == CMD_ACCEPT_DRAFT || cmdType == CMD_DRAFT_ACTION);
 
+		// Hold StartMatch in the queue until the authoritative lobby roster arrives
+		if (cmdType == CMD_PSEUDO_ACTION && strcmp(cmd.stringData, "StartMatch") == 0) {
+			if (isMultiplayer && !steamManager.isHost()) {
+				bool localPlayerPresent = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if ((int)lp.playerID == myLocalPlayerID) {
+						localPlayerPresent = true;
+						break;
+					}
+				}
+				if (g_lobbyPlayers.size() < 2 || (!localPlayerPresent && myLocalPlayerID != 255)) {
+					break; // Pause commandQueue without popping; wait for PKT_LOBBY_UPDATE
+				}
+			}
+		}
+
 		// Only pause queue for regular gameplay actions while effects/animations run
 		if (!isDraftCommand && !isInteractiveMenuCommand && (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue)) {
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
@@ -25507,7 +25528,6 @@ void ofApp::processCommandQueue() {
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
-				// CRITICAL FIX: Whitelist "StartMatch" so it is never paused by lingering menu states!
 				if (actionName != "Forfeit" && actionName != "Desync" && actionName != "ToggleUnlimitedAP" && actionName != "ToggleUnlimitedTime" && actionName != "StartMatch") {
 					break; // PAUSE THE QUEUE
 				}
@@ -26059,8 +26079,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	if (cmd.turnNumber != (uint32_t)globalTurnCounter) {
 		bool isStale = false;
 
-		// Always drop standard gameplay commands from previous turns
-		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_MENU_CHOICE || cmd.commandType == CMD_STATUS_ACTION || cmd.commandType == CMD_RENEWED_INSPIRATION || cmd.commandType == CMD_DRAFT_ACTION) {
+		// Always drop standard gameplay commands from previous turns (including CMD_END_TURN)
+		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_MENU_CHOICE || cmd.commandType == CMD_STATUS_ACTION || cmd.commandType == CMD_RENEWED_INSPIRATION || cmd.commandType == CMD_DRAFT_ACTION || cmd.commandType == CMD_END_TURN) {
 			isStale = true;
 		}
 		// For Pseudo Actions, we only drop in-game actions. Meta commands (Forfeit, Desync) bypass the turn-check!
@@ -26194,10 +26214,26 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		Player & actor = players[currentPlayerIndex];
-		if (cardIndex < 0 || cardIndex >= (int)actor.hand.size()) {
-			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid cardIndex=" << cardIndex;
-			safeResetCardState(); // CRITICAL FIX
-			break;
+		std::string commandedCardName = cmd.stringData;
+
+		// Verify cardIndex by name; if the hand shifted, locate the card by name
+		if (cardIndex < 0 || cardIndex >= (int)actor.hand.size() || (!commandedCardName.empty() && actor.hand[cardIndex].name != commandedCardName)) {
+			int foundIdx = -1;
+			if (!commandedCardName.empty()) {
+				for (int hi = 0; hi < (int)actor.hand.size(); ++hi) {
+					if (actor.hand[hi].name == commandedCardName) {
+						foundIdx = hi;
+						break;
+					}
+				}
+			}
+			if (foundIdx != -1) {
+				cardIndex = foundIdx;
+			} else {
+				ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: card '" << commandedCardName << "' not found in hand.";
+				safeResetCardState();
+				break;
+			}
 		}
 
 		const Card cardSnapshot = actor.hand[cardIndex];

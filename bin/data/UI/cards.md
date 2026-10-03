@@ -209,7 +209,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card played this turn. **Restore** Health equal to damage dealt. **Hand-related**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card already played this turn. **Restore** Health equal to damage dealt. **Hand-related**.
 ---
 
 ## 28. Double Handed
