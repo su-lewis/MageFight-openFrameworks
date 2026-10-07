@@ -1,0 +1,166 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-10-07 14:12:44
+End Reason: Victory
+Seed: 600829876
+Turns: 10
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player
+Player 1: Bot 1
+Player 2: Bot 2
+
+--- EVENT LOG ---
+[14:09:27] --- MATCH STARTED ---
+[14:09:54] Turn 1: Player's turn
+[14:09:54] Autosaved turn-start (autosave.json)
+[14:09:57] Player moved to (1,5)
+[14:10:00] Player moved to (2,5)
+[14:10:01] Turn 1: Bot 1's turn
+[14:10:01] Autosaved turn-start (autosave.json)
+[14:10:02] Bot 1 moved to (1,0)
+[14:10:03] Bot 1 moved to (2,0)
+[14:10:04] Turn 1: Bot 2's turn
+[14:10:04] Autosaved turn-start (autosave.json)
+[14:10:06] Bot 2 moved to (11,0)
+[14:10:06] Bot 2 moved to (11,1)
+[14:10:07] Bot 2 moved to (11,2)
+[14:10:08] Bot 2 moved to (11,3)
+[14:10:11] Bot 2 moved to (10,3)
+[14:10:12] Bot 2 moved to (9,3)
+[14:10:13] Turn 2: Player's turn
+[14:10:13] Autosaved turn-start (autosave.json)
+[14:10:15] Player played Sprint targeting (2,5)
+[14:10:16] Player moved to (4,4)
+[14:10:19] Player moved to (5,5)
+[14:10:19] Turn 2: Bot 1's turn
+[14:10:19] Autosaved turn-start (autosave.json)
+[14:10:21] Bot 1 moved to (3,0)
+[14:10:22] Bot 1 moved to (4,0)
+[14:10:25] Bot 1 moved to (5,0)
+[14:10:26] Bot 1 moved to (5,1)
+[14:10:27] Turn 2: Bot 2's turn
+[14:10:27] Autosaved turn-start (autosave.json)
+[14:10:29] Bot 2 moved to (8,3)
+[14:10:29] Turn 3: Player's turn
+[14:10:29] Autosaved turn-start (autosave.json)
+[14:10:33] Player played Magic Bolt targeting (8,3)
+[14:10:35] Bot 2 has been ELIMINATED!
+[14:10:40] Turn 3: Bot 1's turn
+[14:10:40] Autosaved turn-start (autosave.json)
+[14:10:42] Bot 1 played Summon Assistant targeting (5,0)
+[14:10:42] Bot 1 summoned unit kind 6 at (5,0)
+[14:10:43] Bot 1 moved to (6,1)
+[14:10:45] Bot 1 moved to (6,0)
+[14:10:48] Bot 1 moved to (7,0)
+[14:10:48] Bot 1 moved to (8,0)
+[14:10:51] Bot 1 moved to (7,0)
+[14:10:52] Turn 4: Player's turn
+[14:10:52] Autosaved turn-start (autosave.json)
+[14:10:55] Player moved to (6,6)
+[14:10:56] Turn 4: Bot 1's turn
+[14:10:56] Autosaved turn-start (autosave.json)
+[14:10:58] Bot 1 played Hand Block targeting (5,0)
+[14:10:58] Turn 4: Bot 1's turn
+[14:10:58] Autosaved turn-start (autosave.json)
+[14:11:00] Bot 1 moved to (7,1)
+[14:11:01] Turn 5: Player's turn
+[14:11:01] Autosaved turn-start (autosave.json)
+[14:11:04] Player moved to (8,4)
+[14:11:08] Player moved to (8,3)
+[14:11:08] Turn 5: Bot 1's turn
+[14:11:08] Autosaved turn-start (autosave.json)
+[14:11:10] Bot 1 played Hand Block targeting (5,0)
+[14:11:11] Turn 5: Bot 1's turn
+[14:11:11] Autosaved turn-start (autosave.json)
+[14:11:13] Bot 1 played Summon Assistant targeting (7,0)
+[14:11:13] Bot 1 summoned unit kind 6 at (7,0)
+[14:11:14] Bot 1 moved to (7,2)
+[14:11:15] Bot 1 moved to (6,2)
+[14:11:15] Turn 6: Player's turn
+[14:11:15] Autosaved turn-start (autosave.json)
+[14:11:20] Player played Sprint targeting (8,3)
+[14:11:22] Player moved to (7,1)
+[14:11:24] Player played Punch targeting (7,0)
+[14:11:25] Player moved to (6,1)
+[14:11:25] Turn 6: Bot 1's turn
+[14:11:25] Autosaved turn-start (autosave.json)
+[14:11:27] Bot 1 moved to (4,0)
+[14:11:28] Bot 1 played Hand Block targeting (4,0)
+[14:11:29] Turn 6: Bot 1's turn
+[14:11:29] Autosaved turn-start (autosave.json)
+[14:11:31] Bot 1 moved to (7,2)
+[14:11:32] Bot 1 moved to (7,3)
+[14:11:32] Turn 7: Player's turn
+[14:11:32] Autosaved turn-start (autosave.json)
+[14:11:36] Player moved to (6,2)
+[14:11:38] Player played Slash targeting (6,3)
+[14:11:39] Player moved to (7,2)
+[14:11:40] Turn 7: Bot 1's turn
+[14:11:40] Autosaved turn-start (autosave.json)
+[14:11:42] Bot 1 moved to (3,0)
+[14:11:43] Bot 1 played Hand Block targeting (3,0)
+[14:11:43] Turn 7: Bot 1's turn
+[14:11:43] Autosaved turn-start (autosave.json)
+[14:11:45] Bot 1 played Bash targeting (7,2)
+[14:11:47] Bot 1 moved to (8,3)
+[14:11:48] Bot 1 moved to (8,4)
+[14:11:48] Turn 8: Player's turn
+[14:11:48] Autosaved turn-start (autosave.json)
+[14:11:52] Player moved to (8,3)
+[14:11:53] Player played Punch targeting (8,4)
+[14:11:54] Turn 8: Bot 1's turn
+[14:11:54] Autosaved turn-start (autosave.json)
+[14:11:56] Bot 1 played Hand Block targeting (3,0)
+[14:11:56] Turn 8: Bot 1's turn
+[14:11:56] Autosaved turn-start (autosave.json)
+[14:11:58] Bot 1 played Punch targeting (8,3)
+[14:11:59] Bot 1 moved to (8,5)
+[14:12:00] Bot 1 moved to (8,6)
+[14:12:01] Bot 1 moved to (7,6)
+[14:12:01] Bot 1 moved to (7,7)
+[14:12:02] Bot 1 moved to (6,7)
+[14:12:05] Turn 9: Player's turn
+[14:12:05] Autosaved turn-start (autosave.json)
+[14:12:13] Player moved to (6,6)
+[14:12:14] Turn 9: Bot 1's turn
+[14:12:14] Autosaved turn-start (autosave.json)
+[14:12:16] Bot 1 moved to (4,0)
+[14:12:17] Bot 1 played Hand Block targeting (4,0)
+[14:12:18] Turn 9: Bot 1's turn
+[14:12:18] Autosaved turn-start (autosave.json)
+[14:12:20] Bot 1 played Summon Assistant targeting (5,7)
+[14:12:20] Bot 1 summoned unit kind 6 at (5,7)
+[14:12:22] Bot 1 played Chain Lightning targeting (7,5)
+[14:12:29] Turn 10: Player's turn
+[14:12:29] Autosaved turn-start (autosave.json)
+[14:12:35] Player moved to (5,6)
+[14:12:35] Player played Punch targeting (5,7)
+[14:12:37] Player moved to (6,6)
+[14:12:38] Turn 10: Bot 1's turn
+[14:12:38] Autosaved turn-start (autosave.json)
+[14:12:40] Bot 1 moved to (5,0)
+[14:12:40] Bot 1 played Hand Block targeting (5,0)
+[14:12:41] Turn 10: Bot 1's turn
+[14:12:41] Autosaved turn-start (autosave.json)
+[14:12:43] Bot 1 played Punch targeting (6,6)
+[14:12:44] Bot 1 moved to (6,8)
+[14:12:44] Player has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 18
+  Cards Played: 7
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 7
+  Cards Played: 14
+  Minions Spawned: 3
+  Total Healing: 0
+Player 2 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

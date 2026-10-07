@@ -30012,33 +30012,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	case EffectOpType::APPLY_BLOCKING_BOON_D20: {
-		int total = currentEffectSequence.blackboard[0];
-		int casterIdx = blockingBoonPendingCasterIndex;
-		Player & caster = players[casterIdx];
-
-		if (total >= 20) {
-			networkPending.draftQueue.push_back((casterIdx << 16) | 3);
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 3", ofColor::cyan);
-		} else if (total >= 16) {
-			networkPending.draftQueue.push_back((casterIdx << 16) | 2);
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 2", ofColor::cyan);
-		} else if (total >= 10) {
-			networkPending.draftQueue.push_back((casterIdx << 16) | 1);
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Draft Class 1", ofColor::cyan);
-		} else {
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No Draft", ofColor::gray);
-		}
-
-		// Proceed to coins
-		EffectOp nextOp = {};
-		nextOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
-		queueEffect(nextOp);
-
-		opComplete = true;
-		break;
-	}
-
 	case EffectOpType::APPLY_ON_FIRE: {
 		// Read authoritative fire damage roll from blackboard slot 0
 		int rollResult = currentEffectSequence.blackboard[0];
