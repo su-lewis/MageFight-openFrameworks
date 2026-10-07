@@ -280,11 +280,13 @@ std::vector<ofUnicode::range> buildLocRanges() {
 				len = 4;
 			}
 
+			int actualLen = 1;
 			for (int j = 1; j < len && i + j < text.size(); ++j) {
 				u = (u << 6) | (text[i + j] & 0x3F);
+				actualLen++;
 			}
 			chars.insert(u);
-			i += len;
+			i += actualLen;
 		}
 	}
 
@@ -627,7 +629,8 @@ static void sendDiscordWebhook(const std::string & url, const std::string & cont
 		if (response.status != 200 && response.status != 204) {
 			ofLogWarning("Discord") << "Native Webhook failed (" << response.status << "). Trying curl fallback...";
 
-			std::string tmpFilename = "discord_tmp_" + std::to_string(ofGetSystemTimeMillis()) + ".json";
+			static std::atomic<int> webhookCounter(0);
+			std::string tmpFilename = "discord_tmp_" + std::to_string(ofGetSystemTimeMillis()) + "_" + std::to_string(++webhookCounter) + ".json";
 			std::string tmpPath = ofToDataPath(tmpFilename, true);
 			ofFile f(tmpPath, ofFile::WriteOnly);
 			f << jsonStr;
@@ -19147,58 +19150,68 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (debugFlipCoinButton.inside(x, y)) {
-			std::vector<int> raw;
-			int v = 0;
-			// Use visualRNG to avoid breaking lockstep determinism
-			std::uniform_int_distribution<int> dist(1, 2);
-			raw.push_back(dist(visualRNG));
-			v = raw[0];
-			currentEffectSequence.blackboard[14] = v;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 0.8f);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "DebugRoll", sizeof(cmd.stringData) - 1);
+			cmd.params[0] = 1; // numDice
+			cmd.params[1] = 2; // sides
+			sendInputCommand(cmd, true);
 			return;
 		}
 		if (debugRollD4Button.inside(x, y)) {
-			std::vector<int> raw;
-			int v = 0;
-			// Use visualRNG to avoid breaking lockstep determinism
-			std::uniform_int_distribution<int> dist(1, 4);
-			raw.push_back(dist(visualRNG));
-			v = raw[0];
-			currentEffectSequence.blackboard[14] = v;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "DebugRoll", sizeof(cmd.stringData) - 1);
+			cmd.params[0] = 1;
+			cmd.params[1] = 4;
+			sendInputCommand(cmd, true);
 			return;
 		}
 		if (debugRollD6Button.inside(x, y)) {
-			std::vector<int> raw;
-			int v = 0;
-			// Use visualRNG to avoid breaking lockstep determinism
-			std::uniform_int_distribution<int> dist(1, 6);
-			raw.push_back(dist(visualRNG));
-			v = raw[0];
-			currentEffectSequence.blackboard[14] = v;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "DebugRoll", sizeof(cmd.stringData) - 1);
+			cmd.params[0] = 1;
+			cmd.params[1] = 6;
+			sendInputCommand(cmd, true);
 			return;
 		}
 		if (debugRollD10Button.inside(x, y)) {
-			std::vector<int> raw;
-			int v = 0;
-			// Use visualRNG to avoid breaking lockstep determinism
-			std::uniform_int_distribution<int> dist(1, 10);
-			raw.push_back(dist(visualRNG));
-			v = raw[0];
-			currentEffectSequence.blackboard[14] = v;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "DebugRoll", sizeof(cmd.stringData) - 1);
+			cmd.params[0] = 1;
+			cmd.params[1] = 10;
+			sendInputCommand(cmd, true);
 			return;
 		}
 		if (debugRollD20Button.inside(x, y)) {
-			std::vector<int> raw;
-			int v = 0;
-			// Use visualRNG to avoid breaking lockstep determinism
-			std::uniform_int_distribution<int> dist(1, 20);
-			raw.push_back(dist(visualRNG));
-			v = raw[0];
-			currentEffectSequence.blackboard[14] = v;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.commandId = 0;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PSEUDO_ACTION;
+			strncpy(cmd.stringData, "DebugRoll", sizeof(cmd.stringData) - 1);
+			cmd.params[0] = 1;
+			cmd.params[1] = 20;
+			sendInputCommand(cmd, true);
 			return;
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
@@ -25447,7 +25460,7 @@ void ofApp::processCommandQueue() {
 		// --- LOCKSTEP ORDERING FIX: Hold queue if a lower command ID is still missing ---
 		// Bypass this check for optimistic client commands (which have huge IDs)
 		if (cmd.commandId < 0x7FFFFFFF) {
-			if (lastProcessedCommandId > 0 && cmd.commandId > lastProcessedCommandId + 1) {
+			if (cmd.commandId > lastProcessedCommandId + 1) {
 				ofLogNotice("Lockstep") << "Holding queue: waiting for missing commandId="
 										<< (lastProcessedCommandId + 1)
 										<< " (front is " << cmd.commandId << ")";
@@ -27459,6 +27472,25 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			board[gx][gy].hasPlayer = true;
 			players.push_back(testUnit);
 			ofLogNotice("Debug") << "Spawned test unit at (" << gx << "," << gy << ") ownerID=" << ownerID << " playerID=" << testUnit.playerID;
+			break;
+		}
+
+		if (actionName == "DebugRoll") {
+			int numDice = cmd.params[0];
+			int sides = cmd.params[1];
+
+			// We can now safely use the deterministic lockstep RNG!
+			std::vector<int> raw;
+			int total = resolveDiceRollDetailed(numDice, sides, raw);
+			currentEffectSequence.blackboard[14] = total;
+
+			// Spawns the 3D dice visuals over the active player
+			int pIdx = currentPlayerIndex >= 0 ? currentPlayerIndex : 0;
+			glm::vec3 pos = gridToWorld(players[pIdx].x, players[pIdx].y) + glm::vec3(0, 1.0f, 0);
+			float duration = (sides == 2) ? 0.8f : 1.0f; // Coins spin slightly faster
+
+			queueVisualDiceRoll(pos, numDice, sides, raw, total, PURPOSE_DEBUG, pIdx, duration);
+			ofLogNotice("Debug") << "Deterministic Debug Roll: " << numDice << "d" << sides << " = " << total;
 			break;
 		}
 
