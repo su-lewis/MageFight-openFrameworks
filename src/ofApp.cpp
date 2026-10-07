@@ -1094,23 +1094,32 @@ void ofApp::triggerCameraShake(float intensity, float duration) {
 }
 
 // Resolve the game's root directory. Falls back to the current working directory.
-static std::filesystem::path getGameRootPath() {
-	try {
-		std::filesystem::path cwd = std::filesystem::current_path();
-		if (cwd.filename() == "bin") return cwd.parent_path();
-		return cwd;
-	} catch (...) {
-		return std::filesystem::current_path();
-	}
-}
+static std::string getSavesDirPath() {
+	// Safely resolves to "bin/data/" or the Mac app bundle data folder
+	std::string dataPath = ofToDataPath("", true);
 
-static std::filesystem::path getSavesDirPath() {
-	return getGameRootPath() / std::filesystem::path("Saves");
+	// Normalize slashes for cross-platform compatibility
+	for (char & c : dataPath) {
+		if (c == '\\') c = '/';
+	}
+
+	// Strip trailing slash
+	if (!dataPath.empty() && dataPath.back() == '/') {
+		dataPath.pop_back();
+	}
+
+	// Go up one directory from "data" to reach the game root
+	size_t lastSlash = dataPath.find_last_of('/');
+	if (lastSlash != std::string::npos) {
+		dataPath = dataPath.substr(0, lastSlash);
+	}
+
+	return dataPath + "/Saves";
 }
 
 static std::string makeSavePath(const std::string & p) {
 	if (!p.empty() && p.front() == '/') return p;
-	return (getSavesDirPath() / std::filesystem::path(p)).string();
+	return getSavesDirPath() + "/" + p;
 }
 
 void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
@@ -6341,7 +6350,7 @@ void ofApp::update() {
 		}
 		matchLog += "=====================\n";
 
-		std::string filename = getSavesDirPath().string() + "/match_log_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
+		std::string filename = getSavesDirPath() + "/match_log_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
 		ofFile f(filename, ofFile::WriteOnly);
 		f << matchLog;
 		f.close();
@@ -44480,7 +44489,7 @@ void ofApp::processNetworkPackets() {
 				}
 				matchLog += "=====================\n";
 
-				std::string logFilename = getSavesDirPath().string() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
+				std::string logFilename = getSavesDirPath() + "/match_log_DESYNC_" + ofGetTimestampString("%Y%m%d_%H%M%S") + ".txt";
 				ofFile f(logFilename, ofFile::WriteOnly);
 				f << matchLog;
 				f.close();
@@ -45969,6 +45978,7 @@ void ofApp::thinkRuleBasedAI() {
 
 	bool isSupportMinion = me.isMinion && (me.isFaerie || me.isAssistant);
 	bool isCombatMinion = me.isMinion && !isSupportMinion;
+	(void)isCombatMinion; // Silence unused variable warning
 
 	float dt = ofGetLastFrameTime();
 
@@ -48614,13 +48624,13 @@ void ofApp::saveReplay(const std::string & filename) {
 	}
 	j["commands"] = cmds;
 
-	std::string path = getSavesDirPath().string() + "/" + filename;
+	std::string path = getSavesDirPath() + "/" + filename;
 	ofSaveJson(path, j);
 	ofLogNotice("Replay") << "Saved replay to " << path;
 }
 
 void ofApp::loadReplay(const std::string & filename) {
-	std::string path = getSavesDirPath().string() + "/" + filename;
+	std::string path = getSavesDirPath() + "/" + filename;
 	ofJson j = ofLoadJson(path);
 	if (j.empty()) {
 		ofLogError("Replay") << "Failed to load replay: " << path;
@@ -48664,7 +48674,7 @@ void ofApp::loadReplay(const std::string & filename) {
 }
 void ofApp::loadH2HStats() {
 	h2hStatsMap.clear();
-	std::string path = getSavesDirPath().string() + "/h2h_stats.json";
+	std::string path = getSavesDirPath() + "/h2h_stats.json";
 	if (!ofFile(path).exists()) return;
 
 	try {
@@ -48693,7 +48703,7 @@ void ofApp::saveH2HStats() {
 		val["draws"] = rec.draws;
 		j[idKey] = val;
 	}
-	std::string path = getSavesDirPath().string() + "/h2h_stats.json";
+	std::string path = getSavesDirPath() + "/h2h_stats.json";
 	try {
 		ofSaveJson(path, j);
 		ofLogNotice("H2H") << "Saved H2H stats to " << path;

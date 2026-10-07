@@ -60,7 +60,9 @@ int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection(intp
 int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_AcceptConnection(intptr_t instancePtr, HSteamNetConnection hConn);
 bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseConnection(intptr_t instancePtr, HSteamNetConnection hPeer, int nReason, const char * pszDebug, bool bEnableLinger);
 bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseListenSocket(intptr_t instancePtr, HSteamListenSocket hSocket);
-void S_CALLTYPE SteamAPI_SteamNetworkingMessage_t_Release(SteamNetworkingMessage_t * instancePtr);
+
+// --- CRITICAL FIX: Safe message memory release ---
+void S_CALLTYPE SteamAPI_SteamNetworkingMessage_t_Release(void * pMsg);
 }
 
 #ifdef _WIN32
