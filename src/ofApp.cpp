@@ -25915,6 +25915,8 @@ void ofApp::simulationTick() {
 					case EffectOpType::HEAL:
 					case EffectOpType::APPLY_GENERIC_DAMAGE:
 					case EffectOpType::APPLY_GENERIC_HEAL:
+					case EffectOpType::APPLY_ON_FIRE_RESOLVE: // <--- ADDED
+					case EffectOpType::APPLY_VAMPIRE_BITE_RESOLVE: // <--- ADDED
 						if (op.data.damage.targetIndex == idx)
 							op.data.damage.targetIndex = -1;
 						else if (op.data.damage.targetIndex > idx)
@@ -25938,6 +25940,25 @@ void ofApp::simulationTick() {
 							op.data.moveUnit.unitIndex = -1;
 						else if (op.data.moveUnit.unitIndex > idx)
 							op.data.moveUnit.unitIndex--;
+						break;
+					case EffectOpType::DRAW_CARDS: // <--- ADDED
+					case EffectOpType::DISCARD_CARDS: // <--- ADDED
+						if (op.data.drawCards.playerIndex == idx)
+							op.data.drawCards.playerIndex = -1;
+						else if (op.data.drawCards.playerIndex > idx)
+							op.data.drawCards.playerIndex--;
+						break;
+					case EffectOpType::ADD_CARD_TO_DECK: // <--- ADDED
+						if (op.data.addCard.targetIndex == idx)
+							op.data.addCard.targetIndex = -1;
+						else if (op.data.addCard.targetIndex > idx)
+							op.data.addCard.targetIndex--;
+						break;
+					case EffectOpType::REMOVE_TOP_CARD_FROM_DECK: // <--- ADDED
+						if (op.data.removeTopCard.targetIndex == idx)
+							op.data.removeTopCard.targetIndex = -1;
+						else if (op.data.removeTopCard.targetIndex > idx)
+							op.data.removeTopCard.targetIndex--;
 						break;
 					default:
 						break;
@@ -26026,6 +26047,26 @@ void ofApp::simulationTick() {
 						currentCardOutcome.attackTargetIndices[k] -= 1;
 					}
 				}
+
+				// --- ADDED: Shift transient global interaction indices ---
+				if (blockingBoonPendingCasterIndex == idx) {
+					blockingBoonPendingCasterIndex = -1;
+				} else if (blockingBoonPendingCasterIndex > idx) {
+					blockingBoonPendingCasterIndex--;
+				}
+
+				if (amnesiaTargetPlayerIndex == idx) {
+					amnesiaTargetPlayerIndex = -1;
+				} else if (amnesiaTargetPlayerIndex > idx) {
+					amnesiaTargetPlayerIndex--;
+				}
+
+				if (ghostRelocateTargetIndex == idx) {
+					ghostRelocateTargetIndex = -1;
+				} else if (ghostRelocateTargetIndex > idx) {
+					ghostRelocateTargetIndex--;
+				}
+				// ---------------------------------------------------------
 
 				players.erase(players.begin() + idx);
 
@@ -32569,11 +32610,32 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
 				long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 				if (neededDistSq > maxDistSq) {
-					glm::vec2 dir = targetTile - casterTile;
-					if (glm::length(dir) > 0) dir = glm::normalize(dir);
-					float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
-					glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
-					glm::ivec2 impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+					// CRITICAL FIX: Replaced float normalization with deterministic Bresenham trace
+					int x0 = (int)casterTile.x, y0 = (int)casterTile.y;
+					int x1 = (int)targetTile.x, y1 = (int)targetTile.y;
+					int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+					int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+					int err = dx + dy;
+					glm::ivec2 impactTile = { x0, y0 };
+
+					while (true) {
+						if (getFaceToFaceDistanceSquaredScaled(casterTile, glm::vec2(x0, y0)) * 25LL > maxDistSq * 25LL) {
+							break; // Reached max range
+						}
+						impactTile = { x0, y0 };
+						if (x0 == x1 && y0 == y1) break;
+
+						int e2 = 2 * err;
+						if (e2 >= dy) {
+							err += dy;
+							x0 += sx;
+						}
+						if (e2 <= dx) {
+							err += dx;
+							y0 += sy;
+						}
+					}
+
 					if (isTileWall(impactTile.x, impactTile.y)) {
 						queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Path Blocked", ofColor::red);
 						return true; // Abort play, spell hits a wall before reaching target tile and fizzles
