@@ -237,7 +237,12 @@ void SteamManager::update() {
 				if (owner.IsValid() && SteamNetworkingSockets()) {
 					SteamNetworkingIdentity identity;
 					memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
-					identity.SetSteamID(owner);
+
+					// CRITICAL FIX: Manually assign the SteamID and Type to bypass C++ method crashes
+					identity.m_eType = k_ESteamNetworkingIdentityType_SteamID;
+					identity.m_cbSize = sizeof(uint64);
+					identity.SetSteamID64(owner.ConvertToUint64());
+
 					HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
 					if (conn != k_HSteamNetConnection_Invalid) {
 						m_hConnection = conn;
@@ -372,7 +377,12 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			if (owner.IsValid()) {
 				SteamNetworkingIdentity identity;
 				memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
-				identity.SetSteamID(owner);
+
+				// CRITICAL FIX: Manually assign the SteamID and Type to bypass C++ method crashes
+				identity.m_eType = k_ESteamNetworkingIdentityType_SteamID;
+				identity.m_cbSize = sizeof(uint64);
+				identity.SetSteamID64(owner.ConvertToUint64());
+
 				HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
 				if (conn != k_HSteamNetConnection_Invalid) {
 					m_hConnection = conn;
@@ -490,7 +500,12 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 		if (owner.IsValid() && owner.ConvertToUint64() != 0) {
 			SteamNetworkingIdentity identity;
 			memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
-			identity.SetSteamID(owner);
+
+			// CRITICAL FIX: Manually assign the SteamID and Type to bypass C++ method crashes
+			identity.m_eType = k_ESteamNetworkingIdentityType_SteamID;
+			identity.m_cbSize = sizeof(uint64);
+			identity.SetSteamID64(owner.ConvertToUint64());
+
 			m_hConnection = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
 		} else {
 			m_hConnection = k_HSteamNetConnection_Invalid;
