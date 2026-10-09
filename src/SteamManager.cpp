@@ -371,14 +371,17 @@ void SteamManager::closeConnection() {
 bool SteamManager::sendPacket(const void * data, uint32_t size) {
 	if (!m_bInitialized || !SteamNetworkingSockets()) return false;
 
+	// CRITICAL FIX: Prevent Segfaults by providing a valid memory address for the Flat C API
+	// to write the outgoing message number into, instead of passing nullptr!
+	int64_t dummyOutMsgNum = 0;
+	int sendFlags = 8; // k_nSteamNetworkingSend_Reliable = 8
+
 	if (!m_bIsHost && m_hConnection == k_HSteamNetConnection_Invalid) {
 		if (m_LobbyID.IsValid() && SteamMatchmaking()) {
 			CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 			if (owner.IsValid()) {
 				SteamNetworkingIdentity identity;
-				memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
-
-				// CRITICAL FIX: Manually assign the SteamID and Type to bypass C++ method crashes
+				memset(&identity, 0, sizeof(identity));
 				identity.m_eType = k_ESteamNetworkingIdentityType_SteamID;
 				identity.m_cbSize = sizeof(uint64);
 				identity.SetSteamID64(owner.ConvertToUint64());
@@ -394,14 +397,18 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 
 	if (m_bIsHost) {
 		for (auto conn : g_activeClientConnections) {
-			SteamAPI_ISteamNetworkingSockets_SendMessageToConnection((intptr_t)SteamNetworkingSockets(), conn, data, size, k_nSteamNetworkingSend_Reliable, nullptr);
+			if (conn != k_HSteamNetConnection_Invalid) {
+				SteamAPI_ISteamNetworkingSockets_SendMessageToConnection((intptr_t)SteamNetworkingSockets(), conn, data, size, sendFlags, &dummyOutMsgNum);
+			}
 		}
 		for (auto conn : g_spectatorConnections) {
-			SteamAPI_ISteamNetworkingSockets_SendMessageToConnection((intptr_t)SteamNetworkingSockets(), conn, data, size, k_nSteamNetworkingSend_Reliable, nullptr);
+			if (conn != k_HSteamNetConnection_Invalid) {
+				SteamAPI_ISteamNetworkingSockets_SendMessageToConnection((intptr_t)SteamNetworkingSockets(), conn, data, size, sendFlags, &dummyOutMsgNum);
+			}
 		}
 		return true;
 	} else {
-		return SteamAPI_ISteamNetworkingSockets_SendMessageToConnection((intptr_t)SteamNetworkingSockets(), m_hConnection, data, size, k_nSteamNetworkingSend_Reliable, nullptr) == k_EResultOK;
+		return SteamAPI_ISteamNetworkingSockets_SendMessageToConnection((intptr_t)SteamNetworkingSockets(), m_hConnection, data, size, sendFlags, &dummyOutMsgNum) == 1; // k_EResultOK = 1
 	}
 }
 
