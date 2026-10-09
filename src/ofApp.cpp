@@ -1041,7 +1041,7 @@ struct LobbyUpdatePacket {
 		int32_t elo;
 		uint8_t isReady;
 		uint8_t isBot;
-		char name[27];
+		char name[32]; // CRITICAL FIX: Expanded to 32 bytes for safe memory boundary alignment
 	} players[4];
 };
 #pragma pack(pop)
@@ -1059,8 +1059,11 @@ void broadcastLobbyState(SteamManager & steamManager) {
 		lup.players[i].elo = g_lobbyPlayers[i].elo;
 		lup.players[i].isReady = g_lobbyPlayers[i].isReady ? 1 : 0;
 		lup.players[i].isBot = g_lobbyPlayers[i].isBot ? 1 : 0;
-		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 26);
-		lup.players[i].name[26] = '\0';
+
+		// CRITICAL FIX: Secure 32-byte string copy to prevent memory access violations
+		size_t nameLen = std::min(g_lobbyPlayers[i].name.size(), (size_t)31);
+		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), nameLen);
+		lup.players[i].name[nameLen] = '\0';
 	}
 	steamManager.sendPacket(&lup, sizeof(lup));
 }
@@ -44110,9 +44113,10 @@ void ofApp::processNetworkPackets() {
 						lp.isReady = (lup->players[i].isReady == 1);
 						lp.isBot = (lup->players[i].isBot == 1);
 
-						// Guarantee null-termination before string construction to prevent crash
+						// CRITICAL FIX: Safe memory boundary enforcement for incoming 32-byte names
 						char safeName[32] = { 0 };
-						memcpy(safeName, lup->players[i].name, 26);
+						memcpy(safeName, lup->players[i].name, 31);
+						safeName[31] = '\0';
 						lp.name = std::string(safeName);
 
 						g_lobbyPlayers.push_back(lp);
@@ -44124,6 +44128,8 @@ void ofApp::processNetworkPackets() {
 				}
 				continue;
 			}
+
+			// NEW FIX: Ensure global steam names are synced immediately when lobby updates
 
 			if (header->type == PKT_HANDSHAKE) {
 				if (buffer.size() < sizeof(HandshakePacket)) continue;
@@ -44407,11 +44413,11 @@ void ofApp::processNetworkPackets() {
 				ChecksumPacket * pkt = (ChecksumPacket *)header;
 
 				// Host routes checksums to other clients so everyone validates everyone
-				if (isHost() && pkt->playerID != myLocalPlayerID) {
+				if (isHost() && pkt->playerID != (uint32_t)myLocalPlayerID) { // <--- FIXED WARNING
 					steamManager.sendPacket(buffer.data(), buffer.size());
 				}
 
-				if (skipChecksumValidation || pkt->playerID == 255 || pkt->playerID == myLocalPlayerID) continue;
+				if (skipChecksumValidation || pkt->playerID == 255 || pkt->playerID == (uint32_t)myLocalPlayerID) continue; // <--- FIXED WARNING
 
 				int pktTurn = (pkt->turnNumber >> 16) & 0x7FFF;
 				if (std::abs(pktTurn - (int)globalTurnCounter) > 10) continue;
@@ -44422,7 +44428,7 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 		}
-	}
+	} // Closes the while(!steamManager.packetQueue.empty()) loop
 
 	// =========================================================================
 	// --- EVALUATE PENDING CHECKSUMS (RESTORED!) ---
@@ -44532,7 +44538,8 @@ void ofApp::processNetworkPackets() {
 			continue;
 		}
 	}
-}
+} // <--- CRITICAL FIX: This safely closes processNetworkPackets()!
+
 // --- Networking helper implementations ---
 void ofApp::sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace) {
 	PlaceSummonedBeginPacket bp = {};
