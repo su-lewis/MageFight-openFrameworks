@@ -238,7 +238,7 @@ void SteamManager::update() {
 					SteamNetworkingIdentity identity;
 					memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
 
-					// CRITICAL FIX: Manually assign the SteamID and Type to bypass C++ method crashes
+					// CRITICAL FIX: Manually assign the SteamID and Type to bypass MinGW C++ method crashes
 					identity.m_eType = k_ESteamNetworkingIdentityType_SteamID;
 					identity.m_cbSize = sizeof(uint64);
 					identity.SetSteamID64(owner.ConvertToUint64());
