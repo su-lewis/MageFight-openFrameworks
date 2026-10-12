@@ -8,6 +8,7 @@
 #endif
 
 // Define the safe Flat C API functions manually to avoid MinGW C++ VTable/Stack alignment crashes
+#pragma pack(push, 8) // CRITICAL FIX: Force MSVC-compatible struct alignment for Steam structs
 extern "C" {
 uint64_t S_CALLTYPE SteamAPI_ISteamUser_GetSteamID(intptr_t instancePtr);
 
@@ -54,7 +55,7 @@ bool S_CALLTYPE SteamAPI_ISteamUtils_GetImageRGBA(intptr_t instancePtr, int iIma
 // --- CRITICAL FIX: Safe Networking Flat API ---
 void S_CALLTYPE SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess(intptr_t instancePtr);
 HSteamListenSocket S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(intptr_t instancePtr, int nLocalVirtualPort, int nOptions, const void * pOptions);
-HSteamNetConnection S_CALLTYPE SteamAPI_ISteamNetworkingSockets_ConnectP2P(intptr_t instancePtr, const SteamNetworkingIdentity * pIdentityRemote, int nRemoteVirtualPort, int nOptions, const void * pOptions);
+HSteamNetConnection S_CALLTYPE SteamAPI_ISteamNetworkingSockets_ConnectP2P(intptr_t instancePtr, const void * pIdentityRemote, int nRemoteVirtualPort, int nOptions, const void * pOptions);
 int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(intptr_t instancePtr, HSteamNetConnection hConn, const void * pData, uint32_t cbData, int nSendFlags, int64_t * pOutMessageNumber);
 int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection(intptr_t instancePtr, HSteamNetConnection hConn, SteamNetworkingMessage_t ** ppOutMessages, int nMaxMessages);
 int S_CALLTYPE SteamAPI_ISteamNetworkingSockets_AcceptConnection(intptr_t instancePtr, HSteamNetConnection hConn);
@@ -64,6 +65,7 @@ bool S_CALLTYPE SteamAPI_ISteamNetworkingSockets_CloseListenSocket(intptr_t inst
 // --- CRITICAL FIX: Safe message memory release ---
 void S_CALLTYPE SteamAPI_SteamNetworkingMessage_t_Release(void * pMsg);
 }
+#pragma pack(pop)
 
 #ifdef _WIN32
 	#pragma comment(lib, "steam_api64.lib")
@@ -243,7 +245,7 @@ void SteamManager::update() {
 					identity.m_cbSize = sizeof(uint64);
 					identity.SetSteamID64(owner.ConvertToUint64());
 
-					HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
+					HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), (const void *)&identity, 0, 0, nullptr);
 					if (conn != k_HSteamNetConnection_Invalid) {
 						m_hConnection = conn;
 					}
@@ -386,7 +388,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 				identity.m_cbSize = sizeof(uint64);
 				identity.SetSteamID64(owner.ConvertToUint64());
 
-				HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
+				HSteamNetConnection conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), (const void *)&identity, 0, 0, nullptr);
 				if (conn != k_HSteamNetConnection_Invalid) {
 					m_hConnection = conn;
 				}
@@ -513,7 +515,7 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 			identity.m_cbSize = sizeof(uint64);
 			identity.SetSteamID64(owner.ConvertToUint64());
 
-			m_hConnection = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), &identity, 0, 0, nullptr);
+			m_hConnection = SteamAPI_ISteamNetworkingSockets_ConnectP2P((intptr_t)SteamNetworkingSockets(), (const void *)&identity, 0, 0, nullptr);
 		} else {
 			m_hConnection = k_HSteamNetConnection_Invalid;
 		}

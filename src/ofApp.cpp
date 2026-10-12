@@ -1061,9 +1061,11 @@ void broadcastLobbyState(SteamManager & steamManager) {
 		lup.players[i].isBot = g_lobbyPlayers[i].isBot ? 1 : 0;
 
 		// CRITICAL FIX: Secure 32-byte string copy to prevent memory access violations
-		size_t nameLen = std::min(g_lobbyPlayers[i].name.size(), (size_t)31);
-		strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), nameLen);
-		lup.players[i].name[nameLen] = '\0';
+		// Initialize memory completely to 0 first to prevent garbage data on empty strings
+		memset(lup.players[i].name, 0, sizeof(lup.players[i].name));
+		if (!g_lobbyPlayers[i].name.empty()) {
+			strncpy(lup.players[i].name, g_lobbyPlayers[i].name.c_str(), 31);
+		}
 	}
 	steamManager.sendPacket(&lup, sizeof(lup));
 }
@@ -4575,8 +4577,19 @@ int ofApp::getOwnerIdForActorIndex(int actorIndex) const {
 }
 
 int ofApp::getNormalTurnDurationFramesForActorIndex(int actorIndex) const {
-	if (actorIndex < 0 || actorIndex >= (int)players.size()) return 90 * turnTimerFramesPerSecond;
-	return players[actorIndex].isMinion ? (45 * turnTimerFramesPerSecond) : (90 * turnTimerFramesPerSecond);
+	if (actorIndex < 0 || actorIndex >= (int)players.size()) return 75 * turnTimerFramesPerSecond; // Default to 75s
+
+	if (players[actorIndex].isMinion) {
+		// Kobolds get 45 seconds to force rapid swarm decisions
+		if (players[actorIndex].isKobold || players[actorIndex].isKoboldKing) {
+			return 45 * turnTimerFramesPerSecond;
+		}
+		// Standard Minions get 60 seconds
+		return 60 * turnTimerFramesPerSecond;
+	}
+
+	// Main Wizard Players get 75 seconds
+	return 75 * turnTimerFramesPerSecond;
 }
 
 void ofApp::markMeaningfulActionOnCurrentTurn() {
