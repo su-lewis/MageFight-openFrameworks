@@ -13319,6 +13319,56 @@ void ofApp::drawGame() {
 		headlight.enable();
 		headlight.setPosition(activeCam.getPosition());
 
+		// --- DYNAMIC PROJECTILE LIGHTING ---
+		// We maintain a static pool of 4 lights to attach to flying spells without
+		// blowing past the OpenGL hardware light limit.
+		static ofLight s_projLights[4];
+		static bool s_projLightsInit = false;
+		if (!s_projLightsInit) {
+			for (int i = 0; i < 4; i++) {
+				s_projLights[i].setPointLight();
+			}
+			s_projLightsInit = true;
+		}
+
+		float now = ofGetElapsedTimef();
+		int lightIdx = 0;
+
+		for (const auto & tr : activeTracers) {
+			if (lightIdx >= 4) break; // Max 4 simultaneous projectile lights
+
+			float life = (now - tr.startTime) / tr.duration;
+			if (life >= 0.0f && life <= 1.0f) {
+				// Calculate exact position of the projectile along the tracer line
+				glm::vec3 currentPos = tr.start + (tr.end - tr.start) * life;
+				currentPos.y += 0.8f; // Float slightly above the beam to cast better shadows onto walls
+
+				// Smooth fade in/out so the light doesn't "pop" abruptly when spawned or destroyed
+				float intensity = sin(life * PI);
+
+				ofColor lightCol = tr.color;
+				// Overdrive the color to make the light source extremely vibrant against the dark dungeon
+				lightCol.r = std::min(255, (int)(lightCol.r * 1.5f));
+				lightCol.g = std::min(255, (int)(lightCol.g * 1.5f));
+				lightCol.b = std::min(255, (int)(lightCol.b * 1.5f));
+
+				s_projLights[lightIdx].setDiffuseColor(ofColor(lightCol.r * intensity, lightCol.g * intensity, lightCol.b * intensity));
+				s_projLights[lightIdx].setSpecularColor(ofColor(lightCol.r * intensity, lightCol.g * intensity, lightCol.b * intensity));
+
+				// Attenuation: Constant, Linear, Quadratic
+				// These specific values create a tight, glowing radius of about 2-3 tiles
+				s_projLights[lightIdx].setAttenuation(1.0f, 0.02f, 0.005f);
+				s_projLights[lightIdx].setPosition(currentPos);
+				s_projLights[lightIdx].enable();
+				lightIdx++;
+			}
+		}
+
+		// Disable any unused lights from the pool so they don't linger on the board
+		for (int i = lightIdx; i < 4; i++) {
+			s_projLights[i].disable();
+		}
+
 		// ===================================================================
 		//  PASS 1: DRAW ALL OPAQUE OBJECTS (Models & Dice)
 		// ===================================================================
