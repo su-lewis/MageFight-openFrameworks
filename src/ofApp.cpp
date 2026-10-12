@@ -7180,8 +7180,16 @@ void ofApp::draw() {
 				if (stateBeforeSettings == STATE_PAUSED) drawPause = true;
 
 				ofPushStyle();
+				// FIX: Safely dim the background game text while in the settings menu
+				if (g_isSecondPass) {
+					glEnable(GL_BLEND);
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				} else {
+					safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+				}
 				ofSetColor(0, 0, 0, 170);
 				ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+				if (g_isSecondPass) glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); // Restore
 				safePopStyle();
 			} else {
 				// We reached settings from the Main Menu, draw the unified 2D backdrop!
@@ -12738,16 +12746,22 @@ void ofApp::drawGame() {
 			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 
 			ofPushMatrix();
-			ofTranslate(worldPos.x, 0.02f, worldPos.z);
+			// FIX: Raise Y above the clovers (0.0425f) and green outlines (0.04f)
+			ofTranslate(worldPos.x, 0.045f, worldPos.z);
 			ofRotateXDeg(90);
 
-			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 60);
-			ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
+			// FIX: Slightly smaller radius so it fits comfortably inside the tile
+			float radius = TILE_SIZE * 0.22f;
+
+			// FIX: Increase opacity to 140 to prevent the green outlines/clovers from bleeding through
+			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 140);
+			ofFill();
+			ofDrawCircle(0, 0, radius);
 
 			ofNoFill();
 			ofSetLineWidth(2.5f);
-			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 220);
-			ofDrawCircle(0, 0, TILE_SIZE * 0.26f);
+			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 255);
+			ofDrawCircle(0, 0, radius);
 
 			ofPopMatrix();
 			glDepthMask(GL_TRUE);
@@ -38991,9 +39005,8 @@ void ofApp::cancelDispel() {
 void ofApp::drawDispelUI() {
 	if (cardInteractionState != CARD_INTERACTION_STATE_STATUS || interactingCardType != CARD_DISPEL) return;
 
-	// Overlay
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	// FIX: Use unified menu overlay to dim the text properly
+	drawMenuOverlay();
 
 	// Debug: capture a one-time screenshot of the draft screen to inspect visual issues
 	static bool savedDraftScreenshot = false;
@@ -39042,10 +39055,20 @@ void ofApp::drawDiceLabel(const string & message, ofColor color, float yPos) {
 }
 //--------------------------------------------------------------
 void ofApp::drawMenuOverlay() {
-	if (g_isSecondPass) return; // Prevent eraser mode from wiping screen text
-	safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+	// FIX: Dim background text perfectly during card menus
+	if (g_isSecondPass) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	} else {
+		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+	}
+
 	ofSetColor(0, 0, 0, 180 * g_menuAlphaMult);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	if (g_isSecondPass) {
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); // Restore eraser mode
+	}
 }
 //--------------------------------------------------------------
 void ofApp::addTimeBonusToTurn(int actorIndex, int seconds) {
@@ -43799,16 +43822,26 @@ void ofApp::drawPauseMenu() {
 	ofPushStyle();
 	ofDisableLighting();
 	ofDisableDepthTest();
-	safeEnableAlphaBlending();
+
+	// FIX: Allow normal alpha blending during the Text Pass to smoothly dim background text
+	if (g_isSecondPass) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	} else {
+		safeEnableAlphaBlending();
+	}
 
 	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 	float centerX = ofGetWidth() / 2.0f;
 
-	// Dim background (only in Pass 1; never erase text with fullscreen dim in Pass 2)
-	if (!g_isSecondPass) {
-		ofSetColor(0, 0, 0, 190);
-		ofFill();
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	// Dim background (Now draws in BOTH passes to uniformly darken geometry and text)
+	ofSetColor(0, 0, 0, 190);
+	ofFill();
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// FIX: Restore Eraser mode for the actual UI buttons so they punch holes perfectly
+	if (g_isSecondPass) {
+		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
 	}
 
 	// Determine how many rows of buttons we need
