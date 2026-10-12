@@ -33,6 +33,55 @@ static void clearTextCaches() {
 	g_stringBoundsCache.clear();
 }
 
+// --- VFX SHADERS & PARTICLES ---
+static ofShader s_foilShader;
+static ofShader s_burnShader;
+static bool g_isBurningCard = false;
+static float g_burnProgress = 0.0f;
+
+static ofImage s_vfxFire;
+static ofImage s_vfxPoison;
+static ofImage s_vfxHeal;
+static ofImage s_vfxSoul;
+
+struct PngVfx {
+	glm::vec3 pos;
+	glm::vec3 vel;
+	float life;
+	float maxLife;
+	float size;
+	int type; // 0=Fire, 1=Poison, 2=Heal, 3=Soul
+};
+static std::vector<PngVfx> g_pngVfx;
+
+static void spawnVfx(glm::vec3 pos, int type, int count) {
+	for (int i = 0; i < count; i++) {
+		PngVfx p;
+		p.pos = pos + glm::vec3(ofRandom(-0.3f, 0.3f), ofRandom(0.0f, 0.5f), ofRandom(-0.3f, 0.3f));
+		p.type = type;
+		if (type == 0) { // Fire
+			p.vel = glm::vec3(ofRandom(-0.5f, 0.5f), ofRandom(1.5f, 3.0f), ofRandom(-0.5f, 0.5f));
+			p.maxLife = ofRandom(0.4f, 0.8f);
+			p.size = ofRandom(0.5f, 1.2f); // Size adjusted for PNGs
+		} else if (type == 1) { // Poison
+			p.vel = glm::vec3(ofRandom(-0.2f, 0.2f), ofRandom(0.5f, 1.5f), ofRandom(-0.2f, 0.2f));
+			p.maxLife = ofRandom(0.8f, 1.5f);
+			p.size = ofRandom(0.4f, 0.9f);
+		} else if (type == 2) { // Heal
+			p.vel = glm::vec3(ofRandom(-1.5f, 1.5f), ofRandom(2.0f, 4.0f), ofRandom(-1.5f, 1.5f));
+			p.maxLife = ofRandom(0.5f, 1.0f);
+			p.size = ofRandom(0.8f, 1.5f);
+		} else if (type == 3) { // Soul
+			p.vel = glm::vec3(ofRandom(-0.8f, 0.8f), ofRandom(1.0f, 4.0f), ofRandom(-0.8f, 0.8f));
+			p.maxLife = ofRandom(1.5f, 3.0f);
+			p.size = ofRandom(0.6f, 1.2f);
+		}
+		p.life = p.maxLife;
+		g_pngVfx.push_back(p);
+	}
+}
+// -------------------------------
+
 #ifdef _WIN32
 	#include <timeapi.h>
 	#include <windows.h>
@@ -1279,15 +1328,48 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 
 	// PASS 1: Base Card Art & Frame Geometry
 	if (g_renderGeometryMask) {
+		// FIX: Allow all classes (Bronze=1, Silver=2, Gold=3) to use the foil shader
+		bool useFoil = !g_isBurningCard && (card.cardClass >= 1 && card.cardClass <= 3) && s_foilShader.isLoaded();
+		bool useBurn = g_isBurningCard && s_burnShader.isLoaded();
+
+		// CRITICAL FIX: Pass the exact drawing rectangle to the shader so UVs map to the card
+		// instead of the massive 10x7 sprite sheet atlas!
+		auto applyActiveShader = [&](ofTexture & activeTex) {
+			if (useBurn) {
+				s_burnShader.begin();
+				s_burnShader.setUniform1f("uProgress", g_burnProgress);
+				s_burnShader.setUniform4f("uDrawRect", drawX, drawY, safeW, safeH);
+				s_burnShader.setUniformTexture("tex0", activeTex, 0);
+			} else if (useFoil) {
+				s_foilShader.begin();
+				s_foilShader.setUniform1f("uTime", ofGetElapsedTimef());
+				s_foilShader.setUniform1i("uClass", card.cardClass);
+				s_foilShader.setUniform4f("uDrawRect", drawX, drawY, safeW, safeH);
+				s_foilShader.setUniformTexture("tex0", activeTex, 0);
+			}
+		};
+
+		auto endActiveShader = [&]() {
+			if (useBurn)
+				s_burnShader.end();
+			else if (useFoil)
+				s_foilShader.end();
+		};
+
+		// Draw Layer 1: Base Art
+		applyActiveShader(sheet.getTexture());
 		drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
 			card.textureRect.x, card.textureRect.y,
 			card.textureRect.width, card.textureRect.height);
+		endActiveShader();
 
-		// Draw card template frame/border in geometry pass so it survives screen dimming
+		// Draw Layer 2: Card Template Frame (borders, class badges, etc)
 		if (g_cardTextSpriteSheet.isAllocated()) {
+			applyActiveShader(g_cardTextSpriteSheet.getTexture());
 			drawCardSpriteSubsectionSafe(g_cardTextSpriteSheet, drawX, drawY, safeW, safeH,
 				card.textureRect.x, card.textureRect.y,
 				card.textureRect.width, card.textureRect.height);
+			endActiveShader();
 		}
 	}
 
@@ -5164,6 +5246,161 @@ void ofApp::setup() {
 		if (settingsKeyBindings.empty()) {
 			settingsKeyBindings.push_back({ "Chat", OF_KEY_RETURN });
 		}
+		// --- COMPILE SHINY & BURN SHADERS INLINE ---
+		if (!headless) {
+			// Load custom user PNGs (Create these files in your bin/data/UI/VFX folder!)
+			s_vfxFire.load("UI/VFX/fire.png");
+			s_vfxPoison.load("UI/VFX/poison.png");
+			s_vfxHeal.load("UI/VFX/heal.png");
+			s_vfxSoul.load("UI/VFX/soul.png");
+
+			// CRITICAL FIX: Pass 'localPos' so fragment shader can map effects to the card, not the atlas!
+			std::string defaultVert = R"(
+		#version 150
+		uniform mat4 modelViewProjectionMatrix;
+		uniform mat4 textureMatrix;
+		in vec4 position;
+		in vec2 texcoord;
+		in vec4 color;
+		out vec2 texCoordVarying;
+		out vec4 globalColor;
+		out vec2 localPos;
+		void main() {
+			texCoordVarying = (textureMatrix * vec4(texcoord.x, texcoord.y, 0.0, 1.0)).xy;
+			globalColor = color;
+			localPos = position.xy; // Pass the drawing coordinates down
+			gl_Position = modelViewProjectionMatrix * position;
+		}
+		)";
+
+			std::string foilFrag = R"(
+		#version 150
+		uniform sampler2D tex0;
+		uniform float uTime;
+		uniform int uClass;
+		uniform vec4 globalColor;
+		uniform vec4 uDrawRect;
+
+		in vec2 texCoordVarying;
+		in vec2 localPos;
+		out vec4 fragColor;
+
+		void main() {
+			vec4 texColor = texture(tex0, texCoordVarying);
+			if (texColor.a < 0.05) discard;
+
+			vec2 localUV = (localPos - uDrawRect.xy) / uDrawRect.zw;
+			float pos = localUV.x + localUV.y; 
+
+			// ----------------------------------------------------
+			// 1. TF2 SWEEPING SHEEN
+			// ----------------------------------------------------
+			float loopDuration = 4.0; 
+			float localTime = mod(uTime, loopDuration); 
+			float currentSweepPos = (localTime * 4.0) - 0.5; 
+
+			float dist = abs(pos - currentSweepPos);
+			float shine = smoothstep(0.18, 0.0, dist); // Softened edges to prevent stepping
+
+			float trailDist = abs(pos - (currentSweepPos - 0.25));
+			shine += smoothstep(0.10, 0.0, trailDist) * 0.5;
+
+			if (uClass == 1) { shine = 0.0; } // Bronze does not get the fast sweep
+
+			// ----------------------------------------------------
+			// 2. METALLIC COLORS
+			// ----------------------------------------------------
+			vec3 sheenColor;
+			if (uClass == 3) {
+				sheenColor = vec3(1.0, 0.82, 0.35); // Gold (Slightly warmer)
+			} else if (uClass == 2) {
+				sheenColor = vec3(0.9, 0.95, 1.0);  // Silver
+			} else {
+				sheenColor = vec3(0.85, 0.60, 0.40); // Bronze
+			}
+
+			// ----------------------------------------------------
+			// 3. COMPLEX AMBIENT GLOSS (Fixes Banding & Brightness)
+			// ----------------------------------------------------
+			// By combining two waves moving in different directions, we create a "cloudy" 
+			// brushed metal reflection that naturally hides rigid color bands.
+			float wave1 = sin(localUV.x * 3.1 + localUV.y * 1.5 + uTime * 0.4);
+			float wave2 = cos(localUV.x * -1.8 + localUV.y * 2.7 - uTime * 0.25);
+			float ambientGloss = (wave1 * wave2 * 0.5 + 0.5) * 0.08; // Reduced intensity to prevent blowouts
+
+			vec3 finalColor = texColor.rgb;
+
+			// Highlight Mask: Prevents the shine from blowing out already-bright parts of the card
+			float luma = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
+			float highlightMask = 1.0 - (luma * 0.4); 
+
+			// Apply the ambient metal look
+			finalColor += (sheenColor * ambientGloss * highlightMask * texColor.a);
+
+			// Apply the sweeping sheen
+			finalColor += (shine * sheenColor * 0.6 * texColor.a); // Reduced from 0.8 to 0.6 to prevent blinding white
+			
+			// ----------------------------------------------------
+			// 4. ANTI-BANDING MICRO-DITHER
+			// ----------------------------------------------------
+			// Adds a mathematically invisible amount of noise (1/255th) to force the monitor to blend 8-bit colors perfectly.
+			float dither = (fract(sin(dot(localPos, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
+			finalColor += vec3(dither);
+
+			fragColor = vec4(finalColor, texColor.a) * globalColor;
+		}
+		)";
+
+			s_foilShader.setupShaderFromSource(GL_VERTEX_SHADER, defaultVert);
+			s_foilShader.setupShaderFromSource(GL_FRAGMENT_SHADER, foilFrag);
+			s_foilShader.bindDefaults();
+			s_foilShader.linkProgram();
+
+			std::string burnFrag = R"(
+		#version 150
+		uniform sampler2D tex0;
+		uniform float uProgress;
+		uniform vec4 globalColor;
+		uniform vec4 uDrawRect;
+
+		in vec2 texCoordVarying;
+		in vec2 localPos;
+		out vec4 fragColor;
+
+		float rand(vec2 co) { return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
+
+		void main() {
+			vec4 texColor = texture(tex0, texCoordVarying);
+			if (texColor.a < 0.05) discard;
+
+			// Convert global drawing coordinates to a perfect 0.0 to 1.0 UV mapping
+			vec2 localUV = (localPos - uDrawRect.xy) / uDrawRect.zw;
+
+			float noise = rand(floor(localUV * 25.0)); 
+			float gradient = 1.0 - localUV.y; // Burns top to bottom
+			float burnVal = gradient + noise * 0.35;
+
+			float threshold = uProgress * 1.5;
+
+			if (burnVal < threshold) discard;
+
+			if (burnVal < threshold + 0.15) {
+				float edge = (burnVal - threshold) / 0.15;
+				texColor.rgb = mix(vec3(1.0, 0.1, 0.0), vec3(1.0, 0.8, 0.0), edge);
+				texColor.a *= 0.9;
+			} else {
+				texColor.rgb *= mix(1.0, 0.3, uProgress); 
+			}
+
+			fragColor = texColor * globalColor;
+		}
+		)";
+
+			s_burnShader.setupShaderFromSource(GL_VERTEX_SHADER, defaultVert);
+			s_burnShader.setupShaderFromSource(GL_FRAGMENT_SHADER, burnFrag);
+			s_burnShader.bindDefaults();
+			s_burnShader.linkProgram();
+		}
 
 		// --- SET DEFAULTS BEFORE LOADING ---
 		g_windowModeState = 1; // Default to True Fullscreen (Guarantees Alt+Tab in Proton)
@@ -6651,6 +6888,29 @@ void ofApp::update() {
 			} else {
 				++it;
 			}
+		}
+	}
+
+	// Update 3D VFX PNGs
+	{
+		float dt = ofGetLastFrameTime();
+		for (auto it = g_pngVfx.begin(); it != g_pngVfx.end();) {
+			it->pos += it->vel * dt;
+			it->life -= dt;
+
+			if (it->type == 0) { // Fire
+				it->size *= 0.95f; // Shrink
+			} else if (it->type == 1) { // Poison bubbles
+				it->vel.y *= 0.95f; // Slow down vertically
+			} else if (it->type == 3) { // Soul spiral
+				it->vel.x += sin(ofGetElapsedTimef() * 10.0f + it->life) * 2.0f * dt;
+				it->vel.z += cos(ofGetElapsedTimef() * 10.0f + it->life) * 2.0f * dt;
+			}
+
+			if (it->life <= 0)
+				it = g_pngVfx.erase(it);
+			else
+				++it;
 		}
 	}
 
@@ -13813,6 +14073,8 @@ void ofApp::drawGame() {
 
 			// 4. DRAW FIRE
 			if (player.onFire) {
+				spawnVfx(pos + glm::vec3(0, 1.0f, 0), 0, 1); // Spawn Fire Particles
+
 				ofPushMatrix();
 
 				float time = ofGetElapsedTimef();
@@ -13894,6 +14156,8 @@ void ofApp::drawGame() {
 
 			// 7. DRAW POISON (Skull Icon)
 			if (player.isPoisoned) {
+				spawnVfx(pos + glm::vec3(0, 0.5f, 0), 1, 1); // Spawn Poison Particles
+
 				ofPushMatrix();
 				ofTranslate(pos.x, currentOverheadY + 0.3f, pos.z);
 				currentOverheadY += 1.0f;
@@ -14619,6 +14883,49 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 				}
 			}
+
+			// --- RENDER 3D VFX PNGS ---
+			ofPushStyle();
+			safeEnableBlendMode(OF_BLENDMODE_ADD); // Gives the images a nice glowing look
+			ofDisableLighting();
+			glDepthMask(GL_FALSE);
+
+			glm::vec3 camPos = activeCam.getPosition();
+			for (const auto & p : g_pngVfx) {
+				ofImage * imgToDraw = nullptr;
+				if (p.type == 0)
+					imgToDraw = &s_vfxFire;
+				else if (p.type == 1)
+					imgToDraw = &s_vfxPoison;
+				else if (p.type == 2)
+					imgToDraw = &s_vfxHeal;
+				else if (p.type == 3)
+					imgToDraw = &s_vfxSoul;
+
+				if (imgToDraw && imgToDraw->isAllocated()) {
+					float alpha = (p.life / p.maxLife);
+					ofSetColor(255, 255, 255, (int)(255 * alpha));
+
+					ofPushMatrix();
+					ofTranslate(p.pos);
+
+					// Billboard to face camera perfectly
+					float angle = atan2(camPos.x - p.pos.x, camPos.z - p.pos.z) * RAD_TO_DEG;
+					ofRotateYDeg(angle);
+
+					// Draw centered
+					float w = p.size;
+					float h = p.size * (imgToDraw->getHeight() / imgToDraw->getWidth());
+					imgToDraw->draw(-w / 2, -h / 2, w, h);
+
+					ofPopMatrix();
+				}
+			}
+			safeDisableBlendMode();
+			glDepthMask(GL_TRUE);
+			safePopStyle();
+			// ---------------------------------
+
 			ofEnableLighting();
 			ofDisableDepthTest();
 		}
@@ -16933,12 +17240,22 @@ void ofApp::drawGame() {
 		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h, nullptr);
 	}
 
-	// --- Draw Amnesia Removal Animation ---
+	// --- Draw Amnesia/Destruction Burn Animation ---
 	for (const auto & anim : activeRemovedCardAnimations) {
-		ofSetColor(255, anim.currentAlpha);
+		ofSetColor(255, 255); // Alpha handled by burn shader
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
+
+		float elapsed = ofGetElapsedTimef() - anim.startTime;
+		float progress = std::clamp(elapsed / 0.7f, 0.0f, 1.0f); // 0.7s lifetime
+
+		// Trigger the internal shader correctly for all sub-layers of the card
+		g_isBurningCard = true;
+		g_burnProgress = progress;
+
 		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
+
+		g_isBurningCard = false;
 	}
 
 	// --- Draw Card Played Display (UI-based popup after card is played) ---
@@ -29911,6 +30228,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (roll > target->health || target->sleepTurnsRemaining > 0) {
 				// SUCCESS: kill the target
 				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Executed!", ofColor::red);
+				spawnVfx(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), 3, 30); // Souls erupting from body
 
 				DeathMarker death;
 				death.x = target->x;
@@ -30775,6 +31093,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				healOp.data.modifyStat.deltaFromSlot = -1;
 				queueEffect(healOp);
 				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
+				spawnVfx(tPos + glm::vec3(0, 1.5f, 0), 2, 20); // Massive heal sparkle explosion
 
 				// --- PLAY HEAL SOUND ---
 				if (s_sfxHeal.isLoaded()) {
