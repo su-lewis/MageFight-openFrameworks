@@ -11175,11 +11175,19 @@ void ofApp::prepareGameVisualState() {
 			std::vector<DiceRoll *> groupRolls;
 			DicePurpose checkPurpose = it->purpose;
 			for (auto & r : activeDiceRolls) {
-				if (r.associatedUnit == it->associatedUnit) {
+				bool sameGroup = false;
+				if (checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE || checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE) {
+					// Each unit's quake roll must stay separate; otherwise all same-owner crashes get merged into one display.
+					sameGroup = (&r == &(*it));
+				} else if (r.associatedUnit == it->associatedUnit) {
 					if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
-						groupRolls.push_back(&r);
-						if (!r.isFinishedVisual && &r != &(*it)) allGroupFinished = false;
+						sameGroup = true;
 					}
+				}
+
+				if (sameGroup) {
+					groupRolls.push_back(&r);
+					if (!r.isFinishedVisual && &r != &(*it)) allGroupFinished = false;
 				}
 			}
 
@@ -14488,9 +14496,7 @@ void ofApp::drawGame() {
 							if (eq.crashed)
 								displayedRemaining = 0;
 							else {
-								int base = std::max(0, eq.tilesToMove);
-								if (isEarthquakeAnimatingStep && earthquakeT >= 0.5f) base = std::max(0, base - 1);
-								displayedRemaining = base;
+								displayedRemaining = std::max(0, eq.tilesToMove);
 							}
 
 							if (displayedRemaining <= 0) continue;
