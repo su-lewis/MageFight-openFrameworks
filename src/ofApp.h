@@ -384,6 +384,7 @@ struct DiceRoll {
 	float currentRotation = 0;
 	glm::vec3 rotationAxis;
 	int associatedUnit = -1;
+	std::string label;
 };
 
 struct Card {
@@ -708,6 +709,7 @@ struct VisualEvent {
 	int diceSides = 6;
 	int diceResult = 0;
 	int dicePurpose = 0;
+	std::string diceLabel;
 	std::vector<int> diceRawResults;
 	bool visualStarted = false;
 	bool textSpawned = false;
@@ -1286,7 +1288,7 @@ private:
 	int computePassiveLuck(int playerIndex);
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category = "");
 	void queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor color, float duration = 1.2f);
-	void queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose = 0, int ownerIndex = -1, float duration = 1.5f);
+	void queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose = 0, int ownerIndex = -1, float duration = 1.5f, const std::string & rollLabel = "");
 	void queueVisualTracer(glm::vec3 start, glm::vec3 end, ofColor color = ofColor::white, float duration = 1.2f);
 	void queueVisualDelay(float seconds);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);

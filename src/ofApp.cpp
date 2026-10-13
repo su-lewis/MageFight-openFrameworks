@@ -3601,7 +3601,7 @@ void ofApp::startInitiativePhase() {
 		}
 
 		// Queue the initiative die with a 4.2-second duration so it remains visible while players read results
-		queueVisualDiceRoll(getInitiativeDieWorldPos(realPlayerID, numPlayers, 7.0f), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 4.2f);
+		queueVisualDiceRoll(getInitiativeDieWorldPos(realPlayerID, numPlayers, 7.0f), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 4.2f, "Initiative Roll");
 	}
 
 	// Sort descending by roll, then by tiebreaker
@@ -11184,6 +11184,73 @@ void ofApp::prepareGameVisualState() {
 			}
 
 			if (allGroupFinished && !groupRolls.empty()) {
+				auto formatDiceNotation = [](int numDice, int sides) {
+					if (numDice <= 0 || sides <= 0) return std::string("0");
+					return ofToString(numDice) + "d" + ofToString(sides);
+				};
+				auto getRollLabel = [&](int purpose, int ownerIndex) {
+					std::string ownerName = "";
+					if (ownerIndex >= 0 && ownerIndex < (int)players.size()) {
+						if (players[ownerIndex].isMinion) {
+							ownerName = getPlayerDisplayName(ownerIndex);
+						} else {
+							ownerName = isMultiplayer ? getPlayerSteamName(ownerIndex) : ("Player " + ofToString(players[ownerIndex].playerID + 1));
+						}
+					}
+					switch (purpose) {
+					case PURPOSE_AP:
+					case PURPOSE_BONUS_AP:
+						return ownerName.empty() ? std::string("AP Roll") : (ownerName + " AP Roll");
+					case PURPOSE_DAMAGE:
+						return std::string("Damage Roll");
+					case PURPOSE_RANGE:
+						return std::string("Range Roll");
+					case PURPOSE_HEALING:
+						return std::string("Healing Roll");
+					case PURPOSE_HP:
+						return std::string("HP Roll");
+					case PURPOSE_SUMMON:
+						return std::string("Summon Roll");
+					case PURPOSE_TIME_VORTEX:
+						return std::string("Time Vortex Turns Roll");
+					case PURPOSE_DEATH_CHECK:
+						return std::string("Death Check Roll");
+					case PURPOSE_SLEEP_DURATION:
+						return std::string("Sleep Duration Roll");
+					case PURPOSE_TELEPORT_RANGE:
+						return std::string("Teleport Range Roll");
+					case PURPOSE_EARTHQUAKE_DISTANCE:
+						return std::string("Earthquake Distance Roll");
+					case PURPOSE_EARTHQUAKE_DAMAGE:
+						return std::string("Earthquake Damage Roll");
+					case PURPOSE_DEBUG:
+						return std::string("Debug Roll");
+					case PURPOSE_COIN_FLIP:
+						return std::string("Coin Flip");
+					case PURPOSE_BARRIER_GAIN:
+						return std::string("Barrier Roll");
+					case PURPOSE_BLOCKING_BOON_COIN:
+						return std::string("Blocking Boon Coin Flip");
+					case PURPOSE_BLOCKING_BOON_D20:
+						return std::string("Blocking Boon D20 Roll");
+					case PURPOSE_PSIONIC_WAVE_RANGE:
+						return std::string("Psionic Wave Range Roll");
+					case PURPOSE_PSIONIC_WAVE_AMOUNT:
+						return std::string("Psionic Wave Amount Roll");
+					default:
+						return std::string("Roll");
+					}
+				};
+				auto buildResultText = [&](const std::string & rollLabel, int numDice, int sides, int rawTotal, int finalTotal) {
+					std::string diceText = formatDiceNotation(numDice, sides);
+					int luckApplied = finalTotal - rawTotal;
+					if (luckApplied > 0) {
+						diceText += " + " + ofToString(luckApplied) + " Luck";
+					} else if (luckApplied < 0) {
+						diceText += " - " + ofToString(-luckApplied) + " Luck";
+					}
+					return rollLabel + " (" + diceText + ") = " + ofToString(finalTotal);
+				};
 				std::string resultText = "";
 				int headsCount = 0;
 				int tailsCount = 0;
@@ -11205,35 +11272,20 @@ void ofApp::prepareGameVisualState() {
 					if (groupRolls.size() == 1) {
 						int rawRoll = it->rawResult;
 						int finalRoll = it->result;
-						int luckApplied = finalRoll - rawRoll;
-						if (luckApplied > 0) {
-							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Bonus) = " + ofToString(finalRoll);
-						} else if (luckApplied < 0) {
-							resultText = "Rolled " + ofToString(rawRoll) + " - " + ofToString(-luckApplied) + " (Penalty) = " + ofToString(finalRoll);
-						} else {
-							resultText = "Rolled " + ofToString(finalRoll);
-						}
+						std::string rollName = (!it->label.empty()) ? it->label : getRollLabel(checkPurpose, it->associatedUnit);
+						resultText = buildResultText(rollName, 1, it->sides, rawRoll, finalRoll);
 					} else {
 						if (currentState == STATE_INITIATIVE_ROLL || checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 							resultText = "";
 						} else {
 							int rawTotal = 0;
 							int finalTotal = 0;
-							resultText = "Rolled ";
 							for (size_t i = 0; i < groupRolls.size(); i++) {
-								resultText += ofToString(groupRolls[i]->rawResult);
 								finalTotal += groupRolls[i]->result;
 								rawTotal += groupRolls[i]->rawResult;
-								if (i < groupRolls.size() - 1) resultText += " + ";
 							}
-							int luckApplied = finalTotal - rawTotal;
-							if (luckApplied > 0) {
-								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Bonus) = " + ofToString(finalTotal);
-							} else if (luckApplied < 0) {
-								resultText += " = " + ofToString(rawTotal) + " - " + ofToString(-luckApplied) + " (Penalty) = " + ofToString(finalTotal);
-							} else {
-								resultText += " = " + ofToString(finalTotal);
-							}
+							std::string rollName = (!it->label.empty()) ? it->label : getRollLabel(checkPurpose, it->associatedUnit);
+							resultText = buildResultText(rollName, (int)groupRolls.size(), groupRolls[0]->sides, rawTotal, finalTotal);
 						}
 					}
 				}
@@ -23224,7 +23276,7 @@ void ofApp::startNewTurn() {
 		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
 		currentEffectSequence.blackboard[0] = rollResult;
 		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Fire Damage Roll");
 
 		if (applied > 0)
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
@@ -23249,7 +23301,7 @@ void ofApp::startNewTurn() {
 	if (!skipTurn && startingPlayer.isPoisoned) {
 		std::vector<int> rawPoison;
 		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Poison Damage Roll");
 
 		int actualDamage = std::max(0, poisonRoll - startingPlayer.poisonReduction);
 		if (actualDamage > 0) {
@@ -23606,7 +23658,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 10, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = (isMultiplayer ? getPlayerSteamName(currentPlayerIndex) : ("Player " + ofToString(players[currentPlayerIndex].playerID + 1))) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 
@@ -23631,7 +23684,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(minionCount, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), minionCount, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = (isMultiplayer ? getPlayerSteamName(currentPlayerIndex) : ("Player " + ofToString(players[currentPlayerIndex].playerID + 1))) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), minionCount, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		} else {
 			currentEffectSequence.blackboard[0] = 0;
@@ -23656,7 +23710,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(2, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23668,7 +23723,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(4, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 4, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 4, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23680,7 +23736,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23693,7 +23750,8 @@ void ofApp::continueNewTurn() {
 				std::vector<int> rawAP;
 				int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 				currentEffectSequence.blackboard[0] = apRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+				std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			}
 		} else {
 			lastAPDiceNum = 1;
@@ -23702,7 +23760,8 @@ void ofApp::continueNewTurn() {
 				std::vector<int> rawAP;
 				int apRoll = resolveApRollWithLuck(1, 4, rawAP);
 				currentEffectSequence.blackboard[0] = apRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+				std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			}
 		}
 	}
@@ -23714,7 +23773,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 
@@ -23728,7 +23788,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 2, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 0.8f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 0.8f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23740,7 +23801,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23752,7 +23814,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 10, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23765,7 +23828,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 		}
 	} else {
 		// Default Player AP Roll (Falls back to standard 1d6 AP)
@@ -23775,7 +23839,8 @@ void ofApp::continueNewTurn() {
 			std::vector<int> rawAP;
 			int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			std::string apRollLabel = (isMultiplayer ? getPlayerSteamName(currentPlayerIndex) : ("Player " + ofToString(players[currentPlayerIndex].playerID + 1))) + " AP Roll";
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f, apRollLabel);
 			lastAPRawResults = rawAP;
 		}
 	}
@@ -23873,7 +23938,8 @@ void ofApp::continueNewTurn() {
 						queueEffect(apply);
 						if (!isProcessingEffect) beginEffectSequence();
 						queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
-						queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
+						std::string bonusApLabel = getPlayerDisplayName(currentPlayerIndex) + " Bonus AP Roll";
+						queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f, bonusApLabel);
 					}
 				}
 			}
@@ -25018,7 +25084,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 			int tgtIdx = safeTarget >= 0 ? safeTarget : currentPlayerIndex;
 			Player & targetUnit = players[tgtIdx];
-			queueVisualDiceRoll(gridToWorld(targetUnit.x, targetUnit.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, barrierAmount, PURPOSE_DEBUG, tgtIdx, 1.0f);
+			queueVisualDiceRoll(gridToWorld(targetUnit.x, targetUnit.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, barrierAmount, PURPOSE_DEBUG, tgtIdx, 1.0f, "Dispel Barrier Roll");
 
 			EffectOp barrierOp = {};
 			barrierOp.type = EffectOpType::MODIFY_STAT;
@@ -26258,8 +26324,7 @@ void ofApp::simulationTick() {
 										hp = std::min(hp, dying.maxHealth);
 
 										// Visual dice and tracer
-										queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f);
-										queueVisualTracer(gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0), gridToWorld(dying.x, dying.y) + glm::vec3(0, 0.5f, 0), ofColor::aqua, 1.0f);
+										queueVisualDiceRoll(gridToWorld(dying.x, dying.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, pidx, 1.0f, "Faerie Revival Roll");
 
 										int pct = roll * 25;
 										if (hp > 0) {
@@ -28252,7 +28317,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				std::vector<int> rawFlip;
 				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
 				currentEffectSequence.blackboard[0] = flip;
-				queueVisualDiceRoll(gridToWorld(wolfPlacementSourceX, wolfPlacementSourceY) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+				std::string wolfCoinLabel = getPlayerDisplayName(currentPlayerIndex) + " Wolf Coin Flip";
+				queueVisualDiceRoll(gridToWorld(wolfPlacementSourceX, wolfPlacementSourceY) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f, wolfCoinLabel);
 
 				EffectOp wait = {};
 				wait.type = EffectOpType::WAIT_VISUAL;
@@ -30211,7 +30277,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				std::vector<int> rawFire;
 				if (rollResult != 0) rawFire.push_back(rollResult);
 				if (rollResult != 0) {
-					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Fire Damage Roll");
 				}
 				EffectOp applyOp = {};
 				applyOp.type = EffectOpType::APPLY_ON_FIRE;
@@ -31934,7 +32000,7 @@ void ofApp::queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor col
 }
 
 // Queue a visual dice roll event (non-authoritative visual only)
-void ofApp::queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose, int ownerIndex, float duration) {
+void ofApp::queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose, int ownerIndex, float duration, const std::string & rollLabel) {
 	VisualEvent ev = {};
 	ev.type = VE_DICE;
 	ev.startPos = pos;
@@ -31943,6 +32009,7 @@ void ofApp::queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std
 	ev.diceResult = totalResult;
 	ev.dicePurpose = dicePurpose;
 	ev.targetIndex = ownerIndex;
+	ev.diceLabel = rollLabel;
 	ev.diceRawResults = rawResults;
 	ev.duration = duration;
 	queueVisualEvent(ev);
@@ -31984,6 +32051,7 @@ void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
 		DiceRoll newRoll;
 		newRoll.purpose = static_cast<DicePurpose>(ev.dicePurpose);
 		newRoll.sides = sides;
+		newRoll.label = ev.diceLabel;
 
 		int extra = (i < bonusRemainder) ? (diff > 0 ? 1 : -1) : 0;
 
@@ -32806,7 +32874,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		int rangeTotal = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
 		if (playedCard.diceSides != 2) rangeTotal += playedCard.numDice * luckBonus;
 		currentEffectSequence.blackboard[0] = rangeTotal;
-		queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+		std::string rangeLabel = playedCard.name + " Range Roll";
+		queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f, rangeLabel);
 		rolledDice = true;
 	}
 
@@ -32831,7 +32900,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			int dmgRoll = resolveDiceRollDetailed(playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg);
 			if (playedCard.damageDiceSides != 2) dmgRoll += playedCard.damageDiceNum * luckBonus;
 			totalDamage += dmgRoll;
-			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+			std::string damageLabel = playedCard.name + " Damage Roll";
+			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f, damageLabel);
 
 			// 1. FREEZE THE SEQUENCE UNTIL THE 3D DICE FINISH SPINNING!
 			EffectOp waitDice = {};
@@ -32874,7 +32944,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			std::vector<int> rawPoison;
 			int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
 			currentEffectSequence.blackboard[15] = poisonRoll;
-			queueVisualDiceRoll(visPos + glm::vec3(0, 1.5f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			std::string poisonLabel = playedCard.name + " Poison Roll";
+			queueVisualDiceRoll(visPos + glm::vec3(0, 1.5f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f, poisonLabel);
 
 			// Brief wait for poison die
 			EffectOp waitPsn = {};
@@ -32952,7 +33023,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			int healRoll = resolveDiceRollDetailed(playedCard.healDiceNum, playedCard.healDiceSides, rawHeal);
 			if (playedCard.healDiceSides != 2) healRoll += playedCard.healDiceNum * luckBonus;
 			totalHeal += healRoll;
-			queueVisualDiceRoll(visPos, playedCard.healDiceNum, playedCard.healDiceSides, rawHeal, totalHeal, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
+			std::string healLabel = playedCard.name + " Healing Roll";
+			queueVisualDiceRoll(visPos, playedCard.healDiceNum, playedCard.healDiceSides, rawHeal, totalHeal, PURPOSE_HEALING, currentPlayerIndex, 1.0f, healLabel);
 			rolledDice = true;
 		}
 		currentEffectSequence.blackboard[2] = totalHeal;
@@ -33377,7 +33449,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			// 2. Store the roll in the blackboard
 			currentEffectSequence.blackboard[0] = amnesiaRoll;
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRoll, amnesiaRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRoll, amnesiaRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Amnesia Remove Roll");
 
 			// 3. Set up the target and the chooser for the UI
 			amnesiaTargetPlayerIndex = resolvedTargetIndex;
@@ -33565,7 +33637,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Save roll to blackboard slot 4 for the APPLY_SPARK_OF_GENIUS effect operation
 		currentEffectSequence.blackboard[4] = numCards;
-		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, numCards, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, numCards, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Spark of Genius Draw Roll");
 
 		EffectOp wait = {};
 		wait.type = EffectOpType::WAIT_VISUAL;
@@ -33605,7 +33677,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		currentEffectSequence.blackboard[1] = destCount;
 
 		// Queue damage/destroy dice
-		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0), 2, 4, rawDest, destCount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0), 2, 4, rawDest, destCount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Psionic Wave Amount Roll");
 
 		// 3. Find Targets (Using Deterministic Integer Math)
 		psionicWaveTargetIndices.clear();
@@ -33956,7 +34028,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		currentPlayer.bonusTurns += turns;
 
 		// Spawn Visuals
-		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRoll, turns, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRoll, turns, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Time Vortex Turns Roll");
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(turns) + " Extra Turns!", ofColor::magenta);
 
 		EffectOp wait = {};
@@ -34517,7 +34589,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 			count += luckBonus;
 			currentEffectSequence.blackboard[0] = count;
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Kobold Summon Roll");
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
