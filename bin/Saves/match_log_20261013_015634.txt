@@ -1,0 +1,38 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-10-13 01:56:34
+End Reason: Victory
+Seed: 340576
+Turns: 1
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[01:55:28] --- MATCH STARTED ---
+[01:55:46] Turn 1: Player 1's turn
+[01:55:46] Autosaved turn-start (autosave.json)
+[01:55:49] Player 1 moved to (0,5)
+[01:55:50] Player 1 moved to (1,5)
+[01:55:54] Player 1 moved to (4,4)
+[01:56:10] Player 1 moved to (11,3)
+[01:56:15] Player 1 played Magic Blast targeting (12,0)
+[01:56:16] Player 1 chose: Take 5 Damage
+[01:56:31] Player 1 played Magic Blast targeting (12,0)
+[01:56:32] Player 1 chose: Take 5 Damage
+[01:56:33] Player 1 chose: Take 5 Damage
+[01:56:34] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 2
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

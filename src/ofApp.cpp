@@ -5544,8 +5544,7 @@ void ofApp::setup() {
 		// Note: Paths point to specific Dice/ subfolders
 		auto setupDiceTex = [](ofTexture & tex, const std::string & path) {
 			if (ofLoadImage(tex, path)) {
-				// Prevent black specks/static on Linux Mesa drivers by forcing nearest filtering.
-				// This stops the GPU from bleeding empty black pixels across UV atlas boundaries!
+				// FIX: Crisp nearest filtering preserves rich original colors without blurring dots into grey mud!
 				tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 				tex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 			}
@@ -5557,7 +5556,7 @@ void ofApp::setup() {
 		setupDiceTex(d20Texture, "Dice/D20/d20_diffuse.png");
 
 		ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
-		// Use nearest filtering for a crisp pixel coin appearance
+		// Nearest filtering keeps coin silver and edge gold rich and vibrant
 		coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		coinFacesTexture.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
@@ -5776,37 +5775,32 @@ void ofApp::setup() {
 		modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
 		modelMaterial.setAmbientColor(ofColor(255, 255, 255));
 
-		// 1. GLOBAL AMBIENT
-		// Make the ambient slightly darker so the board isn't too bright
-		ofSetGlobalAmbientColor(ofColor(50, 50, 50));
+		diceMaterial.setShininess(5);
+		diceMaterial.setDiffuseColor(ofColor(230, 230, 230));
+		diceMaterial.setAmbientColor(ofColor(90, 90, 90));
+		diceMaterial.setSpecularColor(ofColor(30, 30, 30));
+		diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
+
+		// --- MINIMAL LIGHTING: 1 Global Ambient + 1 Clean Overhead Sun ---
+		// Baseline ambient light ensures the board is comfortably lit and visible
+		ofSetGlobalAmbientColor(ofColor(65, 65, 75));
 
 		lights.clear();
 
-		// 2. KEY LIGHT (Main Illumination)
+		// Single overhead sun centered right above the board
 		keyLight.setup();
 		keyLight.setPointLight();
-		keyLight.setPosition(50, 150, 50); // Raised Y to 150 for better spread
-		// Neutral white light, boosted brightness
-		keyLight.setDiffuseColor(ofColor(140, 140, 140));
-		keyLight.setSpecularColor(ofColor(50, 50, 50));
-		keyLight.setAttenuation(1.0f, 0.005f, 0.0f);
+		keyLight.setPosition(0, 130, 0);
+		keyLight.setDiffuseColor(ofColor(155, 155, 165));
+		keyLight.setSpecularColor(ofColor(40, 40, 40));
+		keyLight.setAttenuation(1.0f, 0.002f, 0.0f);
 		lights.push_back(keyLight);
 
-		// 3. RIM LIGHT (Backlight)
+		// Permanently disable clutter lights
 		rimLight.setup();
-		rimLight.setPointLight();
-		rimLight.setPosition(-50, 30, -50);
-		// Very subtle warm glow, not deep red
-		rimLight.setDiffuseColor(ofColor(80, 60, 50));
-		rimLight.setSpecularColor(ofColor(50, 0, 0));
-		lights.push_back(rimLight);
-
-		// 5. HEADLIGHT (Torch)
+		rimLight.disable();
 		headlight.setup();
-		headlight.setPointLight();
-		headlight.setDiffuseColor(ofColor(220, 170, 100));
-		headlight.setSpecularColor(ofColor(255, 200, 150));
-		headlight.setAttenuation(1.0f, 0.001f, 0.0f);
+		headlight.disable();
 
 		// 6. UI LIGHT (For FBOs)
 		uiLight.setup();
@@ -8282,6 +8276,19 @@ void ofApp::draw() {
 								lines.push_back({ "Created:", "Magic Wall (x2 Magic)", ofColor::purple });
 							} else if (entry.card.type == CARD_TRANSFORM_WALL) {
 								lines.push_back({ "Transformed:", "Wall into Minion", ofColor::lightGray });
+							} else if (entry.card.type == CARD_MAGIC_BLAST) {
+								// Format each unit's pick and destroyed cards
+								for (const auto & pickStr : entry.destroyedCardNames) {
+									size_t barPos = pickStr.find('|');
+									if (barPos != std::string::npos) {
+										std::string label = pickStr.substr(0, barPos);
+										std::string val = pickStr.substr(barPos + 1);
+										ofColor col = (val.find("Destroyed") != std::string::npos) ? ofColor(255, 90, 90) : ofColor(240, 75, 75);
+										lines.push_back({ label, val, col });
+									} else {
+										lines.push_back({ "Pick:", pickStr, ofColor::gold });
+									}
+								}
 							} else if (entry.card.baseHeal > 0 || entry.card.healAmount > 0) {
 								lines.push_back({ "Healed:", "+" + ofToString(entry.card.baseHeal > 0 ? entry.card.baseHeal : entry.card.healAmount) + " HP", ofColor::green });
 							}
@@ -8298,16 +8305,19 @@ void ofApp::draw() {
 								lines.push_back({ "AP Gain:", "+" + ofToString(entry.card.apGain > 0 ? entry.card.apGain : entry.card.apGainNextTurn) + " AP", ofColor::cyan });
 							}
 
-							// Destroyed cards
-							for (const auto & cName : entry.destroyedCardNames) {
-								lines.push_back({ "Destroyed:", cName, ofColor(255, 90, 90) });
+							// Destroyed cards (Skip Magic Blast as it formats above)
+							if (entry.card.type != CARD_MAGIC_BLAST) {
+								for (const auto & cName : entry.destroyedCardNames) {
+									lines.push_back({ "Destroyed:", cName, ofColor(255, 90, 90) });
+								}
 							}
 						}
 
 						// 2. Compute Layout for Card and Panel (Side-by-side)
 						float cardFullW = 310.0f * scale;
 						float cardFullH = cardFullW * 1.43f; // Full card aspect ratio (443px at 1080p)
-						float infoW = 310.0f * scale;
+						// Slightly expand the info box width for Magic Blast so long card names fit cleanly
+						float infoW = (entry.card.type == CARD_MAGIC_BLAST) ? (380.0f * scale) : (310.0f * scale);
 
 						// Box height tightly hugs only the lines of text present
 						float dynamicH = (38.0f + (float)lines.size() * 26.0f + 14.0f) * scale;
@@ -8360,7 +8370,9 @@ void ofApp::draw() {
 							ofSetColor(180, 180, 190);
 							SafeDrawText(uiFont, item.label, infoRect.x + 16 * scale, curY);
 							ofSetColor(item.color);
-							SafeDrawText(uiFont, item.value, infoRect.x + 120 * scale, curY);
+							// Provide wider clearance for Magic Blast unit pick tags
+							float valueX = (entry.card.type == CARD_MAGIC_BLAST) ? (infoRect.x + 160.0f * scale) : (infoRect.x + 120.0f * scale);
+							SafeDrawText(uiFont, item.value, valueX, curY);
 							curY += 26 * scale;
 						}
 						safePopStyle();
@@ -11056,11 +11068,12 @@ void ofApp::prepareGameVisualState() {
 	float intensity = ofMap(flicker, 0, 1, 0.8f, 1.3f);
 	float wiggleX = ofNoise(time * 0.4f, 0) * 15.0f - 7.5f;
 	float wiggleY = ofNoise(time * 0.4f, 100) * 10.0f - 5.0f;
+	// FIX: Reduced camera torch to a gentle ambient fill so spells can overpower the shadows
 	headlight.setDiffuseColor(ofColor(
-		std::min(255.0f, 220.0f * intensity),
-		std::min(255.0f, 160.0f * intensity),
-		std::min(255.0f, 100.0f * intensity)));
-	headlight.setSpecularColor(ofColor(255, 255, 255));
+		(int)(35.0f * intensity),
+		(int)(25.0f * intensity),
+		(int)(15.0f * intensity)));
+	headlight.setSpecularColor(ofColor(0, 0, 0));
 	headlight.setPosition(cam.getPosition() + glm::vec3(wiggleX, wiggleY, 0));
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
@@ -12952,19 +12965,6 @@ void ofApp::drawGame() {
 		if (g_isSecondPass) return;
 		if (keyAnimSequence.empty() || (floatingKeyInstances.empty() && pendingVisualKeyDraftQueue.empty())) return;
 
-		ofCamera & activeCam = getActiveCamera();
-		activeCam.begin();
-		ofEnableDepthTest();
-		glDepthMask(GL_TRUE);
-		glClear(GL_DEPTH_BUFFER_BIT); // Clear depth to draw cleanly over the flattened FBO
-
-		// --- QUICK DEPTH PRE-PASS FOR WALLS ---
-		// Render walls to the depth buffer only, so high-res keys are properly occluded by pixelated walls!
-		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-		if (levelMesh.getNumVertices() > 0) levelMesh.draw();
-		if (levelMeshDark.getNumVertices() > 0) levelMeshDark.draw();
-		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-
 		int seqIdx = keyAnimSequence[keyAnimSeqPos];
 		std::vector<FloatingKey> visibleKeyInstances = floatingKeyInstances;
 
@@ -12988,49 +12988,15 @@ void ofApp::drawGame() {
 			visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
 		}
 
-		// Draw Metallic Ground Circles
-		for (const auto & inst : visibleKeyInstances) {
-			if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
-
-			ofColor circleCol = ofColor(255, 215, 0); // Gold
-			if (inst.set == 2)
-				circleCol = ofColor(200, 200, 220); // Silver
-			else if (inst.set == 3)
-				circleCol = ofColor(205, 127, 50); // Bronze
-
-			glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
-
-			ofPushStyle();
-			ofEnableDepthTest();
-			glDepthMask(GL_FALSE);
-			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-			ofPushMatrix();
-			// FIX: Raise Y above the clovers (0.0425f) and green outlines (0.04f)
-			ofTranslate(worldPos.x, 0.045f, worldPos.z);
-			ofRotateXDeg(90);
-
-			// FIX: Slightly smaller radius so it fits comfortably inside the tile
-			float radius = TILE_SIZE * 0.22f;
-
-			// FIX: Increase opacity to 140 to prevent the green outlines/clovers from bleeding through
-			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 140);
-			ofFill();
-			ofDrawCircle(0, 0, radius);
-
-			ofNoFill();
-			ofSetLineWidth(2.5f);
-			ofSetColor(circleCol.r, circleCol.g, circleCol.b, 255);
-			ofDrawCircle(0, 0, radius);
-
-			ofPopMatrix();
-			glDepthMask(GL_TRUE);
-			safePopStyle();
-		}
-
-		// Draw Vertical Billboards
 		ofPushStyle();
-		ofEnableAlphaBlending(); // <--- CRITICAL FIX: Re-enable transparency after pixel shader
+		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofDisableLighting();
+
+// Definitions for standard OpenGL alpha testing compatibility
+#ifndef GL_ALPHA_TEST
+	#define GL_ALPHA_TEST 0x0BC0
+	#define GL_GREATER 0x0204
+#endif
 
 		for (const auto & inst : visibleKeyInstances) {
 			if (g_modifierFogOfWar && !g_visibleTiles[inst.pos.x][inst.pos.y]) continue;
@@ -13047,7 +13013,6 @@ void ofApp::drawGame() {
 			if (seqIdx < 0 || seqIdx >= (int)setTex->size()) continue;
 
 			glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
-			glm::vec3 pos = worldPos + glm::vec3(0, 0.75f, 0);
 
 			float texW = (float)(*setTex)[seqIdx].getWidth();
 			float texH = (float)(*setTex)[seqIdx].getHeight();
@@ -13059,6 +13024,54 @@ void ofApp::drawGame() {
 			float halfH = heightWorld * 0.5f;
 
 			float yaw = shouldFlipCamera() ? 180.0f : 0.0f;
+			int setSize = (int)setTex->size();
+			int curIdx = keyAnimSequence[keyAnimSeqPos] % setSize;
+
+			// -----------------------------------------------------------------
+			// 1. DYNAMIC FLOOR SHADOW (Never writes depth, paints onto floor)
+			// -----------------------------------------------------------------
+			float sHalfW = halfW * 0.85f;
+			float sHalfH = halfH * 0.70f;
+
+			static ofMesh shadowQuad;
+			shadowQuad.clear();
+			shadowQuad.setMode(OF_PRIMITIVE_TRIANGLES);
+			shadowQuad.addVertex(glm::vec3(-sHalfW, 0, -sHalfH));
+			shadowQuad.addTexCoord(glm::vec2(0, 0));
+			shadowQuad.addVertex(glm::vec3(sHalfW, 0, -sHalfH));
+			shadowQuad.addTexCoord(glm::vec2(1, 0));
+			shadowQuad.addVertex(glm::vec3(sHalfW, 0, sHalfH));
+			shadowQuad.addTexCoord(glm::vec2(1, 1));
+			shadowQuad.addVertex(glm::vec3(-sHalfW, 0, sHalfH));
+			shadowQuad.addTexCoord(glm::vec2(0, 1));
+			shadowQuad.addIndex(0);
+			shadowQuad.addIndex(1);
+			shadowQuad.addIndex(2);
+			shadowQuad.addIndex(0);
+			shadowQuad.addIndex(2);
+			shadowQuad.addIndex(3);
+
+			ofPushMatrix();
+			ofTranslate(worldPos.x, 0.025f, worldPos.z + 0.12f);
+			ofRotateYDeg(yaw);
+
+			ofEnableDepthTest();
+			glDepthMask(GL_FALSE); // Shadows must NEVER write depth!
+
+			ofSetColor(0, 0, 0, 115);
+
+			(*setTex)[curIdx].bind();
+			shadowQuad.draw();
+			(*setTex)[curIdx].unbind();
+
+			ofPopMatrix();
+
+			// -----------------------------------------------------------------
+			// 2. VERTICAL FLOATING KEY BILLBOARD
+			// -----------------------------------------------------------------
+			// CRITICAL FIX: Position center at halfH + 0.4f so the bottom of the quad
+			// is ALWAYS safely 0.4ft above the floor and never cuts into the ground!
+			glm::vec3 pos = worldPos + glm::vec3(0.0f, halfH + 0.4f, 0.0f);
 
 			glm::vec3 p0(-halfW, -halfH, 0);
 			glm::vec3 p1(halfW, -halfH, 0);
@@ -13068,12 +13081,6 @@ void ofApp::drawGame() {
 			static ofMesh quad;
 			quad.clear();
 			quad.setMode(OF_PRIMITIVE_TRIANGLES);
-
-			ofPushMatrix();
-			ofTranslate(pos.x, pos.y, pos.z);
-			ofRotateYDeg(yaw);
-			ofRotateXDeg(-15.0f);
-
 			quad.addVertex(p0);
 			quad.addTexCoord(glm::vec2(0, 1));
 			quad.addVertex(p1);
@@ -13082,7 +13089,6 @@ void ofApp::drawGame() {
 			quad.addTexCoord(glm::vec2(1, 0));
 			quad.addVertex(p3);
 			quad.addTexCoord(glm::vec2(0, 0));
-
 			quad.addIndex(0);
 			quad.addIndex(1);
 			quad.addIndex(2);
@@ -13090,28 +13096,28 @@ void ofApp::drawGame() {
 			quad.addIndex(2);
 			quad.addIndex(3);
 
-			int setSize = (int)setTex->size();
-			int curIdx = keyAnimSequence[keyAnimSeqPos] % setSize;
+			ofPushMatrix();
+			ofTranslate(pos.x, pos.y, pos.z);
+			ofRotateYDeg(yaw);
+			ofRotateXDeg(-15.0f);
 
-			glEnable(GL_DEPTH_TEST);
-			glDepthMask(GL_FALSE);
-			ofDisableLighting();
-			ofSetColor(255, 200);
+			// CRITICAL FIX: Alpha test discards transparent pixels so they NEVER write depth!
+			glEnable(GL_ALPHA_TEST);
+			glAlphaFunc(GL_GREATER, 0.1f);
+			glDepthMask(GL_TRUE); // Only solid key pixels write depth
+			ofSetColor(255, 255);
 
 			(*setTex)[curIdx].bind();
 			quad.draw();
 			(*setTex)[curIdx].unbind();
 
+			glDisable(GL_ALPHA_TEST);
 			ofPopMatrix();
 		}
 
-		ofEnableLighting();
 		glDepthMask(GL_TRUE);
-		ofDisableAlphaBlending();
+		ofEnableLighting();
 		safePopStyle();
-
-		activeCam.end();
-		ofDisableDepthTest();
 	};
 
 	auto renderCoins3D = [&]() {
@@ -13311,62 +13317,45 @@ void ofApp::drawGame() {
 
 			return 0.0f;
 		};
-
-		// --- LIGHTING ---
+		// --- MINIMAL LIGHTING SETUP ---
 		uiLight.disable();
+		rimLight.disable();
+		headlight.disable();
 		keyLight.enable();
-		rimLight.enable();
-		headlight.enable();
-		headlight.setPosition(activeCam.getPosition());
 
-		// --- DYNAMIC PROJECTILE LIGHTING ---
-		// We maintain a static pool of 4 lights to attach to flying spells without
-		// blowing past the OpenGL hardware light limit.
-		static ofLight s_projLights[4];
-		static bool s_projLightsInit = false;
-		if (!s_projLightsInit) {
-			for (int i = 0; i < 4; i++) {
-				s_projLights[i].setPointLight();
-			}
-			s_projLightsInit = true;
+		// --- REAL 3D DYNAMIC SPELL LIGHT (NO FAKE CIRCLES) ---
+		static ofLight s_spellLight;
+		static bool s_spellLightInit = false;
+		if (!s_spellLightInit) {
+			s_spellLight.setup();
+			s_spellLight.setPointLight();
+			s_spellLightInit = true;
 		}
+
+		s_spellLight.disable();
 
 		float now = ofGetElapsedTimef();
-		int lightIdx = 0;
-
 		for (const auto & tr : activeTracers) {
-			if (lightIdx >= 4) break; // Max 4 simultaneous projectile lights
-
 			float life = (now - tr.startTime) / tr.duration;
 			if (life >= 0.0f && life <= 1.0f) {
-				// Calculate exact position of the projectile along the tracer line
 				glm::vec3 currentPos = tr.start + (tr.end - tr.start) * life;
-				currentPos.y += 0.8f; // Float slightly above the beam to cast better shadows onto walls
+				// FIX: Lowered to 2.2ft (inside corridor) so walls naturally contain the light
+				currentPos.y = 2.2f;
 
-				// Smooth fade in/out so the light doesn't "pop" abruptly when spawned or destroyed
 				float intensity = sin(life * PI);
+				ofColor c = tr.color;
 
-				ofColor lightCol = tr.color;
-				// Overdrive the color to make the light source extremely vibrant against the dark dungeon
-				lightCol.r = std::min(255, (int)(lightCol.r * 1.5f));
-				lightCol.g = std::min(255, (int)(lightCol.g * 1.5f));
-				lightCol.b = std::min(255, (int)(lightCol.b * 1.5f));
-
-				s_projLights[lightIdx].setDiffuseColor(ofColor(lightCol.r * intensity, lightCol.g * intensity, lightCol.b * intensity));
-				s_projLights[lightIdx].setSpecularColor(ofColor(lightCol.r * intensity, lightCol.g * intensity, lightCol.b * intensity));
-
-				// Attenuation: Constant, Linear, Quadratic
-				// These specific values create a tight, glowing radius of about 2-3 tiles
-				s_projLights[lightIdx].setAttenuation(1.0f, 0.02f, 0.005f);
-				s_projLights[lightIdx].setPosition(currentPos);
-				s_projLights[lightIdx].enable();
-				lightIdx++;
+				s_spellLight.setPosition(currentPos);
+				s_spellLight.setDiffuseColor(ofColor(
+					std::min(255, (int)(c.r * 1.5f * intensity)),
+					std::min(255, (int)(c.g * 1.5f * intensity)),
+					std::min(255, (int)(c.b * 1.5f * intensity))));
+				s_spellLight.setSpecularColor(ofColor(120, 120, 120));
+				// FIX: Tight attenuation confines the light to a natural 2-tile radius without banding!
+				s_spellLight.setAttenuation(1.0f, 0.04f, 0.008f);
+				s_spellLight.enable();
+				break;
 			}
-		}
-
-		// Disable any unused lights from the pool so they don't linger on the board
-		for (int i = lightIdx; i < 4; i++) {
-			s_projLights[i].disable();
 		}
 
 		// ===================================================================
@@ -13374,6 +13363,20 @@ void ofApp::drawGame() {
 		// ===================================================================
 
 		// --- OPAQUE GEOMETRY (Floor & Walls) ---
+		// FIX: Increased ambient color to 160 so the base dungeon board is clear and visible
+		static ofMaterial boardMaterial;
+		static bool boardMatInit = false;
+		if (!boardMatInit) {
+			boardMaterial.setDiffuseColor(ofColor(255, 255, 255));
+			boardMaterial.setAmbientColor(ofColor(160, 160, 170));
+			boardMaterial.setSpecularColor(ofColor(15, 15, 15));
+			boardMaterial.setShininess(2);
+			boardMatInit = true;
+		}
+
+		boardMaterial.begin();
+		ofSetColor(255, 255, 255, 255);
+
 		for (size_t i = 0; i < floorMeshes.size(); i++) {
 			if (i < floorTextures.size()) {
 				floorTextures[i].bind();
@@ -13392,6 +13395,11 @@ void ofApp::drawGame() {
 			levelMeshDark.draw();
 			wallDarkTexture.unbind();
 		}
+
+		boardMaterial.end();
+
+		// Render keys and their dynamic shadows inside the 3D scene so they sort properly with dice!
+		renderKeys3D();
 
 		// --- DRAW FOG OF WAR OVERLAY ---
 		if (g_modifierFogOfWar) {
@@ -13827,9 +13835,11 @@ void ofApp::drawGame() {
 					// Fixed-Function path for Weapon attachment
 					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
 						ofPushMatrix();
-						// Directly render the staff using the wizard's root model matrix
-						// This aligns the staff exactly where it was modeled relative to the wizard's feet
 						ofMultMatrix(currentModel->getModelMatrix());
+						// FIX: Move to wizard's hand coordinates, flip orb right-side up, and tilt naturally!
+						ofTranslate(-18.0f, -65.0f, 8.0f);
+						ofRotateXDeg(180.0f); // Flips the staff so the orb points UP into the air
+						ofRotateZDeg(-15.0f); // Natural outward grip tilt
 						staffModel.drawFaces();
 						ofPopMatrix();
 					}
@@ -13904,7 +13914,9 @@ void ofApp::drawGame() {
 		}
 
 		// --- DICE RENDERING ---
-		diceMaterial.begin();
+		// FIX: Render dice unlit so their numbers are always 100% crisp and readable from any camera angle!
+		ofDisableLighting();
+		ofSetColor(255, 255, 255, 255);
 
 		auto isDiceVisible = [&](int associatedUnit) {
 			// In Fog of War, all players must always see all initiative dice rolls
@@ -13932,20 +13944,17 @@ void ofApp::drawGame() {
 
 		// 2. Coin
 		if (drawCoins) {
-			ofDisableLighting();
 			coinFacesTexture.bind();
 			for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 				if (!isDiceVisible(activeDiceRolls[i].associatedUnit)) continue;
 				if (activeDiceRolls[i].sides == 2) {
 					setDiceTransform(i, activeDiceRolls[i]);
 					ofScale(coinScale, coinScale, coinScale);
-					ofSetColor(255);
 					coinMesh.draw();
 					ofPopMatrix();
 				}
 			}
 			coinFacesTexture.unbind();
-			ofEnableLighting();
 		}
 
 		// 3. D6
@@ -13987,7 +13996,7 @@ void ofApp::drawGame() {
 		}
 		d20Texture.unbind();
 
-		diceMaterial.end();
+		ofEnableLighting();
 
 		// ===================================================================
 		//  PASS 2: DRAW ALL TRANSPARENT EFFECTS
@@ -15375,23 +15384,20 @@ void ofApp::drawGame() {
 			pixelArtShader.setUniform1i("levels", 28);
 			pixelArtShader.setUniform1i("useDither", 0);
 			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
+			float uiDownscale = 2.0f; // Scale down for retro look
+			pixelArtShader.setUniform2f("uLowRes", ofGetWidth() / uiDownscale, ofGetHeight() / uiDownscale);
 			pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
 			pixelArtShader.setUniform1f("edgeStrength", 0.0f);
 
 			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			pixelArtShader.end();
 
-			// --- DRAW HIGH-RES KEYS AND COINS OVER THE PIXEL FILTER ---
-			renderKeys3D();
-			renderCoins3D();
-
 		} else {
 			allocateWorldFbo(ofGetWidth(), ofGetHeight());
 			if (worldFbo.isAllocated()) {
 				worldFbo.begin();
 				ofClear(22, 22, 22, 255);
-				renderWorld3D(false);
+				renderWorld3D(true);
 				worldFbo.end();
 
 				ofDisableDepthTest();
@@ -15422,12 +15428,8 @@ void ofApp::drawGame() {
 					worldPostShader.end();
 				}
 
-				renderKeys3D();
-				renderCoins3D();
-
 			} else {
 				renderWorld3D(true);
-				renderKeys3D();
 			}
 		}
 	} else {
@@ -27068,6 +27070,37 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			std::string choiceText = (choice == 1) ? ("Take " + ofToString(dmgAmount) + " Damage") : "Destroy Top Card";
 			addGameLog(getPlayerNameByID(cmd.playerID) + " chose: " + choiceText);
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.6f, 0), "Choice: " + choiceText, ofColor::yellow);
+
+			// Record choice details and destroyed card name into Action History
+			if (!g_actionHistory.empty() && safeTarget >= 0 && safeTarget < (int)players.size()) {
+				std::string tName = getPlayerDisplayName(safeTarget);
+				std::string pickTag = "";
+				// Check if primary target (3 choices) vs splash target (1 choice)
+				if (magicBlastChoicesRemaining > 1 || (magicBlastChoicesRemaining == 1 && magicBlastSplashTargetIndices.empty())) {
+					int pickNum = 4 - magicBlastChoicesRemaining;
+					pickTag = tName + " (" + ofToString(pickNum) + "/3)";
+				} else {
+					pickTag = tName + " (Splash)";
+				}
+
+				std::string pickDetail = "";
+				if (choice == 1) {
+					pickDetail = ofToString(dmgAmount) + " Magic Dmg";
+				} else {
+					if (!players[safeTarget].deck.empty()) {
+						pickDetail = "Destroyed " + players[safeTarget].deck.back().name;
+					} else {
+						pickDetail = "Deck Empty";
+					}
+				}
+
+				for (auto it = g_actionHistory.rbegin(); it != g_actionHistory.rend(); ++it) {
+					if (it->card.type == CARD_MAGIC_BLAST) {
+						it->destroyedCardNames.push_back(pickTag + "|" + pickDetail);
+						break;
+					}
+				}
+			}
 
 			if (choice == 1) { // damage
 				EffectOp dmgOp = {};

@@ -1,0 +1,55 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-10-13 01:43:20
+End Reason: Victory
+Seed: 4237447561
+Turns: 3
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[01:37:22] --- MATCH STARTED ---
+[01:37:27] Turn 1: Player 1's turn
+[01:37:27] Autosaved turn-start (autosave.json)
+[01:37:31] Unlimited time enabled (turn timer disabled).
+[01:37:32] Turn timer enabled.
+[01:37:35] Player 1 moved to (12,3)
+[01:37:47] Player 1 played Magic Blast targeting (12,0)
+[01:37:48] Player 1 chose: Take 5 Damage
+[01:38:18] Player 1 played Fireball targeting (12,0)
+[01:38:58] Turn 1: Player 2's turn
+[01:38:58] Autosaved turn-start (autosave.json)
+[01:40:14] Turn 2: Player 1's turn
+[01:40:14] Autosaved turn-start (autosave.json)
+[01:41:35] Turn 2: Player 2's turn
+[01:41:35] Autosaved turn-start (autosave.json)
+[01:42:16] Player 2 played Chain Lightning targeting (12,3)
+[01:42:52] Turn 3: Player 1's turn
+[01:42:52] Autosaved turn-start (autosave.json)
+[01:42:55] Player 1 played Sprint targeting (12,3)
+[01:42:56] Player 1 moved to (12,2)
+[01:42:58] Player 1 played Summon Assistant targeting (12,3)
+[01:42:58] Player 1 summoned unit kind 6 at (12,3)
+[01:43:09] Player 1 moved to (12,1)
+[01:43:10] Player 1 played Shock targeting (12,0)
+[01:43:11] Player 1 moved to (12,2)
+[01:43:15] Turn 3: Player 2's turn
+[01:43:15] Autosaved turn-start (autosave.json)
+[01:43:18] Player 2 moved to (12,1)
+[01:43:19] Player 2 played Stab targeting (12,3)
+[01:43:20] Player 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 5
+  Cards Played: 7
+  Minions Spawned: 1
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 10
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
