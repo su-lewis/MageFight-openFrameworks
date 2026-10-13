@@ -12375,8 +12375,15 @@ void ofApp::updateGameLogic() {
 
 	// --- EARTHQUAKE LOGICAL UPDATE ---
 	if (isEarthquakeActive) {
-		if (isEarthquakeAnimatingStep) {
-			float speed = SIMULATION_TIMESTEP * 2.2f; // ~0.45s per tile slide
+		if (earthquakeWaitTimer > 0.0f) {
+			earthquakeWaitTimer -= SIMULATION_TIMESTEP;
+			for (auto & unit : earthquakeUnits) {
+				if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+					players[unit.playerIndex].visualPos = unit.visualPos;
+				}
+			}
+		} else if (isEarthquakeAnimatingStep) {
+			float speed = SIMULATION_TIMESTEP * 0.75f; // slow the movement so the arrow path is readable
 			float prevT = earthquakeT;
 			earthquakeT += speed;
 
@@ -12488,6 +12495,7 @@ void ofApp::updateGameLogic() {
 
 				if (anyCrashes && !isProcessingEffect) {
 					beginEffectSequence();
+					earthquakeWaitTimer = 1.4f;
 				}
 
 				for (int i = 0; i < n; ++i) {
@@ -14471,12 +14479,11 @@ void ofApp::drawGame() {
 				ofPopMatrix();
 			}
 
-			// 9. EARTHQUAKE DIRECTION ARROWS (above head, follow unit)
+			// 9. EARTHQUAKE DIRECTION ARROWS (path preview with team colors and final tile outline)
 			{
 				if (isEarthquakeActive) {
 					for (const auto & eq : earthquakeUnits) {
 						if (eq.playerIndex == transPlayerIdx && (eq.tilesToMove > 0 || eq.originalDistance > 0 || eq.crashed)) {
-							// Determine displayed remaining tiles: decrement once the step progress crosses halfway
 							int displayedRemaining = 0;
 							if (eq.crashed)
 								displayedRemaining = 0;
@@ -14486,46 +14493,50 @@ void ofApp::drawGame() {
 								displayedRemaining = base;
 							}
 
-							if (displayedRemaining > 0) {
-								// Compute world-space forward direction for this unit
-								glm::vec3 startWorld = gridToWorld(eq.startGrid.x, eq.startGrid.y);
-								glm::vec3 nextWorld = gridToWorld(eq.startGrid.x + eq.direction.x, eq.startGrid.y + eq.direction.y);
-								glm::vec3 dirWorld = nextWorld - startWorld;
-								if (glm::length(dirWorld) > 0.0001f) dirWorld = glm::normalize(dirWorld);
-								// Arrow spacing along direction (much smaller spacing so arrows are close together)
-								float stepOffset = TILE_SIZE * 0.15f;
-								// Bright yellow with glowing additive blend
-								ofColor arrowCol = ofColor(255, 255, 59, 200);
+							if (displayedRemaining <= 0) continue;
 
-								// Draw arrows without lighting so they appear bright and unaffected by scene lights
-								ofPushStyle();
-								ofDisableLighting();
-								ofEnableBlendMode(OF_BLENDMODE_ADD);
-								for (int i = 0; i < displayedRemaining; ++i) {
-									glm::vec3 arrowPos = pos + dirWorld * ((i + 1) * stepOffset);
-									ofPushMatrix();
-									// Position slightly above head
-									ofTranslate(arrowPos.x, currentOverheadY + 0.5f, arrowPos.z);
-									// Lay flat on XZ
-									ofRotateXDeg(90);
-									// Rotate based on dirWorld to point correctly
-									float dirAngle = 0.0f;
-									if (eq.direction.x == 1) dirAngle = 90.0f;
-									if (eq.direction.x == -1) dirAngle = 270.0f;
-									if (eq.direction.y == 1) dirAngle = 180.0f;
-									ofRotateZDeg(dirAngle);
-									// Draw larger arrow
-									ofSetColor(arrowCol);
-									float w = 1.0f;
-									float h = 0.8f;
-									ofDrawTriangle(0, -h, -w / 2.0f, 0.0f, w / 2.0f, 0.0f);
-									ofDrawRectangle(-w / 10.0f, 0.0f, w / 5.0f, h);
-									ofPopMatrix();
-								}
-								safeDisableBlendMode();
-								safePopStyle();
-								ofEnableLighting();
+							glm::vec3 origin = gridToWorld(eq.startGrid.x, eq.startGrid.y);
+							glm::vec3 finalTileWorld = gridToWorld(eq.startGrid.x + eq.direction.x * displayedRemaining, eq.startGrid.y + eq.direction.y * displayedRemaining);
+							int ownerID = players[eq.playerIndex].isMinion ? players[eq.playerIndex].ownerID : players[eq.playerIndex].playerID;
+							ofColor teamCol = getPlayerThemeColor(ownerID);
+
+							ofPushStyle();
+							ofDisableLighting();
+							ofEnableBlendMode(OF_BLENDMODE_ADD);
+
+							ofSetColor(teamCol.r, teamCol.g, teamCol.b, 180);
+							ofDrawLine(origin.x, origin.y + 0.9f, origin.z, finalTileWorld.x, finalTileWorld.y + 0.9f, finalTileWorld.z);
+
+							for (int step = 1; step <= displayedRemaining; ++step) {
+								glm::ivec2 pathTile = eq.startGrid + eq.direction * step;
+								glm::vec3 tileWorld = gridToWorld(pathTile.x, pathTile.y);
+								glm::vec3 arrowPos = tileWorld + glm::vec3(0.0f, 1.0f, 0.0f);
+
+								ofPushMatrix();
+								ofTranslate(arrowPos.x, arrowPos.y, arrowPos.z);
+								ofRotateXDeg(90.0f);
+								float dirAngle = 0.0f;
+								if (eq.direction.x == 1) dirAngle = 90.0f;
+								if (eq.direction.x == -1) dirAngle = 270.0f;
+								if (eq.direction.y == 1) dirAngle = 180.0f;
+								if (eq.direction.y == -1) dirAngle = 0.0f;
+								ofRotateZDeg(dirAngle);
+								ofSetColor(teamCol.r, teamCol.g, teamCol.b, 230);
+								float w = 0.75f;
+								float h = 1.1f;
+								ofDrawTriangle(0.0f, -h, -w / 2.0f, 0.0f, w / 2.0f, 0.0f);
+								ofDrawRectangle(-w / 8.0f, 0.0f, w / 4.0f, h);
+								ofPopMatrix();
 							}
+
+							ofSetColor(teamCol.r, teamCol.g, teamCol.b, 200);
+							ofNoFill();
+							ofSetLineWidth(3.0f);
+							ofDrawBox(finalTileWorld + glm::vec3(0.0f, 0.25f, 0.0f), TILE_SIZE * 0.88f);
+							ofFill();
+
+							safeDisableBlendMode();
+							safePopStyle();
 						}
 					}
 				}
@@ -30165,6 +30176,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		isEarthquakeDiceRolling = false;
 		isEarthquakeAnimatingStep = true;
 		earthquakeT = 0.0f;
+		earthquakeWaitTimer = 2.0f;
 
 		opComplete = true;
 		break;
