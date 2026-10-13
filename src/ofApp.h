@@ -812,6 +812,7 @@ struct RemovedCardAnimation {
 	Card card;
 	glm::vec2 startPos;
 	float startTime;
+	float burnDelay = 2.0f;
 	float currentScale;
 	float currentAlpha;
 };

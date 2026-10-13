@@ -11269,13 +11269,15 @@ void ofApp::prepareGameVisualState() {
 						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
 					}
 				} else {
-					if (groupRolls.size() == 1) {
+					if (currentState == STATE_INITIATIVE_ROLL) {
+						resultText = "";
+					} else if (groupRolls.size() == 1) {
 						int rawRoll = it->rawResult;
 						int finalRoll = it->result;
 						std::string rollName = (!it->label.empty()) ? it->label : getRollLabel(checkPurpose, it->associatedUnit);
 						resultText = buildResultText(rollName, 1, it->sides, rawRoll, finalRoll);
 					} else {
-						if (currentState == STATE_INITIATIVE_ROLL || checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+						if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 							resultText = "";
 						} else {
 							int rawTotal = 0;
@@ -11367,23 +11369,26 @@ void ofApp::prepareGameVisualState() {
 
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsed = time - anim.startTime;
-		// FIX: Massively speed up the Amnesia card destruction so it doesn't look like a delay!
-		float holdTime = 0.4f;
-		float shrinkTime = 0.3f;
-		float totalTime = holdTime + shrinkTime;
-		if (elapsed >= 0.0f && elapsed < holdTime) {
+		const float preBurnDelay = anim.burnDelay;
+		const float burnHoldTime = 0.4f;
+		const float burnFadeTime = 0.3f;
+		const float burnWindow = burnHoldTime + burnFadeTime;
+
+		if (elapsed < preBurnDelay) {
 			anim.currentScale = 1.8f;
 			anim.currentAlpha = 255.0f;
-		} else if (elapsed >= holdTime && elapsed < totalTime) {
-			float t = (elapsed - holdTime) / shrinkTime;
+		} else if (elapsed >= preBurnDelay && elapsed < preBurnDelay + burnHoldTime) {
+			anim.currentScale = 1.8f;
+			anim.currentAlpha = 255.0f;
+		} else if (elapsed >= preBurnDelay + burnHoldTime && elapsed < preBurnDelay + burnWindow) {
+			float t = (elapsed - (preBurnDelay + burnHoldTime)) / burnFadeTime;
 			anim.currentScale = ofLerp(1.8f, 0.1f, t * t);
 			anim.currentAlpha = ofLerp(255.0f, 0.0f, t);
 		} else if (elapsed < 0.0f) {
 			anim.currentAlpha = 0.0f;
 		}
 	}
-	// Purge after the new, shorter duration (0.4 + 0.3 = 0.7s)
-	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= 0.8f; }), activeRemovedCardAnimations.end());
+	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [time](const RemovedCardAnimation & a) { return (time - a.startTime) >= (a.burnDelay + 0.7f); }), activeRemovedCardAnimations.end());
 
 	for (auto & disp : activeCardDisplays) {
 		float elapsed = time - disp.startTime;
@@ -17454,7 +17459,13 @@ void ofApp::drawGame() {
 		float elapsed = ofGetElapsedTimef() - anim.startTime;
 		if (elapsed < 0.0f) continue;
 
-		float progress = std::clamp(elapsed / 0.7f, 0.0f, 1.0f); // 0.7s lifetime
+		float burnElapsed = std::max(0.0f, elapsed - anim.burnDelay);
+		float progress = std::clamp(burnElapsed / 0.7f, 0.0f, 1.0f);
+
+		if (elapsed < anim.burnDelay) {
+			// Keep the card visible for a beat before the burn effect begins.
+			progress = 0.0f;
+		}
 
 		// If the card has finished burning, don't draw anything (prevents 1-frame ghosting)
 		if (progress >= 1.0f) continue;
@@ -17462,7 +17473,7 @@ void ofApp::drawGame() {
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
 
-		g_isBurningCard = true;
+		g_isBurningCard = (elapsed >= anim.burnDelay);
 		g_burnProgress = progress;
 
 		drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, anim.card, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h, nullptr);
