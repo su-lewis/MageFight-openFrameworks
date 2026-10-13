@@ -13433,8 +13433,8 @@ void ofApp::drawGame() {
 		static ofMaterial boardMaterial;
 		static bool boardMatInit = false;
 		if (!boardMatInit) {
-			boardMaterial.setDiffuseColor(ofColor(240, 240, 240));
-			boardMaterial.setAmbientColor(ofColor(185, 185, 195)); // Clean contrast, not washed out
+			boardMaterial.setDiffuseColor(ofColor(235, 235, 235));
+			boardMaterial.setAmbientColor(ofColor(175, 175, 185));
 			boardMaterial.setSpecularColor(ofColor(20, 20, 20));
 			boardMaterial.setShininess(2);
 			boardMatInit = true;
