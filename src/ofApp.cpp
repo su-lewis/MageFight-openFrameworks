@@ -1053,6 +1053,9 @@ static bool g_visibleTiles[BOARD_WIDTH][BOARD_HEIGHT];
 static std::map<int, std::set<std::string>> g_seenOpponentCards;
 static std::set<int> g_seenOpponentMinionIDs;
 
+// --- LOBBY NETWORKING FLAGS ---
+extern bool g_isConnectingToLobby;
+
 struct LobbyPlayer {
 	uint32_t playerID = 0;
 	uint32_t seed = 0;
@@ -5030,19 +5033,6 @@ void ofApp::loadNextModelBatch() {
 		staffModel.setScaleNormalization(false);
 		staffModel.setPosition(0, 0, 0);
 		staffModel.setScale(1.0f, 1.0f, 1.0f);
-		if (playerModel.getAssimpScene() != nullptr) {
-			cachedPlayerHandNode = findHandNode(playerModel.getAssimpScene()->mRootNode);
-			if (cachedPlayerHandNode != nullptr) {
-				handBindPoseWorldMatrix = getAssimpNodeWorldMatrix(cachedPlayerHandNode);
-			}
-		}
-		{
-			glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.1f, 0.05f));
-			glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			rotation = glm::rotate(rotation, glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-			rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-			staffSocketOffset = translation * rotation;
-		}
 		break;
 	case 1:
 		loadModelSafe(skeletonModel, { "Units/Skeleton/Skeleton.fbx" });
@@ -5326,7 +5316,7 @@ void ofApp::setup() {
 			// brushed metal reflection that naturally hides rigid color bands.
 			float wave1 = sin(localUV.x * 3.1 + localUV.y * 1.5 + uTime * 0.4);
 			float wave2 = cos(localUV.x * -1.8 + localUV.y * 2.7 - uTime * 0.25);
-			float ambientGloss = (wave1 * wave2 * 0.5 + 0.5) * 0.08; // Reduced intensity to prevent blowouts
+			float ambientGloss = (wave1 * wave2 * 0.5 + 0.5) * 0.14; // Reduced intensity to prevent blowouts
 
 			vec3 finalColor = texColor.rgb;
 
@@ -5775,32 +5765,42 @@ void ofApp::setup() {
 		modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
 		modelMaterial.setAmbientColor(ofColor(255, 255, 255));
 
-		diceMaterial.setShininess(5);
-		diceMaterial.setDiffuseColor(ofColor(230, 230, 230));
-		diceMaterial.setAmbientColor(ofColor(90, 90, 90));
-		diceMaterial.setSpecularColor(ofColor(30, 30, 30));
+		diceMaterial.setShininess(8);
+		diceMaterial.setDiffuseColor(ofColor(180, 180, 180));
+		diceMaterial.setAmbientColor(ofColor(140, 140, 140));
+		diceMaterial.setSpecularColor(ofColor(60, 60, 60));
 		diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
 
-		// --- MINIMAL LIGHTING: 1 Global Ambient + 1 Clean Overhead Sun ---
-		// Baseline ambient light ensures the board is comfortably lit and visible
-		ofSetGlobalAmbientColor(ofColor(65, 65, 75));
+		// --- BALANCED 3D DUNGEON LIGHTING ---
+		// Increased baseline ambient so corridors and shadows are clearly visible
+		ofSetGlobalAmbientColor(ofColor(150, 150, 160));
 
 		lights.clear();
 
-		// Single overhead sun centered right above the board
+		// 1. Primary Key Light (Bright overhead sun)
 		keyLight.setup();
 		keyLight.setPointLight();
-		keyLight.setPosition(0, 130, 0);
-		keyLight.setDiffuseColor(ofColor(155, 155, 165));
-		keyLight.setSpecularColor(ofColor(40, 40, 40));
-		keyLight.setAttenuation(1.0f, 0.002f, 0.0f);
+		keyLight.setPosition(20, 110, 35);
+		keyLight.setDiffuseColor(ofColor(210, 210, 220));
+		keyLight.setSpecularColor(ofColor(40, 40, 45));
+		keyLight.setAttenuation(1.0f, 0.001f, 0.0f);
 		lights.push_back(keyLight);
 
-		// Permanently disable clutter lights
+		// 2. Fill Light (Soft back-corner fill to lift dark wall shadows)
 		rimLight.setup();
-		rimLight.disable();
-		headlight.setup();
+		rimLight.setPointLight();
+		rimLight.setPosition(-30, 85, -40);
+		rimLight.setDiffuseColor(ofColor(140, 140, 155));
+		rimLight.setSpecularColor(ofColor(20, 20, 25));
+		rimLight.setAttenuation(1.0f, 0.0015f, 0.0f);
+		rimLight.enable();
+		lights.push_back(rimLight);
+
+		// --- LIGHTING SETUP ---
+		uiLight.disable();
 		headlight.disable();
+		keyLight.enable();
+		rimLight.enable();
 
 		// 6. UI LIGHT (For FBOs)
 		uiLight.setup();
@@ -13103,8 +13103,8 @@ void ofApp::drawGame() {
 
 			// CRITICAL FIX: Alpha test discards transparent pixels so they NEVER write depth!
 			glEnable(GL_ALPHA_TEST);
-			glAlphaFunc(GL_GREATER, 0.1f);
-			glDepthMask(GL_TRUE); // Only solid key pixels write depth
+			glAlphaFunc(GL_GREATER, 0.4f);
+			glDepthMask(GL_FALSE); // Keys do not lock out movement highlights
 			ofSetColor(255, 255);
 
 			(*setTex)[curIdx].bind();
@@ -13323,7 +13323,7 @@ void ofApp::drawGame() {
 		headlight.disable();
 		keyLight.enable();
 
-		// --- REAL 3D DYNAMIC SPELL LIGHT (NO FAKE CIRCLES) ---
+		// --- REAL 3D DYNAMIC SPELL LIGHT ---
 		static ofLight s_spellLight;
 		static bool s_spellLightInit = false;
 		if (!s_spellLightInit) {
@@ -13339,20 +13339,23 @@ void ofApp::drawGame() {
 			float life = (now - tr.startTime) / tr.duration;
 			if (life >= 0.0f && life <= 1.0f) {
 				glm::vec3 currentPos = tr.start + (tr.end - tr.start) * life;
-				// FIX: Lowered to 2.2ft (inside corridor) so walls naturally contain the light
 				currentPos.y = 2.2f;
 
 				float intensity = sin(life * PI);
 				ofColor c = tr.color;
 
 				s_spellLight.setPosition(currentPos);
+				float boost = 2.5f * std::max(0.35f, intensity);
 				s_spellLight.setDiffuseColor(ofColor(
-					std::min(255, (int)(c.r * 1.5f * intensity)),
-					std::min(255, (int)(c.g * 1.5f * intensity)),
-					std::min(255, (int)(c.b * 1.5f * intensity))));
-				s_spellLight.setSpecularColor(ofColor(120, 120, 120));
-				// FIX: Tight attenuation confines the light to a natural 2-tile radius without banding!
-				s_spellLight.setAttenuation(1.0f, 0.04f, 0.008f);
+					std::min(255, (int)(c.r * boost)),
+					std::min(255, (int)(c.g * boost)),
+					std::min(255, (int)(c.b * boost))));
+				s_spellLight.setSpecularColor(ofColor(220, 220, 220));
+
+				// Max 3 tiles radius cutoff
+				float spellRadius = TILE_SIZE * 3.0f;
+				float quadAtten = 1.6f / (spellRadius * spellRadius);
+				s_spellLight.setAttenuation(1.0f, 0.02f, quadAtten);
 				s_spellLight.enable();
 				break;
 			}
@@ -13363,13 +13366,12 @@ void ofApp::drawGame() {
 		// ===================================================================
 
 		// --- OPAQUE GEOMETRY (Floor & Walls) ---
-		// FIX: Increased ambient color to 160 so the base dungeon board is clear and visible
 		static ofMaterial boardMaterial;
 		static bool boardMatInit = false;
 		if (!boardMatInit) {
 			boardMaterial.setDiffuseColor(ofColor(255, 255, 255));
-			boardMaterial.setAmbientColor(ofColor(160, 160, 170));
-			boardMaterial.setSpecularColor(ofColor(15, 15, 15));
+			boardMaterial.setAmbientColor(ofColor(230, 230, 240)); // Reflects ambient light vibrantly
+			boardMaterial.setSpecularColor(ofColor(30, 30, 30));
 			boardMaterial.setShininess(2);
 			boardMatInit = true;
 		}
@@ -13397,6 +13399,36 @@ void ofApp::drawGame() {
 		}
 
 		boardMaterial.end();
+
+		// --- PURE DYNAMIC SPELL LIGHT (NO BANDING, NO MESH RINGS) ---
+		now = ofGetElapsedTimef();
+		for (const auto & tr : activeTracers) {
+			float life = (now - tr.startTime) / tr.duration;
+			if (life >= 0.0f && life <= 1.0f) {
+				glm::vec3 tracerWorldPos = tr.start + (tr.end - tr.start) * life;
+
+				// Place the light source slightly above the floor so it illuminates both the tiles and the vertical brick faces
+				s_spellLight.setPosition(tracerWorldPos + glm::vec3(0, 1.4f, 0));
+
+				float intensity = sin(life * PI);
+				ofColor col = tr.color;
+
+				// Vibrant, clean lighting that matches the spell tracer color
+				float boost = 3.2f * std::max(0.25f, intensity);
+				s_spellLight.setDiffuseColor(ofColor(
+					std::min(255, (int)(col.r * boost)),
+					std::min(255, (int)(col.g * boost)),
+					std::min(255, (int)(col.b * boost))));
+				s_spellLight.setSpecularColor(ofColor(180, 180, 180));
+
+				// Smooth natural falloff terminating comfortably within 3 tiles (no banding steps)
+				float maxRadiusWorld = TILE_SIZE * 3.0f;
+				float quadAtten = 2.0f / (maxRadiusWorld * maxRadiusWorld);
+				s_spellLight.setAttenuation(1.0f, 0.05f, quadAtten);
+				s_spellLight.enable();
+				break;
+			}
+		}
 
 		// Render keys and their dynamic shadows inside the 3D scene so they sort properly with dice!
 		renderKeys3D();
@@ -13740,17 +13772,17 @@ void ofApp::drawGame() {
 				}
 				ofPopMatrix();
 
-				// Fixed-Function path for Weapon attachment
-				if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr && playerModel.getAssimpScene() != nullptr) {
-					aiNode * handNode = cachedPlayerHandNode;
-					if (handNode != nullptr && staffModel.getMeshCount() > 0) {
-						glm::mat4 handWorld = getAssimpNodeWorldMatrix(handNode);
-
+				// Staff attachment (shares exact Blender model coordinate space)
+				if (currentModel == &playerModel && staffModel.getMeshCount() > 0) {
+					ofPushMatrix();
+					ofMultMatrix(currentModel->getModelMatrix());
+					for (unsigned int sm = 0; sm < staffModel.getMeshCount(); ++sm) {
 						ofPushMatrix();
-						ofMultMatrix(modelMat * currentModel->getModelMatrix() * handWorld * staffSocketOffset);
-						staffModel.drawFaces();
+						ofMultMatrix(staffModel.getMeshHelper(sm).matrix);
+						staffModel.getMeshHelper(sm).cachedMesh.drawFaces();
 						ofPopMatrix();
 					}
+					ofPopMatrix();
 				}
 
 				safeDisableBlendMode();
@@ -13781,23 +13813,20 @@ void ofApp::drawGame() {
 						}
 						currentModel->getMeshHelper(mi).cachedMesh.drawFaces();
 					}
-					// PBR Shader path for Weapon attachment
-					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
-						// Shaders use absolute uniform values, so use the wizard's root world matrix (modelMat * modelMatrix)
-						glm::mat4 finalStaffMatrix = modelMat * currentModel->getModelMatrix();
-
-						// Render meshes using PBR uniforms
+					// PBR Shader path for Staff attachment
+					if (currentModel == &playerModel && staffModel.getMeshCount() > 0) {
+						glm::mat4 baseStaffMat = modelMat * glm::mat4(currentModel->getModelMatrix());
 						for (unsigned int sm = 0; sm < staffModel.getMeshCount(); ++sm) {
-							glm::mat4 staffMeshMat = staffModel.getMeshHelper(sm).matrix;
-							glm::mat4 animatedStaffMat = finalStaffMatrix * staffMeshMat;
-							pbrShader.setUniformMatrix4f("uModel", animatedStaffMat);
+							glm::mat4 staffMeshMat = glm::mat4(staffModel.getMeshHelper(sm).matrix);
+							glm::mat4 finalStaffMat = baseStaffMat * staffMeshMat;
+							pbrShader.setUniformMatrix4f("uModel", finalStaffMat);
 
-							glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * animatedStaffMat));
+							glm::mat4 normalMat = glm::transpose(glm::inverse(viewMat * finalStaffMat));
 							pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-
 							staffModel.getMeshHelper(sm).cachedMesh.drawFaces();
 						}
 					}
+
 				} else {
 					// FIXED FUNCTION PIPELINE PATH
 					ofSetColor(255);
@@ -13832,15 +13861,22 @@ void ofApp::drawGame() {
 					}
 					ofPopMatrix();
 
-					// Fixed-Function path for Weapon attachment
-					if (currentModel == &playerModel && staffModel.getAssimpScene() != nullptr) {
+					// Fixed-Function path for Staff attachment (shares exact Blender origin)
+					if (currentModel == &playerModel && staffModel.getMeshCount() > 0) {
 						ofPushMatrix();
 						ofMultMatrix(currentModel->getModelMatrix());
-						// FIX: Move to wizard's hand coordinates, flip orb right-side up, and tilt naturally!
-						ofTranslate(-18.0f, -65.0f, 8.0f);
-						ofRotateXDeg(180.0f); // Flips the staff so the orb points UP into the air
-						ofRotateZDeg(-15.0f); // Natural outward grip tilt
-						staffModel.drawFaces();
+						for (unsigned int sm = 0; sm < staffModel.getMeshCount(); ++sm) {
+							ofPushMatrix();
+							ofMultMatrix(staffModel.getMeshHelper(sm).matrix);
+							bool hasTex = false;
+							if (staffModel.getMeshHelper(sm).hasTexture()) {
+								staffModel.getMeshHelper(sm).getTextureRef().bind();
+								hasTex = true;
+							}
+							staffModel.getMeshHelper(sm).cachedMesh.drawFaces();
+							if (hasTex) staffModel.getMeshHelper(sm).getTextureRef().unbind();
+							ofPopMatrix();
+						}
 						ofPopMatrix();
 					}
 				}
@@ -13913,13 +13949,11 @@ void ofApp::drawGame() {
 			}
 		}
 
-		// --- DICE RENDERING ---
-		// FIX: Render dice unlit so their numbers are always 100% crisp and readable from any camera angle!
-		ofDisableLighting();
-		ofSetColor(255, 255, 255, 255);
+		// --- DICE RENDERING (Restored 3D Lighting & Player Color Tinting) ---
+		ofEnableLighting();
+		diceMaterial.begin();
 
 		auto isDiceVisible = [&](int associatedUnit) {
-			// In Fog of War, all players must always see all initiative dice rolls
 			if (currentState == STATE_INITIATIVE_ROLL || isInitiativeRolling) return true;
 			if (!g_modifierFogOfWar) return true;
 			if (associatedUnit < 0 || associatedUnit >= (int)players.size()) return true;
@@ -13929,6 +13963,19 @@ void ofApp::drawGame() {
 			return g_visibleTiles[players[associatedUnit].x][players[associatedUnit].y];
 		};
 
+		auto getDieColor = [&](int associatedUnit) -> ofColor {
+			if (associatedUnit >= 0) {
+				int owner = associatedUnit;
+				if (associatedUnit < (int)players.size()) {
+					owner = players[associatedUnit].isMinion ? players[associatedUnit].ownerID : players[associatedUnit].playerID;
+				}
+				ofColor theme = getPlayerThemeColor(owner);
+				// Blend 75% theme color with white so numbers/pips stay clear and readable
+				return ofColor::white.getLerped(theme, 0.75f);
+			}
+			return ofColor(240, 240, 240);
+		};
+
 		// 1. D4
 		d4Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
@@ -13936,6 +13983,7 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 4) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d4Scale, d4Scale, d4Scale);
+				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d4Mesh.draw();
 				ofPopMatrix();
 			}
@@ -13950,6 +13998,7 @@ void ofApp::drawGame() {
 				if (activeDiceRolls[i].sides == 2) {
 					setDiceTransform(i, activeDiceRolls[i]);
 					ofScale(coinScale, coinScale, coinScale);
+					ofSetColor(255);
 					coinMesh.draw();
 					ofPopMatrix();
 				}
@@ -13964,6 +14013,7 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 6) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d6Scale, d6Scale, d6Scale);
+				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d6Mesh.draw();
 				ofPopMatrix();
 			}
@@ -13977,6 +14027,7 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 10) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d10Scale, d10Scale, d10Scale);
+				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d10Mesh.draw();
 				ofPopMatrix();
 			}
@@ -13990,13 +14041,14 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 20) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d20Scale, d20Scale, d20Scale);
+				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d20Mesh.draw();
 				ofPopMatrix();
 			}
 		}
 		d20Texture.unbind();
 
-		ofEnableLighting();
+		diceMaterial.end();
 
 		// ===================================================================
 		//  PASS 2: DRAW ALL TRANSPARENT EFFECTS
@@ -14802,28 +14854,27 @@ void ofApp::drawGame() {
 
 		// (Outlines drawn earlier before per-tile loop)
 
-		// 5. Draw Path Highlights (Green Circles) (FIXED HEIGHT)
+		// 5. Draw Path Highlights (Green Circles)
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
-			// Enable depth write so these don't overwrite outlines underneath
-			glDepthMask(GL_TRUE);
+			glDepthMask(GL_FALSE);
 			ofEnableDepthTest();
 			for (size_t i = 1; i < hoverPath.size(); i++) {
 				const auto & step = hoverPath[i];
-				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y); // Use gridToWorld, not transformGridToWorld
+				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
 
-				// Calculate height for THIS specific step (slightly higher to sit above outlines)
 				float pathY = 0.08f;
 				if (board[(int)step.x][(int)step.y].hasWall) {
 					pathY = (TILE_SIZE * 0.5f) + 0.08f;
 				}
 
-				ofSetColor(ofColor::green, 150);
+				ofSetColor(ofColor::green, 180);
 				ofPushMatrix();
 				ofTranslate(pathWorldPos.x, pathY, pathWorldPos.z);
 				ofRotateXDeg(90);
-				ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
+				ofDrawCircle(0, 0, TILE_SIZE * 0.32f);
 				ofPopMatrix();
 			}
+			glDepthMask(GL_TRUE);
 			ofDisableDepthTest();
 		}
 
@@ -15434,7 +15485,7 @@ void ofApp::drawGame() {
 		}
 	} else {
 		renderWorld3D(true);
-		renderKeys3D();
+		// DELETED: renderKeys3D(); (was rendering a second time on top of everything)
 	}
 
 	safeEnableAlphaBlending();
@@ -28912,59 +28963,45 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
-				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
-				int x0 = (int)cTile.x, y0 = (int)cTile.y;
-				int x1 = (int)tTile.x, y1 = (int)tTile.y;
-				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-				int err = dx + dy;
-				glm::ivec2 furthestValid = { x0, y0 };
-				while (true) {
-					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
-							impact = furthestValid;
-							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
-								impact = { x0, y0 };
-							}
-							break;
-						}
-						furthestValid = { x0, y0 };
-						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
-							impact = { x0, y0 };
-							break;
-						}
-					}
-					if (x0 == x1 && y0 == y1) {
-						impact = { x0, y0 };
+			auto losRay = getClearLosRay(casterTile, targetTile, CARD_FIREBALL);
+			glm::ivec2 impactTile = glm::ivec2((int)targetTile.x, (int)targetTile.y);
+
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+
+			if (distSq * 25LL > maxDistSqScaled) {
+				// Fell short due to range roll
+				glm::vec2 dir = targetTile - casterTile;
+				float len = glm::length(dir);
+				if (len > 0.001f) {
+					glm::vec2 shortPoint = casterTile + (dir / len) * maxRangeUnits;
+					impactTile = glm::ivec2((int)floor(shortPoint.x), (int)floor(shortPoint.y));
+					impactTile.x = std::clamp(impactTile.x, 0, BOARD_WIDTH - 1);
+					impactTile.y = std::clamp(impactTile.y, 0, BOARD_HEIGHT - 1);
+				}
+			} else if (!losRay.hasLos) {
+				// True obstacle obstruction along line of sight path
+				auto path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+				for (const auto & stepP : path) {
+					int sx = (int)stepP.x, sy = (int)stepP.y;
+					if (sx == (int)casterTile.x && sy == (int)casterTile.y) continue;
+					if (isTileWall(sx, sy) || board[sx][sy].hasPlayer) {
+						impactTile = { sx, sy };
 						break;
 					}
-					int e2 = 2 * err;
-					if (e2 >= dy) {
-						err = err + dy;
-						x0 = x0 + sx;
-					}
-					if (e2 <= dx) {
-						err = err + dx;
-						y0 = y0 + sy;
-					}
 				}
-				return impact;
-			};
+			}
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
-			// Visual tracer uses floats, but impact logic is purely integer
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f);
 
-			if (isTileWall(impactTile.x, impactTile.y)) {
+			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
@@ -29330,50 +29367,37 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
-				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
-				int x0 = (int)cTile.x, y0 = (int)cTile.y;
-				int x1 = (int)tTile.x, y1 = (int)tTile.y;
-				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-				int err = dx + dy;
-				glm::ivec2 furthestValid = { x0, y0 };
-				while (true) {
-					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
-							impact = furthestValid;
-							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
-								impact = { x0, y0 };
-							}
-							break;
-						}
-						furthestValid = { x0, y0 };
-						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
-							impact = { x0, y0 };
-							break;
-						}
-					}
-					if (x0 == x1 && y0 == y1) {
-						impact = { x0, y0 };
+			auto losRay = getClearLosRay(casterTile, targetTile, CARD_CHAIN_LIGHTNING);
+			glm::ivec2 impactTile = glm::ivec2((int)targetTile.x, (int)targetTile.y);
+
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+
+			if (distSq * 25LL > maxDistSqScaled) {
+				// Fell short due to range roll
+				glm::vec2 dir = targetTile - casterTile;
+				float len = glm::length(dir);
+				if (len > 0.001f) {
+					glm::vec2 shortPoint = casterTile + (dir / len) * maxRangeUnits;
+					impactTile = glm::ivec2((int)floor(shortPoint.x), (int)floor(shortPoint.y));
+					impactTile.x = std::clamp(impactTile.x, 0, BOARD_WIDTH - 1);
+					impactTile.y = std::clamp(impactTile.y, 0, BOARD_HEIGHT - 1);
+				}
+			} else if (!losRay.hasLos) {
+				// True obstacle obstruction along line of sight path
+				auto path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+				for (const auto & stepP : path) {
+					int sx = (int)stepP.x, sy = (int)stepP.y;
+					if (sx == (int)casterTile.x && sy == (int)casterTile.y) continue;
+					if (isTileWall(sx, sy) || board[sx][sy].hasPlayer) {
+						impactTile = { sx, sy };
 						break;
 					}
-					int e2 = 2 * err;
-					if (e2 >= dy) {
-						err = err + dy;
-						x0 = x0 + sx;
-					}
-					if (e2 <= dx) {
-						err = err + dx;
-						y0 = y0 + sy;
-					}
 				}
-				return impact;
-			};
+			}
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -29381,7 +29405,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
-			if (isTileWall(impactTile.x, impactTile.y)) {
+			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
@@ -29655,50 +29679,37 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
+			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
-				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
-				int x0 = (int)cTile.x, y0 = (int)cTile.y;
-				int x1 = (int)tTile.x, y1 = (int)tTile.y;
-				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-				int err = dx + dy;
-				glm::ivec2 furthestValid = { x0, y0 };
-				while (true) {
-					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						// SECURITY FIX: Add +4LL leniency to deterministic impact calculation
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
-							impact = furthestValid;
-							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
-								impact = { x0, y0 };
-							}
-							break;
-						}
-						furthestValid = { x0, y0 };
-						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
-							impact = { x0, y0 };
-							break;
-						}
-					}
-					if (x0 == x1 && y0 == y1) {
-						impact = { x0, y0 };
+			auto losRay = getClearLosRay(casterTile, targetTile, CARD_SHOOT_ARROW);
+			glm::ivec2 impactTile = glm::ivec2((int)targetTile.x, (int)targetTile.y);
+
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+
+			if (distSq * 25LL > maxDistSqScaled) {
+				// Fell short due to range roll
+				glm::vec2 dir = targetTile - casterTile;
+				float len = glm::length(dir);
+				if (len > 0.001f) {
+					glm::vec2 shortPoint = casterTile + (dir / len) * maxRangeUnits;
+					impactTile = glm::ivec2((int)floor(shortPoint.x), (int)floor(shortPoint.y));
+					impactTile.x = std::clamp(impactTile.x, 0, BOARD_WIDTH - 1);
+					impactTile.y = std::clamp(impactTile.y, 0, BOARD_HEIGHT - 1);
+				}
+			} else if (!losRay.hasLos) {
+				// True obstacle obstruction along line of sight path
+				auto path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+				for (const auto & stepP : path) {
+					int sx = (int)stepP.x, sy = (int)stepP.y;
+					if (sx == (int)casterTile.x && sy == (int)casterTile.y) continue;
+					if (isTileWall(sx, sy) || board[sx][sy].hasPlayer) {
+						impactTile = { sx, sy };
 						break;
 					}
-					int e2 = 2 * err;
-					if (e2 >= dy) {
-						err = err + dy;
-						x0 = x0 + sx;
-					}
-					if (e2 <= dx) {
-						err = err + dx;
-						y0 = y0 + sy;
-					}
 				}
-				return impact;
-			};
+			}
 
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
@@ -29706,7 +29717,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
 
-			if (isTileWall(impactTile.x, impactTile.y)) {
+			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
@@ -29880,60 +29891,52 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = interactionTargetTile;
 			int rangeRoll = currentEffectSequence.blackboard[0];
 
-			// SECURITY FIX: Standardize math to use 25LL/4LL ratio for leniency support
+			// Max distance in world units (5 feet = 1 unit)
+			float maxRangeUnits = (float)rangeRoll / 5.0f;
 			long long maxDistSqScaled = (long long)rangeRoll * (long long)rangeRoll * 4LL;
 
-			auto getDeterministicImpactTile = [&](glm::vec2 cTile, glm::vec2 tTile, long long maxDSqScaled, bool stopsOnObstacle) -> glm::ivec2 {
-				glm::ivec2 impact = { (int)tTile.x, (int)tTile.y };
-				int x0 = (int)cTile.x, y0 = (int)cTile.y;
-				int x1 = (int)tTile.x, y1 = (int)tTile.y;
-				int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-				int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-				int err = dx + dy;
-				glm::ivec2 furthestValid = { x0, y0 };
-				while (true) {
-					if (x0 != (int)cTile.x || y0 != (int)cTile.y) {
-						// SECURITY FIX: Add +4LL leniency
-						if (getFaceToFaceDistanceSquaredScaled(cTile, glm::vec2((float)x0, (float)y0)) * 25LL > maxDSqScaled + 4LL) {
-							impact = furthestValid;
-							if (impact.x == (int)cTile.x && impact.y == (int)cTile.y && ((int)tTile.x != (int)cTile.x || (int)tTile.y != (int)cTile.y)) {
-								impact = { x0, y0 };
-							}
-							break;
-						}
-						furthestValid = { x0, y0 };
-						if (stopsOnObstacle && isTileBlocked(x0, y0)) {
-							impact = { x0, y0 };
-							break;
-						}
-					}
-					if (x0 == x1 && y0 == y1) {
-						impact = { x0, y0 };
+			// Use the authoritative continuous Line of Sight ray
+			auto losRay = getClearLosRay(casterTile, targetTile, CARD_MAGIC_BLAST);
+			glm::ivec2 impactTile = glm::ivec2((int)targetTile.x, (int)targetTile.y);
+
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+
+			// Check if the spell fell short due to range roll
+			if (distSq * 25LL > maxDistSqScaled) {
+				// Spell fell short: interpolate along the clear ray trajectory
+				glm::vec2 dir = targetTile - casterTile;
+				float len = glm::length(dir);
+				if (len > 0.001f) {
+					glm::vec2 shortPoint = casterTile + (dir / len) * maxRangeUnits;
+					impactTile = glm::ivec2((int)floor(shortPoint.x), (int)floor(shortPoint.y));
+					// Clamp to board bounds
+					impactTile.x = std::clamp(impactTile.x, 0, BOARD_WIDTH - 1);
+					impactTile.y = std::clamp(impactTile.y, 0, BOARD_HEIGHT - 1);
+				}
+			} else if (!losRay.hasLos) {
+				// If LOS was truly blocked by an obstacle in front of the target, find the first blocking obstacle
+				auto path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
+				for (const auto & stepP : path) {
+					int sx = (int)stepP.x;
+					int sy = (int)stepP.y;
+					if (sx == (int)casterTile.x && sy == (int)casterTile.y) continue;
+					if (isTileWall(sx, sy) || board[sx][sy].hasPlayer) {
+						impactTile = { sx, sy };
 						break;
 					}
-					int e2 = 2 * err;
-					if (e2 >= dy) {
-						err = err + dy;
-						x0 = x0 + sx;
-					}
-					if (e2 <= dx) {
-						err = err + dx;
-						y0 = y0 + sy;
-					}
 				}
-				return impact;
-			};
+			}
 
-			// Pass maxDistSqScaled here
-			glm::ivec2 impactTile = getDeterministicImpactTile(casterTile, targetTile, maxDistSqScaled, true);
 			currentCardOutcome.primaryTarget = impactTile;
 
+			// Tracer endpoints
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 4.0f);
 
-			if (isTileWall(impactTile.x, impactTile.y)) {
+			// Check for real wall impact vs falling short
+			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 				EffectOp wEnd = {};
 				wEnd.type = EffectOpType::WAIT_VISUAL;
@@ -29949,6 +29952,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
 			}
 
+			// Find direct hit unit
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].health > 0 && !board[players[i].x][players[i].y].hasWall && players[i].x == impactTile.x && players[i].y == impactTile.y) {
@@ -29959,10 +29963,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			magicBlastSplashTargetIndices.clear();
 
+			// Find splash units (adjacent orthogonal tiles)
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
 				if (players[i].health <= 0) continue;
-				if (board[players[i].x][players[i].y].hasWall) continue; // Magic Blast splash doesn't penetrate walls
+				if (board[players[i].x][players[i].y].hasWall) continue;
 				int dx = std::abs(players[i].x - impactTile.x);
 				int dy = std::abs(players[i].y - impactTile.y);
 				if (dx + dy == 1) {
