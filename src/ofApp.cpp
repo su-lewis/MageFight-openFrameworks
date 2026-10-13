@@ -1376,12 +1376,9 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 
 	// PASS 1: Base Card Art & Frame Geometry
 	if (g_renderGeometryMask) {
-		// FIX: Allow all classes (Bronze=1, Silver=2, Gold=3) to use the foil shader
 		bool useFoil = !g_isBurningCard && (card.cardClass >= 1 && card.cardClass <= 3) && s_foilShader.isLoaded();
 		bool useBurn = g_isBurningCard && s_burnShader.isLoaded();
 
-		// CRITICAL FIX: Pass the exact drawing rectangle to the shader so UVs map to the card
-		// instead of the massive 10x7 sprite sheet atlas!
 		auto applyActiveShader = [&](ofTexture & activeTex) {
 			if (useBurn) {
 				s_burnShader.begin();
@@ -1411,7 +1408,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			card.textureRect.width, card.textureRect.height);
 		endActiveShader();
 
-		// Draw Layer 2: Card Template Frame (borders, class badges, etc)
+		// Draw Layer 2: Card Template Frame
 		if (g_cardTextSpriteSheet.isAllocated()) {
 			applyActiveShader(g_cardTextSpriteSheet.getTexture());
 			drawCardSpriteSubsectionSafe(g_cardTextSpriteSheet, drawX, drawY, safeW, safeH,
@@ -1421,14 +1418,24 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		}
 	}
 
-	// PASS 2: Crisp Text Overlay
+	// PASS 2: Crisp Text Overlay (Synced with Burn Shader)
 	if (g_renderText) {
+		float textBurnAlpha = 1.0f;
+		if (g_isBurningCard) {
+			// Once the card is 80% burned, completely eliminate text so nothing lingers
+			if (g_burnProgress >= 0.80f) {
+				safePopStyle();
+				return;
+			}
+			textBurnAlpha = std::clamp((0.80f - g_burnProgress) / 0.80f, 0.0f, 1.0f);
+			textBurnAlpha = textBurnAlpha * textBurnAlpha; // Quadratic dissolve
+		}
 
 		ofPushMatrix();
 		ofTranslate(drawX, drawY);
 		ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
 
-		// 1. AP Cost (Big, bold text filling the top-left cost medallion)
+		// 1. AP Cost
 		int effCost = card.cost;
 		if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
 
@@ -1437,12 +1444,14 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			costColor = ofColor::green;
 		}
 
+		costColor.a = (unsigned char)(costColor.a * textBurnAlpha);
+		ofColor costOutline = ofColor(0, 0, 0, (int)(255 * textBurnAlpha));
+
 		std::string costStr = ofToString(effCost);
 		float costScale = (costStr.size() > 1) ? 2.40f : 3.15f;
 		ofRectangle costGemRect(8, 8, 176, 176);
 
-		// Set outlinePx to 4 for a thick, readable black outline
-		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, costOutline, 4);
 
 		// 2. Fetch Card Template Text Records
 		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
@@ -1458,7 +1467,6 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		auto itRec = g_cardTemplateRecords.find(normalizeCardKey(card.name));
 		if (itRec != g_cardTemplateRecords.end()) {
 			cardTargeting = itRec->second.targeting;
-			// In English, use the template record directly to retain full markdown **bold** formatting
 			if (g_currentLanguage == "en" && !itRec->second.effectText.empty()) {
 				cardEffect = itRec->second.effectText;
 			} else if (cardEffect.empty()) {
@@ -1494,28 +1502,31 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 				+ ofToString(base + 16) + "+: Win the game.";
 		}
 
-		// 4. Live Native 1440p Text Drawing (Zero texture blur)
-		drawArcCenteredTextScaledOutlined(titleFont, cardName, g_cardLayout.nameRect, g_uniformNameScale, g_cardLayout.nameCurveDropPx, g_cardLayout.nameMiddleClampXMin, g_cardLayout.nameMiddleClampXMax, g_cardLayout.nameMiddleBottomMaxY, ofColor::white, ofColor::black, 4);
+		ofColor nameColor = ofColor(255, 255, 255, (int)(255 * textBurnAlpha));
+		ofColor nameOutline = ofColor(0, 0, 0, (int)(255 * textBurnAlpha));
+		ofColor effectFill = ofColor(12, 12, 12, (int)(255 * textBurnAlpha));
+
+		// 4. Live Native Text Drawing
+		drawArcCenteredTextScaledOutlined(titleFont, cardName, g_cardLayout.nameRect, g_uniformNameScale, g_cardLayout.nameCurveDropPx, g_cardLayout.nameMiddleClampXMin, g_cardLayout.nameMiddleClampXMax, g_cardLayout.nameMiddleBottomMaxY, nameColor, nameOutline, 4);
 
 		if (!cardTargeting.empty()) {
-			drawCenteredTextScaledOutlined(titleFont, cardTargeting, g_cardLayout.targetingRect, 1.25f, ofColor::white, ofColor::black, 3);
+			drawCenteredTextScaledOutlined(titleFont, cardTargeting, g_cardLayout.targetingRect, 1.25f, nameColor, nameOutline, 3);
 		}
 
 		if (!summonAP.empty()) {
-			drawCenteredTextScaledOutlined(titleFont, summonAP, g_cardLayout.summonAPRect, 1.0f, ofColor::white, ofColor::black, 3);
+			drawCenteredTextScaledOutlined(titleFont, summonAP, g_cardLayout.summonAPRect, 1.0f, nameColor, nameOutline, 3);
 		}
 		if (!summonHP.empty()) {
-			drawCenteredTextScaledOutlined(titleFont, summonHP, g_cardLayout.summonHPRect, 1.0f, ofColor::white, ofColor::black, 3);
+			drawCenteredTextScaledOutlined(titleFont, summonHP, g_cardLayout.summonHPRect, 1.0f, nameColor, nameOutline, 3);
 		}
 
 		ofRectangle effRect = g_cardLayout.effectRect;
 		if (summonAP.empty() && summonHP.empty()) {
 			effRect.height += 90.0f;
 		}
-		drawRichEffectText(font, cardEffect, effRect, g_uniformEffectScale, g_effectLineSpacing, ofColor(12, 12, 12, 255));
+		drawRichEffectText(font, cardEffect, effRect, g_uniformEffectScale, g_effectLineSpacing, effectFill);
 
 		ofPopMatrix();
-		TEXT_PASS_END()
 	}
 
 	safePopStyle();
@@ -17388,14 +17399,17 @@ void ofApp::drawGame() {
 
 	// --- Draw Amnesia/Destruction Burn Animation ---
 	for (const auto & anim : activeRemovedCardAnimations) {
-		ofSetColor(255, 255); // Alpha handled by burn shader
+		float elapsed = ofGetElapsedTimef() - anim.startTime;
+		if (elapsed < 0.0f) continue;
+
+		float progress = std::clamp(elapsed / 0.7f, 0.0f, 1.0f); // 0.7s lifetime
+
+		// If the card has finished burning, don't draw anything (prevents 1-frame ghosting)
+		if (progress >= 1.0f) continue;
+
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
 
-		float elapsed = ofGetElapsedTimef() - anim.startTime;
-		float progress = std::clamp(elapsed / 0.7f, 0.0f, 1.0f); // 0.7s lifetime
-
-		// Trigger the internal shader correctly for all sub-layers of the card
 		g_isBurningCard = true;
 		g_burnProgress = progress;
 
@@ -28576,27 +28590,23 @@ void ofApp::updateEffectSequence() {
 		currentEffectSequence.isComplete = true;
 		isProcessingEffect = false;
 
-		// Trigger any pending Shell Spikes after the entire effect sequence completes
-		// ONLY if we are idling (e.g. from regeneration). If a card was played, applyCardOutcomeEffects handles it!
 		if (g_pendingShellSpikes > 0 && cardPlayState == CARD_PLAY_STATE_IDLE) {
-			tryTriggerShellSpike(); // FIX: Let both peers trigger it so their states match!
+			tryTriggerShellSpike();
 		}
 		return;
 	}
 
-	// CRITICAL FIX: Pass by value (copy) to completely shield `op` from vector reallocations!
-	// If `processEffectOp` calls `queueEffect` (like Chain Lightning does repeatedly for AOE targets),
-	// the `ops` vector will expand and reallocate memory, which would turn a reference into a dangling pointer and crash the game!
+	// Strictly process ONLY ONE OP per tick if it yields or waits!
 	EffectOp op = currentEffectSequence.ops[currentEffectSequence.currentOp];
 
-	// processEffectOp now returns whether the op completed immediately.
 	bool opComplete = processEffectOp(op);
 
 	if (!opComplete) {
-		// If the operation is yielding (e.g., WAIT_VISUAL modifying its internal timer),
-		// write the modified copy back into the vector safely.
+		// Operation is waiting/yielding (e.g. WAIT_VISUAL ticking down). Write back tick count and STOP!
 		currentEffectSequence.ops[currentEffectSequence.currentOp] = op;
+		return;
 	} else {
+		// Operation finished on this tick, advance to next op on the NEXT step
 		currentEffectSequence.currentOp++;
 		if (currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
 			currentEffectSequence.isComplete = true;
@@ -30590,7 +30600,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		if (op.data.damage.targetIndex <= 0) {
 			int waitMode = op.data.damage.fixedDamage;
 
-			// Mode 0 = 0.8s, Mode 1 = 0.4s, Mode 2 = 2.5s, Mode 3 = 2.0s (Standard Post-Card Linger)
+			// Mode 0 = 0.8s (48 ticks - dice spin)
+			// Mode 1 = 0.4s (24 ticks - quick step)
+			// Mode 2 = 2.5s (150 ticks - earthquake)
+			// Mode 3 = 2.0s (120 ticks - spell tracer travel)
 			float waitSeconds = 0.8f;
 			if (waitMode == 1)
 				waitSeconds = 0.4f;
@@ -30603,7 +30616,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		}
 
 		op.data.damage.targetIndex--;
-		opComplete = (op.data.damage.targetIndex <= 0);
+
+		// Return false so updateEffectSequence() DOES NOT execute subsequent damage ops until wait is finished!
+		if (op.data.damage.targetIndex > 0) {
+			return false;
+		}
+
+		opComplete = true;
 		break;
 	}
 
@@ -32814,15 +32833,11 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			totalDamage += dmgRoll;
 			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 
-			// 1. WAIT FOR THE DAMAGE DICE TO FINISH SPINNING BEFORE APPLYING DAMAGE OR STATUSES!
+			// 1. FREEZE THE SEQUENCE UNTIL THE 3D DICE FINISH SPINNING!
 			EffectOp waitDice = {};
 			waitDice.type = EffectOpType::WAIT_VISUAL;
-			waitDice.data.damage.fixedDamage = 0; // Mode 0 = 0.8s (48 simulation ticks)
+			waitDice.data.damage.fixedDamage = 0; // Mode 0 = 48 simulation ticks (0.8s)
 			queueEffect(waitDice);
-		}
-
-		if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
-			totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
 		}
 
 		currentEffectSequence.blackboard[1] = totalDamage;
@@ -32830,7 +32845,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		std::vector<int> targets = currentCardOutcome.attackTargetIndices;
 		if (targets.empty() && resolvedTargetIndex != -1) targets.push_back(resolvedTargetIndex);
 
-		// 2. Queue Damage Operations (Executes strictly after the dice finish!)
+		// 2. Queue Damage Operations (Will ONLY run after waitDice hits 0!)
 		for (size_t i = 0; i < targets.size(); i++) {
 			int tIdx = targets[i];
 			EffectOp dmgOp = {};
