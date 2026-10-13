@@ -33,6 +33,27 @@ static void clearTextCaches() {
 	g_stringBoundsCache.clear();
 }
 
+static ofColor getTracerColorForDamageType(DamageType dt) {
+	switch (dt) {
+	case DAMAGE_FIRE:
+		return ofColor(255, 80, 20); // Orangy/Red
+	case DAMAGE_ELECTRIC:
+		return ofColor(180, 230, 255); // Bluey-White
+	case DAMAGE_HOLY:
+		return ofColor(255, 230, 50); // Holy Yellow
+	case DAMAGE_MAGIC:
+		return ofColor(160, 50, 255); // Deep Purple
+	case DAMAGE_POISON:
+		return ofColor(100, 255, 100); // Sickly Green
+	case DAMAGE_PIERCING:
+		return ofColor(200, 200, 200); // Silver/White
+	case DAMAGE_PHYSICAL:
+		return ofColor(220, 20, 60); // Crimson
+	default:
+		return ofColor::white;
+	}
+}
+
 // --- VFX SHADERS & PARTICLES ---
 static ofShader s_foilShader;
 static ofShader s_burnShader;
@@ -28753,7 +28774,23 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, opLog);
 	}
 	bool opComplete = false;
-
+	// Safely look up the DamageType for the card currently executing
+	auto getActiveTracerColor = [&]() -> ofColor {
+		DamageType dt = DAMAGE_PHYSICAL;
+		// 1. Try to pull it from the active hand card
+		if (currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size() && currentCardOutcome.cardIndex >= 0 && currentCardOutcome.cardIndex < (int)players[currentCardOutcome.casterIndex].hand.size()) {
+			dt = players[currentCardOutcome.casterIndex].hand[currentCardOutcome.cardIndex].damageType;
+		} else {
+			// 2. Fallback to the master card database if it's already discarded
+			for (const auto & c : allCards) {
+				if (c.type == currentCardOutcome.cardType) {
+					dt = c.damageType;
+					break;
+				}
+			}
+		}
+		return getTracerColorForDamageType(dt);
+	};
 	switch (op.type) {
 		// ROLL_DICE op fully removed from pipeline; dice are resolved at-card-play time.
 
@@ -29149,7 +29186,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 2.0f);
+			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
 			// EXACT 2.0-SECOND (120 TICKS) DETERMINISTIC TRAVEL WAIT
 			EffectOp travelWait = {};
@@ -29284,7 +29321,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 2.0f);
+			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -29535,7 +29572,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 2.0f);
+			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -29621,7 +29658,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						if (p.x != impactTile.x || p.y != impactTile.y) {
 							glm::vec3 wStart = gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 0.5f, 0);
 							glm::vec3 wEnd = gridToWorld(p.x, p.y) + glm::vec3(0, 0.5f, 0);
-							queueVisualTracer(wStart, wEnd, ofColor(255, 255, 0), 1.0f);
+							queueVisualTracer(wStart, wEnd, getActiveTracerColor(), 1.0f);
 						}
 					}
 				}
@@ -29727,7 +29764,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 2.0f);
+			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
 			if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
@@ -29847,7 +29884,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 2.0f);
+			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -30065,7 +30102,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 2.0f);
+			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
 			// Check for real wall impact vs falling short
 			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
@@ -32867,17 +32904,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		glm::vec3 worldStart, worldEnd;
 		computeTracerEndpoints(clearRay.start, endPoint, worldStart, worldEnd);
 
-		ofColor tColor = ofColor::white;
-		if (playedCard.damageType == DAMAGE_FIRE)
-			tColor = ofColor(255, 120, 40);
-		else if (playedCard.damageType == DAMAGE_MAGIC)
-			tColor = ofColor(180, 100, 255);
-		else if (playedCard.damageType == DAMAGE_ELECTRIC)
-			tColor = ofColor(255, 255, 0);
-		else if (playedCard.damageType == DAMAGE_PIERCING)
-			tColor = ofColor(200, 180, 100);
-		else if (playedCard.damageType == DAMAGE_POISON)
-			tColor = ofColor(100, 255, 100);
+		// REMOVED HARDCODED IF/ELSE BLOCK:
+		ofColor tColor = getTracerColorForDamageType(playedCard.damageType);
 
 		// Keep tracer visible during the 2.0s travel window
 		queueVisualTracer(worldStart, worldEnd, tColor, 2.0f);
