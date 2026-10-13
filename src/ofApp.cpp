@@ -15993,27 +15993,31 @@ void ofApp::drawGame() {
 
 		glm::vec2 screenPos = getActiveCamera().worldToScreen(ft.worldPos);
 
-		// Fade out alpha
 		float life = (ofGetElapsedTimef() - ft.startTime) / ft.duration;
-		float alpha = 255 * (1.0f - pow(life, 3.0f));
+		float alpha = 255.0f * (1.0f - powf(life, 3.0f));
 
 		ofRectangle bounds = titleFont.getStringBoundingBox(ft.text, 0, 0);
 
 		ofPushMatrix();
 		ofTranslate(screenPos.x, screenPos.y);
 
-		// Scale up slightly as it spawns (pop effect)
-		float s = ofMap(life, 0.0, 0.1, 0.0, 0.5, true);
-		if (life > 0.1) s = 0.5;
+		// Scale pop on spawn
+		float s = ofMap(life, 0.0f, 0.12f, 0.0f, 0.55f, true);
+		if (life > 0.12f) s = 0.55f;
 		ofScale(s, s);
 
-		// Shadow (with vertical centering fix)
-		ofSetColor(0, 0, 0, alpha);
-		SafeDrawText(titleFont, ft.text, -bounds.width / 2 + 2, bounds.height / 2 + 2);
+		// Slight organic askew tilt based on drift
+		float tilt = ft.velocity.x * 12.0f;
+		ofRotateDeg(tilt);
 
-		// Main Text (with vertical centering fix)
-		ofSetColor(ft.color, alpha);
-		SafeDrawText(titleFont, ft.text, -bounds.width / 2, bounds.height / 2);
+		// Outline / Shadow
+		ofSetColor(0, 0, 0, (int)alpha);
+		SafeDrawText(titleFont, ft.text, -bounds.width / 2.0f + 2.0f, bounds.height / 2.0f + 2.0f);
+		SafeDrawText(titleFont, ft.text, -bounds.width / 2.0f - 2.0f, bounds.height / 2.0f - 2.0f);
+
+		// Main Colored Text
+		ofSetColor(ft.color, (int)alpha);
+		SafeDrawText(titleFont, ft.text, -bounds.width / 2.0f, bounds.height / 2.0f);
 
 		ofPopMatrix();
 	}
@@ -24043,8 +24047,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return;
 	}
 
-	if (cardPlayState != CARD_PLAY_STATE_IDLE) {
-		ofLogNotice("CardDrag") << "Cannot play card: State machine is busy resolving a previous card.";
+	// Allow queueing actions even if an effect sequence or visual linger is running
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 		draggedCardIndex = -1;
 		return;
 	}
@@ -26082,6 +26086,13 @@ void ofApp::processCommandQueue() {
 		}
 
 		isExecutingLockstepCommand = prevExecuting;
+
+		bool isVisualLingerBusy = (isProcessingEffect || isEarthquakeActive || isUnitDying || animatingBlocksQueue);
+		if (!isDraftCommand && !isInteractiveMenuCommand && isVisualLingerBusy) {
+			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
+				break; // Holds commands in queue until the 2-second visual timer completes
+			}
+		}
 	}
 }
 
@@ -28713,11 +28724,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int playerID = op.data.damage.fixedDamage;
 		int pidx = findPlayerIndexByID(playerID);
 
-		// FIX: Verify target exists AND is still alive before applying status
 		if (pidx >= 0 && pidx < (int)players.size() && players[pidx].health > 0) {
 			Player & target = players[pidx];
 			int postHP = target.health;
 			int taken = preHP - postHP;
+
+			// Only apply burning if health actually decreased
 			if (taken > 0) {
 				EffectOp ap = {};
 				ap.type = EffectOpType::APPLY_STATUS;
@@ -28983,14 +28995,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		int step = op.data.damage.fixedDamage;
 		if (step == 0) {
+			// Step 0: Roll Range
 			int rangeTotal = currentEffectSequence.blackboard[0];
 			std::vector<int> rawRange = { currentEffectSequence.blackboard[3], currentEffectSequence.blackboard[4] };
 			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 2, 6, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 0;
-			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_FIREBALL;
 			next.data.damage.fixedDamage = 1;
@@ -28998,20 +29007,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			opComplete = true;
 			break;
 		} else if (step == 1) {
+			// Step 1: Calculate Impact Tile & Launch 2.0s Visual Tracer
 			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
-
 			float maxRangeUnits = (float)rangeTotal / 5.0f;
 			long long maxDistSqScaled = (long long)rangeTotal * (long long)rangeTotal * 4LL;
 
 			auto losRay = getClearLosRay(casterTile, targetTile, CARD_FIREBALL);
 			glm::ivec2 impactTile = glm::ivec2((int)targetTile.x, (int)targetTile.y);
-
 			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 
 			if (distSq * 25LL > maxDistSqScaled) {
-				// Fell short due to range roll
 				glm::vec2 dir = targetTile - casterTile;
 				float len = glm::length(dir);
 				if (len > 0.001f) {
@@ -29021,7 +29028,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					impactTile.y = std::clamp(impactTile.y, 0, BOARD_HEIGHT - 1);
 				}
 			} else if (!losRay.hasLos) {
-				// True obstacle obstruction along line of sight path
 				auto path = getLineOfSightPath(casterTile + 0.5f, targetTile + 0.5f);
 				for (const auto & stepP : path) {
 					int sx = (int)stepP.x, sy = (int)stepP.y;
@@ -29035,31 +29041,29 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			currentCardOutcome.primaryTarget = impactTile;
 
+			// Launch the 2.0s projectile tracer
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 2.0f);
 
-			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
-				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
-			} else if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
-				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
-			}
+			// EXACT 2.0-SECOND (120 TICKS) DETERMINISTIC TRAVEL WAIT
+			EffectOp travelWait = {};
+			travelWait.type = EffectOpType::WAIT_VISUAL;
+			travelWait.data.damage.fixedDamage = 3; // Mode 3 = 120 simulation ticks
+			queueEffect(travelWait);
 
-			queueVisualDelay(0.4f);
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
-			queueEffect(wait);
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_FIREBALL;
-			next.data.damage.fixedDamage = 2;
+			next.data.damage.fixedDamage = 2; // Move to Impact Step
 			queueEffect(next);
 			opComplete = true;
 			break;
 		} else if (step == 2) {
+			// Step 2: Projectile has landed after 2.0s! Now roll damage & impact!
 			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
-			if (isTileWall(impactTile.x, impactTile.y)) {
+			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
+				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 				opComplete = true;
 				break;
 			}
@@ -29073,7 +29077,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			if (targetIdx == -1) {
-				opComplete = true; // Fell short onto an empty tile, skip damage
+				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Missed", ofColor::white);
+				opComplete = true;
 				break;
 			}
 
@@ -29081,37 +29086,21 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			std::vector<int> rawDmg = { currentEffectSequence.blackboard[2] };
 			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 0;
-			queueEffect(wait);
-			EffectOp next = {};
-			next.type = EffectOpType::APPLY_FIREBALL;
-			next.data.damage.fixedDamage = 3;
-			queueEffect(next);
-			opComplete = true;
-			break;
-		} else if (step == 3) {
-			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
-			int dmg = currentEffectSequence.blackboard[1];
-			int targetIdx = -1;
-			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == impactTile.x && players[i].y == impactTile.y) {
-					targetIdx = (int)i;
-					break;
-				}
+			// Step 3: Apply damage and status immediately following impact
+			int preHP = players[targetIdx].health;
+			applyDamageTo(players[targetIdx], dmgRoll, DAMAGE_FIRE, currentPlayerIndex);
+
+			// Only inflict burning if damage actually penetrated to Health
+			if (players[targetIdx].health < preHP) {
+				EffectOp fireStatus = {};
+				fireStatus.type = EffectOpType::APPLY_STATUS;
+				fireStatus.data.status.targetIndex = targetIdx;
+				fireStatus.data.status.statusType = STATUS_ON_FIRE;
+				fireStatus.data.status.duration = 0;
+				queueEffect(fireStatus);
+				queueFloatingTextVisual(gridToWorld(players[targetIdx].x, players[targetIdx].y) + glm::vec3(0, 0.6f, 0), "BURNING!", ofColor::orange);
 			}
-			if (targetIdx != -1) {
-				int preHP = players[targetIdx].health;
-				applyDamageTo(players[targetIdx], dmg, DAMAGE_FIRE, currentPlayerIndex);
-				if (players[targetIdx].health < preHP) {
-					EffectOp fireStatus = {};
-					fireStatus.type = EffectOpType::APPLY_STATUS;
-					fireStatus.data.status.targetIndex = targetIdx;
-					fireStatus.data.status.statusType = STATUS_ON_FIRE;
-					queueEffect(fireStatus);
-				}
-			}
+
 			opComplete = true;
 			break;
 		}
@@ -29191,7 +29180,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 2.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && !board[impactTile.x][impactTile.y].hasPlayer) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -29442,7 +29431,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 2.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -29634,7 +29623,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 2.0f);
 
 			if (impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Fell Short", ofColor::white);
@@ -29754,7 +29743,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(255, 255, 0), 2.0f);
 
 			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
@@ -29972,7 +29961,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 endPoint = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 4.0f);
+			queueVisualTracer(worldStart, worldEnd, ofColor(150, 50, 200), 2.0f);
 
 			// Check for real wall impact vs falling short
 			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
@@ -30032,11 +30021,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			queueVisualDelay(0.4f);
-			EffectOp wait = {};
-			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 1;
-			queueEffect(wait);
+			// 1. Let the 3D tracer and travel animation play across the screen
+			// 2. Queue the standardized 2.0-second deterministic wait (120 ticks) BEFORE opening the menu!
+			EffectOp waitFullVisual = {};
+			waitFullVisual.type = EffectOpType::WAIT_VISUAL;
+			waitFullVisual.data.damage.fixedDamage = 3; // Mode 3 = 120 simulation ticks (2.0s)
+			queueEffect(waitFullVisual);
+
+			// 3. Only open the menu AFTER the full 2.0s flight and impact visuals have finished
 			EffectOp next = {};
 			next.type = EffectOpType::APPLY_MAGIC_BLAST_MENU;
 			queueEffect(next);
@@ -30595,20 +30587,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::WAIT_VISUAL: {
-		// FIX: Deterministic wait based on Simulation Ticks instead of real-world frame time.
-		// We use targetIndex (which is normally unused for WAIT_VISUAL) to track remaining ticks.
 		if (op.data.damage.targetIndex <= 0) {
 			int waitMode = op.data.damage.fixedDamage;
 
-			// Mode 0 = 0.8s, Mode 1 = 0.4s, Mode 2 = 2.5s (Earthquake Delay)
+			// Mode 0 = 0.8s, Mode 1 = 0.4s, Mode 2 = 2.5s, Mode 3 = 2.0s (Standard Post-Card Linger)
 			float waitSeconds = 0.8f;
 			if (waitMode == 1)
 				waitSeconds = 0.4f;
 			else if (waitMode == 2)
 				waitSeconds = 2.5f;
+			else if (waitMode == 3)
+				waitSeconds = 2.0f;
 
-			// CRITICAL FIX: Add + 0.001f epsilon before casting to int to prevent floating point
-			// truncation differences across architectures (e.g. 23.9999 dropping to 23 on Client vs 24 on Host)
 			op.data.damage.targetIndex = std::max(1, (int)((waitSeconds / SIMULATION_TIMESTEP) + 0.001f));
 		}
 
@@ -30864,11 +30854,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 
-		// If poison buff was applied to targets, queue poison roll and APPLY_POISON
+		// If poison buff was applied to targets, queue poison roll and APPLY_POISON ONLY AFTER attack connects
 		if (poisonFlag && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
-			// Poison roll must be pre-resolved at decision-time into blackboard[1]
 			int poisonRoll = currentEffectSequence.blackboard[1];
 			if (poisonRoll > 0) {
+				// Queue brief visual pause so the physical hit registers, then trigger the poison
+				EffectOp psnWait = {};
+				psnWait.type = EffectOpType::WAIT_VISUAL;
+				psnWait.data.damage.fixedDamage = 1; // 0.4s
+				queueEffect(psnWait);
+
 				EffectOp ap = {};
 				ap.type = EffectOpType::APPLY_POISON;
 				queueEffect(ap);
@@ -32265,7 +32260,6 @@ void ofApp::handleCardDiceResult(int result, DicePurpose purpose) {
 
 void ofApp::applyCardOutcomeEffects() {
 	if (currentCardOutcome.casterIndex < 0 || currentCardOutcome.casterIndex >= (int)players.size()) {
-		// If caster died or is a dummy context (like Shell Spike), cleanly finalize
 		resetCardInteraction();
 		resetCardState();
 		if (g_pendingShellSpikes > 0) {
@@ -32277,11 +32271,9 @@ void ofApp::applyCardOutcomeEffects() {
 	Player & caster = players[currentCardOutcome.casterIndex];
 
 	if (!currentCardOutcome.apPaid) {
-		// Validate card index
 		if (currentCardOutcome.cardIndex < 0 || currentCardOutcome.cardIndex >= (int)caster.hand.size()) {
-			ofLogWarning("CardOutcome") << "Invalid card index: " << currentCardOutcome.cardIndex;
 			resetCardInteraction();
-			resetCardState(); // FIX: Reset state so the game doesn't hang!
+			resetCardState();
 			return;
 		}
 
@@ -32296,6 +32288,16 @@ void ofApp::applyCardOutcomeEffects() {
 		addTimeBonusToTurn(currentPlayerIndex, 5);
 
 		completeCardPlayAnimation(playedCard, currentCardOutcome.casterIndex);
+
+		// Append the standardized 2.0s post-card visual linger
+		if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
+			beginEffectSequence();
+			EffectOp lingerOp = {};
+			lingerOp.type = EffectOpType::WAIT_VISUAL;
+			lingerOp.data.damage.fixedDamage = 3; // Mode 3 = 2.0 seconds
+			queueEffect(lingerOp);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
+		}
 	} else {
 		updatePlayerAP(caster, currentAP);
 	}
@@ -32761,13 +32763,14 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		else if (playedCard.damageType == DAMAGE_POISON)
 			tColor = ofColor(100, 255, 100);
 
-		queueVisualTracer(worldStart, worldEnd, tColor, 0.4f);
+		// Keep tracer visible during the 2.0s travel window
+		queueVisualTracer(worldStart, worldEnd, tColor, 2.0f);
 
-		// Add a brief delay so tracer displays before damage popups!
+		// Wait exactly 120 simulation ticks (2.0 seconds) so the projectile travels before damage or statuses apply!
 		beginEffectSequence();
 		EffectOp wait = {};
 		wait.type = EffectOpType::WAIT_VISUAL;
-		wait.data.damage.fixedDamage = 1;
+		wait.data.damage.fixedDamage = 3; // Mode 3 = 120 simulation ticks (2.0s)
 		queueEffect(wait);
 	} else {
 		beginEffectSequence();
@@ -32802,13 +32805,20 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	// Roll Damage -> blackboard[1]
 	if (hasDamage) {
 		int totalDamage = playedCard.baseDamage;
-		if (playedCard.damageDiceNum > 0 && playedCard.damageDiceSides > 0) {
+		bool hasDamageDice = (playedCard.damageDiceNum > 0 && playedCard.damageDiceSides > 0);
+
+		if (hasDamageDice) {
 			std::vector<int> rawDmg;
 			int dmgRoll = resolveDiceRollDetailed(playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg);
 			if (playedCard.damageDiceSides != 2) dmgRoll += playedCard.damageDiceNum * luckBonus;
 			totalDamage += dmgRoll;
-			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-			rolledDice = true;
+			queueVisualDiceRoll(visPos, playedCard.damageDiceNum, playedCard.damageDiceSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+
+			// 1. WAIT FOR THE DAMAGE DICE TO FINISH SPINNING BEFORE APPLYING DAMAGE OR STATUSES!
+			EffectOp waitDice = {};
+			waitDice.type = EffectOpType::WAIT_VISUAL;
+			waitDice.data.damage.fixedDamage = 0; // Mode 0 = 0.8s (48 simulation ticks)
+			queueEffect(waitDice);
 		}
 
 		if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
@@ -32820,6 +32830,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		std::vector<int> targets = currentCardOutcome.attackTargetIndices;
 		if (targets.empty() && resolvedTargetIndex != -1) targets.push_back(resolvedTargetIndex);
 
+		// 2. Queue Damage Operations (Executes strictly after the dice finish!)
 		for (size_t i = 0; i < targets.size(); i++) {
 			int tIdx = targets[i];
 			EffectOp dmgOp = {};
@@ -32836,11 +32847,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			queueEffect(dmgOp);
 		}
 
-		// --- ADD POISON SYNERGY FIX ---
-		// If the player has the Add Poison buff and used a Physical or Piercing card
+		// 3. Synergy: Add Poison Buff (Triggers strictly after damage connects!)
 		if (currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING)) {
-
-			// 1. Remove the buff
 			EffectOp rmPoisonBuff = {};
 			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
 			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
@@ -32848,16 +32856,17 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			rmPoisonBuff.data.status.duration = 0;
 			queueEffect(rmPoisonBuff);
 
-			// 2. Roll 1d6 poison damage
 			std::vector<int> rawPoison;
 			int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-
-			// Store in safe blackboard slot
 			currentEffectSequence.blackboard[15] = poisonRoll;
 			queueVisualDiceRoll(visPos + glm::vec3(0, 1.5f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-			rolledDice = true;
 
-			// 3. Apply Poison Status and Damage to all targets hit
+			// Brief wait for poison die
+			EffectOp waitPsn = {};
+			waitPsn.type = EffectOpType::WAIT_VISUAL;
+			waitPsn.data.damage.fixedDamage = 1; // 0.4s
+			queueEffect(waitPsn);
+
 			for (size_t i = 0; i < targets.size(); i++) {
 				int tIdx = targets[i];
 
@@ -32938,14 +32947,6 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		healOp.data.heal.targetIndex = resolvedTargetIndex != -1 ? resolvedTargetIndex : currentPlayerIndex;
 		healOp.data.heal.amountFromSlot = 2;
 		queueEffect(healOp);
-	}
-
-	// Wait for any rolled visual dice to resolve before continuing
-	if (rolledDice) {
-		EffectOp wait = {};
-		wait.type = EffectOpType::WAIT_VISUAL;
-		wait.data.damage.fixedDamage = 0; // Mode 0 = 0.8s
-		queueEffect(wait);
 	}
 
 	// Apply Status
@@ -33368,9 +33369,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			amnesiaChooserPlayerID = currentPlayer.playerID; // Critical for multiplayer UI sync!
 
 			// 4. Queue the effect that will actually open the menu
+			// Wait the full 2.0s (120 ticks) so dice roll and spell sound play before opening the deck
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
-			wait.data.damage.fixedDamage = 0; // Wait 0.8s
+			wait.data.damage.fixedDamage = 3; // Mode 3 = 120 simulation ticks (2.0s)
 			queueEffect(wait);
 
 			EffectOp amnesiaOp = {};
@@ -36896,39 +36898,62 @@ bool ofApp::hasValidNonSelfTargetForHandIndex(int handIndex) {
 void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category) {
 	float now = ofGetElapsedTimef();
 
-	// If caller didn't provide a category, try to auto-detect from text suffix
+	// If caller didn't provide a category, auto-detect from text suffix
 	if (category.empty()) {
 		size_t p = text.find_last_of(' ');
 		if (p != std::string::npos && p + 1 < text.size()) {
 			std::string suf = text.substr(p + 1);
-			// Remove punctuation like '!' or ')'
 			while (!suf.empty() && ispunct((unsigned char)suf.back()))
 				suf.pop_back();
 			if (!suf.empty()) category = suf;
 		}
 	}
 
-	// Removal of '+' combination/appending logic. Floating texts are now 100% individual.
+	// 1. Stack Detection: Count how many active texts already exist on or near this unit
+	int overlappingCount = 0;
+	float highestActiveY = pos.y + 1.6f;
+
+	for (const auto & existing : activeFloatingTexts) {
+		// Check if within 1 tile radius of this target
+		float distXZ = glm::distance(glm::vec2(existing.anchorPos.x, existing.anchorPos.z), glm::vec2(pos.x, pos.z));
+		if (distXZ < TILE_SIZE * 0.8f && (now - existing.startTime < 2.0f)) {
+			overlappingCount++;
+			if (existing.worldPos.y > highestActiveY) {
+				highestActiveY = existing.worldPos.y;
+			}
+		}
+	}
 
 	FloatingText ft;
 	ft.text = text;
 	ft.anchorPos = pos;
 
-	float baseHeight = 1.6f; // Starting height above unit
+	// 2. Vertical Stacking: New numbers spawn above existing ones (never on top of each other)
+	float verticalStep = 0.85f; // Clear height clearance between numbers
+	float spawnY = (overlappingCount == 0) ? (pos.y + 1.8f) : (highestActiveY + verticalStep);
 
-	// Distribute starting height slightly so simultaneous texts don't spawn completely layered
-	std::uniform_real_distribution<float> startHeightOffset(0.0f, 0.4f);
-	ft.worldPos = pos + glm::vec3(0.0f, baseHeight + startHeightOffset(visualRNG), 0.0f);
+	// 3. Askew Offsets: Alternate slightly left and right so numbers fan out naturally
+	float askewX = 0.0f;
+	if (overlappingCount > 0) {
+		// Alternate left (-0.45) and right (+0.45) with small random variation
+		float side = (overlappingCount % 2 == 1) ? -1.0f : 1.0f;
+		askewX = side * ofRandom(0.35f, 0.55f);
+	} else {
+		askewX = ofRandom(-0.15f, 0.15f);
+	}
 
-	// Clean organic drift: vertical speeds are randomized so they separate naturally as they float up
-	std::uniform_real_distribution<float> speedDist(0.8f, 1.4f);
-	std::uniform_real_distribution<float> driftDist(-0.25f, 0.25f);
-	ft.velocity = glm::vec3(driftDist(visualRNG), speedDist(visualRNG), driftDist(visualRNG));
+	ft.worldPos = glm::vec3(pos.x + askewX, spawnY, pos.z);
+
+	// 4. Smooth Upward Drift: Maintain natural gentle float
+	float upwardSpeed = ofRandom(0.85f, 1.25f);
+	float horizontalDrift = askewX * 0.25f; // Gently drift slightly outward
+	ft.velocity = glm::vec3(horizontalDrift, upwardSpeed, 0.0f);
 
 	ft.startTime = now;
-	ft.duration = 3.0f; // Standard default duration
+	ft.duration = 2.4f;
 	ft.color = color;
 	ft.category = category;
+
 	activeFloatingTexts.push_back(ft);
 }
 //--------------------------------------------------------------
