@@ -1,0 +1,56 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-10-13 17:40:47
+End Reason: Victory
+Seed: 2451282792
+Turns: 2
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[17:38:19] --- MATCH STARTED ---
+[17:38:25] Turn 1: Player 1's turn
+[17:38:25] Autosaved turn-start (autosave.json)
+[17:38:32] Unlimited time enabled (turn timer disabled).
+[17:38:32] Turn timer enabled.
+[17:38:35] Player 1 moved to (11,3)
+[17:38:44] Player 1 played Ethereal Jolt targeting (12,0)
+[17:38:50] Turn 1: Player 2's turn
+[17:38:50] Autosaved turn-start (autosave.json)
+[17:38:51] Turn 2: Player 1's turn
+[17:38:51] Autosaved turn-start (autosave.json)
+[17:39:02] Player 1 played Ethereal Jolt targeting (12,0)
+[17:39:11] Unlimited time enabled (turn timer disabled).
+[17:39:12] Turn timer enabled.
+[17:39:14] Player 1 played Ethereal Jolt targeting (12,0)
+[17:39:14] Player 2 had top card 'Add Poison' destroyed
+[17:39:16] Player 1 played Ethereal Jolt targeting (12,0)
+[17:39:19] Player 1 played Ethereal Jolt targeting (12,0)
+[17:39:28] Player 1 played Ethereal Jolt targeting (12,0)
+[17:39:29] Player 2 had top card 'Add Poison' destroyed
+[17:39:51] Unlimited time enabled (turn timer disabled).
+[17:39:53] Player 1 played Ethereal Jolt targeting (12,0)
+[17:39:54] Player 2 had top card 'Lesser Heal' destroyed
+[17:39:58] Player 1 played Ethereal Jolt targeting (12,0)
+[17:40:31] Player 1 played Ethereal Jolt targeting (12,0)
+[17:40:34] Player 1 played Ethereal Jolt targeting (12,0)
+[17:40:41] Player 1 played Ethereal Jolt targeting (12,0)
+[17:40:41] Player 2 had top card 'Lesser Heal' destroyed
+[17:40:45] Player 1 played Ethereal Jolt targeting (12,0)
+[17:40:46] Player 2 had top card 'Chain Lightning' destroyed
+[17:40:47] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 12
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

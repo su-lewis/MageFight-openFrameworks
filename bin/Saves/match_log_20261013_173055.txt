@@ -1,0 +1,55 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-10-13 17:30:55
+End Reason: Victory
+Seed: 518658389
+Turns: 2
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[17:27:48] --- MATCH STARTED ---
+[17:28:06] Turn 0: Player 2's turn
+[17:28:06] Autosaved turn-start (autosave.json)
+[17:28:09] Player 2 moved to (12,3)
+[17:28:09] Turn 1: Player 1's turn
+[17:28:09] Autosaved turn-start (autosave.json)
+[17:28:12] Player 1 moved to (0,6)
+[17:28:13] Turn 1: Player 2's turn
+[17:28:13] Autosaved turn-start (autosave.json)
+[17:28:15] Player 2 moved to (10,3)
+[17:28:17] Turn 2: Player 1's turn
+[17:28:17] Autosaved turn-start (autosave.json)
+[17:28:20] Player 1 drew 2 card(s)
+[17:28:24] Player 1 drew 2 card(s)
+[17:28:26] Player 1 drew 2 card(s)
+[17:28:29] Unlimited time enabled (turn timer disabled).
+[17:28:29] Turn timer enabled.
+[17:28:32] Player 1 moved to (7,3)
+[17:28:37] Player 1 played Fireball targeting (10,3)
+[17:28:50] Player 1 played Fireball targeting (10,3)
+[17:29:44] Player 1 played Magic Blast targeting (10,3)
+[17:29:46] Player 1 chose: Destroy Top Card
+[17:29:46] Player 1 had top card 'Renewed Inspiration' destroyed
+[17:29:50] Unlimited time enabled (turn timer disabled).
+[17:29:53] Player 1 played Ethereal Jolt targeting (10,3)
+[17:30:36] Player 1 played Magic Bolt targeting (12,2)
+[17:30:42] Player 1 played Chain Lightning targeting (9,2)
+[17:30:50] Player 1 played Death targeting (10,3)
+[17:30:53] Player 1 played Shoot Arrow targeting (10,3)
+[17:30:55] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 8
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

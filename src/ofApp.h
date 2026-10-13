@@ -256,6 +256,8 @@ enum CursorState {
 	CURSOR_HOLD
 };
 
+static glm::vec2 getTileEdgeOrigin(glm::vec2 start, glm::vec2 end);
+
 // =================================================================================================
 //                                          STRUCTS
 // =================================================================================================
@@ -1410,6 +1412,7 @@ private:
 	std::vector<Player *> findCleaveTargets(glm::vec2 direction);
 	TargetInfo isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType);
 	LosResult getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTile, CardType cardType);
+	int getRequiredRollForDistance(glm::vec2 casterTile, glm::vec2 targetTile);
 	long long getFaceToFaceDistanceSquaredScaled(glm::vec2 casterTile, glm::vec2 targetTile);
 	bool checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd);
 	int isGapTile(glm::vec2 tile);

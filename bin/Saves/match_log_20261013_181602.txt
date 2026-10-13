@@ -1,0 +1,60 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-10-13 18:16:02
+End Reason: Victory
+Seed: 3536361731
+Turns: 5
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[18:11:51] --- MATCH STARTED ---
+[18:11:57] Turn 0: Player 2's turn
+[18:11:57] Autosaved turn-start (autosave.json)
+[18:12:00] Player 2 moved to (11,3)
+[18:12:07] Player 2 moved to (1,5)
+[18:12:14] Player 2 played Ethereal Jolt targeting (0,8)
+[18:12:14] Player 1 had top card 'Double Handed' destroyed
+[18:12:29] Player 2 played Ethereal Jolt targeting (0,8)
+[18:12:30] Player 1 had top card 'Double Handed' destroyed
+[18:12:34] Player 2 played Ethereal Jolt targeting (0,8)
+[18:12:34] Player 1 had top card 'Teleport' destroyed
+[18:12:42] Player 2 played Ethereal Jolt targeting (0,8)
+[18:12:42] Player 2 had top card 'Kick' destroyed
+[18:13:29] Turn 1: Player 1's turn
+[18:13:29] Autosaved turn-start (autosave.json)
+[18:13:29] Turn 1: Player 2's turn
+[18:13:29] Autosaved turn-start (autosave.json)
+[18:14:45] Turn 2: Player 1's turn
+[18:14:45] Autosaved turn-start (autosave.json)
+[18:14:45] Turn 2: Player 2's turn
+[18:14:45] Autosaved turn-start (autosave.json)
+[18:16:01] Player 2 forfeited (AFK for 2 consecutive turns).
+[18:16:01] Turn 3: Player 1's turn
+[18:16:01] Autosaved turn-start (autosave.json)
+[18:16:01] Turn 3: Player 2's turn
+[18:16:01] Autosaved turn-start (autosave.json)
+[18:16:01] Turn 4: Player 1's turn
+[18:16:01] Autosaved turn-start (autosave.json)
+[18:16:02] Turn 4: Player 2's turn
+[18:16:02] Autosaved turn-start (autosave.json)
+[18:16:02] Turn 5: Player 1's turn
+[18:16:02] Autosaved turn-start (autosave.json)
+[18:16:02] Turn 5: Player 2's turn
+[18:16:02] Autosaved turn-start (autosave.json)
+[18:16:02] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 4
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 28
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
