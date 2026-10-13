@@ -39,6 +39,51 @@ static ofShader s_burnShader;
 static bool g_isBurningCard = false;
 static float g_burnProgress = 0.0f;
 
+static void drawMetallicBar(float x, float y, float w, float h, ofColor baseColor, int metallicClass = 2) {
+	if (w <= 0.0f || h <= 0.0f) return;
+
+	// 1. Draw rich, solid base color first (full saturation)
+	ofSetColor(baseColor);
+	ofDrawRectangle(x, y, w, h);
+
+	// 2. Beveled metallic edge highlights (gives solid 3D chiseled metal depth)
+	ofPushStyle();
+	ofSetLineWidth(1.5f);
+	ofSetColor(255, 255, 255, 60); // Crisp top/left light rim
+	ofDrawLine(x, y + 1, x + w, y + 1);
+	ofSetColor(0, 0, 0, 80); // Dark bottom shadow rim
+	ofDrawLine(x, y + h - 1, x + w, y + h - 1);
+	ofPopStyle();
+
+	// 3. Crisp, non-cloudy sweeping sheen that leaves base colors deep and rich
+	if (s_foilShader.isLoaded()) {
+		static ofTexture s_whiteTex;
+		if (!s_whiteTex.isAllocated()) {
+			unsigned char whitePix[4] = { 255, 255, 255, 255 };
+			s_whiteTex.allocate(1, 1, GL_RGBA);
+			s_whiteTex.loadData(whitePix, 1, 1, GL_RGBA);
+		}
+
+		ofPushStyle();
+		ofEnableBlendMode(OF_BLENDMODE_ADD);
+
+		s_foilShader.begin();
+		s_foilShader.setUniform1f("uTime", ofGetElapsedTimef() * 0.75f);
+		s_foilShader.setUniform1i("uClass", metallicClass);
+		s_foilShader.setUniform4f("uDrawRect", x, y, w, h);
+		s_foilShader.setUniformTexture("tex0", s_whiteTex, 0);
+
+		// Tight, sharp specular reflection instead of a milky white haze
+		ofSetColor(baseColor.r, baseColor.g, baseColor.b, 65);
+		s_whiteTex.draw(x, y, w, h);
+
+		s_foilShader.end();
+
+		ofDisableBlendMode();
+		ofPopStyle();
+	}
+}
+
 static ofImage s_vfxFire;
 static ofImage s_vfxPoison;
 static ofImage s_vfxHeal;
@@ -5530,6 +5575,14 @@ void ofApp::setup() {
 			}
 		}
 
+		// Allocate 1x1 white texture for procedural UI metallic bars
+		static ofTexture s_whiteTex;
+		if (!s_whiteTex.isAllocated()) {
+			unsigned char whitePix[4] = { 255, 255, 255, 255 };
+			s_whiteTex.allocate(1, 1, GL_RGBA);
+			s_whiteTex.loadData(whitePix, 1, 1, GL_RGBA);
+		}
+
 		// --- 4. DICE TEXTURES & COIN ---
 		// Note: Paths point to specific Dice/ subfolders
 		auto setupDiceTex = [](ofTexture & tex, const std::string & path) {
@@ -5771,28 +5824,27 @@ void ofApp::setup() {
 		diceMaterial.setSpecularColor(ofColor(60, 60, 60));
 		diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
 
-		// --- BALANCED 3D DUNGEON LIGHTING ---
-		// Increased baseline ambient so corridors and shadows are clearly visible
-		ofSetGlobalAmbientColor(ofColor(150, 150, 160));
+		// --- BALANCED CONTRAST DUNGEON LIGHTING ---
+		ofSetGlobalAmbientColor(ofColor(140, 140, 150));
 
 		lights.clear();
 
-		// 1. Primary Key Light (Bright overhead sun)
+		// Primary Key Light
 		keyLight.setup();
 		keyLight.setPointLight();
-		keyLight.setPosition(20, 110, 35);
-		keyLight.setDiffuseColor(ofColor(210, 210, 220));
-		keyLight.setSpecularColor(ofColor(40, 40, 45));
-		keyLight.setAttenuation(1.0f, 0.001f, 0.0f);
+		keyLight.setPosition(25, 95, 40);
+		keyLight.setDiffuseColor(ofColor(185, 185, 195));
+		keyLight.setSpecularColor(ofColor(35, 35, 40));
+		keyLight.setAttenuation(1.0f, 0.002f, 0.00005f);
 		lights.push_back(keyLight);
 
-		// 2. Fill Light (Soft back-corner fill to lift dark wall shadows)
+		// Soft Back Fill
 		rimLight.setup();
 		rimLight.setPointLight();
-		rimLight.setPosition(-30, 85, -40);
-		rimLight.setDiffuseColor(ofColor(140, 140, 155));
-		rimLight.setSpecularColor(ofColor(20, 20, 25));
-		rimLight.setAttenuation(1.0f, 0.0015f, 0.0f);
+		rimLight.setPosition(-35, 80, -45);
+		rimLight.setDiffuseColor(ofColor(115, 115, 130));
+		rimLight.setSpecularColor(ofColor(15, 15, 20));
+		rimLight.setAttenuation(1.0f, 0.0025f, 0.00005f);
 		rimLight.enable();
 		lights.push_back(rimLight);
 
@@ -13067,10 +13119,8 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 
 			// -----------------------------------------------------------------
-			// 2. VERTICAL FLOATING KEY BILLBOARD
+			// 2. VERTICAL FLOATING KEY BILLBOARD (WITH METALLIC FOIL SHADER)
 			// -----------------------------------------------------------------
-			// CRITICAL FIX: Position center at halfH + 0.4f so the bottom of the quad
-			// is ALWAYS safely 0.4ft above the floor and never cuts into the ground!
 			glm::vec3 pos = worldPos + glm::vec3(0.0f, halfH + 0.4f, 0.0f);
 
 			glm::vec3 p0(-halfW, -halfH, 0);
@@ -13101,15 +13151,29 @@ void ofApp::drawGame() {
 			ofRotateYDeg(yaw);
 			ofRotateXDeg(-15.0f);
 
-			// CRITICAL FIX: Alpha test discards transparent pixels so they NEVER write depth!
 			glEnable(GL_ALPHA_TEST);
 			glAlphaFunc(GL_GREATER, 0.4f);
-			glDepthMask(GL_FALSE); // Keys do not lock out movement highlights
+			glDepthMask(GL_FALSE);
 			ofSetColor(255, 255);
+
+			int foilClass = (inst.set == 1) ? 3 : ((inst.set == 2) ? 2 : 1); // Gold = 3, Silver = 2, Bronze = 1
+
+			bool useFoilOnKey = s_foilShader.isLoaded();
+			if (useFoilOnKey) {
+				s_foilShader.begin();
+				s_foilShader.setUniform1f("uTime", ofGetElapsedTimef());
+				s_foilShader.setUniform1i("uClass", foilClass);
+				s_foilShader.setUniform4f("uDrawRect", -halfW, -halfH, widthWorld, heightWorld);
+				s_foilShader.setUniformTexture("tex0", (*setTex)[curIdx], 0);
+			}
 
 			(*setTex)[curIdx].bind();
 			quad.draw();
 			(*setTex)[curIdx].unbind();
+
+			if (useFoilOnKey) {
+				s_foilShader.end();
+			}
 
 			glDisable(GL_ALPHA_TEST);
 			ofPopMatrix();
@@ -13369,9 +13433,9 @@ void ofApp::drawGame() {
 		static ofMaterial boardMaterial;
 		static bool boardMatInit = false;
 		if (!boardMatInit) {
-			boardMaterial.setDiffuseColor(ofColor(255, 255, 255));
-			boardMaterial.setAmbientColor(ofColor(230, 230, 240)); // Reflects ambient light vibrantly
-			boardMaterial.setSpecularColor(ofColor(30, 30, 30));
+			boardMaterial.setDiffuseColor(ofColor(240, 240, 240));
+			boardMaterial.setAmbientColor(ofColor(185, 185, 195)); // Clean contrast, not washed out
+			boardMaterial.setSpecularColor(ofColor(20, 20, 20));
 			boardMaterial.setShininess(2);
 			boardMatInit = true;
 		}
@@ -13949,9 +14013,9 @@ void ofApp::drawGame() {
 			}
 		}
 
-		// --- DICE RENDERING (Restored 3D Lighting & Player Color Tinting) ---
-		ofEnableLighting();
-		diceMaterial.begin();
+		// --- DICE RENDERING (100% UNLIT, FULL BRIGHT ORIGINAL TEXTURES) ---
+		ofDisableLighting();
+		ofSetColor(255, 255, 255, 255);
 
 		auto isDiceVisible = [&](int associatedUnit) {
 			if (currentState == STATE_INITIATIVE_ROLL || isInitiativeRolling) return true;
@@ -13963,19 +14027,6 @@ void ofApp::drawGame() {
 			return g_visibleTiles[players[associatedUnit].x][players[associatedUnit].y];
 		};
 
-		auto getDieColor = [&](int associatedUnit) -> ofColor {
-			if (associatedUnit >= 0) {
-				int owner = associatedUnit;
-				if (associatedUnit < (int)players.size()) {
-					owner = players[associatedUnit].isMinion ? players[associatedUnit].ownerID : players[associatedUnit].playerID;
-				}
-				ofColor theme = getPlayerThemeColor(owner);
-				// Blend 75% theme color with white so numbers/pips stay clear and readable
-				return ofColor::white.getLerped(theme, 0.75f);
-			}
-			return ofColor(240, 240, 240);
-		};
-
 		// 1. D4
 		d4Texture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
@@ -13983,7 +14034,6 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 4) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d4Scale, d4Scale, d4Scale);
-				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d4Mesh.draw();
 				ofPopMatrix();
 			}
@@ -13998,7 +14048,6 @@ void ofApp::drawGame() {
 				if (activeDiceRolls[i].sides == 2) {
 					setDiceTransform(i, activeDiceRolls[i]);
 					ofScale(coinScale, coinScale, coinScale);
-					ofSetColor(255);
 					coinMesh.draw();
 					ofPopMatrix();
 				}
@@ -14013,7 +14062,6 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 6) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d6Scale, d6Scale, d6Scale);
-				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d6Mesh.draw();
 				ofPopMatrix();
 			}
@@ -14027,7 +14075,6 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 10) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d10Scale, d10Scale, d10Scale);
-				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d10Mesh.draw();
 				ofPopMatrix();
 			}
@@ -14041,14 +14088,13 @@ void ofApp::drawGame() {
 			if (activeDiceRolls[i].sides == 20) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(d20Scale, d20Scale, d20Scale);
-				ofSetColor(getDieColor(activeDiceRolls[i].associatedUnit));
 				d20Mesh.draw();
 				ofPopMatrix();
 			}
 		}
 		d20Texture.unbind();
 
-		diceMaterial.end();
+		ofEnableLighting();
 
 		// ===================================================================
 		//  PASS 2: DRAW ALL TRANSPARENT EFFECTS
@@ -15828,8 +15874,7 @@ void ofApp::drawGame() {
 				int rem = 5 - player.tortoiseDamageTaken;
 				ofSetColor(20, 40, 20);
 				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				ofSetColor(ofColor::darkGreen);
-				ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
+				drawMetallicBar(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight, ofColor::darkGreen, 1);
 				string txt = "Tortoise: " + ofToString(rem) + "/5";
 				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -15844,8 +15889,7 @@ void ofApp::drawGame() {
 				int rem = 4 - player.ghostDamageTaken;
 				ofSetColor(30, 30, 50);
 				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				ofSetColor(150, 150, 255);
-				ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
+				drawMetallicBar(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight, ofColor(150, 150, 255), 2);
 				string txt = "Ghost: " + ofToString(rem) + "/4";
 				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -15864,8 +15908,7 @@ void ofApp::drawGame() {
 				int rem = 5 - player.tortoiseDamageTaken;
 				ofSetColor(20, 40, 20);
 				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				ofSetColor(ofColor::darkGreen);
-				ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
+				drawMetallicBar(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight, ofColor::darkGreen, 1);
 				string txt = _L("FORM_TORTOISE", "Tortoise: ") + ofToString(rem) + "/5";
 				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -15880,8 +15923,7 @@ void ofApp::drawGame() {
 				int rem = 4 - player.ghostDamageTaken;
 				ofSetColor(30, 30, 50);
 				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				ofSetColor(150, 150, 255);
-				ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
+				drawMetallicBar(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight, ofColor(150, 150, 255), 2);
 				string txt = _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4";
 				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -15906,23 +15948,20 @@ void ofApp::drawGame() {
 		float hpW = healthBarWidth - usedWidth;
 		float currentX = x;
 
-		// 2. Health Segment
-		// Use a consistent red background for all health bars by default.
+		// 2. Health Segment (with Metallic Foil)
 		ofSetColor(40, 0, 0);
 		ofDrawRectangle(currentX, y, hpW, healthBarHeight);
 		float hpPct = (float)player.health / player.maxHealth;
-		ofSetColor(healthColor);
-		ofDrawRectangle(currentX, y, hpW * hpPct, healthBarHeight);
+		drawMetallicBar(currentX, y, hpW * hpPct, healthBarHeight, healthColor, 2);
 		string hpText = ofToString(player.health) + "/" + ofToString(player.maxHealth);
 		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.2f);
 
 		currentX += hpW;
 
-		// 3. Shield Segments
-		auto drawSeg = [&](int val, ofColor c, string label) {
+		// 3. Shield Segments (with Metallic Foil)
+		auto drawSeg = [&](int val, ofColor c, string label, int mClass) {
 			if (val > 0) {
-				ofSetColor(c);
-				ofDrawRectangle(currentX, y, statW, healthBarHeight);
+				drawMetallicBar(currentX, y, statW, healthBarHeight, c, mClass);
 				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white), 1.0f);
 
 				// Tooltip Check
@@ -15936,11 +15975,11 @@ void ofApp::drawGame() {
 			}
 		};
 
-		drawSeg(player.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"));
-		drawSeg(player.fortification, ofColor(50, 50, 50), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"));
-		drawSeg(player.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"));
-		drawSeg(player.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"));
-		drawSeg(player.ward, ofColor::black, _L("STAT_WARD", "Ward (All Damage)"));
+		drawSeg(player.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"), 2);
+		drawSeg(player.fortification, ofColor(55, 55, 65), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"), 1);
+		drawSeg(player.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"), 2);
+		drawSeg(player.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"), 3);
+		drawSeg(player.ward, ofColor(25, 25, 30), _L("STAT_WARD", "Ward (All Damage)"), 2);
 	};
 
 	// Draw Floating Text
@@ -41998,36 +42037,31 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	float statW = totalWidth * 0.20f;
 	float usedWidth = 0;
 
-	// --- FIX: Add holyBlock to width calculation ---
+	// --- Add holyBlock to width calculation ---
 	if (minion.block > 0) usedWidth += statW;
 	if (minion.fortification > 0) usedWidth += statW;
 	if (minion.barrier > 0) usedWidth += statW;
-	if (minion.holyBlock > 0) usedWidth += statW; // <--- ADDED
+	if (minion.holyBlock > 0) usedWidth += statW;
 	if (minion.ward > 0) usedWidth += statW;
 
-	// Prefer the requested HP width (e.g. match the player HP bar length),
-	// but clamp so bars never overflow the available totalWidth.
 	float hpW = std::min(std::max(0.0f, totalWidth - usedWidth), preferredHpWidth);
 	float totalBarW = hpW + usedWidth;
 	float barStartX = alignRight ? (x + std::max(0.0f, totalWidth - totalBarW)) : x;
 	float currentX = barStartX;
 
-	// --- HEALTH ---
+	// --- HEALTH (with Metallic Foil) ---
 	ofSetColor(40, 0, 0);
 	ofDrawRectangle(currentX, barY, hpW, barHeight);
 	float hpPct = (float)minion.health / minion.maxHealth;
-	ofSetColor(ofColor::red);
-	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
+	drawMetallicBar(currentX, barY, hpW * hpPct, barHeight, ofColor::red, 2);
 	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
-	// Make HP text larger for readability by using the local fontScale
 	drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white, fontScale);
 	currentX += hpW;
 
-	// --- SHIELDS (With Tooltips) ---
-	auto drawMinionSeg = [&](int val, ofColor c, string label) {
+	// --- SHIELDS (with Metallic Foil) ---
+	auto drawMinionSeg = [&](int val, ofColor c, string label, int mClass) {
 		if (val > 0) {
-			ofSetColor(c);
-			ofDrawRectangle(currentX, barY, statW, barHeight);
+			drawMetallicBar(currentX, barY, statW, barHeight, c, mClass);
 			drawStatText(uiFont, ofToString(val), currentX, barY, statW, barHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white));
 
 			// Tooltip Check
@@ -42040,34 +42074,31 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 		}
 	};
 
-	drawMinionSeg(minion.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"));
-	drawMinionSeg(minion.fortification, ofColor(50, 50, 50), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"));
-	drawMinionSeg(minion.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"));
-	drawMinionSeg(minion.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"));
-	drawMinionSeg(minion.ward, ofColor::black, _L("STAT_WARD", "Ward (All Damage)"));
+	drawMinionSeg(minion.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"), 2);
+	drawMinionSeg(minion.fortification, ofColor(55, 55, 65), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"), 1);
+	drawMinionSeg(minion.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"), 2);
+	drawMinionSeg(minion.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"), 3);
+	drawMinionSeg(minion.ward, ofColor(25, 25, 30), _L("STAT_WARD", "Ward (All Damage)"), 2);
 
-	// --- FORM BARS ---
+	// --- FORM BARS (with Metallic Foil) ---
 	if (minion.inTortoiseForm || minion.inGhostForm) {
 		float formY = barY + barHeight + (2 * scale);
-		float formHeight = 18 * scale; // Increased form bar height
+		float formHeight = 18 * scale;
 		float formStartX = alignRight ? (x + std::max(0.0f, totalWidth - totalBarW)) : x;
 
 		if (minion.inTortoiseForm) {
 			int rem = 5 - minion.tortoiseDamageTaken;
 			ofSetColor(20, 40, 20);
 			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
-			ofSetColor(ofColor::darkGreen);
-			ofDrawRectangle(formStartX, formY, totalBarW * (rem / 5.0f), formHeight);
+			drawMetallicBar(formStartX, formY, totalBarW * (rem / 5.0f), formHeight, ofColor::darkGreen, 1);
 			drawStatText(uiFont, _L("FORM_TORTOISE", "Tortoise: ") + ofToString(rem) + "/5", formStartX, formY, totalBarW, formHeight, ofColor::white);
 
-			// Tooltip
 			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 				isShowingTooltip = true;
 				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
 				tooltipText = _L("FORM_TORTOISE_TOOLTIP_SHORT", "Tortoise Form: Buffer HP");
 			}
 
-			// Stack next bar if needed
 			formY += formHeight + (2 * scale);
 		}
 
@@ -42075,11 +42106,9 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 			int rem = 4 - minion.ghostDamageTaken;
 			ofSetColor(30, 30, 50);
 			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
-			ofSetColor(150, 150, 255);
-			ofDrawRectangle(formStartX, formY, totalBarW * (rem / 4.0f), formHeight);
+			drawMetallicBar(formStartX, formY, totalBarW * (rem / 4.0f), formHeight, ofColor(150, 150, 255), 2);
 			drawStatText(uiFont, _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4", formStartX, formY, totalBarW, formHeight, ofColor::black);
 
-			// Tooltip
 			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 				isShowingTooltip = true;
 				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
