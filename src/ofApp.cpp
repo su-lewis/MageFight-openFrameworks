@@ -5825,7 +5825,7 @@ void ofApp::setup() {
 		diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
 
 		// --- BALANCED CONTRAST DUNGEON LIGHTING ---
-		ofSetGlobalAmbientColor(ofColor(140, 140, 150));
+		ofSetGlobalAmbientColor(ofColor(130, 130, 140));
 
 		lights.clear();
 
@@ -5833,18 +5833,18 @@ void ofApp::setup() {
 		keyLight.setup();
 		keyLight.setPointLight();
 		keyLight.setPosition(25, 95, 40);
-		keyLight.setDiffuseColor(ofColor(185, 185, 195));
-		keyLight.setSpecularColor(ofColor(35, 35, 40));
-		keyLight.setAttenuation(1.0f, 0.002f, 0.00005f);
+		keyLight.setDiffuseColor(ofColor(175, 175, 185));
+		keyLight.setSpecularColor(ofColor(30, 30, 35));
+		keyLight.setAttenuation(1.0f, 0.0022f, 0.00006f);
 		lights.push_back(keyLight);
 
 		// Soft Back Fill
 		rimLight.setup();
 		rimLight.setPointLight();
 		rimLight.setPosition(-35, 80, -45);
-		rimLight.setDiffuseColor(ofColor(115, 115, 130));
+		rimLight.setDiffuseColor(ofColor(105, 105, 120));
 		rimLight.setSpecularColor(ofColor(15, 15, 20));
-		rimLight.setAttenuation(1.0f, 0.0025f, 0.00005f);
+		rimLight.setAttenuation(1.0f, 0.0028f, 0.00006f);
 		rimLight.enable();
 		lights.push_back(rimLight);
 
