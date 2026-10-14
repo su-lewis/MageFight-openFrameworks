@@ -15077,7 +15077,7 @@ void ofApp::drawGame() {
 
 		// (Outlines drawn earlier before per-tile loop)
 
-		// 5. Draw Path Highlights (Green Circles) & Destination AP Badge
+		// 5. Draw Path Highlights (Green Circles)
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
 			glDepthMask(GL_FALSE);
 			ofEnableDepthTest();
@@ -15097,50 +15097,6 @@ void ofApp::drawGame() {
 				ofDrawCircle(0, 0, TILE_SIZE * 0.32f);
 				ofPopMatrix();
 			}
-
-			// Destination Floating AP Cost Badge (in 3D world space above target tile)
-			int apCost = (int)hoverPath.size() - 1;
-			if (apCost > 0) {
-				const auto & destStep = hoverPath.back();
-				glm::vec3 destPos = gridToWorld(destStep.x, destStep.y);
-				float destY = board[(int)destStep.x][(int)destStep.y].hasWall ? (TILE_SIZE * 0.5f + 1.2f) : 1.2f;
-
-				std::string badgeStr = "-" + ofToString(apCost) + " AP";
-				ofColor badgeCol = (apCost > currentAP) ? ofColor(255, 60, 60) : ofColor(50, 230, 100);
-
-				ofPushMatrix();
-				ofTranslate(destPos.x, destY, destPos.z);
-
-				// Billboard facing camera
-				glm::vec3 camP = activeCam.getPosition();
-				float angle = atan2(camP.x - destPos.x, camP.z - destPos.z) * RAD_TO_DEG;
-				ofRotateYDeg(angle);
-
-				float badgeScale3D = 0.022f;
-				ofScale(badgeScale3D, -badgeScale3D, badgeScale3D);
-
-				ofRectangle tBox = uiFont.getStringBoundingBox(badgeStr, 0, 0);
-				float padX = 14.0f;
-				float padY = 8.0f;
-				float boxW = tBox.width + padX * 2.0f;
-				float boxH = tBox.height + padY * 2.0f;
-
-				ofPushStyle();
-				ofSetColor(18, 20, 26, 230);
-				ofDrawRectRounded(-boxW * 0.5f, -boxH * 0.5f, boxW, boxH, 6.0f);
-				ofNoFill();
-				ofSetLineWidth(2.0f);
-				ofSetColor(badgeCol);
-				ofDrawRectRounded(-boxW * 0.5f, -boxH * 0.5f, boxW, boxH, 6.0f);
-				ofFill();
-
-				ofSetColor(255, 255, 255);
-				uiFont.drawString(badgeStr, -tBox.width * 0.5f, tBox.height * 0.35f);
-				safePopStyle();
-
-				ofPopMatrix();
-			}
-
 			glDepthMask(GL_TRUE);
 			ofDisableDepthTest();
 		}
@@ -15642,72 +15598,6 @@ void ofApp::drawGame() {
 		glDepthMask(GL_TRUE);
 		ofEnableLighting();
 		activeCam.end();
-
-		// --- FLOATING IN-WORLD UNIT HP & SHIELD PIPS ---
-		if (settingsInWorldHPMode != 2 && !players.empty()) {
-			for (size_t uIdx = 0; uIdx < players.size(); ++uIdx) {
-				const Player & u = players[uIdx];
-				if (u.health <= 0) continue;
-
-				if (settingsInWorldHPMode == 1 && hoveredUnitIndex != (int)uIdx) continue;
-
-				// Fog of War check
-				if (g_modifierFogOfWar) {
-					int owner = u.isMinion ? u.ownerID : u.playerID;
-					int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
-					if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
-						if (!g_visibleTiles[u.x][u.y]) continue;
-					}
-				}
-
-				float hHeight = 5.2f;
-				if (u.isGolem || u.isDemon || u.isWallUnit)
-					hHeight = 8.2f;
-				else if (u.isWolf)
-					hHeight = 6.2f;
-				else if (u.isKobold)
-					hHeight = 4.2f;
-
-				glm::vec3 headWorld = gridToWorld(u.x, u.y) + glm::vec3(0, hHeight + 0.4f, 0);
-				glm::vec3 sp = activeCam.worldToScreen(headWorld);
-				if (sp.z < 0.0f || sp.z > 1.0f) continue;
-
-				float unitUiScale = getUIScaleFromHeight((float)ofGetHeight());
-				float barW = 38.0f * unitUiScale;
-				float barH = 5.0f * unitUiScale;
-				float bx = sp.x - barW * 0.5f;
-				float by = sp.y;
-
-				ofPushStyle();
-				ofSetColor(15, 15, 20, 220);
-				ofDrawRectRounded(bx - 2, by - 2, barW + 4, barH + 4, 3);
-
-				float hpRatio = (u.maxHealth > 0) ? std::clamp((float)u.health / (float)u.maxHealth, 0.0f, 1.0f) : 0.0f;
-				ofSetColor(100, 20, 20, 230);
-				ofDrawRectRounded(bx, by, barW, barH, 2);
-				ofSetColor(50, 220, 90, 245);
-				ofDrawRectRounded(bx, by, barW * hpRatio, barH, 2);
-
-				int totalDefense = u.block + u.barrier + u.ward + u.holyBlock + u.fortification;
-				if (totalDefense > 0) {
-					ofColor pipCol = ofColor::gray;
-					if (u.barrier > 0)
-						pipCol = ofColor::hotPink;
-					else if (u.holyBlock > 0)
-						pipCol = ofColor::yellow;
-					else if (u.ward > 0)
-						pipCol = ofColor::purple;
-					ofSetColor(pipCol);
-					ofDrawCircle(bx + barW + 5.0f * unitUiScale, by + barH * 0.5f, 3.0f * unitUiScale);
-				}
-
-				if (hoveredUnitIndex == (int)uIdx || u.health <= 3) {
-					std::string hpStr = ofToString(u.health) + "/" + ofToString(u.maxHealth);
-					drawPixelTextCentered(uiFont, hpStr, sp.x, by - 6.0f * unitUiScale, 0.65f * unitUiScale, ofColor::white, 1, ofColor::black);
-				}
-				safePopStyle();
-			}
-		}
 
 		if (!players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			const Player & previewCaster = players[currentPlayerIndex];
@@ -16298,6 +16188,125 @@ void ofApp::drawGame() {
 		drawSeg(player.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"), 3);
 		drawSeg(player.ward, ofColor(25, 25, 30), _L("STAT_WARD", "Ward (All Damage)"), 2);
 	};
+
+	// --- 1. MOVEMENT PATH AP COST BADGE (2D SCREEN OVERLAY) ---
+	if ((playerAction == PIECE_SELECTED) && hoverPath.size() > 1) {
+		int apCost = (int)hoverPath.size() - 1;
+		glm::vec3 destWorld = gridToWorld(hoverPath.back().x, hoverPath.back().y);
+		glm::vec3 destScreen = getActiveCamera().worldToScreen(destWorld + glm::vec3(0, 0.4f, 0));
+
+		if (destScreen.z >= 0.0f && destScreen.z <= 1.0f) {
+			std::string badgeStr = "-" + ofToString(apCost) + " AP";
+			ofColor badgeCol = (apCost > currentAP) ? ofColor(255, 60, 60) : ofColor(50, 230, 100);
+
+			float uiScaleLocal = getUIScaleFromHeight((float)ofGetHeight());
+			float pw = 58.0f * uiScaleLocal;
+			float ph = 22.0f * uiScaleLocal;
+
+			ofPushStyle();
+			ofDisableLighting();
+			ofDisableDepthTest();
+
+			// Dark pill background
+			ofSetColor(16, 18, 24, 235);
+			ofDrawRectRounded(destScreen.x - pw * 0.5f, destScreen.y - ph * 0.5f, pw, ph, 5);
+
+			// Border
+			ofNoFill();
+			ofSetLineWidth(1.8f * uiScaleLocal);
+			ofSetColor(badgeCol);
+			ofDrawRectRounded(destScreen.x - pw * 0.5f, destScreen.y - ph * 0.5f, pw, ph, 5);
+			ofFill();
+
+			// Text
+			drawPixelTextCentered(uiFont, badgeStr, destScreen.x, destScreen.y + 1, 0.82f * uiScaleLocal, ofColor::white, 1, ofColor::black);
+			safePopStyle();
+		}
+	}
+
+	// --- 2. FLOATING IN-WORLD UNIT HP & SHIELD PIPS (2D SCREEN OVERLAY) ---
+	if (settingsInWorldHPMode != 2 && !players.empty()) {
+		float uiScaleLocal = getUIScaleFromHeight((float)ofGetHeight());
+
+		for (size_t uIdx = 0; uIdx < players.size(); ++uIdx) {
+			const Player & u = players[uIdx];
+			if (u.health <= 0) continue;
+
+			if (settingsInWorldHPMode == 1 && hoveredUnitIndex != (int)uIdx) continue;
+
+			// Fog of War Check
+			if (g_modifierFogOfWar) {
+				int owner = u.isMinion ? u.ownerID : u.playerID;
+				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+				if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+					if (!g_visibleTiles[u.x][u.y]) continue;
+				}
+			}
+
+			// Accurate head height calculation so it floats comfortably above the head
+			float headY = 4.8f;
+			if (u.isDemon || u.isGolem || u.isWallUnit)
+				headY = 7.5f;
+			else if (u.isWolf || u.isSkeleton || u.isAssistant)
+				headY = 5.2f;
+			else if (u.isKobold)
+				headY = 3.8f;
+
+			// Clear the active unit's bobbing yellow chevron
+			if ((int)uIdx == currentPlayerIndex) headY += 1.6f;
+
+			glm::vec3 headWorld = gridToWorld(u.x, u.y) + glm::vec3(0, headY, 0);
+			glm::vec3 sp = getActiveCamera().worldToScreen(headWorld);
+			if (sp.z < 0.0f || sp.z > 1.0f) continue;
+
+			float barW = 44.0f * uiScaleLocal;
+			float barH = 6.0f * uiScaleLocal;
+			float bx = sp.x - barW * 0.5f;
+			float by = sp.y;
+
+			ofPushStyle();
+			ofDisableLighting();
+			ofDisableDepthTest();
+
+			// Dark border/shadow
+			ofSetColor(12, 14, 18, 235);
+			ofDrawRectRounded(bx - 2, by - 2, barW + 4, barH + 4, 3);
+
+			// Health bar background & fill
+			float hpRatio = (u.maxHealth > 0) ? std::clamp((float)u.health / (float)u.maxHealth, 0.0f, 1.0f) : 0.0f;
+			ofSetColor(120, 25, 25, 240);
+			ofDrawRectRounded(bx, by, barW, barH, 2);
+
+			ofColor hpCol = (u.health <= 3) ? ofColor(255, 60, 60) : ofColor(50, 220, 90);
+			ofSetColor(hpCol);
+			ofDrawRectRounded(bx, by, barW * hpRatio, barH, 2);
+
+			// Shield Pip (colored pip to right of bar)
+			int totalDef = u.block + u.barrier + u.ward + u.holyBlock + u.fortification;
+			if (totalDef > 0) {
+				ofColor pipCol = ofColor::gray;
+				if (u.barrier > 0)
+					pipCol = ofColor::hotPink;
+				else if (u.holyBlock > 0)
+					pipCol = ofColor::yellow;
+				else if (u.ward > 0)
+					pipCol = ofColor::purple;
+
+				ofSetColor(12, 14, 18, 235);
+				ofDrawCircle(bx + barW + 6.0f * uiScaleLocal, by + barH * 0.5f, 4.0f * uiScaleLocal);
+				ofSetColor(pipCol);
+				ofDrawCircle(bx + barW + 6.0f * uiScaleLocal, by + barH * 0.5f, 3.0f * uiScaleLocal);
+			}
+
+			// Clean numbers displayed on hover or critical health
+			if (hoveredUnitIndex == (int)uIdx || u.health <= 3) {
+				std::string hpStr = ofToString(u.health) + "/" + ofToString(u.maxHealth);
+				drawPixelTextCentered(uiFont, hpStr, sp.x, by - 7.0f * uiScaleLocal, 0.70f * uiScaleLocal, ofColor::white, 1, ofColor::black);
+			}
+
+			safePopStyle();
+		}
+	}
 
 	// Draw Floating Text
 	for (const auto & ft : activeFloatingTexts) {
