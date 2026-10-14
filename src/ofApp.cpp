@@ -12776,6 +12776,16 @@ void ofApp::updateGameLogic() {
 			selectedDraftIndices.clear();
 			draftStage = 0;
 
+			// CRITICAL FIX: Unlock drafting state so cards can be picked and accepted!
+			draftAcceptLocked = false;
+			draftAcceptApplied = false;
+			s_draftCardsHidden = false;
+			draftAcceptUI.state = DRAFT_ANIM_APPEARING;
+			draftAcceptUI.startFrame = (int)simulationFrame;
+			draftAcceptUI.currentScale = 0.0f;
+			draftAcceptUI.targetScale = 1.0f;
+			draftAcceptUI.hidden = false;
+
 			if (currentState == STATE_PAUSED) {
 				pausedFromState = STATE_DRAFTING;
 			} else {
@@ -19775,7 +19785,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// If user right-clicks, close tooltips AND instantly cancel any active card drag or targeting!
+	// If user right-clicks, only close hover tooltips and deselect movement (never cancel cards/abilities)
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (isShowingTooltip) isShowingTooltip = false;
 		if (isTooltipExpanded) {
@@ -19783,30 +19793,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			tooltipExpandedText.clear();
 		}
 
-		if (draggedCardIndex != -1 || selectedCardIndex != -1 || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
-			if (draggedCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				Player & p = players[currentPlayerIndex];
-				if (draggedCardIndex < (int)p.hand.size()) {
-					p.hand[draggedCardIndex].currentPos = p.hand[draggedCardIndex].targetPos;
-					p.hand[draggedCardIndex].currentScale = 1.0f;
-				}
-			}
-
-			draggedCardIndex = -1;
-			pressedCardIndex = -1;
-			selectedCardIndex = -1;
-			handDragInValidPlayZone = false;
-			handDragVelocity.set(0.0f, 0.0f);
-			if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
-				draggingHandTargetVolume = 0.0f;
-				draggingHandFadeSpeed = 48.0f;
-			}
-
-			cancelAllTargeting();
-			resetCardState();
-			ofLogNotice("Input") << "Right-click cancelled active card drag/targeting.";
-			return;
+		if (playerAction == PIECE_SELECTED) {
+			playerAction = NONE;
+			clearHighlights();
 		}
+		return;
 	}
 
 	// Played-card face animations are non-dismissible so they always complete.
@@ -21993,109 +21984,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	if (isDiceSpinning) return;
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
-		// 1. Kobold Placement -> Synchronized skip/done
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = 0;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PSEUDO_ACTION;
-			cmd.params[0] = -1;
-			cmd.params[1] = -1;
-			strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
-			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			sendInputCommand(cmd, true);
-			playHandFeedbackSfx(0.9f, 0.1f);
-			return;
-		}
-
-		// 2. Wolf Placement -> Synchronized skip/done
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = 0;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PSEUDO_ACTION;
-			cmd.params[0] = -1;
-			cmd.params[1] = -1;
-			strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
-			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			sendInputCommand(cmd, true);
-			playHandFeedbackSfx(0.9f, 0.1f);
-			return;
-		}
-
-		// 3. Tortoise Shell Spike -> Synchronized skip/done
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = 0;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PSEUDO_ACTION;
-			cmd.params[0] = -1;
-			cmd.params[1] = -1;
-			strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
-			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			sendInputCommand(cmd, true);
-			playHandFeedbackSfx(0.9f, 0.1f);
-			return;
-		}
-
-		// 4. Blocking Boon (Tails Targeting) -> Synchronized skip
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.commandId = 0;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_MENU_CHOICE;
-			cmd.params[0] = (int)CARD_BLOCKING_BOON;
-			cmd.params[1] = -1;
-			sendInputCommand(cmd, true);
-			playHandFeedbackSfx(0.9f, 0.1f);
-			return;
-		}
-
-		// 5. Renewed Inspiration -> Cancel selection and restore card to hand
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-			renewedSelectedHandIndices.clear();
-			resetCardInteraction();
-			resetCardState();
+		// Right-click cannot cancel any cards, targeting, placements, or menus.
+		// It only dismisses unit movement selection if active.
+		if (playerAction == PIECE_SELECTED) {
+			playerAction = NONE;
 			clearHighlights();
-			calculateTargetHighlights();
-			return;
 		}
-
-		// Mandatory locks that cannot be right-clicked away
-		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE || interactingCardType == PSEUDO_CARD_MAGIC_HAND_RELOCATE)) {
-			return;
-		}
-		if (currentState == STATE_DRAFTING && isInGameDraft) {
-			return;
-		}
-		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && (interactingCardType == CARD_AMNESIA || interactingCardType == CARD_MAGIC_BLAST)) {
-			return;
-		}
-		if (cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE || cardPlayState == CARD_PLAY_STATE_OUTCOME) {
-			return;
-		}
-
-		// 6. Generic targeting or card drags cancellation
-		selectedCardIndex = -1;
-		draggedCardIndex = -1;
-		if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
-			draggingHandTargetVolume = 0.0f;
-			draggingHandFadeSpeed = 48.0f;
-		}
-		pressedCardIndex = -1;
-		handDragInValidPlayZone = false;
-		handDragVelocity.set(0.0f, 0.0f);
-		playerAction = NONE;
-
-		cancelAllTargeting();
 		return;
 	}
 
@@ -28031,50 +27925,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// ----------------------------------------
 
 		if (initialDraftComplete) {
-			if (isInGameDraft && this->draftPlayerIndex == cmdDraftPlayerIdx) {
-				isInGameDraft = false;
-			} else {
-				bool intercepted = false;
-				for (auto it = pendingVisualKeyDraftQueue.begin(); it != pendingVisualKeyDraftQueue.end();) {
-					if (it->targetIndex == cmdDraftPlayerIdx) {
-						// Extract data to force deterministic state synchronization
-						int tier = it->classTier;
-						std::vector<int> forced;
-						for (int idx : it->poolIndices) {
-							if (idx >= 0) forced.push_back(idx);
-						}
-
-						it = pendingVisualKeyDraftQueue.erase(it);
-						intercepted = true;
-
-						// Synchronize UI state variables so checksum matches Host
-						draftPlayerIndex = cmdDraftPlayerIdx;
-						generateDraftOptions(tier, forced.empty() ? nullptr : &forced);
-						break;
-					} else {
-						++it;
-					}
-				}
-				if (!intercepted) {
-					for (auto it = networkPending.draftQueue.begin(); it != networkPending.draftQueue.end();) {
-						int targetPlayerIdx = (*it >> 16) & 0xFFFF;
-						if (targetPlayerIdx == cmdDraftPlayerIdx) {
-							int tier = (*it) & 0xFFFF;
-							it = networkPending.draftQueue.erase(it);
-							intercepted = true;
-
-							// Synchronize UI state variables so checksum matches Host
-							draftPlayerIndex = cmdDraftPlayerIdx;
-							generateDraftOptions(tier, nullptr);
-							break;
-						} else {
-							++it;
-						}
-					}
-				}
-				// Since we generated options, isInGameDraft was turned on. Turn it back off since we accepted.
-				isInGameDraft = false;
-			}
+			isInGameDraft = false;
+			draftOptions.clear();
+			draftOptionUI.clear();
+			selectedDraftIndices.clear();
+			currentDraftOptionPoolIndices = { -1, -1, -1 };
+			draftAcceptLocked = false;
+			draftAcceptApplied = false;
 
 			resumeTurnTimerIfPausedForOpponent(cmdDraftPlayerIdx);
 
@@ -28132,8 +27989,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			int poolIdx = cmd.params[1];
 			int draftPlayerIdx = cmd.params[2];
 
-			// --- FIX: Intercept pending visual key drafts so state is instantly available! ---
-			if (initialDraftComplete) {
+			// Only intercept pending queue if options have not been populated yet
+			if (initialDraftComplete && draftOptions.empty()) {
 				bool intercepted = false;
 				for (auto it = pendingVisualKeyDraftQueue.begin(); it != pendingVisualKeyDraftQueue.end();) {
 					if (it->targetIndex == draftPlayerIdx) {
