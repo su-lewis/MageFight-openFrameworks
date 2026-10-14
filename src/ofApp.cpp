@@ -10349,19 +10349,46 @@ void ofApp::recalculateUI(int w, int h) {
 	}
 }
 static void sanitizeLobbyPlayersForMatchStart() {
-	if (!g_lobbyPlayers.empty()) {
-		std::set<uint32_t> seenPlayerIDs;
-		std::vector<LobbyPlayer> sanitized;
-		sanitized.reserve(g_lobbyPlayers.size());
-		for (const auto & lp : g_lobbyPlayers) {
-			if ((int)lp.playerID < 0 || lp.playerID > 3) continue;
-			if (!seenPlayerIDs.insert(lp.playerID).second) continue;
-			sanitized.push_back(lp);
+	if (g_lobbyPlayers.empty()) {
+		return;
+	}
+
+	std::set<uint32_t> seenPlayerIDs;
+	std::vector<LobbyPlayer> sanitized;
+	sanitized.reserve(g_lobbyPlayers.size());
+
+	for (const auto & lp : g_lobbyPlayers) {
+		if ((int)lp.playerID < 0 || lp.playerID > 3) continue;
+		if (!seenPlayerIDs.insert(lp.playerID).second) continue;
+		sanitized.push_back(lp);
+	}
+
+	if (sanitized.empty()) {
+		g_lobbyPlayers.clear();
+		return;
+	}
+
+	// Ensure the host/local player is always first and any stale/duplicate IDs are removed.
+	std::stable_sort(sanitized.begin(), sanitized.end(), [](const LobbyPlayer & a, const LobbyPlayer & b) {
+		if (a.playerID == 0 && b.playerID != 0) return true;
+		if (a.playerID != 0 && b.playerID == 0) return false;
+		if (a.playerID == b.playerID) return a.name < b.name;
+		return a.playerID < b.playerID;
+	});
+
+	bool changed = (sanitized.size() != g_lobbyPlayers.size());
+	if (!changed) {
+		for (size_t i = 0; i < sanitized.size(); ++i) {
+			if (sanitized[i].playerID != g_lobbyPlayers[i].playerID || sanitized[i].name != g_lobbyPlayers[i].name || sanitized[i].isBot != g_lobbyPlayers[i].isBot || sanitized[i].isReady != g_lobbyPlayers[i].isReady) {
+				changed = true;
+				break;
+			}
 		}
-		if (sanitized.size() != g_lobbyPlayers.size()) {
-			ofLogWarning("Network") << "Sanitized stale/duplicate lobby roster from " << g_lobbyPlayers.size() << " to " << sanitized.size() << " valid entries before match start.";
-			g_lobbyPlayers.swap(sanitized);
-		}
+	}
+
+	if (changed) {
+		ofLogWarning("Network") << "Sanitized stale/duplicate lobby roster from " << g_lobbyPlayers.size() << " to " << sanitized.size() << " valid entries before match start.";
+		g_lobbyPlayers.swap(sanitized);
 	}
 }
 
@@ -19270,11 +19297,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Start buttons (Host only)
 					if (isHostUser) {
 						if (lobbyStartBtn.inside(x, y)) {
+							sanitizeLobbyPlayersForMatchStart();
 							bool allReady = (g_lobbyPlayers.size() > 1);
 							for (const auto & lp : g_lobbyPlayers) {
 								if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 							}
-							if (allReady) {
+							if (allReady && !g_lobbyPlayers.empty()) {
 								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 								InputCommandPacket startCmd = {};
 								startCmd.type = PKT_INPUT_COMMAND;
