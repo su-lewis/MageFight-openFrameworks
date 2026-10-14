@@ -15722,13 +15722,6 @@ void ofApp::drawGame() {
 		}
 		ofSetColor(barColor);
 		ofDrawRectangle(0, barY, barWidth * progress, barHeight);
-
-		// Border
-		ofNoFill();
-		ofSetColor(100, 100, 120, 200);
-		ofSetLineWidth(1);
-		ofDrawRectangle(0, barY, barWidth, barHeight);
-		ofFill();
 	}
 
 	// HOISTED VARIABLES TO PREVENT SCOPE ERRORS
@@ -17028,15 +17021,6 @@ void ofApp::drawGame() {
 			ofRectangle handAreaRect = handLayout.handAreaRect;
 			float baseCardHeight = handLayout.cardH;
 			float handBaseCardWidth = handLayout.cardW;
-
-			ofPushStyle();
-			ofSetColor(18, 18, 24, 105);
-			ofDrawRectRounded(handAreaRect, 24.0f);
-			ofNoFill();
-			ofSetColor(120, 120, 140, 135);
-			ofSetLineWidth(2.0f);
-			ofDrawRectRounded(handAreaRect, 24.0f);
-			safePopStyle();
 
 			// 1. Determine which card should be drawn LAST (On Top)
 			int indexToDrawLast = -1;
