@@ -146,6 +146,35 @@ static void spawnVfx(glm::vec3 pos, int type, int count) {
 		g_pngVfx.push_back(p);
 	}
 }
+
+// --- 3D WALL DEBRIS CHUNK SYSTEM ---
+struct StoneChunk {
+	glm::vec3 pos;
+	glm::vec3 vel;
+	glm::vec3 rot;
+	glm::vec3 rotSpeed;
+	float size;
+	float life;
+	float maxLife;
+	bool isMagic;
+};
+static std::vector<StoneChunk> g_stoneChunks;
+
+static void spawnWallDebris(glm::vec3 worldPos, bool isMagic = false) {
+	int count = ofRandom(12, 16);
+	for (int i = 0; i < count; ++i) {
+		StoneChunk sc;
+		sc.pos = worldPos + glm::vec3(ofRandom(-0.8f, 0.8f), ofRandom(0.2f, 1.4f), ofRandom(-0.8f, 0.8f));
+		sc.vel = glm::vec3(ofRandom(-4.5f, 4.5f), ofRandom(4.0f, 8.5f), ofRandom(-4.5f, 4.5f));
+		sc.rot = glm::vec3(ofRandom(0, 360), ofRandom(0, 360), ofRandom(0, 360));
+		sc.rotSpeed = glm::vec3(ofRandom(-250, 250), ofRandom(-250, 250), ofRandom(-250, 250));
+		sc.size = ofRandom(0.25f, 0.55f);
+		sc.maxLife = ofRandom(0.8f, 1.3f);
+		sc.life = sc.maxLife;
+		sc.isMagic = isMagic;
+		g_stoneChunks.push_back(sc);
+	}
+}
 // -------------------------------
 
 #ifdef _WIN32
@@ -213,6 +242,8 @@ static std::set<int> s_aiFailedCards;
 
 // --- SETTINGS SLIDER SELECTION FOCUS ---
 static int s_activeSettingsSlider = 1;
+static int settingsInWorldHPMode = 0; // 0 = Always, 1 = On Hover, 2 = Off
+static ofRectangle settingsInWorldHPBtn;
 
 // --- DETERMINISTIC PLAYER COLOR PALETTE ---
 static int g_playerColorIndices[4] = { 0, 1, 2, 3 };
@@ -6992,6 +7023,33 @@ void ofApp::update() {
 		}
 	}
 
+	// Update Stone Chunk Debris (Physics + Gravity + Ground Bounce)
+	{
+		float dt = ofGetLastFrameTime();
+		for (auto it = g_stoneChunks.begin(); it != g_stoneChunks.end();) {
+			it->pos += it->vel * dt;
+			it->vel.y -= 22.0f * dt; // Gravity
+			if (it->pos.y < 0.1f) {
+				it->pos.y = 0.1f;
+				it->vel.y = -it->vel.y * 0.3f; // Dampened bounce
+				it->vel.x *= 0.7f;
+				it->vel.z *= 0.7f;
+			}
+			it->rot += it->rotSpeed * dt;
+			it->life -= dt;
+			if (it->life <= 0.0f) {
+				it = g_stoneChunks.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
+
+	// Update audio volumes and smooth pause acoustic dampening
+	updateAudioVolumes();
+
+	// Update active tracers: expire and clear highlights when done
+
 	// Draft resend watchdog removed: draft actions are now sent as deterministic
 	// `InputCommandPacket`s and processed via the command stream. Legacy
 	// `DraftActionPacket` resend/ACK tracking has been retired.
@@ -7239,7 +7297,7 @@ void ofApp::update() {
 		// Logic is primarily handled in mousePressed (card selection)
 		// Allow deck/discard hover view during drafting
 		if (isHoveringPile && !isShowingPileView) {
-			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+			if (ofGetElapsedTimef() - pileHoverStartTime > 0.4f) { // Snappy 0.4s hover inspect
 				isShowingPileView = true;
 				currentPileView = hoveredPileType;
 				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
@@ -9414,6 +9472,20 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		ofRectangle fb = getCachedBounds(fsText);
 		SafeDrawText(uiFont, fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
+
+		// --- In-World Unit Health Bars Setting ---
+		settingY += settingSpacing;
+		std::string hpModeNames[] = { "Always", "On Hover", "Off" };
+		std::string hpModeText = hpModeNames[std::clamp(settingsInWorldHPMode, 0, 2)];
+		settingsInWorldHPBtn.set(centerX - (controlWidth / 2), settingY - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
+		if (settingsInWorldHPBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_inworld_hp";
+		ofSetColor(ofColor(35));
+		ofDrawRectangle(settingsInWorldHPBtn);
+		ofSetColor(ofColor::white);
+		ofRectangle hpLabelBox = getCachedBounds("In-World Unit HP");
+		SafeDrawText(uiFont, "In-World Unit HP", centerX - hpLabelBox.getWidth() / 2, settingY - 14.0f * uiScale);
+		ofRectangle hpValBox = getCachedBounds(hpModeText);
+		SafeDrawText(uiFont, hpModeText, settingsInWorldHPBtn.x + (settingsInWorldHPBtn.width - hpValBox.width) / 2, settingsInWorldHPBtn.y + 30.0f * uiScale);
 	}
 
 	// AUDIO tab: spacious, elegant layout matching the Video tab
@@ -9947,7 +10019,7 @@ void ofApp::drawLobby() {
 		// Client has Ready / Unready (Middle)
 		bool iAmReady = false;
 		for (const auto & lp : g_lobbyPlayers) {
-			if (lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
+			if ((int)lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
 		}
 		drawMenuPlaqueButton(lobbyReadyBtn, iAmReady ? _L("UI_LOBBY_UNREADY", "Unready") : _L("UI_LOBBY_READY", "Ready"), lobbyReadyBtn.inside(ofGetMouseX(), ofGetMouseY()));
 
@@ -11965,7 +12037,7 @@ void ofApp::prepareGameVisualState() {
 
 	// --- Pile View Hover Logic ---
 	if (isHoveringPile && !isShowingPileView) {
-		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) {
+		if (ofGetElapsedTimef() - pileHoverStartTime > 0.4f) { // Snappy 0.4s hover inspect
 			isShowingPileView = true;
 			currentPileView = hoveredPileType;
 			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
@@ -15005,7 +15077,7 @@ void ofApp::drawGame() {
 
 		// (Outlines drawn earlier before per-tile loop)
 
-		// 5. Draw Path Highlights (Green Circles)
+		// 5. Draw Path Highlights (Green Circles) & Destination AP Badge
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
 			glDepthMask(GL_FALSE);
 			ofEnableDepthTest();
@@ -15025,6 +15097,50 @@ void ofApp::drawGame() {
 				ofDrawCircle(0, 0, TILE_SIZE * 0.32f);
 				ofPopMatrix();
 			}
+
+			// Destination Floating AP Cost Badge (in 3D world space above target tile)
+			int apCost = (int)hoverPath.size() - 1;
+			if (apCost > 0) {
+				const auto & destStep = hoverPath.back();
+				glm::vec3 destPos = gridToWorld(destStep.x, destStep.y);
+				float destY = board[(int)destStep.x][(int)destStep.y].hasWall ? (TILE_SIZE * 0.5f + 1.2f) : 1.2f;
+
+				std::string badgeStr = "-" + ofToString(apCost) + " AP";
+				ofColor badgeCol = (apCost > currentAP) ? ofColor(255, 60, 60) : ofColor(50, 230, 100);
+
+				ofPushMatrix();
+				ofTranslate(destPos.x, destY, destPos.z);
+
+				// Billboard facing camera
+				glm::vec3 camP = activeCam.getPosition();
+				float angle = atan2(camP.x - destPos.x, camP.z - destPos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+
+				float badgeScale3D = 0.022f;
+				ofScale(badgeScale3D, -badgeScale3D, badgeScale3D);
+
+				ofRectangle tBox = uiFont.getStringBoundingBox(badgeStr, 0, 0);
+				float padX = 14.0f;
+				float padY = 8.0f;
+				float boxW = tBox.width + padX * 2.0f;
+				float boxH = tBox.height + padY * 2.0f;
+
+				ofPushStyle();
+				ofSetColor(18, 20, 26, 230);
+				ofDrawRectRounded(-boxW * 0.5f, -boxH * 0.5f, boxW, boxH, 6.0f);
+				ofNoFill();
+				ofSetLineWidth(2.0f);
+				ofSetColor(badgeCol);
+				ofDrawRectRounded(-boxW * 0.5f, -boxH * 0.5f, boxW, boxH, 6.0f);
+				ofFill();
+
+				ofSetColor(255, 255, 255);
+				uiFont.drawString(badgeStr, -tBox.width * 0.5f, tBox.height * 0.35f);
+				safePopStyle();
+
+				ofPopMatrix();
+			}
+
 			glDepthMask(GL_TRUE);
 			ofDisableDepthTest();
 		}
@@ -15143,6 +15259,33 @@ void ofApp::drawGame() {
 					drawThickRect(TILE_SIZE, TILE_SIZE * 0.06f);
 					ofPopMatrix();
 				}
+			}
+
+			// --- DRAW 3D TUMBLING STONE CHUNKS ---
+			if (!g_stoneChunks.empty()) {
+				ofPushStyle();
+				ofEnableDepthTest();
+				glDepthMask(GL_TRUE);
+				ofDisableLighting();
+				wallTexture.bind();
+				for (const auto & sc : g_stoneChunks) {
+					float alphaPct = std::clamp(sc.life / 0.35f, 0.0f, 1.0f);
+					if (sc.isMagic) {
+						ofSetColor(180, 100, 255, (int)(255 * alphaPct));
+					} else {
+						ofSetColor(240, 240, 240, (int)(255 * alphaPct));
+					}
+					ofPushMatrix();
+					ofTranslate(sc.pos);
+					ofRotateXDeg(sc.rot.x);
+					ofRotateYDeg(sc.rot.y);
+					ofRotateZDeg(sc.rot.z);
+					ofDrawBox(0, 0, 0, sc.size, sc.size, sc.size);
+					ofPopMatrix();
+				}
+				wallTexture.unbind();
+				glDepthMask(GL_FALSE);
+				safePopStyle();
 			}
 
 			// --- RENDER 3D VFX PNGS ---
@@ -15500,6 +15643,72 @@ void ofApp::drawGame() {
 		ofEnableLighting();
 		activeCam.end();
 
+		// --- FLOATING IN-WORLD UNIT HP & SHIELD PIPS ---
+		if (settingsInWorldHPMode != 2 && !players.empty()) {
+			for (size_t uIdx = 0; uIdx < players.size(); ++uIdx) {
+				const Player & u = players[uIdx];
+				if (u.health <= 0) continue;
+
+				if (settingsInWorldHPMode == 1 && hoveredUnitIndex != (int)uIdx) continue;
+
+				// Fog of War check
+				if (g_modifierFogOfWar) {
+					int owner = u.isMinion ? u.ownerID : u.playerID;
+					int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+					if (!g_isSpectator && localTeam != 255 && owner != localTeam) {
+						if (!g_visibleTiles[u.x][u.y]) continue;
+					}
+				}
+
+				float hHeight = 5.2f;
+				if (u.isGolem || u.isDemon || u.isWallUnit)
+					hHeight = 8.2f;
+				else if (u.isWolf)
+					hHeight = 6.2f;
+				else if (u.isKobold)
+					hHeight = 4.2f;
+
+				glm::vec3 headWorld = gridToWorld(u.x, u.y) + glm::vec3(0, hHeight + 0.4f, 0);
+				glm::vec3 sp = activeCam.worldToScreen(headWorld);
+				if (sp.z < 0.0f || sp.z > 1.0f) continue;
+
+				float unitUiScale = getUIScaleFromHeight((float)ofGetHeight());
+				float barW = 38.0f * unitUiScale;
+				float barH = 5.0f * unitUiScale;
+				float bx = sp.x - barW * 0.5f;
+				float by = sp.y;
+
+				ofPushStyle();
+				ofSetColor(15, 15, 20, 220);
+				ofDrawRectRounded(bx - 2, by - 2, barW + 4, barH + 4, 3);
+
+				float hpRatio = (u.maxHealth > 0) ? std::clamp((float)u.health / (float)u.maxHealth, 0.0f, 1.0f) : 0.0f;
+				ofSetColor(100, 20, 20, 230);
+				ofDrawRectRounded(bx, by, barW, barH, 2);
+				ofSetColor(50, 220, 90, 245);
+				ofDrawRectRounded(bx, by, barW * hpRatio, barH, 2);
+
+				int totalDefense = u.block + u.barrier + u.ward + u.holyBlock + u.fortification;
+				if (totalDefense > 0) {
+					ofColor pipCol = ofColor::gray;
+					if (u.barrier > 0)
+						pipCol = ofColor::hotPink;
+					else if (u.holyBlock > 0)
+						pipCol = ofColor::yellow;
+					else if (u.ward > 0)
+						pipCol = ofColor::purple;
+					ofSetColor(pipCol);
+					ofDrawCircle(bx + barW + 5.0f * unitUiScale, by + barH * 0.5f, 3.0f * unitUiScale);
+				}
+
+				if (hoveredUnitIndex == (int)uIdx || u.health <= 3) {
+					std::string hpStr = ofToString(u.health) + "/" + ofToString(u.maxHealth);
+					drawPixelTextCentered(uiFont, hpStr, sp.x, by - 6.0f * unitUiScale, 0.65f * unitUiScale, ofColor::white, 1, ofColor::black);
+				}
+				safePopStyle();
+			}
+		}
+
 		if (!players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			const Player & previewCaster = players[currentPlayerIndex];
 			int previewCardIndex = -1;
@@ -15712,16 +15921,26 @@ void ofApp::drawGame() {
 		// Progress fill - color transitions from green -> yellow -> red based on progress
 		ofColor barColor;
 		if (progress < 0.5f) {
-			// Green to yellow (0 to 0.5)
-			float t = progress * 2.0f; // 0 to 1
+			float t = progress * 2.0f;
 			barColor = ofColor(0, 255, 0).getLerped(ofColor(255, 255, 0), t);
 		} else {
-			// Yellow to red (0.5 to 1.0)
-			float t = (progress - 0.5f) * 2.0f; // 0 to 1
+			float t = (progress - 0.5f) * 2.0f;
 			barColor = ofColor(255, 255, 0).getLerped(ofColor(255, 50, 50), t);
 		}
+
+		// Low-Timer Warning Pulse (< 10 seconds remaining)
+		float remainingSec = std::max(0.0f, durationSeconds - elapsedSeconds);
+		float currentBarHeight = barHeight;
+		if (remainingSec <= 10.0f) {
+			float freq = (remainingSec <= 4.0f) ? 14.0f : 8.0f;
+			float pulse = 0.55f + 0.45f * sin(ofGetElapsedTimef() * freq);
+			barColor = barColor.getLerped(ofColor(255, 255, 255), pulse * 0.45f);
+			barColor.a = (int)(255 * (0.7f + 0.3f * pulse));
+			currentBarHeight = barHeight + (2.0f * scale * pulse);
+		}
+
 		ofSetColor(barColor);
-		ofDrawRectangle(0, barY, barWidth * progress, barHeight);
+		ofDrawRectangle(0, barY, barWidth * progress, currentBarHeight);
 	}
 
 	// HOISTED VARIABLES TO PREVENT SCOPE ERRORS
@@ -19311,6 +19530,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (settingsFullscreenButton.inside(x, y)) {
 				g_windowModeState = (g_windowModeState + 1) % 3;
 				applySettings();
+				saveSettings();
+				return;
+			}
+
+			if (settingsInWorldHPBtn.inside(x, y)) {
+				settingsInWorldHPMode = (settingsInWorldHPMode + 1) % 3;
 				saveSettings();
 				return;
 			}
@@ -28930,6 +29155,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			board[wallNewPos.x][wallNewPos.y].hasWall = true;
 			board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
 			buildLevelMesh();
+			spawnWallDebris(gridToWorld(wallNewPos.x, wallNewPos.y) + glm::vec3(0, 1.0f, 0), wasMagic);
+			triggerCameraShake(0.09f, 0.22f);
 		}
 
 		// Move Caster (deterministic via MOVE_UNIT processed immediately)
@@ -30516,10 +30743,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int x = tile.toX;
 			int y = tile.toY;
 			if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-				if (tile.setHasWall == -1)
+				if (tile.setHasWall == -1) {
+					bool wasMagic = board[x][y].isMagicWall;
 					board[x][y].hasWall = false;
-				else if (tile.setHasWall == 1)
+					spawnWallDebris(gridToWorld(x, y) + glm::vec3(0, 1.0f, 0), wasMagic);
+					triggerCameraShake(0.12f, 0.28f);
+				} else if (tile.setHasWall == 1) {
 					board[x][y].hasWall = true;
+				}
 				buildLevelMesh();
 			}
 		}
@@ -41822,6 +42053,7 @@ void ofApp::loadCardData(const std::string & filePath) {
 
 void ofApp::saveSettings() {
 	ofJson json;
+	json["inWorldHPMode"] = settingsInWorldHPMode;
 	json["masterVolume"] = settingsMasterVolume;
 	json["menuVolume"] = settingsMenuVolume;
 	json["sfxVolume"] = settingsSfxVolume;
@@ -41862,18 +42094,22 @@ void ofApp::updateAudioVolumes() {
 	float master = std::clamp(settingsMasterVolume, 0.0f, 1.0f);
 	float music = std::clamp(settingsMenuVolume, 0.0f, 1.0f);
 
-	// FIX: Removed ofSoundSetVolume(master) because it is NOT implemented on Linux
-	// (ALSA/PulseAudio/PipeWire), which causes terminal spam and breaks audio panning.
-	// We already manually multiply `settingsMasterVolume` into every individual
-	// sfx.setVolume() call anyway, so the global engine override is completely unnecessary!
+	static float s_pauseMuffleAmount = 0.0f;
+	bool isPaused = (currentState == STATE_PAUSED || (currentState == STATE_SETTINGS && stateBeforeSettings != STATE_MAIN_MENU));
+	float targetMuffle = isPaused ? 1.0f : 0.0f;
+	s_pauseMuffleAmount = ofLerp(s_pauseMuffleAmount, targetMuffle, std::min<float>(1.0f, 10.0f * (float)ofGetLastFrameTime()));
 
-	// Update active background music streams immediately
-	float finalMusicVol = master * music;
+	// Muffle volume to 35% and pitch to 0.88x (warm, heavy low-register acoustic filter)
+	float volumeMul = 1.0f - (s_pauseMuffleAmount * 0.65f);
+	float speedMul = 1.0f - (s_pauseMuffleAmount * 0.12f);
+
+	float finalMusicVol = master * music * volumeMul;
 	if (mainMenuMusic.isLoaded()) {
 		mainMenuMusic.setVolume(finalMusicVol);
 	}
 	if (g_gameMusic.isLoaded()) {
 		g_gameMusic.setVolume(finalMusicVol);
+		g_gameMusic.setSpeed(speedMul);
 	}
 }
 
@@ -41885,6 +42121,7 @@ void ofApp::loadSettings() {
 	}
 	try {
 		ofJson json = ofLoadJson(path);
+		settingsInWorldHPMode = json.value("inWorldHPMode", settingsInWorldHPMode);
 		settingsMasterVolume = json.value("masterVolume", settingsMasterVolume);
 		settingsMenuVolume = json.value("menuVolume", settingsMenuVolume);
 		settingsSfxVolume = json.value("sfxVolume", settingsSfxVolume);
