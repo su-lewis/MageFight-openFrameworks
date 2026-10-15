@@ -17161,9 +17161,27 @@ void ofApp::drawGame() {
 	if (showEndTurn || showDoneBtn) {
 		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 		ofSetColor(ofColor::white);
-		string endTurnButtonText = showDoneBtn ? _L("UI_BTN_DONE", optionalBtnText) : _L("UI_BTN_END_TURN", "End Turn");
-		// Use drawStatText to render the outlined, centered button text
-		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, fontScale);
+
+		string defaultLabel = "End Turn";
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			if (players[currentPlayerIndex].isMinion) {
+				// Dynamically show the specific minion name (e.g., "Finish Skeleton 1", "Finish Wolf 2")
+				defaultLabel = "Finish " + getPlayerDisplayName(currentPlayerIndex);
+			} else {
+				defaultLabel = "End Turn";
+			}
+		}
+
+		string endTurnButtonText = showDoneBtn ? _L("UI_BTN_DONE", optionalBtnText) : (endTurnLocked ? _L("UI_BTN_ENDING", "Ending...") : defaultLabel);
+
+		// If the minion name is long, dynamically scale the font down so it never overflows the button
+		float buttonTextScale = fontScale;
+		ofRectangle textBounds = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
+		if (textBounds.width * buttonTextScale > (endTurnButtonRect.width - 24.0f * scale)) {
+			buttonTextScale = (endTurnButtonRect.width - 24.0f * scale) / std::max(1.0f, textBounds.width);
+		}
+
+		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, buttonTextScale);
 	}
 
 	// Disable small HUD Save/Load buttons next to End Turn (moved to pause menu)
@@ -21299,28 +21317,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				playHandFeedbackSfx(0.9f, 0.1f);
 				return;
 			}
-			if (isPlayerAnimating) {
-				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
-				ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
-				return;
-			}
-			// Prevent ending turn while AP roll animation is still running for this unit
-			bool apRollActiveLocal = false;
-			for (const auto & r : activeDiceRolls) {
-				if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-					apRollActiveLocal = true;
-					break;
-				}
-			}
-			if (apRollActiveLocal) {
-				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
-				ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
-				return;
-			}
+
 			if (endTurnLocked) return;
 
-			if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
-				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Finish action first", ofColor::yellow);
+			// Do not allow ending turn while actively aiming a target or interacting with a modal choice menu
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+				queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Finish targeting first", ofColor::yellow);
 				return;
 			}
 
@@ -22818,29 +22820,13 @@ void ofApp::keyPressed(int key) {
 	if ((key == 'e' || key == 'E') && currentState == STATE_GAMEPLAY) {
 		if (isChatOpen || isCardSpawnerOpen) return;
 
-		// FIX: Strictly block the 'E' key if it is the AI's turn or Opponent's turn!
+		// Strictly block the 'E' key if it is the AI's turn or Opponent's turn!
 		if (!isMyTurn()) return;
-		if (isPlayerAnimating) {
-			queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
-			ofLogNotice("Turn") << "End Turn (key) ignored: movement animation still active.";
-			return;
-		}
-		// Prevent ending turn while AP roll animation is still running for this unit
-		bool apRollActiveLocal = false;
-		for (const auto & r : activeDiceRolls) {
-			if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-				apRollActiveLocal = true;
-				break;
-			}
-		}
-		if (apRollActiveLocal) {
-			queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
-			ofLogNotice("Turn") << "End Turn (key) ignored: AP roll still active for current unit.";
-			return;
-		}
 		if (endTurnLocked) return;
-		if (cardPlayState != CARD_PLAY_STATE_IDLE || cardInteractionState != CARD_INTERACTION_STATE_IDLE) {
-			queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Finish action first", ofColor::yellow);
+
+		// Do not allow ending turn while actively aiming a target or interacting with a modal choice menu
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
+			queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Finish targeting first", ofColor::yellow);
 			return;
 		}
 		// Ghost form check similar to mouse click
@@ -23353,13 +23339,24 @@ void ofApp::startNewTurn() {
 					break;
 				}
 			}
-			currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
-			if (currentPlayerIndex == 0) globalTurnCounter++;
+			// Advance to the next alive player
+			int attempts = 0;
+			do {
+				currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+				if (currentPlayerIndex == 0) globalTurnCounter++;
+				attempts++;
+			} while (players[currentPlayerIndex].health <= 0 && attempts < (int)players.size());
 		} else {
-			// If active player died, clamp to valid bounds
+			// If active player died, clamp to valid bounds and skip dead units
 			if (currentPlayerIndex >= (int)players.size()) {
 				currentPlayerIndex = 0;
 				globalTurnCounter++;
+			}
+			int attempts = 0;
+			while (players[currentPlayerIndex].health <= 0 && attempts < (int)players.size()) {
+				currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+				if (currentPlayerIndex == 0) globalTurnCounter++;
+				attempts++;
 			}
 		}
 
@@ -23441,7 +23438,7 @@ void ofApp::startNewTurn() {
 		startingPlayer.defenseCycle = -1;
 	}
 
-	if (startingPlayer.hasRegeneration) {
+	if (startingPlayer.hasRegeneration && startingPlayer.health > 0) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
 			int sidx = currentPlayerIndex;
 			EffectOp op = {};
@@ -26264,6 +26261,14 @@ void ofApp::processCommandQueue() {
 				break;
 			}
 		}
+		if (!isUnitDying) {
+			for (const auto & p : players) {
+				if (p.health <= 0) {
+					isUnitDying = true;
+					break;
+				}
+			}
+		}
 
 		bool isStateBlocking = (cardPlayState != CARD_PLAY_STATE_IDLE);
 
@@ -26296,7 +26301,7 @@ void ofApp::processCommandQueue() {
 						break;
 					}
 				}
-				if (g_lobbyPlayers.size() < 2 || (!localPlayerPresent && myLocalPlayerID != 255)) {
+				if (g_lobbyPlayers.empty() || g_lobbyPlayers.size() < 2 || (!localPlayerPresent && myLocalPlayerID != 255)) {
 					break; // Pause commandQueue without popping; wait for PKT_LOBBY_UPDATE
 				}
 			}
@@ -26307,8 +26312,8 @@ void ofApp::processCommandQueue() {
 			if (cmdType == CMD_PLAY_CARD || cmdType == CMD_MOVE_UNIT || cmdType == CMD_DRAW_CARDS) {
 				break; // PAUSE THE QUEUE
 			}
-			if (cmdType == CMD_END_TURN && (isProcessingEffect || isEarthquakeActive || isUnitDying || animatingBlocksQueue)) {
-				break; // Allow END_TURN to bypass targeting menus, but pause if effects are resolving
+			if (cmdType == CMD_END_TURN && (isProcessingEffect || isEarthquakeActive || isStateBlocking || isUnitDying || animatingBlocksQueue)) {
+				break; // Wait until all card effects, animations, and unit deaths have completed
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
@@ -26463,7 +26468,12 @@ void ofApp::simulationTick() {
 				}
 			}
 
-			if (!shouldDie) continue;
+			if (!shouldDie) {
+				// Clean up any stale death delay entry if the unit survived or is alive
+				int pID = players[i].playerID;
+				s_playerDeathDelayMap.erase(pID);
+				continue;
+			}
 
 			// Handle Dramatic Death Delay (1.2 seconds of suspense)
 			int pID = players[i].playerID;
@@ -26877,12 +26887,22 @@ void ofApp::simulationTick() {
 	// Other deterministic game logic runs here
 	// (AI decisions, passive effects, turn timers, etc.)
 	inSimulationTick = false;
-	// Process any deferred startNewTurn requests scheduled from non-tick code
+	// Process deferred startNewTurn requests only once all effects, animations, and deaths have resolved
 	if (pendingStartNewTurnRequests > 0) {
-		// Execute all pending requests in-order
-		while (pendingStartNewTurnRequests > 0) {
-			pendingStartNewTurnRequests -= 1;
-			startNewTurn();
+		bool busy = isProcessingEffect || !currentEffectSequence.isComplete || (cardPlayState != CARD_PLAY_STATE_IDLE) || isPlayerAnimating || isEarthquakeActive || !s_playerDeathDelayMap.empty();
+		if (!busy) {
+			for (const auto & p : players) {
+				if (p.health <= 0) {
+					busy = true;
+					break;
+				}
+			}
+		}
+		if (!busy) {
+			while (pendingStartNewTurnRequests > 0) {
+				pendingStartNewTurnRequests -= 1;
+				startNewTurn();
+			}
 		}
 	}
 }
