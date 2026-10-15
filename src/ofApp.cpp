@@ -16947,14 +16947,11 @@ void ofApp::drawGame() {
 	// Use uiScale specifically for the End Turn button to perfectly match prepareGameVisualState
 	float uiScaleBtn = getUIScaleFromHeight(ofGetHeight());
 
-	// If UI wasn't snapped on resize (some platforms/window managers),
-	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
-		float btnWidth_tmp = 260 * uiScaleBtn; // CHANGED: Increased from 250
+		float btnWidth_tmp = 260 * uiScaleBtn;
 		float scale1080 = (float)ofGetHeight() / 1080.0f;
 		float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
 		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
-		// Ensure extra room for stroke/glow so top outlines aren't clipped
 		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
 		float hiddenY = -100 * uiScaleBtn;
 		bool myTurn = isMyTurn();
@@ -16965,19 +16962,14 @@ void ofApp::drawGame() {
 		endTurnButtonTargetPos = endTurnButtonCurrentPos;
 	}
 
-	float btnWidth_end = 260 * uiScaleBtn; // CHANGED: Increased from 250
-	float btnHeight_end = 66 * uiScaleBtn; // CHANGED: Increased from 60
+	float btnWidth_end = 260 * uiScaleBtn;
+	float btnHeight_end = 66 * uiScaleBtn;
 
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
 
-	// Check if it's my turn
 	bool myTurn = isMyTurn();
-
-	// CRITICAL FIX: In AI vs AI mode, it's never technically "My Turn" in the UI,
-	// but we must still show the End Turn button so it functions correctly!
 	if (isAIvsAI) myTurn = true;
 
-	// Determine if we are in an optional placement/targeting mode
 	bool isOptionalInteraction = false;
 	string optionalBtnText = "Done";
 	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
@@ -16994,7 +16986,7 @@ void ofApp::drawGame() {
 		optionalBtnText = "Done";
 	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
 		isOptionalInteraction = true;
-		optionalBtnText = "Done"; // Allow forfeiting remaining tails targeting!
+		optionalBtnText = "Done";
 	}
 
 	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY) && !isOptionalInteraction;
@@ -17019,7 +17011,6 @@ void ofApp::drawGame() {
 		ofSetColor(baseFill);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
 
-		// Render archetype border
 		ofPushStyle();
 		ofNoFill();
 		ofSetLineWidth(2.5f * uiScaleBtn);
@@ -17031,24 +17022,20 @@ void ofApp::drawGame() {
 		ofSetColor(60, 60, 80, 200);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
 
-		// Get current player's name (not "opponent" - use actual Steam name)
 		std::string playerName = "Player";
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			playerName = getPlayerSteamName(currentPlayerIndex);
 		}
 
-		// Draw profile picture on the left side
 		float avatarSize = btnHeight_end * 0.7f;
 		float avatarPadding = 10 * scale;
 		float avatarX = endTurnButtonRect.x + avatarPadding;
 		float avatarY = endTurnButtonRect.getCenter().y - avatarSize / 2;
 
-		// Draw avatar background circle
 		ofPushStyle();
 		ofSetColor(80, 80, 100);
 		ofDrawCircle(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2);
 
-		// Choose avatar image based on whose turn it is
 		bool isLocalTurn = false;
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			isLocalTurn = (players[currentPlayerIndex].playerID == myLocalPlayerID);
@@ -17065,13 +17052,11 @@ void ofApp::drawGame() {
 			drewAvatar = true;
 		}
 
-		// Fallback: draw initials if avatar is unavailable
 		if (!drewAvatar) {
 			ofSetColor(ofColor::white);
 			string initials = "";
 			if (!playerName.empty()) {
 				initials += playerName[0];
-				// Find second initial after space
 				size_t spacePos = playerName.find(' ');
 				if (spacePos != string::npos && spacePos + 1 < playerName.length()) {
 					initials += playerName[spacePos + 1];
@@ -17088,17 +17073,14 @@ void ofApp::drawGame() {
 		}
 		safePopStyle();
 
-		// Draw text to the right of avatar
 		ofSetColor(ofColor::gold);
 		string turnText = playerName + "'s Turn";
 
-		// Use smaller font and scale to fit in the button
 		float turnFontScale = fontScale * 0.7f;
 		ofRectangle turnTextBox = uiFont.getStringBoundingBox(turnText, 0, 0);
 		float textStartX = avatarX + avatarSize + avatarPadding;
 		float availableWidth = endTurnButtonRect.width - (avatarSize + avatarPadding * 3);
 
-		// Scale down further if text is still too wide
 		float textWidth = turnTextBox.width * turnFontScale;
 		if (textWidth > availableWidth) {
 			turnFontScale *= (availableWidth / textWidth) * 0.95f;
@@ -17153,14 +17135,12 @@ void ofApp::drawGame() {
 
 	if (hasNothingLeftToDo) {
 		ofPushStyle();
-		// Concentric soft green glow aura
 		ofSetColor(0, 220, 80, 160);
 		float glow = 6.0f * uiScaleBtn;
 		ofDrawRectRounded(endTurnButtonRect.x - glow, endTurnButtonRect.y - glow,
 			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
 			(10 * uiScaleBtn) + glow);
 
-		// Crisp green border
 		ofPath p;
 		p.rectRounded(endTurnButtonRect, 10 * uiScaleBtn);
 		p.setFilled(false);
@@ -17201,79 +17181,7 @@ void ofApp::drawGame() {
 
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, textFill, buttonTextScale);
 	}
-
-	// 2. Draw Yellow Highlight (New Logic)
-	// If no AP left AND player has already used their draw, suggest ending turn.
-	// But do not highlight if an assistant reroll is possible.
-	// Determine displayed AP for current unit (player or minion) and whether an AP roll animation is active
-	int displayedAPForCurrent = 0;
-	bool apRollActive = false;
-	if (currentPlayerIndex >= 0) {
-		// Start with authoritative AP for the active actor (handles minions and players)
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			displayedAPForCurrent = players[currentPlayerIndex].ap;
-		}
-		// Add any finished AP dice targeted at this actor (for immediate visual updates)
-		for (const auto & r : activeDiceRolls) {
-			if (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) {
-				if (!r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) apRollActive = true;
-				if (r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) displayedAPForCurrent += r.result;
-			}
-		}
-		// Include any next-turn bonus that affects this actor
-		if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAPForCurrent += players[currentPlayerIndex].nextTurnAPBonus;
-		// Also make sure we don't display more AP than the global `currentAP` when that reflects the same actor
-		if (currentAP < displayedAPForCurrent) {
-			displayedAPForCurrent = currentAP;
-		} else {
-			displayedAPForCurrent = std::max(displayedAPForCurrent, currentAP);
-		}
-	}
-
-	bool rerollAvailable = false;
-	if (players.size() > 0 && currentPlayerIndex != -1 && displayedAPForCurrent == 0 && currentAP == 0) {
-		Player & curr = players[currentPlayerIndex];
-		for (const auto & p : players) {
-			if (p.isAssistant && p.health > 0 && p.directSummonerID == (curr.isMinion ? curr.ownerID : curr.playerID) && !p.assistantRerollUsedThisTurn) {
-				int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
-				if (dist <= 1) {
-					rerollAvailable = true;
-					break;
-				}
-			}
-		}
-	}
-
-	// Determine whether the active actor (player or minion) has performed their draw
-	bool activeActorHasDrawn = false;
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		activeActorHasDrawn = players[currentPlayerIndex].hasDrawnThisTurn;
-	} else {
-		activeActorHasDrawn = hasDrawnCardsThisTurn; // fallback
-	}
-
-	if (!disableAllGlow && displayedAPForCurrent <= 0 && activeActorHasDrawn && !rerollAvailable && showEndTurn) {
-		// Draw a small green glow behind the button so the outline is always
-		// fully visible (avoid relying on stroke rendering which can clip).
-		ofPushStyle();
-		ofSetColor(0, 200, 0, 160);
-		float glow = 6.0f * uiScaleBtn;
-		ofDrawRectRounded(endTurnButtonRect.x - glow, endTurnButtonRect.y - glow,
-			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
-			(10 * uiScaleBtn) + glow);
-
-		// Thin crisp border using ofPath to guarantee thickness
-		ofPath p;
-		p.rectRounded(endTurnButtonRect, 10 * uiScaleBtn);
-		p.setFilled(false);
-		p.setStrokeWidth(3 * uiScaleBtn);
-		p.setStrokeColor(ofColor::green);
-		p.draw();
-
-		safePopStyle();
-	}
-
-	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
+	
 	if (showEndTurn || showDoneBtn) {
 		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 		ofSetColor(ofColor::white);
