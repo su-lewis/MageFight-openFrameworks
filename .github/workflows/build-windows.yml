@@ -47,7 +47,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: ${{ runner.os }}-of-0.12.0-core-v4
+        key: ${{ runner.os }}-of-0.12.0-core-v5
 
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
@@ -64,6 +64,7 @@ jobs:
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
         
+        # 1. Create glm.pc stub
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -74,20 +75,30 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
-        # Provide a stub rtaudio.pc so pkg-config never fails if queried
+        # 2. Provide a stub rtaudio.pc and dummy static library / header
         cat << 'EOF' > /mingw64/lib/pkgconfig/rtaudio.pc
         prefix=/mingw64
         includedir=${prefix}/include
         Name: rtaudio
         Description: RtAudio dummy
         Version: 5.2.0
-        Libs:
+        Libs: -lrtaudio
         Cflags:
         EOF
 
-        # Disable rtaudio dependency from OF build system; OF will fall back to ofNullSoundStream
-        sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' ../../libs/openFrameworksCompiled/project/makefileCommon/config.msys2.default.mk
-        sed -i 's/#define OF_SOUNDSTREAM_RTAUDIO/\/\/#define OF_SOUNDSTREAM_RTAUDIO/g' ../../libs/openFrameworks/utils/ofConstants.h
+        mkdir -p /mingw64/include/rtaudio
+        cat << 'EOF' > /mingw64/include/RtAudio.h
+        #pragma once
+        class RtAudio {};
+        EOF
+        cp /mingw64/include/RtAudio.h /mingw64/include/rtaudio/RtAudio.h
+        ar cr /mingw64/lib/librtaudio.a
+
+        # 3. Clean rtaudio from makefiles safely
+        find ../../libs/openFrameworksCompiled/ -type f -name "*.mk" -exec sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' {} +
+        if [ -f ../../libs/openFrameworks/utils/ofConstants.h ]; then
+          sed -i 's/#define OF_SOUNDSTREAM_RTAUDIO/\/\/#define OF_SOUNDSTREAM_RTAUDIO/g' ../../libs/openFrameworks/utils/ofConstants.h
+        fi
 
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
         cd ../../libs/openFrameworksCompiled/project
@@ -97,7 +108,6 @@ jobs:
       run: |
         cd openFrameworks/scripts/msys2
         
-        # Patch dependency script for cache-restore runs
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
         
@@ -120,9 +130,17 @@ jobs:
         Name: rtaudio
         Description: RtAudio dummy
         Version: 5.2.0
-        Libs:
+        Libs: -lrtaudio
         Cflags:
         EOF
+
+        mkdir -p /mingw64/include/rtaudio
+        cat << 'EOF' > /mingw64/include/RtAudio.h
+        #pragma once
+        class RtAudio {};
+        EOF
+        cp /mingw64/include/RtAudio.h /mingw64/include/rtaudio/RtAudio.h
+        ar cr /mingw64/lib/librtaudio.a
 
     - name: Setup Project Directory
       run: |
