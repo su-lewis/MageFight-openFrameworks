@@ -7,7 +7,6 @@ jobs:
   build-windows:
     runs-on: windows-latest
     
-    # Permissions required to read workflow history for the changelog
     permissions:
       contents: read
       actions: read 
@@ -47,7 +46,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: ${{ runner.os }}-of-0.12.0-core-v5
+        key: ${{ runner.os }}-of-0.12.0-core-v6
 
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
@@ -75,30 +74,51 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
-        # 2. Provide a stub rtaudio.pc and dummy static library / header
+        # 2. Provide a stub rtaudio.pc and dummy static library
         cat << 'EOF' > /mingw64/lib/pkgconfig/rtaudio.pc
         prefix=/mingw64
         includedir=${prefix}/include
         Name: rtaudio
         Description: RtAudio dummy
         Version: 5.2.0
-        Libs: -lrtaudio
+        Libs:
         Cflags:
         EOF
-
-        mkdir -p /mingw64/include/rtaudio
-        cat << 'EOF' > /mingw64/include/RtAudio.h
-        #pragma once
-        class RtAudio {};
-        EOF
-        cp /mingw64/include/RtAudio.h /mingw64/include/rtaudio/RtAudio.h
         ar cr /mingw64/lib/librtaudio.a
 
-        # 3. Clean rtaudio from makefiles safely
+        # 3. Clean rtaudio from makefiles
         find ../../libs/openFrameworksCompiled/ -type f -name "*.mk" -exec sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' {} +
-        if [ -f ../../libs/openFrameworks/utils/ofConstants.h ]; then
-          sed -i 's/#define OF_SOUNDSTREAM_RTAUDIO/\/\/#define OF_SOUNDSTREAM_RTAUDIO/g' ../../libs/openFrameworks/utils/ofConstants.h
-        fi
+
+        # 4. Disable OF_SOUNDSTREAM_RTAUDIO across all headers so OF uses ofNullSoundStream
+        find ../../libs/openFrameworks/ -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/#define OF_SOUNDSTREAM_RTAUDIO/\/\/#define OF_SOUNDSTREAM_RTAUDIO/g' {} +
+
+        # 5. Disable ofRtAudioSoundStream implementation entirely
+        echo "#if 0" > temp_rt.cpp
+        cat ../../libs/openFrameworks/sound/ofRtAudioSoundStream.cpp >> temp_rt.cpp
+        echo "#endif" >> temp_rt.cpp
+        mv temp_rt.cpp ../../libs/openFrameworks/sound/ofRtAudioSoundStream.cpp
+
+        # 6. Stub ofRtAudioSoundStream class declaration to prevent missing-type errors
+        cat << 'EOF' > ../../libs/openFrameworks/sound/ofRtAudioSoundStream.h
+        #pragma once
+        #include "ofBaseSoundStream.h"
+        class ofRtAudioSoundStream : public ofBaseSoundStream {
+        public:
+            bool setup(const ofSoundStreamSettings& settings) override { return true; }
+            void start() override {}
+            void stop() override {}
+            void close() override {}
+            uint64_t getTickCount() const override { return 0; }
+            int getNumInputChannels() const override { return 0; }
+            int getNumOutputChannels() const override { return 0; }
+            int getSampleRate() const override { return 44100; }
+            int getBufferSize() const override { return 512; }
+            std::vector<ofSoundDevice> getDeviceList(ofSoundDevice::Api) const override { return {}; }
+            void setDeviceID(int) override {}
+            void setInDeviceID(int) override {}
+            void setOutDeviceID(int) override {}
+        };
+        EOF
 
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
         cd ../../libs/openFrameworksCompiled/project
@@ -130,16 +150,9 @@ jobs:
         Name: rtaudio
         Description: RtAudio dummy
         Version: 5.2.0
-        Libs: -lrtaudio
+        Libs:
         Cflags:
         EOF
-
-        mkdir -p /mingw64/include/rtaudio
-        cat << 'EOF' > /mingw64/include/RtAudio.h
-        #pragma once
-        class RtAudio {};
-        EOF
-        cp /mingw64/include/RtAudio.h /mingw64/include/rtaudio/RtAudio.h
         ar cr /mingw64/lib/librtaudio.a
 
     - name: Setup Project Directory
