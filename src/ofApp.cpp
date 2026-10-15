@@ -16999,11 +16999,33 @@ void ofApp::drawGame() {
 
 	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY) && !isOptionalInteraction;
 	bool showDoneBtn = isCurrentPlayerLocal() && isOptionalInteraction;
+	bool isCurrentMinion = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion);
 
 	if (showEndTurn || showDoneBtn) {
-		// 1. Draw End Turn Button Background
-		ofSetColor(isHoveringEndTurn ? ofColor::darkSlateGray : ofColor::slateGray);
+		// 1. Draw End Turn / Finish Unit Button Background & Styled Archetype Border
+		ofColor baseFill;
+		ofColor baseBorder;
+
+		if (isCurrentMinion) {
+			// Minion: Slate-blue fill with cool silver / slate-blue trim
+			baseFill = isHoveringEndTurn ? ofColor(42, 54, 70, 245) : ofColor(28, 38, 50, 235);
+			baseBorder = ofColor(176, 196, 222, 220); // Silver / Slate-Blue
+		} else {
+			// Main Wizard: Classic dark charcoal fill with rich golden trim
+			baseFill = isHoveringEndTurn ? ofColor(56, 46, 52, 245) : ofColor(36, 30, 35, 235);
+			baseBorder = ofColor(255, 215, 0, 220); // Glowing Gold
+		}
+
+		ofSetColor(baseFill);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
+
+		// Render archetype border
+		ofPushStyle();
+		ofNoFill();
+		ofSetLineWidth(2.5f * uiScaleBtn);
+		ofSetColor(baseBorder);
+		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
+		safePopStyle();
 	} else {
 		// Draw turn indicator showing whose turn it is
 		ofSetColor(60, 60, 80, 200);
@@ -17071,7 +17093,7 @@ void ofApp::drawGame() {
 		string turnText = playerName + "'s Turn";
 
 		// Use smaller font and scale to fit in the button
-		float turnFontScale = fontScale * 0.7f; // Make text smaller
+		float turnFontScale = fontScale * 0.7f;
 		ofRectangle turnTextBox = uiFont.getStringBoundingBox(turnText, 0, 0);
 		float textStartX = avatarX + avatarSize + avatarPadding;
 		float availableWidth = endTurnButtonRect.width - (avatarSize + avatarPadding * 3);
@@ -17079,11 +17101,105 @@ void ofApp::drawGame() {
 		// Scale down further if text is still too wide
 		float textWidth = turnTextBox.width * turnFontScale;
 		if (textWidth > availableWidth) {
-			turnFontScale *= (availableWidth / textWidth) * 0.95f; // Leave 5% margin
+			turnFontScale *= (availableWidth / textWidth) * 0.95f;
 		}
 
-		// Use drawStatText to ensure outlined, centered text to the right of avatar
 		drawStatText(uiFont, turnText, textStartX, endTurnButtonRect.y, availableWidth, endTurnButtonRect.height, ofColor::gold, turnFontScale);
+	}
+
+	// 2. Determine AP and Draw State
+	int displayedAPForCurrent = 0;
+	bool apRollActive = false;
+	if (currentPlayerIndex >= 0) {
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			displayedAPForCurrent = players[currentPlayerIndex].ap;
+		}
+		for (const auto & r : activeDiceRolls) {
+			if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+				displayedAPForCurrent += r.result;
+			}
+		}
+		if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAPForCurrent += players[currentPlayerIndex].nextTurnAPBonus;
+		if (currentAP < displayedAPForCurrent) {
+			displayedAPForCurrent = currentAP;
+		} else {
+			displayedAPForCurrent = std::max(displayedAPForCurrent, currentAP);
+		}
+	}
+
+	bool rerollAvailable = false;
+	if (players.size() > 0 && currentPlayerIndex != -1 && displayedAPForCurrent == 0 && currentAP == 0) {
+		Player & curr = players[currentPlayerIndex];
+		for (const auto & p : players) {
+			if (p.isAssistant && p.health > 0 && p.directSummonerID == (curr.isMinion ? curr.ownerID : curr.playerID) && !p.assistantRerollUsedThisTurn) {
+				int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+				if (dist <= 1) {
+					rerollAvailable = true;
+					break;
+				}
+			}
+		}
+	}
+
+	bool activeActorHasDrawn = false;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		activeActorHasDrawn = players[currentPlayerIndex].hasDrawnThisTurn;
+	} else {
+		activeActorHasDrawn = hasDrawnCardsThisTurn;
+	}
+
+	// Turn transitions to glowing Green when there is nothing left to do (0 AP, cards drawn, no reroll)
+	bool hasNothingLeftToDo = (!disableAllGlow && displayedAPForCurrent <= 0 && activeActorHasDrawn && !rerollAvailable && showEndTurn);
+
+	if (hasNothingLeftToDo) {
+		ofPushStyle();
+		// Concentric soft green glow aura
+		ofSetColor(0, 220, 80, 160);
+		float glow = 6.0f * uiScaleBtn;
+		ofDrawRectRounded(endTurnButtonRect.x - glow, endTurnButtonRect.y - glow,
+			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
+			(10 * uiScaleBtn) + glow);
+
+		// Crisp green border
+		ofPath p;
+		p.rectRounded(endTurnButtonRect, 10 * uiScaleBtn);
+		p.setFilled(false);
+		p.setStrokeWidth(3.0f * uiScaleBtn);
+		p.setStrokeColor(ofColor(40, 255, 100));
+		p.draw();
+
+		safePopStyle();
+	}
+
+	// 3. Draw Button Text (dynamic per unit archetype: "Finish [Minion Name]" vs "End Turn")
+	if (showEndTurn || showDoneBtn) {
+		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
+
+		string defaultLabel = "End Turn";
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			if (players[currentPlayerIndex].isMinion) {
+				defaultLabel = "Finish " + getPlayerDisplayName(currentPlayerIndex);
+			} else {
+				defaultLabel = "End Turn";
+			}
+		}
+
+		string endTurnButtonText = showDoneBtn ? _L("UI_BTN_DONE", optionalBtnText) : (endTurnLocked ? _L("UI_BTN_ENDING", "Ending...") : defaultLabel);
+
+		// Dynamic font auto-scaler: prevents longer minion names from overflowing the 260px button width
+		float buttonTextScale = fontScale;
+		ofRectangle textBounds = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
+		float maxTextW = endTurnButtonRect.width - (24.0f * scale);
+		if (textBounds.width * buttonTextScale > maxTextW) {
+			buttonTextScale = maxTextW / std::max(1.0f, textBounds.width);
+		}
+
+		ofColor textFill = ofColor::white;
+		if (isCurrentMinion && !hasNothingLeftToDo && !endTurnLocked) {
+			textFill = ofColor(230, 240, 255); // Crisp ice-silver tone for minions
+		}
+
+		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, textFill, buttonTextScale);
 	}
 
 	// 2. Draw Yellow Highlight (New Logic)
