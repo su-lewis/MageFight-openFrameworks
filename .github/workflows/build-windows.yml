@@ -1,17 +1,16 @@
 name: Build Windows EXE
 
 on:
-  workflow_dispatch: # This is the magic word for "Manual Trigger Only"
+  workflow_dispatch: # Manual Trigger Only
 
 jobs:
   build-windows:
     runs-on: windows-latest
     
-    # --- CRITICAL FIX: Grant permission to read workflow history for the changelog ---
+    # Permissions required to read workflow history for the changelog
     permissions:
       contents: read
       actions: read 
-    # -------------------------------------------------------------------------------
 
     defaults:
       run:
@@ -41,14 +40,14 @@ jobs:
       uses: actions/checkout@v4
       with:
         path: my_game_repo
-        fetch-depth: 0  # <--- CRITICAL: Downloads full git history so we can generate the changelog
+        fetch-depth: 0
 
     - name: Cache openFrameworks Framework
       id: cache-of
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: ${{ runner.os }}-of-0.12.0-core-v3
+        key: ${{ runner.os }}-of-0.12.0-core-v4
 
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
@@ -57,9 +56,14 @@ jobs:
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
         cd openFrameworks/scripts/msys2
+        
+        # Patch renamed FreeImage and dropped rtaudio packages from pacman dependency list
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
+        
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
+        
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -69,6 +73,22 @@ jobs:
         Version: 1.0.3
         Cflags: -I${includedir}
         EOF
+
+        # Provide a stub rtaudio.pc so pkg-config never fails if queried
+        cat << 'EOF' > /mingw64/lib/pkgconfig/rtaudio.pc
+        prefix=/mingw64
+        includedir=${prefix}/include
+        Name: rtaudio
+        Description: RtAudio dummy
+        Version: 5.2.0
+        Libs:
+        Cflags:
+        EOF
+
+        # Disable rtaudio dependency from OF build system; OF will fall back to ofNullSoundStream
+        sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' ../../libs/openFrameworksCompiled/project/makefileCommon/config.msys2.default.mk
+        sed -i 's/#define OF_SOUNDSTREAM_RTAUDIO/\/\/#define OF_SOUNDSTREAM_RTAUDIO/g' ../../libs/openFrameworks/utils/ofConstants.h
+
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
@@ -76,8 +96,14 @@ jobs:
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
+        
+        # Patch dependency script for cache-restore runs
+        sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
+        
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
+        
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -88,10 +114,19 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
+        cat << 'EOF' > /mingw64/lib/pkgconfig/rtaudio.pc
+        prefix=/mingw64
+        includedir=${prefix}/include
+        Name: rtaudio
+        Description: RtAudio dummy
+        Version: 5.2.0
+        Libs:
+        Cflags:
+        EOF
+
     - name: Setup Project Directory
       run: |
         mkdir -p openFrameworks/apps/myApps/MageFight
-        # --- APPLIED RSYNC FIX HERE ---
         rsync -a --no-perms --exclude='.git' --delete my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
     - name: Build MageFight
@@ -150,14 +185,10 @@ jobs:
       run: |
         cd my_game_repo
         
-        # Get the current date and time (e.g., 2024-10-24 17:30)
         export CURRENT_DATE=$(date +"%Y-%m-%d %H:%M")
         
-        # 1. Ask GitHub API for the commit hash of the LAST SUCCESSFUL run
         LAST_SHA=$(gh run list --workflow "${{ github.workflow }}" --status success --json headSha --jq '[.[].headSha | select(. != "${{ github.sha }}")][0]')
 
-        # 2. Extract commit messages and EXPORT to environment variable
-        # Changed format to "- %s" (uses standard dash to fix encoding '?' bugs, and removes commit IDs)
         if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" == "null" ]; then
           echo "No previous successful build found. Falling back to last 5 commits."
           export RAW_COMMITS=$(git log -n 5 --no-merges --pretty=format:"- %s")
@@ -170,9 +201,6 @@ jobs:
           export RAW_COMMITS="- No new commits since last build."
         fi
 
-        # 3. Read directly from the $ENV object in jq. 
-        # Replaced the hardcoded title with the dynamic Date/Time!
         PAYLOAD=$(jq -n '{content: ("**" + $ENV.CURRENT_DATE + "**\n\nRecent Changes:\n" + $ENV.RAW_COMMITS)}')
 
-        # 4. Send to Discord
         curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
