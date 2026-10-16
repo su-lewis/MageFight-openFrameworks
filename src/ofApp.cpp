@@ -3418,6 +3418,79 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	return outSpriteSheet.isAllocated();
 }
 
+static bool exportFullCardRenderSheet(const std::vector<Card> & allCards,
+	ofImage & cardSpriteSheet,
+	const ofTrueTypeFont & titleFont,
+	const ofTrueTypeFont & effectFont,
+	const std::string & outPath) {
+	if (allCards.empty() || !cardSpriteSheet.isAllocated()) return false;
+
+	const int cols = 10;
+	const int rows = (int)std::ceil(allCards.size() / (float)cols);
+	const int cardW = std::max(1, (int)allCards[0].textureRect.width);
+	const int cardH = std::max(1, (int)allCards[0].textureRect.height);
+	const int padX = 24;
+	const int padY = 24;
+	const int marginX = 24;
+	const int marginY = 24;
+
+	const int sheetW = marginX * 2 + cols * cardW + std::max(0, cols - 1) * padX;
+	const int sheetH = marginY * 2 + rows * cardH + std::max(0, rows - 1) * padY;
+
+	ofFbo fbo;
+	ofFboSettings settings;
+	settings.width = sheetW;
+	settings.height = sheetH;
+	settings.internalformat = GL_RGBA;
+	settings.useDepth = false;
+	settings.useStencil = false;
+	settings.textureTarget = GL_TEXTURE_2D;
+	fbo.allocate(settings);
+
+	const bool prevRenderGeometryMask = g_renderGeometryMask;
+	const bool prevRenderText = g_renderText;
+	const bool prevIsBurningCard = g_isBurningCard;
+	const float prevBurnProgress = g_burnProgress;
+
+	g_renderGeometryMask = true;
+	g_renderText = true;
+	g_isBurningCard = false;
+	g_burnProgress = 0.0f;
+
+	fbo.begin();
+	ofClear(0, 0, 0, 0);
+	for (size_t i = 0; i < allCards.size(); ++i) {
+		const int col = (int)(i % cols);
+		const int row = (int)(i / cols);
+		const float drawX = (float)marginX + (float)col * (float)(cardW + padX);
+		const float drawY = (float)marginY + (float)row * (float)(cardH + padY);
+		drawCardFaceDynamic(cardSpriteSheet, effectFont, titleFont, allCards[i], drawX, drawY, (float)cardW, (float)cardH, nullptr);
+	}
+	fbo.end();
+
+	ofPixels pixels;
+	fbo.readToPixels(pixels);
+	if (pixels.size() == 0) {
+		g_renderGeometryMask = prevRenderGeometryMask;
+		g_renderText = prevRenderText;
+		g_isBurningCard = prevIsBurningCard;
+		g_burnProgress = prevBurnProgress;
+		return false;
+	}
+
+	bool saved = ofSaveImage(pixels, outPath);
+
+	g_renderGeometryMask = prevRenderGeometryMask;
+	g_renderText = prevRenderText;
+	g_isBurningCard = prevIsBurningCard;
+	g_burnProgress = prevBurnProgress;
+
+	if (saved) {
+		ofLogNotice("Cards") << "Saved full rendered card sheet to " << outPath;
+	}
+	return saved;
+}
+
 bool containsSlur(const std::string & input) {
 	// Hardcoded list compiled directly into the binary.
 	// Add your actual words here. MUST BE ALL LOWERCASE!
@@ -17181,7 +17254,7 @@ void ofApp::drawGame() {
 
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, textFill, buttonTextScale);
 	}
-	
+
 	if (showEndTurn || showDoneBtn) {
 		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 		ofSetColor(ofColor::white);
@@ -41978,6 +42051,9 @@ void ofApp::loadCardData(const std::string & filePath) {
 				g_cardTextSpriteSheet.getTexture().readToPixels(textPix);
 				ofSaveImage(textPix, textAtlasPath);
 			}
+
+			const std::string fullSheetPath = ofToDataPath("UI/card_full_render_sheet.png", true);
+			exportFullCardRenderSheet(allCards, cardSpriteSheet, titleFont, cardEffectFont, fullSheetPath);
 			ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
 		} else {
 			ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
