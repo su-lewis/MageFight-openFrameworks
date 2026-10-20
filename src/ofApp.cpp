@@ -6801,22 +6801,27 @@ void ofApp::update() {
 		int localID = myLocalPlayerID;
 		if (localID < 0 || localID > 3) localID = 0;
 
-		// 1. Base outcome XP
-		int earnedXP = 150; // Base participation XP
+		// 1. TF2 Casual Base Outcome
+		int earnedXP = 100; // Match Completion: 100 XP (win or lose)
 		if (g_winnerID == localID) {
-			earnedXP += 350; // Victory bonus (+500 total)
+			earnedXP += 50; // Match Victory: +50 XP bonus
 		} else if (g_winnerID == 2) {
-			earnedXP += 150; // Draw bonus (+300 total)
+			earnedXP += 25; // Draw: +25 XP bonus
 		}
 
-		// 2. Performance-based XP bonuses
-		earnedXP += std::min(400, matchStats[localID].totalDamageDealt * 2);
-		earnedXP += std::min(200, matchStats[localID].totalHealing * 2);
-		earnedXP += std::min(150, matchStats[localID].minionsSpawned * 15);
-		earnedXP += std::min(150, matchStats[localID].cardsPlayed * 5);
+		// 2. TF2 Scoreboard Points (~6.5 XP per score point)
+		// Score calculation tailored to MageFight match metrics:
+		float matchPoints = 0.0f;
+		matchPoints += (matchStats[localID].totalDamageDealt * 0.5f); // 1 pt per 2 damage dealt
+		matchPoints += (matchStats[localID].totalHealing * 0.5f); // 1 pt per 2 healing done
+		matchPoints += (matchStats[localID].minionsSpawned * 2.0f); // 2 pts per minion summoned
+		matchPoints += (matchStats[localID].cardsPlayed * 0.5f); // 1 pt per 2 cards played
 
-		// Clamp match XP reward to reasonable limits
-		earnedXP = std::clamp(earnedXP, 100, 2000);
+		int performanceXP = (int)std::round(matchPoints * 6.5f);
+		earnedXP += performanceXP;
+
+		// Clamp match XP reward to reasonable limits (Min 100 XP completion)
+		earnedXP = std::clamp(earnedXP, 100, 2500);
 		lastMatchXPResult = steamManager.addXP(earnedXP);
 	}
 
@@ -9752,6 +9757,33 @@ void ofApp::drawCustomisationState() {
 	float cx = ofGetWidth() / 2.0f;
 
 	drawPixelTextCentered(titleFont, "CUSTOMISATION", cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
+
+	// --- LEVEL & XP DISPLAY AT TOP ---
+	int curLvl = steamManager.getLocalLevel();
+	int curXP = steamManager.getLocalXP();
+	int nextReq = steamManager.getXPRequiredForLevel(curLvl);
+	float xpPct = (nextReq > 0) ? std::clamp((float)curXP / (float)nextReq, 0.0f, 1.0f) : 1.0f;
+
+	float xpBarW = 380.0f * uiScale;
+	float xpBarH = 12.0f * uiScale;
+	float xpBarX = cx - xpBarW * 0.5f;
+	float xpBarY = 100.0f * uiScale;
+
+	// Progress bar container & border
+	ofSetColor(20, 20, 30, 230);
+	ofDrawRectRounded(xpBarX - 3.0f, xpBarY - 3.0f, xpBarW + 6.0f, xpBarH + 6.0f, 6.0f * uiScale);
+	ofSetColor(50, 50, 65);
+	ofDrawRectRounded(xpBarX, xpBarY, xpBarW, xpBarH, 4.0f * uiScale);
+
+	// Animated blue fill
+	ofSetColor(70, 180, 255);
+	ofDrawRectRounded(xpBarX, xpBarY, xpBarW * xpPct, xpBarH, 4.0f * uiScale);
+
+	// Level & XP counter text
+	std::string xpText = "Level " + std::to_string(curLvl) + "  •  " + std::to_string(curXP) + " / " + std::to_string(nextReq) + " XP";
+	drawPixelTextCentered(uiFont, xpText, cx, xpBarY - 10.0f * uiScale, 0.85f * uiScale, ofColor(255, 230, 120), 2, ofColor::black);
+	// ---------------------------------
+
 	drawPixelTextCentered(uiFont, "Coming Soon...", cx, ofGetHeight() / 2.0f, 1.0f * uiScale, ofColor::white);
 
 	// Explicitly assign the hitbox here so it perfectly matches the Encyclopedia back button

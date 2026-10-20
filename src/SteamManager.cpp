@@ -735,8 +735,12 @@ void SteamManager::onUserStatsReceived(UserStatsReceived_t * pCallback) {
 }
 
 int SteamManager::getXPRequiredForLevel(int level) {
-	if (level <= 0) level = 1;
-	return 500 + (level * 500);
+	if (level < 26) return 750;
+	if (level < 51) return 1250;
+	if (level < 76) return 2000;
+	if (level < 101) return 3000;
+	if (level < 126) return 4500;
+	return 7000;
 }
 
 void SteamManager::loadLocalProgressionBackup() {
