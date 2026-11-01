@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
