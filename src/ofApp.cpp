@@ -28302,6 +28302,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				}
 				if (!hasHumanOpponentInLobby) {
 					isVsAI = true;
+					// FIX: Force the built-in rule-based AI so we don't crash trying
+					// to communicate with a nonexistent Python Deep Learning ZMQ client!
+					currentAIMode = AI_MODE_RULE_BASED;
 				}
 
 				// Close and minimize the chat box so it doesn't cover the draft/gameplay
@@ -49134,16 +49137,25 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 
 	zmq::message_t request(payload.size() * sizeof(float));
 	memcpy(request.data(), payload.data(), payload.size() * sizeof(float));
-	zmqSocket->send(request, zmq::send_flags::none);
 
-	zmq::message_t reply;
-	auto res = zmqSocket->recv(reply, zmq::recv_flags::dontwait);
+	try {
+		zmqSocket->send(request, zmq::send_flags::none);
 
-	int actionIndex = -1; // -1 means no data received yet (WAIT)
-	if (res.has_value() && reply.size() >= sizeof(int)) {
-		actionIndex = *static_cast<int *>(reply.data());
+		zmq::message_t reply;
+		auto res = zmqSocket->recv(reply, zmq::recv_flags::dontwait);
+
+		int actionIndex = -1; // -1 means no data received yet (WAIT)
+		if (res.has_value() && reply.size() >= sizeof(int)) {
+			actionIndex = *static_cast<int *>(reply.data());
+		}
+		return actionIndex;
+	} catch (const zmq::error_t & e) {
+		ofLogWarning("AI") << "ZMQ Socket Error (likely EFSM / missing client): " << e.what();
+		// Disconnect ZMQ to prevent a continuous crash loop and fallback to local AI
+		zmqConnected = false;
+		currentAIMode = AI_MODE_RULE_BASED;
+		return 0; // End turn safely
 	}
-	return actionIndex;
 }
 
 void ofApp::executeAIAction(int actionIndex) {
