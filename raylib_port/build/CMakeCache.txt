@@ -206,19 +206,19 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=MageFightRaylib
+CMAKE_PROJECT_NAME:STATIC=MageFight
 
 //Value Computed by CMake
 CMAKE_PROJECT_SPDX_LICENSE:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_VERSION:STATIC=3.4.0
+CMAKE_PROJECT_VERSION:STATIC=1.0.0
 
 //Value Computed by CMake
-CMAKE_PROJECT_VERSION_MAJOR:STATIC=3
+CMAKE_PROJECT_VERSION_MAJOR:STATIC=1
 
 //Value Computed by CMake
-CMAKE_PROJECT_VERSION_MINOR:STATIC=4
+CMAKE_PROJECT_VERSION_MINOR:STATIC=0
 
 //Value Computed by CMake
 CMAKE_PROJECT_VERSION_PATCH:STATIC=0
@@ -406,6 +406,15 @@ MageFightRaylib_IS_TOP_LEVEL:STATIC=ON
 
 //Value Computed by CMake
 MageFightRaylib_SOURCE_DIR:STATIC=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port
+
+//Value Computed by CMake
+MageFight_BINARY_DIR:STATIC=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build
+
+//Value Computed by CMake
+MageFight_IS_TOP_LEVEL:STATIC=ON
+
+//Value Computed by CMake
+MageFight_SOURCE_DIR:STATIC=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port
 
 //Path to a file.
 OPENGL_EGL_INCLUDE_DIR:PATH=/usr/include

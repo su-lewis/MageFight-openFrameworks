@@ -53,3 +53,4 @@ Release/
 *.aps
 Saves/autosave*.json
 bin/data/Config/settings.json
+.aider*

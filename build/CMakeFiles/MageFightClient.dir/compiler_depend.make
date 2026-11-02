@@ -3,6 +3,7 @@
 
 CMakeFiles/MageFightClient.dir/src/main.cpp.o: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/main.cpp \
   _deps/raylib-src/src/raylib.h \
+  _deps/raylib-src/src/raymath.h \
   /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Command.h \
   /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Enums.h \
   /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/GameState.h \
@@ -20,9 +21,19 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o: /home/lewis/of_workspace/openFram
   /usr/include/bits/errno.h \
   /usr/include/bits/floatn-common.h \
   /usr/include/bits/floatn.h \
+  /usr/include/bits/flt-eval-method.h \
+  /usr/include/bits/fp-fast.h \
+  /usr/include/bits/fp-logb.h \
+  /usr/include/bits/iscanonical.h \
   /usr/include/bits/libc-header-start.h \
+  /usr/include/bits/libm-simd-decl-stubs.h \
   /usr/include/bits/locale.h \
   /usr/include/bits/long-double.h \
+  /usr/include/bits/math-vector.h \
+  /usr/include/bits/mathcalls-helper-functions.h \
+  /usr/include/bits/mathcalls-macros.h \
+  /usr/include/bits/mathcalls-narrow.h \
+  /usr/include/bits/mathcalls.h \
   /usr/include/bits/pthreadtypes-arch.h \
   /usr/include/bits/pthreadtypes.h \
   /usr/include/bits/select.h \
@@ -93,6 +104,7 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o: /home/lewis/of_workspace/openFram
   /usr/include/c++/16.1.1/bits/ptr_traits.h \
   /usr/include/c++/16.1.1/bits/range_access.h \
   /usr/include/c++/16.1.1/bits/requires_hosted.h \
+  /usr/include/c++/16.1.1/bits/specfun.h \
   /usr/include/c++/16.1.1/bits/std_abs.h \
   /usr/include/c++/16.1.1/bits/stdexcept_throw.h \
   /usr/include/c++/16.1.1/bits/stdexcept_throwfwd.h \
@@ -116,6 +128,7 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o: /home/lewis/of_workspace/openFram
   /usr/include/c++/16.1.1/cctype \
   /usr/include/c++/16.1.1/cerrno \
   /usr/include/c++/16.1.1/clocale \
+  /usr/include/c++/16.1.1/cmath \
   /usr/include/c++/16.1.1/concepts \
   /usr/include/c++/16.1.1/cstddef \
   /usr/include/c++/16.1.1/cstdint \
@@ -130,10 +143,24 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o: /home/lewis/of_workspace/openFram
   /usr/include/c++/16.1.1/ext/type_traits.h \
   /usr/include/c++/16.1.1/initializer_list \
   /usr/include/c++/16.1.1/iosfwd \
+  /usr/include/c++/16.1.1/limits \
+  /usr/include/c++/16.1.1/math.h \
   /usr/include/c++/16.1.1/new \
   /usr/include/c++/16.1.1/pstl/pstl_config.h \
   /usr/include/c++/16.1.1/string \
   /usr/include/c++/16.1.1/string_view \
+  /usr/include/c++/16.1.1/tr1/bessel_function.tcc \
+  /usr/include/c++/16.1.1/tr1/beta_function.tcc \
+  /usr/include/c++/16.1.1/tr1/ell_integral.tcc \
+  /usr/include/c++/16.1.1/tr1/exp_integral.tcc \
+  /usr/include/c++/16.1.1/tr1/gamma.tcc \
+  /usr/include/c++/16.1.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/16.1.1/tr1/legendre_function.tcc \
+  /usr/include/c++/16.1.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/16.1.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/16.1.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/16.1.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/16.1.1/tr1/special_function_util.h \
   /usr/include/c++/16.1.1/tuple \
   /usr/include/c++/16.1.1/type_traits \
   /usr/include/c++/16.1.1/vector \
@@ -151,6 +178,7 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o: /home/lewis/of_workspace/openFram
   /usr/include/gnu/stubs.h \
   /usr/include/linux/errno.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/stdc-predef.h \
   /usr/include/stdint.h \
   /usr/include/stdio.h \
@@ -205,11 +233,7 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o:
 
 /usr/lib/libm.so.6:
 
-/usr/lib/libXdmcp.so.6:
-
 /usr/lib/libOpenGL.so:
-
-/usr/lib/libGLdispatch.so.0:
 
 /usr/lib/libGLX.so:
 
@@ -257,6 +281,8 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o:
 
 /usr/include/stdc-predef.h:
 
+/usr/include/math.h:
+
 /usr/include/locale.h:
 
 /usr/include/gnu/stubs-64.h:
@@ -279,45 +305,59 @@ CMakeFiles/MageFightClient.dir/src/main.cpp.o:
 
 /usr/include/c++/16.1.1/tuple:
 
+/usr/lib/libGLdispatch.so.0:
+
+/usr/include/c++/16.1.1/tr1/poly_laguerre.tcc:
+
+/usr/include/c++/16.1.1/tr1/poly_hermite.tcc:
+
+/usr/include/c++/16.1.1/tr1/gamma.tcc:
+
+/usr/include/c++/16.1.1/tr1/exp_integral.tcc:
+
+/usr/include/c++/16.1.1/tr1/beta_function.tcc:
+
+/usr/lib/libXdmcp.so.6:
+
+/usr/include/c++/16.1.1/tr1/bessel_function.tcc:
+
 /usr/include/c++/16.1.1/string_view:
+
+/usr/include/c++/16.1.1/math.h:
+
+/usr/include/c++/16.1.1/limits:
 
 /usr/include/c++/16.1.1/iosfwd:
 
-/usr/include/c++/16.1.1/bits/stl_pair.h:
+/usr/lib/libGLU.so:
 
-/usr/include/bits/types/time_t.h:
+/usr/include/c++/16.1.1/ext/type_traits.h:
 
-/usr/include/bits/struct_rwlock.h:
+/usr/include/linux/errno.h:
 
-/usr/lib/libc_nonshared.a:
+/usr/include/c++/16.1.1/ext/alloc_traits.h:
 
-/usr/include/c++/16.1.1/bits/char_traits.h:
+/usr/include/c++/16.1.1/tr1/modified_bessel_func.tcc:
 
-/usr/include/c++/16.1.1/bits/stl_uninitialized.h:
+/usr/include/c++/16.1.1/debug/debug.h:
 
-/usr/include/bits/types/struct_timeval.h:
+/usr/include/c++/16.1.1/debug/assertions.h:
 
-_deps/raylib-build/raylib/external/glfw/src/libglfw3.a:
+/usr/include/c++/16.1.1/cwchar:
 
-/usr/include/bits/types/struct_FILE.h:
+/usr/include/c++/16.1.1/cstdio:
 
-/usr/include/bits/types/wint_t.h:
+/usr/include/c++/16.1.1/cstddef:
 
-/usr/include/c++/16.1.1/bits/memoryfwd.h:
+/usr/include/c++/16.1.1/concepts:
+
+/usr/include/c++/16.1.1/cmath:
 
 /usr/include/bits/types/locale_t.h:
 
+/usr/include/c++/16.1.1/tr1/riemann_zeta.tcc:
+
 /usr/include/c++/16.1.1/bits/ostream_insert.h:
-
-_deps/raylib-build/raylib/libraylib.a:
-
-/usr/lib/crti.o:
-
-/usr/include/bits/typesizes.h:
-
-/usr/lib/libXau.so.6:
-
-/usr/include/bits/uintn-identity.h:
 
 /usr/include/bits/types/cookie_io_functions_t.h:
 
@@ -325,19 +365,9 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/bits/atomic_wide_counter.h:
 
-/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Types.h:
-
-/usr/include/c++/16.1.1/bits/alloc_traits.h:
-
-/usr/include/bits/stdio_lim.h:
-
-/usr/include/bits/types/__mbstate_t.h:
-
 /usr/include/bits/types/clockid_t.h:
 
 /usr/include/c++/16.1.1/bits/cpp_type_traits.h:
-
-/usr/include/bits/types/FILE.h:
 
 /usr/include/bits/types/error_t.h:
 
@@ -349,21 +379,71 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/c++/16.1.1/bits/stringfwd.h:
 
+/usr/include/bits/struct_rwlock.h:
+
+/usr/include/bits/mathcalls-helper-functions.h:
+
+/usr/include/bits/types/time_t.h:
+
+/usr/lib/libc_nonshared.a:
+
+/usr/include/c++/16.1.1/bits/char_traits.h:
+
+/usr/include/c++/16.1.1/bits/stl_uninitialized.h:
+
 /usr/include/bits/struct_mutex.h:
 
-/usr/include/bits/types/clock_t.h:
+/usr/include/bits/types/__mbstate_t.h:
 
-/usr/include/bits/types/__fpos_t.h:
+/usr/include/bits/stdio_lim.h:
 
-/usr/include/asm-generic/errno.h:
+/usr/include/bits/types/struct_timeval.h:
+
+/usr/include/bits/types/__fpos64_t.h:
+
+/usr/include/bits/stdint-intn.h:
+
+/usr/include/c++/16.1.1/bits/cxxabi_forced.h:
+
+/usr/include/bits/select.h:
+
+/usr/include/c++/16.1.1/vector:
+
+/usr/include/c++/16.1.1/tr1/legendre_function.tcc:
+
+/usr/include/bits/pthreadtypes.h:
+
+/usr/include/gnu/stubs.h:
+
+/usr/include/bits/pthreadtypes-arch.h:
+
+/usr/include/c++/16.1.1/bits/exception_defines.h:
+
+/usr/include/bits/mathcalls-narrow.h:
+
+/usr/include/c++/16.1.1/bits/stl_pair.h:
+
+/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Types.h:
+
+/usr/include/c++/16.1.1/bits/alloc_traits.h:
+
+/usr/include/bits/mathcalls-macros.h:
+
+/usr/include/bits/math-vector.h:
 
 /usr/include/c++/16.1.1/bits/invoke.h:
 
+/usr/include/c++/16.1.1/initializer_list:
+
+/usr/include/c++/16.1.1/cstdint:
+
+/usr/include/asm-generic/errno-base.h:
+
 /usr/include/c++/16.1.1/cerrno:
 
-/usr/include/ctype.h:
+/usr/lib/libGL.so:
 
-/usr/include/bits/waitflags.h:
+/usr/include/bits/stdint-least.h:
 
 /usr/include/alloca.h:
 
@@ -371,47 +451,57 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/c++/16.1.1/bits/stl_vector.h:
 
-/usr/lib/libGL.so:
+/usr/lib/libc.so.6:
 
-/usr/include/bits/stdint-least.h:
+/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/main.cpp:
 
 /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Simulation.h:
 
-/usr/include/bits/types/mbstate_t.h:
-
-/usr/include/c++/16.1.1/bits/stl_function.h:
-
 /usr/include/bits/floatn-common.h:
-
-/usr/include/bits/types/sigset_t.h:
 
 /usr/include/bits/thread-shared-types.h:
 
 /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/PlayerState.h:
 
-/usr/include/bits/locale.h:
+_deps/raylib-src/src/raymath.h:
 
-/usr/include/stdio.h:
+/usr/include/bits/types/clock_t.h:
 
-/usr/include/c++/16.1.1/bits/erase_if.h:
+/usr/include/bits/types/__fpos_t.h:
+
+/usr/include/bits/mathcalls.h:
 
 /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Enums.h:
 
 /usr/include/c++/16.1.1/bits/exception.h:
 
-/usr/include/bits/types/__locale_t.h:
+/usr/include/bits/locale.h:
 
-/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Command.h:
+/usr/include/stdio.h:
+
+/usr/include/c++/16.1.1/tr1/special_function_util.h:
+
+/usr/include/c++/16.1.1/bits/erase_if.h:
 
 /usr/include/c++/16.1.1/pstl/pstl_config.h:
 
 /usr/include/c++/16.1.1/bits/basic_string.h:
+
+/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/core/Command.h:
+
+/usr/include/bits/types/__locale_t.h:
+
+/usr/include/bits/types/FILE.h:
+
+/usr/include/bits/flt-eval-method.h:
 
 /usr/include/bits/stdlib-float.h:
 
 /usr/include/bits/time64.h:
 
 /usr/include/bits/byteswap.h:
+
+/usr/include/c++/16.1.1/bits/predefined_ops.h:
 
 /usr/lib/libatomic.so:
 
@@ -429,41 +519,73 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/bits/floatn.h:
 
-/usr/include/c++/16.1.1/vector:
+/usr/include/bits/fp-fast.h:
 
-/usr/include/bits/pthreadtypes.h:
+/usr/include/c++/16.1.1/string:
+
+/usr/include/c++/16.1.1/bits/uses_allocator_args.h:
+
+/usr/include/c++/16.1.1/cctype:
+
+/usr/include/bits/iscanonical.h:
+
+/usr/include/bits/endian.h:
+
+/usr/include/c++/16.1.1/bits/stdexcept_throw.h:
 
 /usr/include/bits/libc-header-start.h:
+
+/usr/include/asm-generic/errno.h:
+
+/usr/include/bits/fp-logb.h:
+
+/usr/include/endian.h:
+
+/usr/include/c++/16.1.1/bits/concept_check.h:
 
 /usr/include/c++/16.1.1/ext/numeric_traits.h:
 
 /usr/include/bits/long-double.h:
 
-/usr/include/gnu/stubs.h:
+/usr/include/bits/types/mbstate_t.h:
 
-/usr/include/bits/pthreadtypes-arch.h:
+/usr/include/c++/16.1.1/bits/stl_function.h:
 
-/usr/include/c++/16.1.1/bits/exception_defines.h:
+/usr/include/c++/16.1.1/tr1/ell_integral.tcc:
 
-/usr/include/linux/errno.h:
+/usr/include/bits/types/sigset_t.h:
 
-/usr/include/c++/16.1.1/ext/alloc_traits.h:
+_deps/raylib-build/raylib/external/glfw/src/libglfw3.a:
 
-/usr/include/bits/types/__fpos64_t.h:
+/usr/include/bits/types/struct_FILE.h:
 
-/usr/include/bits/stdint-intn.h:
+/usr/include/bits/types/wint_t.h:
 
-/usr/include/c++/16.1.1/bits/cxxabi_forced.h:
+/usr/include/c++/16.1.1/bits/memoryfwd.h:
 
-/usr/include/bits/select.h:
+_deps/raylib-build/raylib/libraylib.a:
 
-/usr/lib/libc.so.6:
+/usr/lib/crti.o:
 
-/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/src/main.cpp:
+/usr/include/bits/typesizes.h:
+
+/usr/lib/libXau.so.6:
+
+/usr/include/bits/uintn-identity.h:
+
+/usr/include/ctype.h:
+
+/usr/include/bits/waitflags.h:
 
 /usr/include/bits/timesize.h:
 
 /usr/include/bits/waitstatus.h:
+
+/usr/include/c++/16.1.1/ext/string_conversions.h:
+
+/usr/include/bits/errno.h:
+
+/usr/include/c++/16.1.1/bits/uses_allocator.h:
 
 /usr/include/bits/wchar.h:
 
@@ -479,17 +601,7 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/c++/16.1.1/bits/allocator.h:
 
-/usr/lib/libGLU.so:
-
-/usr/include/c++/16.1.1/ext/type_traits.h:
-
 /usr/include/c++/16.1.1/bits/charconv.h:
-
-/usr/include/endian.h:
-
-/usr/include/c++/16.1.1/bits/concept_check.h:
-
-/usr/include/c++/16.1.1/debug/debug.h:
 
 /usr/include/c++/16.1.1/bits/hash_bytes.h:
 
@@ -503,8 +615,6 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/c++/16.1.1/bits/postypes.h:
 
-/usr/include/c++/16.1.1/bits/predefined_ops.h:
-
 /usr/include/c++/16.1.1/bits/basic_string.tcc:
 
 /usr/include/c++/16.1.1/bits/memory_resource.h:
@@ -513,11 +623,13 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/lib/Scrt1.o:
 
-/usr/include/bits/types/timer_t.h:
-
 /usr/include/c++/16.1.1/bits/stl_iterator_base_types.h:
 
+/usr/include/bits/types/timer_t.h:
+
 /usr/include/c++/16.1.1/bits/std_abs.h:
+
+/usr/include/c++/16.1.1/tr1/hypergeometric.tcc:
 
 /usr/include/c++/16.1.1/backward/binders.h:
 
@@ -531,9 +643,7 @@ _deps/raylib-build/raylib/libraylib.a:
 
 /usr/include/c++/16.1.1/bits/requires_hosted.h:
 
-/usr/include/bits/endian.h:
-
-/usr/include/c++/16.1.1/bits/stdexcept_throw.h:
+/usr/include/c++/16.1.1/bits/specfun.h:
 
 /usr/include/sys/select.h:
 
@@ -541,48 +651,22 @@ _deps/raylib-src/src/raylib.h:
 
 /usr/include/c++/16.1.1/bits/stl_algobase.h:
 
+/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/crtendS.o:
+
+/usr/include/c++/16.1.1/cstdlib:
+
+/usr/include/c++/16.1.1/bits/stl_iterator_base_funcs.h:
+
 /usr/include/c++/16.1.1/bits/stdexcept_throwfwd.h:
 
 /usr/include/c++/16.1.1/bits/string_view.tcc:
 
-/usr/include/c++/16.1.1/initializer_list:
-
-/usr/include/asm-generic/errno-base.h:
-
-/usr/include/c++/16.1.1/cstdint:
-
-/usr/include/c++/16.1.1/string:
-
-/usr/include/c++/16.1.1/bits/uses_allocator_args.h:
-
-/usr/include/c++/16.1.1/cctype:
-
 /usr/include/c++/16.1.1/bits/vector.tcc:
+
+/usr/include/bits/libm-simd-decl-stubs.h:
 
 /usr/include/c++/16.1.1/bits/stl_construct.h:
 
 /usr/include/c++/16.1.1/bits/version.h:
 
 /usr/include/c++/16.1.1/clocale:
-
-/usr/include/c++/16.1.1/concepts:
-
-/usr/include/c++/16.1.1/cstddef:
-
-/usr/include/c++/16.1.1/cstdio:
-
-/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/crtendS.o:
-
-/usr/include/c++/16.1.1/bits/stl_iterator_base_funcs.h:
-
-/usr/include/c++/16.1.1/cstdlib:
-
-/usr/include/c++/16.1.1/cwchar:
-
-/usr/include/c++/16.1.1/debug/assertions.h:
-
-/usr/include/bits/errno.h:
-
-/usr/include/c++/16.1.1/bits/uses_allocator.h:
-
-/usr/include/c++/16.1.1/ext/string_conversions.h:

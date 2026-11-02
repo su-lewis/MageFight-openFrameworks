@@ -82,9 +82,6 @@ CMakeFiles/raylib-populate-complete: raylib-populate-prefix/src/raylib-populate-
 	/usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles/raylib-populate-complete
 	/usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-done
 
-raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update:
-.PHONY : raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update
-
 raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-build: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-configure
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "No build step for 'raylib-populate'"
 	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-build && /usr/bin/cmake -E echo_append
@@ -96,10 +93,13 @@ raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-configure: rayl
 	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-build && /usr/bin/cmake -E echo_append
 	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-build && /usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-configure
 
-raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-download: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-gitinfo.txt
+raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-download: raylib-populate-prefix/src/raylib-populate-stamp/download-raylib-populate.cmake
+raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-download: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-urlinfo.txt
 raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-download: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-mkdir
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Performing download step (git clone) for 'raylib-populate'"
-	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps && /usr/bin/cmake -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/tmp/raylib-populate-gitclone.cmake
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Performing download step (download, verify and extract) for 'raylib-populate'"
+	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps && /usr/bin/cmake -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/download-raylib-populate.cmake
+	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps && /usr/bin/cmake -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/verify-raylib-populate.cmake
+	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps && /usr/bin/cmake -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/extract-raylib-populate.cmake
 	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps && /usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-download
 
 raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-install: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-build
@@ -118,19 +118,16 @@ raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-patch: raylib-p
 	/usr/bin/cmake -E echo_append
 	/usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-patch
 
-raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update:
-.PHONY : raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update
-
 raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-test: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-install
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "No test step for 'raylib-populate'"
 	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-build && /usr/bin/cmake -E echo_append
 	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-build && /usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-test
 
-raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update: raylib-populate-prefix/tmp/raylib-populate-gitupdate.cmake
 raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update-info.txt
 raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update: raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-download
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Performing update step for 'raylib-populate'"
-	cd /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-src && /usr/bin/cmake -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/tmp/raylib-populate-gitupdate.cmake
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "No update step for 'raylib-populate'"
+	/usr/bin/cmake -E echo_append
+	/usr/bin/cmake -E touch /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/raylib-populate-update
 
 CMakeFiles/raylib-populate.dir/codegen:
 .PHONY : CMakeFiles/raylib-populate.dir/codegen

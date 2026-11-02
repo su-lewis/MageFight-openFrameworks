@@ -16,18 +16,10 @@ unset(ENV{CMAKE_TOOLCHAIN_FILE})
 project(raylib-populate NONE)
 
 
-# Pass through things we've already detected in the main project to avoid
-# paying the cost of redetecting them again in ExternalProject_Add()
-set(GIT_EXECUTABLE [==[/usr/bin/git]==])
-set(Git_VERSION [==[2.54.0]==])
-set_property(GLOBAL PROPERTY _CMAKE_FindGit_GIT_EXECUTABLE_VERSION
-  [==[/usr/bin/git;2.54.0]==]
-)
-
 
 include(ExternalProject)
 ExternalProject_Add(raylib-populate
-                     "UPDATE_DISCONNECTED" "False" "GIT_REPOSITORY" "https://github.com/raysan5/raylib.git" "EXTERNALPROJECT_INTERNAL_ARGUMENT_SEPARATOR" "GIT_TAG" "5.5"
+                     "UPDATE_DISCONNECTED" "False" "DOWNLOAD_EXTRACT_TIMESTAMP" "FALSE" "EXTERNALPROJECT_INTERNAL_ARGUMENT_SEPARATOR" "URL" "https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz"
                     SOURCE_DIR          "/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-src"
                     BINARY_DIR          "/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-build"
                     CONFIGURE_COMMAND   ""

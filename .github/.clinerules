@@ -1,0 +1,23 @@
+CRITICAL TOOL CALLING FORMAT:
+You MUST NEVER output tool calls as JSON like {"name": "...", "arguments": ...}.
+You MUST format tool calls strictly using Cline's XML tags:
+
+To read a file:
+<read_file>
+<path>relative/path/to/file</path>
+</read_file>
+
+To create or overwrite a file:
+<write_to_file>
+<path>relative/path/to/file</path>
+<content>
+file contents here
+</content>
+</write_to_file>
+
+To run a terminal command:
+<execute_command>
+<command>cmake --build build</command>
+</execute_command>
+
+Execute only ONE tool at a time and wait for the tool output before continuing.
