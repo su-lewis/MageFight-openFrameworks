@@ -1,0 +1,18 @@
+{
+    "playerState": {
+        "position": { "x": 100.5, "y": 200.0 },
+        "velocity": { "x": 1.0, "y": 0.0 },
+        "color": { "r": 255, "g": 128, "b": 0, "a": 255 },
+        "health": 85,
+        "mana": 40
+    },
+    "gameState": {
+        "cameraPosition": { "x": 0.0, "y": 0.0, "z": -500.0 },
+        "gameBounds": { "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0 },
+        "isPaused": false
+    },
+    "commands": [
+        { "tick": 2, "type": "MOVE", "target": { "x": 150.0, "y": 250.0 } },
+        { "tick": 5, "type": "CAST_SPELL", "spellType": "FIREBALL" }
+    ]
+}

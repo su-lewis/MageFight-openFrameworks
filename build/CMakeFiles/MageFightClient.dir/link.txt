@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/MageFightClient.dir/link.d CMakeFiles/MageFightClient.dir/src/main.cpp.o -o MageFightClient  _deps/raylib-build/raylib/libraylib.a -lGL -lm -lpthread -ldl -lrt -lX11 /usr/lib/libOpenGL.so /usr/lib/libGLX.so /usr/lib/libGLU.so _deps/raylib-build/raylib/external/glfw/src/libglfw3.a /usr/lib/librt.a -lm -ldl

@@ -1,40 +1,32 @@
 cmake_minimum_required(VERSION 3.20)
-project(MageFightRaylib LANGUAGES CXX)
+cmake_policy(SET CMP0135 NEW) # Use extraction timestamp for FetchContent
+
+project(MageFight VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 
+# 1. Fetch Raylib v5.5
 include(FetchContent)
-
-# Keep raylib vendored by CMake so this port can build without system packages.
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
-set(SUPPORT_MODULE_RSHAPES ON CACHE BOOL "" FORCE)
-set(SUPPORT_MODULE_RTEXTURES ON CACHE BOOL "" FORCE)
-set(SUPPORT_MODULE_RTEXT ON CACHE BOOL "" FORCE)
-set(SUPPORT_MODULE_RMODELS ON CACHE BOOL "" FORCE)
-set(SUPPORT_MODULE_RAUDIO ON CACHE BOOL "" FORCE)
-
 FetchContent_Declare(
     raylib
-    GIT_REPOSITORY https://github.com/raysan5/raylib.git
-    GIT_TAG 5.5
+    URL https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz
 )
+# Disable unnecessary raylib extras for fast build times
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(raylib)
 
-add_executable(magefight_raylib
+# 2. Add MageFightClient Executable
+add_executable(MageFightClient
     src/main.cpp
-    src/GameApp.cpp
-    src/core/DeterministicChecksum.cpp
-    src/core/DeterministicHarness.cpp
-    src/core/LockstepCommandQueue.cpp
-    src/core/SnapshotFormat.cpp
+    src/core/Simulation.cpp
 )
 
-target_include_directories(magefight_raylib PRIVATE src)
-target_link_libraries(magefight_raylib PRIVATE raylib)
+# 3. Include Directories
+target_include_directories(MageFightClient PRIVATE
+    src
+)
 
-if(UNIX AND NOT APPLE)
-    target_link_libraries(magefight_raylib PRIVATE m dl pthread rt X11)
-endif()
+# 4. Link Raylib (This automatically provides raylib.h to src/main.cpp)
+target_link_libraries(MageFightClient PRIVATE raylib)

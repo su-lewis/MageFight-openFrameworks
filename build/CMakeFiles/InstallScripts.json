@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/build/cmake_install.cmake",
+		"/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/build/_deps/raylib-build/cmake_install.cmake",
+		"/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/build/_deps/raylib-build/raylib/cmake_install.cmake",
+		"/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/build/_deps/raylib-build/raylib/external/glfw/cmake_install.cmake",
+		"/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/build/_deps/raylib-build/raylib/external/glfw/src/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
