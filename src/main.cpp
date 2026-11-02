@@ -35,14 +35,11 @@ int main(int argc, char * argv[]) {
 	soundSettings.sampleRate = 44100;
 	soundSettings.bufferSize = 256;
 
-	// Centralized cross-platform audio API selection
 #if defined(_WIN32)
 	soundSettings.setApi(ofSoundDevice::Api::MS_WASAPI);
 #elif defined(__APPLE__)
 	soundSettings.setApi(ofSoundDevice::Api::OSX_CORE);
 #elif defined(__linux__)
-	// Bazzite uses PipeWire. ALSA or UNSPECIFIED route perfectly through PipeWire.
-	// Forcing PULSE here is known to crash RtAudio on PipeWire systems.
 	soundSettings.setApi(ofSoundDevice::Api::UNSPECIFIED);
 #else
 	soundSettings.setApi(ofSoundDevice::Api::UNSPECIFIED);

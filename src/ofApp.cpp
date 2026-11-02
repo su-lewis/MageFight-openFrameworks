@@ -7008,11 +7008,12 @@ void ofApp::update() {
 			int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
 			iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
 
-			// FIX: Only suspend the game if it is actually minimized to the taskbar
+			// Suspend only when physically minimized to the taskbar
 			windowActive = (iconified == GLFW_FALSE);
 		}
 
-		if (currentState == STATE_MAIN_MENU && steamManager.isConnected() && iconified == GLFW_FALSE) {
+		// Never throttle on the main menu regardless of Steam connection state
+		if (currentState == STATE_MAIN_MENU && iconified == GLFW_FALSE) {
 			windowActive = true;
 		}
 		if (headless) windowActive = true;
@@ -7678,10 +7679,10 @@ void ofApp::draw() {
 		case STATE_SINGLEPLAYER_MENU:
 		case STATE_ENCYCLOPEDIA:
 		case STATE_CUSTOMISATION:
-			// The Ultimate Unified Pan-and-Scroll 2D View!
+			// Unified 2D Backdrop
 			draw2DMenuBackground();
 
-			// Draw the physical screens (they handle their own off-screen culling via the pan matrix)
+			// Physical screens
 			drawMainMenu();
 			drawMultiplayerMenu();
 			drawSingleplayerMenu();
@@ -9188,7 +9189,6 @@ void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
 }
 
 void ofApp::draw2DMenuBackground() {
-	// OPTIMIZATION (Part 2.1): Do not redraw the massive 2D floor grid during the Text Eraser pass!
 	if (g_isSecondPass) return;
 
 	ofDisableLighting();
@@ -9229,11 +9229,12 @@ void ofApp::draw2DMenuBackground() {
 		}
 	}
 
-	// OPTIMIZATION (Part 2.4): Batch the menu grid lines into a single Mesh to remove hundreds of draw calls!
-	ofMesh gridMesh;
+	// Static mesh persists across frames so memory is never reallocated
+	static ofMesh gridMesh;
+	gridMesh.clear();
 	gridMesh.setMode(OF_PRIMITIVE_LINES);
 
-	// 2. Draw the 2D Board Background
+	// 2. Draw the 2D Board Background using fast native texture quad draws
 	for (int x = startX; x <= endX; x++) {
 		for (int y = startY; y <= endY; y++) {
 			float tx = std::round(panOffset + x * menuTileSize);
@@ -9270,10 +9271,7 @@ void ofApp::draw2DMenuBackground() {
 				if (isBoardTile) {
 					if (isScreenMinus1 && g_inLobby) {
 						int ny = y - 1;
-						if (ny < 0)
-							wallAbove = true;
-						else
-							wallAbove = (ny == 0 || modX == 0 || modX == BOARD_WIDTH - 1);
+						wallAbove = (ny < 0) ? true : (ny == 0 || modX == 0 || modX == BOARD_WIDTH - 1);
 					} else {
 						wallAbove = (y > 0) ? board[modX][y - 1].hasWall : true;
 					}
@@ -9305,7 +9303,6 @@ void ofApp::draw2DMenuBackground() {
 				}
 			}
 
-			// Add lines to our batched mesh instead of drawing them one by one
 			ofColor gridColor(0, 0, 0, 70);
 			gridMesh.addColor(gridColor);
 			gridMesh.addVertex(glm::vec3(tx, ty, 0));
@@ -9318,7 +9315,6 @@ void ofApp::draw2DMenuBackground() {
 		}
 	}
 
-	// Draw all 165+ grid lines in exactly ONE GPU call!
 	ofSetLineWidth(1.0f);
 	gridMesh.draw();
 
@@ -9353,7 +9349,7 @@ void ofApp::draw2DMenuBackground() {
 }
 
 void ofApp::drawMainMenu() {
-	draw2DMenuBackground();
+	// draw2DMenuBackground() is already called in drawEverything(); do not call it twice!
 
 	// 3. Draw Title (Top Center)
 	string title = _L("UI_TITLE", "MAGE FIGHT");
@@ -42575,7 +42571,10 @@ void ofApp::drawMinionManagerUI() {
 		// --- RENDER 3D MODEL DIRECTLY OVER UI ---
 		// =========================================================
 		ofEnableDepthTest();
-		glClear(GL_DEPTH_BUFFER_BIT); // Clear depth buffer so model draws perfectly over 2D UI
+		// Only clear the depth buffer on the first visible minion to avoid GPU pipeline flushes
+		if (i == 0) {
+			glClear(GL_DEPTH_BUFFER_BIT);
+		}
 		ofDisableLighting();
 		uiLight.disable();
 
