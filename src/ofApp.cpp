@@ -9546,20 +9546,32 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		ofRectangle fb = getCachedBounds(fsText);
 		SafeDrawText(uiFont, fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
+	}
+
+	// GAME tab: gameplay settings
+	if (currentSettingsTab == SETTINGS_TAB_GAME) {
+		float settingY = contentY + 20.0f * uiScale;
 
 		// --- In-World Unit Health Bars Setting ---
-		settingY += settingSpacing;
 		std::string hpModeNames[] = { "Always", "On Hover", "Off" };
 		std::string hpModeText = hpModeNames[std::clamp(settingsInWorldHPMode, 0, 2)];
-		settingsInWorldHPBtn.set(centerX - (controlWidth / 2), settingY - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
-		if (settingsInWorldHPBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_inworld_hp";
+		settingsInWorldHPBtn.set(centerX - (controlWidth / 2), settingY + 20.0f * uiScale, controlWidth, 50.0f * uiScale);
+		bool isHpHovered = settingsInWorldHPBtn.inside(ofGetMouseX(), ofGetMouseY());
+		if (isHpHovered) g_hoveredButtonId = "set_inworld_hp";
+
 		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsInWorldHPBtn);
+		ofNoFill();
+		ofSetLineWidth(2.0f);
+		ofSetColor(isHpHovered ? ofColor(255, 215, 0) : ofColor(100, 100, 120));
+		ofDrawRectangle(settingsInWorldHPBtn);
+		ofFill();
+
 		ofSetColor(ofColor::white);
 		ofRectangle hpLabelBox = getCachedBounds("In-World Unit HP");
-		SafeDrawText(uiFont, "In-World Unit HP", centerX - hpLabelBox.getWidth() / 2, settingY - 14.0f * uiScale);
+		SafeDrawText(uiFont, "In-World Unit HP", centerX - hpLabelBox.getWidth() / 2, settingY);
 		ofRectangle hpValBox = getCachedBounds(hpModeText);
-		SafeDrawText(uiFont, hpModeText, settingsInWorldHPBtn.x + (settingsInWorldHPBtn.width - hpValBox.width) / 2, settingsInWorldHPBtn.y + 30.0f * uiScale);
+		SafeDrawText(uiFont, hpModeText, settingsInWorldHPBtn.x + (settingsInWorldHPBtn.width - hpValBox.width) / 2, settingsInWorldHPBtn.y + 32.0f * uiScale);
 	}
 
 	// AUDIO tab: spacious, elegant layout matching the Video tab
@@ -16327,37 +16339,36 @@ void ofApp::drawGame() {
 		drawSeg(player.ward, ofColor(25, 25, 30), _L("STAT_WARD", "Ward (All Damage)"), 2);
 	};
 
-	// --- 1. MOVEMENT PATH AP COST BADGE (2D SCREEN OVERLAY) ---
+	// --- 1. MOVEMENT PATH AP COST BADGE (CIRCULAR WITH -X NUMBER) ---
 	if ((playerAction == PIECE_SELECTED) && hoverPath.size() > 1) {
 		int apCost = (int)hoverPath.size() - 1;
 		glm::vec3 destWorld = gridToWorld(hoverPath.back().x, hoverPath.back().y);
 		glm::vec3 destScreen = getActiveCamera().worldToScreen(destWorld + glm::vec3(0, 0.4f, 0));
 
 		if (destScreen.z >= 0.0f && destScreen.z <= 1.0f) {
-			std::string badgeStr = "-" + ofToString(apCost) + " AP";
+			std::string badgeStr = "-" + ofToString(apCost);
 			ofColor badgeCol = (apCost > currentAP) ? ofColor(255, 60, 60) : ofColor(50, 230, 100);
 
 			float uiScaleLocal = getUIScaleFromHeight((float)ofGetHeight());
-			float pw = 58.0f * uiScaleLocal;
-			float ph = 22.0f * uiScaleLocal;
+			float radius = 19.0f * uiScaleLocal;
 
 			ofPushStyle();
 			ofDisableLighting();
 			ofDisableDepthTest();
 
-			// Dark pill background
-			ofSetColor(16, 18, 24, 235);
-			ofDrawRectRounded(destScreen.x - pw * 0.5f, destScreen.y - ph * 0.5f, pw, ph, 5);
+			// Dark circular background
+			ofSetColor(14, 16, 22, 240);
+			ofDrawCircle(destScreen.x, destScreen.y, radius);
 
-			// Border
+			// Colored outline circle
 			ofNoFill();
-			ofSetLineWidth(1.8f * uiScaleLocal);
+			ofSetLineWidth(2.2f * uiScaleLocal);
 			ofSetColor(badgeCol);
-			ofDrawRectRounded(destScreen.x - pw * 0.5f, destScreen.y - ph * 0.5f, pw, ph, 5);
+			ofDrawCircle(destScreen.x, destScreen.y, radius);
 			ofFill();
 
-			// Text
-			drawPixelTextCentered(uiFont, badgeStr, destScreen.x, destScreen.y + 1, 0.82f * uiScaleLocal, ofColor::white, 1, ofColor::black);
+			// Bold centered minus-number
+			drawPixelTextCentered(titleFont, badgeStr, destScreen.x, destScreen.y + (2.0f * uiScaleLocal), 0.72f * uiScaleLocal, ofColor::white, 2, ofColor::black);
 			safePopStyle();
 		}
 	}
@@ -16440,6 +16451,144 @@ void ofApp::drawGame() {
 			if (hoveredUnitIndex == (int)uIdx || u.health <= 3) {
 				std::string hpStr = ofToString(u.health) + "/" + ofToString(u.maxHealth);
 				drawPixelTextCentered(uiFont, hpStr, sp.x, by - 7.0f * uiScaleLocal, 0.70f * uiScaleLocal, ofColor::white, 1, ofColor::black);
+			}
+
+			// Complete In-World Unit Information (replaces mouse tooltip entirely)
+			if (hoveredUnitIndex == (int)uIdx) {
+				float infoY = by + barH + (9.0f * uiScaleLocal);
+				float lineStep = 12.0f * uiScaleLocal;
+				float textScale = 0.70f * uiScaleLocal;
+
+				// Line 1: Unit Name
+				int ownerID = u.isMinion ? u.ownerID : u.playerID;
+				ofColor nameColor = getPlayerThemeColor(ownerID);
+				std::string unitName = getPlayerDisplayName((int)uIdx);
+				drawPixelTextCentered(uiFont, unitName, sp.x, infoY, textScale * 1.05f, nameColor, 1, ofColor::black);
+				infoY += lineStep;
+
+				std::vector<std::pair<std::string, ofColor>> infoLines;
+
+				// Forms
+				if (u.inTortoiseForm) {
+					int rem = 5 - u.tortoiseDamageTaken;
+					infoLines.push_back({ "Tortoise: " + ofToString(rem) + "/5 HP", ofColor(120, 230, 120) });
+				}
+				if (u.inGhostForm) {
+					int rem = 4 - u.ghostDamageTaken;
+					infoLines.push_back({ "Ghost: " + ofToString(rem) + "/4 HP", ofColor(160, 180, 255) });
+				}
+
+				// AP-adjacent & Minion AP traits
+				if (u.nextTurnAPBonus > 0) {
+					infoLines.push_back({ "+" + ofToString(u.nextTurnAPBonus) + " AP Next Turn", ofColor(255, 215, 0) });
+				}
+				if (u.nextTurnD10AP) {
+					infoLines.push_back({ "D10 AP", ofColor::white });
+				}
+				if (u.strengthenElementsTurnsRemaining > 0) {
+					infoLines.push_back({ "Elem Buff (" + ofToString(u.strengthenElementsTurnsRemaining) + ")", ofColor(255, 140, 0) });
+				}
+
+				int passLuck = computePassiveLuck((int)uIdx);
+				int totalLuck = u.luck + passLuck;
+				if (totalLuck > 0) {
+					infoLines.push_back({ "+" + ofToString(totalLuck) + " Luck", ofColor(100, 240, 100) });
+				}
+				if (u.freeKickTurns > 0) {
+					infoLines.push_back({ "Kick: Free", ofColor(255, 215, 0) });
+				}
+
+				// Minion AP roll hints
+				if (u.isAssistant) {
+					infoLines.push_back({ u.assistantRerollUsedThisTurn ? "Reroll: Used" : "Reroll: Available", u.assistantRerollUsedThisTurn ? ofColor::gray : ofColor(255, 215, 0) });
+					infoLines.push_back({ "AP: Coinflip", ofColor(150, 230, 150) });
+				} else if (u.isWolf) {
+					infoLines.push_back({ "AP: 1d10", ofColor(150, 230, 150) });
+				} else if (u.isHellhound) {
+					infoLines.push_back({ "AP: 2d6", ofColor(150, 230, 150) });
+				} else if (u.isDemon) {
+					infoLines.push_back({ "AP: 4d4", ofColor(150, 230, 150) });
+				} else if (u.isKobold) {
+					infoLines.push_back({ "AP: 1d4", ofColor(150, 230, 150) });
+				} else if (u.isWallUnit) {
+					if (u.isMagicWallUnit)
+						infoLines.push_back({ "AP: 1d6 (Magic Wall)", ofColor(180, 140, 255) });
+					else
+						infoLines.push_back({ "AP: 1d4 (Wall Unit)", ofColor(150, 230, 150) });
+				} else if (u.isKoboldKing) {
+					infoLines.push_back({ "AP: 1d6 (Kobold King)", ofColor(150, 230, 150) });
+				} else if (u.isMinion) {
+					infoLines.push_back({ "AP: 1d6", ofColor(150, 230, 150) });
+				}
+
+				// Status Effects & Turn Flags
+				if (u.sleepTurnsRemaining > 0) {
+					infoLines.push_back({ "Sleep (" + ofToString(u.sleepTurnsRemaining) + "t)", ofColor(0, 220, 255) });
+				}
+				if (u.isParalyzed) {
+					infoLines.push_back({ "Paralyzed", ofColor(255, 235, 50) });
+				}
+				if (u.onFire) {
+					infoLines.push_back({ "Burning", ofColor(255, 120, 0) });
+				}
+				if (u.isPoisoned) {
+					infoLines.push_back({ "Poisoned", ofColor(50, 220, 50) });
+				}
+				if (u.summonedOnTurnCycle == globalTurnCounter) {
+					infoLines.push_back({ "Summoning Sickness", ofColor(160, 160, 160) });
+				}
+				if (u.nextTurnExtraDraw) {
+					infoLines.push_back({ "Extra Draw Ready", ofColor(255, 120, 220) });
+				}
+				if (u.replicateQueued) {
+					infoLines.push_back({ "Replicate Active", ofColor(0, 255, 255) });
+				}
+				if (u.hasRegeneration) {
+					infoLines.push_back({ "Regeneration", ofColor(255, 90, 120) });
+				}
+
+				// Weaknesses (Aggregate)
+				bool vulnHoly = (u.isHellhound || u.isDemon || u.isSkeleton || u.inGhostForm);
+				bool vulnPiercing = false;
+				for (const auto & c : u.deck) {
+					if (c.type == CARD_CALL_FOR_WOLVES) vulnPiercing = true;
+					if (c.type == CARD_VAMPIRE_BITE) vulnHoly = true;
+				}
+				for (const auto & c : u.discardPile) {
+					if (c.type == CARD_CALL_FOR_WOLVES) vulnPiercing = true;
+					if (c.type == CARD_VAMPIRE_BITE) vulnHoly = true;
+				}
+
+				std::vector<std::string> vulnNames;
+				if (vulnPiercing) vulnNames.push_back("Piercing");
+				if (vulnHoly) vulnNames.push_back("Holy");
+				if (!vulnNames.empty()) {
+					std::string vStr = "Weakness 2x: ";
+					for (size_t vi = 0; vi < vulnNames.size(); ++vi) {
+						if (vi > 0) vStr += ", ";
+						vStr += vulnNames[vi];
+					}
+					infoLines.push_back({ vStr, ofColor(255, 180, 60) });
+				}
+
+				// Range & AOE Targeting preview
+				if (board[u.x][u.y].hasTooltipInfo) {
+					int minRoll = board[u.x][u.y].minRollRequired;
+					int percentage = (int)std::round(board[u.x][u.y].hitChance * 100.0f);
+					std::string rangeText = "Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+					if (board[u.x][u.y].isAoeCenter) {
+						int feet = board[u.x][u.y].aoeRadiusFeet;
+						int tiles = (int)std::round((double)feet / 5.0);
+						rangeText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
+					}
+					infoLines.push_back({ rangeText, ofColor::cyan });
+				}
+
+				// Render each line
+				for (const auto & line : infoLines) {
+					drawPixelTextCentered(uiFont, line.first, sp.x, infoY, textScale * 0.90f, line.second, 1, ofColor::black);
+					infoY += lineStep;
+				}
 			}
 
 			safePopStyle();
@@ -18531,7 +18680,7 @@ cursor_check_done:;
 			unitHoverStartTime = isHoveringUnit ? ofGetElapsedTimef() : 0.0f;
 		}
 
-		// 1. Pile Tooltip
+		// 1. Pile Tooltip (stays on mouse cursor for inspecting card count)
 		if (isHoveringPile && !isShowingPileView) {
 			Player * hoveredPlayer = getPlayer(hoveredPilePlayerIndex);
 			if (hoveredPlayer) {
@@ -18540,170 +18689,7 @@ cursor_check_done:;
 				tooltipText = ofToString(hoveredPileType == VIEW_DECK ? hoveredPlayer->deck.size() : hoveredPlayer->discardPile.size()) + " cards";
 			}
 		}
-		// 2. Unit Tooltip
-		else if (hoveredUnitIndex != -1 && !isHoveringPile) {
-			Player * up = getPlayer(hoveredUnitIndex);
-			if (up) {
-				isShowingTooltip = true;
-				tooltipPos = glm::vec2(x, y);
-				tooltipText = getPlayerDisplayName(hoveredUnitIndex);
-				if (up->inTortoiseForm) {
-					int rem = 5 - up->tortoiseDamageTaken;
-					tooltipText += " [Tortoise: " + ofToString(rem) + "/5 HP]";
-				}
-				if (up->inGhostForm) {
-					int rem = 4 - up->ghostDamageTaken;
-					tooltipText += " [Ghost: " + ofToString(rem) + "/4 HP]";
-				}
-
-				// Show AP-adjacent, status effects, and weaknesses for any unit (minions and players)
-				{
-					std::vector<std::string> unitStatusLines;
-					// AP-adjacent/status buffs
-					if (up->nextTurnAPBonus > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->nextTurnAPBonus) + " AP Next Turn");
-					if (up->nextTurnD10AP) unitStatusLines.push_back("D10 AP");
-					if (up->strengthenElementsTurnsRemaining > 0) unitStatusLines.push_back(std::string("Elem Buff (") + ofToString(up->strengthenElementsTurnsRemaining) + ")");
-					// Show combined luck (permanent + passive)
-					int passive = computePassiveLuck(hoveredUnitIndex);
-					int totalLuck = up->luck + passive;
-					if (totalLuck > 0) unitStatusLines.push_back(std::string("+") + ofToString(totalLuck) + " Luck");
-
-					// Sprint: Kick free indicator
-					if (up->freeKickTurns > 0) unitStatusLines.push_back(std::string("Kick: Free"));
-
-					// Minion/Unit AP roll hints
-					if (up->isAssistant) {
-						if (!up->assistantRerollUsedThisTurn) {
-							unitStatusLines.push_back("Reroll: Available");
-						} else {
-							unitStatusLines.push_back("Reroll: Used");
-						}
-						unitStatusLines.push_back("AP: Coinflip");
-					} else if (up->isWolf) {
-						unitStatusLines.push_back("AP: 1d10");
-					} else if (up->isHellhound) {
-						unitStatusLines.push_back("AP: 2d6");
-					} else if (up->isDemon) {
-						unitStatusLines.push_back("AP: 4d4");
-					} else if (up->isKobold) {
-						unitStatusLines.push_back("AP: 1d4");
-					} else if (up->isWallUnit) {
-						if (up->isMagicWallUnit)
-							unitStatusLines.push_back("AP: 1d6 (Magic Wall)");
-						else
-							unitStatusLines.push_back("AP: 1d4 (Wall Unit)");
-					} else if (up->isKoboldKing) {
-						unitStatusLines.push_back("AP: 1d6 (Kobold King)");
-					} else if (up->isMinion) {
-						// Generic minion fallback
-						unitStatusLines.push_back("AP: 1d6");
-					}
-
-					// Status effects
-					if (up->sleepTurnsRemaining > 0) unitStatusLines.push_back(std::string("Sleep (") + ofToString(up->sleepTurnsRemaining) + ")");
-					if (up->isParalyzed) unitStatusLines.push_back(std::string("Paralyzed"));
-					if (up->onFire) unitStatusLines.push_back(std::string("Burning"));
-					if (up->isPoisoned) unitStatusLines.push_back(std::string("Poisoned"));
-					if (up->summonedOnTurnCycle == globalTurnCounter) unitStatusLines.push_back(std::string("Summoning Sickness"));
-					if (up->nextTurnExtraDraw) unitStatusLines.push_back(std::string("Extra Draw Ready"));
-					if (up->replicateQueued) unitStatusLines.push_back(std::string("Replicate Active"));
-
-					// Regeneration
-					if (up->hasRegeneration) unitStatusLines.push_back(std::string("Regeneration"));
-
-					// Weaknesses / vulnerabilities (aggregate, max 2x per damage type)
-					bool vulnHoly = false;
-					bool vulnPiercing = false;
-					// Sources: unit types and cards in deck/discard
-					if (up->isHellhound || up->isDemon || up->isSkeleton) vulnHoly = true;
-					if (up->inGhostForm) vulnHoly = true;
-					// Call for Wolves -> Piercing
-					bool hasCallForWolves = false;
-					for (const auto & c : up->deck)
-						if (c.type == CARD_CALL_FOR_WOLVES) {
-							hasCallForWolves = true;
-							break;
-						}
-					if (!hasCallForWolves)
-						for (const auto & c : up->discardPile)
-							if (c.type == CARD_CALL_FOR_WOLVES) {
-								hasCallForWolves = true;
-								break;
-							}
-					if (hasCallForWolves) vulnPiercing = true;
-					// Vampire Bite -> Holy
-					bool hasVampireBite = false;
-					for (const auto & c : up->deck)
-						if (c.type == CARD_VAMPIRE_BITE) {
-							hasVampireBite = true;
-							break;
-						}
-					if (!hasVampireBite)
-						for (const auto & c : up->discardPile)
-							if (c.type == CARD_VAMPIRE_BITE) {
-								hasVampireBite = true;
-								break;
-							}
-					if (hasVampireBite) vulnHoly = true;
-
-					if (vulnHoly || vulnPiercing) {
-						std::vector<std::string> vulnNames;
-						if (vulnPiercing) vulnNames.push_back("Piercing");
-						if (vulnHoly) vulnNames.push_back("Holy");
-						// Format: "Weakness 2x: Piercing, Holy"
-						std::string s = std::string("Weakness 2x: ");
-						for (size_t vi = 0; vi < vulnNames.size(); ++vi) {
-							if (vi > 0) s += ", ";
-							s += vulnNames[vi];
-						}
-						unitStatusLines.push_back(s);
-					}
-
-					if (!unitStatusLines.empty()) {
-						tooltipText += " [";
-						for (size_t si = 0; si < unitStatusLines.size(); ++si) {
-							if (si > 0) tooltipText += ", ";
-							tooltipText += unitStatusLines[si];
-						}
-						tooltipText += "]";
-					}
-				}
-
-				// If unit (minion or player) has regeneration, inject into tooltip
-				if (up->hasRegeneration) {
-					// Avoid duplicate "Regeneration" if it was already added to unitStatusLines
-					if (tooltipText.find("Regeneration") == std::string::npos) {
-						size_t openPos = tooltipText.find('[');
-						if (openPos != std::string::npos) {
-							size_t closePos = tooltipText.rfind(']');
-							if (closePos != std::string::npos) {
-								if (closePos > openPos + 1) // already has contents
-									tooltipText.insert(closePos, ", Regeneration");
-								else // empty brackets
-									tooltipText.insert(closePos, "Regeneration");
-							} else {
-								tooltipText += " [Regeneration]";
-							}
-						} // end check for existing Regeneration
-					} // end hasRegeneration
-				}
-
-				// Add range tooltip info if unit is a valid target for current card preview
-				if (board[tooltipGX][tooltipGY].hasTooltipInfo) {
-					int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
-					float hitChance = board[tooltipGX][tooltipGY].hitChance;
-					int percentage = (int)(hitChance * 100.0f);
-
-					std::string rangeText = " | Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
-					if (board[tooltipGX][tooltipGY].isAoeCenter) {
-						int feet = board[tooltipGX][tooltipGY].aoeRadiusFeet;
-						int tiles = (int)round((double)feet / 5.0);
-						rangeText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
-					}
-					tooltipText += rangeText;
-				}
-			}
-		}
+		// 2. Unit Tooltips on board are now completely drawn in-world directly under the mini HP bar!
 		// 3. SHIELD BAR SEGMENT TOOLTIP (Global Check for P0, P1, and Minions)
 		else {
 			// Helper to check hover against cached shield rects (requires rect storage in Player or finding UI coords)
@@ -19723,7 +19709,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveSettings();
 				return;
 			}
+		}
 
+		if (currentSettingsTab == SETTINGS_TAB_GAME) {
 			if (settingsInWorldHPBtn.inside(x, y)) {
 				settingsInWorldHPMode = (settingsInWorldHPMode + 1) % 3;
 				saveSettings();
