@@ -22257,17 +22257,6 @@ void ofApp::mouseReleased(int x, int y, int button) {
 					playHandFeedbackSfx(1.28f, 0.14f);
 					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_MENU);
 					if (startedCardInteraction) {
-						// Always play a hand-release fade animation when entering interaction states.
-						if (isMultiplayer) {
-							RemovedCardAnimation rem;
-							rem.card = playedCardSnapshot;
-							rem.startPos = playedCardReleasePos;
-							rem.startTime = ofGetElapsedTimef();
-							rem.currentScale = playedCardReleaseScale > 0.0f ? playedCardReleaseScale : 1.0f;
-							rem.currentAlpha = 255.0f;
-							activeRemovedCardAnimations.push_back(rem);
-						}
-
 						// Prevent the in-hand card from appearing frozen at release position.
 						if (draggedCardIndex >= 0 && draggedCardIndex < (int)currentPlayer.hand.size()) {
 							currentPlayer.hand[draggedCardIndex].currentPos = currentPlayer.hand[draggedCardIndex].targetPos;
