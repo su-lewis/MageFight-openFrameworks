@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = -DGRAPHICS_API_OPENGL_33 -DPLATFORM_DESKTOP
 
-CXX_INCLUDES = -I/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/src -I/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-src/src -I/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-src/src/external/glfw/include
+CXX_INCLUDES = -I/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/src -I/home/lewis/of_workspace/openFrameworks/libs/json/include -I/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-src/src -I/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/raylib_port/build/_deps/raylib-src/src/external/glfw/include
 
-CXX_FLAGS = -std=c++17
+CXX_FLAGS = -std=gnu++17
 

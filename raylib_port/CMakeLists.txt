@@ -17,16 +17,21 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(raylib)
 
-# 2. Add MageFightClient Executable
-add_executable(MageFightClient
+# 2. Add magefight_raylib Executable
+add_executable(magefight_raylib
     src/main.cpp
-    src/core/Simulation.cpp
+    src/GameApp.cpp
+    src/core/DeterministicChecksum.cpp
+    src/core/DeterministicHarness.cpp
+    src/core/LockstepCommandQueue.cpp
+    src/core/SnapshotFormat.cpp
 )
 
 # 3. Include Directories
-target_include_directories(MageFightClient PRIVATE
+target_include_directories(magefight_raylib PRIVATE
     src
+    /home/lewis/of_workspace/openFrameworks/libs/json/include
 )
 
-# 4. Link Raylib (This automatically provides raylib.h to src/main.cpp)
-target_link_libraries(MageFightClient PRIVATE raylib)
+# 4. Link Raylib (This automatically provides raylib.h)
+target_link_libraries(magefight_raylib PRIVATE raylib)

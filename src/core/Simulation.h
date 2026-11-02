@@ -2,21 +2,18 @@
 #define SIMULATION_H
 
 #include "GameState.h"
-#include "PlayerState.h"
+#include "UnitState.h"
 #include "Command.h"
+#include "Combat.h"
 #include <vector>
 
-inline void simulate_tick(GameState& state, PlayerState& player, const std::vector<Command>& commands, uint32_t currentTick) {
+inline void simulate_tick(GameState& state, UnitState& unit, const std::vector<Command>& commands, uint32_t currentTick) {
     for (const auto& command : commands) {
         if (command.tick == currentTick) {
             switch (command.type) {
-                case CommandType::MOVE:
-                    player.position = command.target;
-                    break;
-                case CommandType::CAST_SPELL:
-                    if (command.spellType == SpellType::FIREBALL) {
-                        player.health -= 10;
-                    }
+                case CommandType::MOVE_UNIT:
+                    unit.x = command.params[0];
+                    unit.y = command.params[1];
                     break;
                 default:
                     break;
@@ -26,3 +23,4 @@ inline void simulate_tick(GameState& state, PlayerState& player, const std::vect
 }
 
 #endif // SIMULATION_H
+

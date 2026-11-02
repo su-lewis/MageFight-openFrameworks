@@ -61,7 +61,6 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/share/cmake/Modules/FetchContent/CMakeLists.cmake.in"
   "/usr/share/cmake/Modules/FindFontconfig.cmake"
   "/usr/share/cmake/Modules/FindFreetype.cmake"
-  "/usr/share/cmake/Modules/FindGit.cmake"
   "/usr/share/cmake/Modules/FindOpenGL.cmake"
   "/usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
   "/usr/share/cmake/Modules/FindPackageMessage.cmake"
