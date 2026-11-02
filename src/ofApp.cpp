@@ -146,7 +146,20 @@ static void spawnVfx(glm::vec3 pos, int type, int count) {
 		g_pngVfx.push_back(p);
 	}
 }
+// --- SETTINGS CONTROLS (FPS PRESETS, AUDIO ARROWS & UI SCALE) ---
+static ofRectangle settingsFpsLeftBtn;
+static ofRectangle settingsFpsRightBtn;
+static ofRectangle settingsAudioMasterLeftBtn;
+static ofRectangle settingsAudioMasterRightBtn;
+static ofRectangle settingsAudioVolumeLeftBtn;
+static ofRectangle settingsAudioVolumeRightBtn;
+static ofRectangle settingsAudioSfxLeftBtn;
+static ofRectangle settingsAudioSfxRightBtn;
+static ofRectangle settingsUIScaleLeftBtn;
+static ofRectangle settingsUIScaleRightBtn;
 
+static const std::vector<int> s_fpsPresets = { 30, 60, 90, 120, 144, 180, 240, 0 }; // 0 = Unlimited
+static int s_currentFpsIndex = 1; // Default to 60 FPS
 // --- 3D WALL DEBRIS CHUNK SYSTEM ---
 struct StoneChunk {
 	glm::vec3 pos;
@@ -244,6 +257,11 @@ static std::set<int> s_aiFailedCards;
 static int s_activeSettingsSlider = 1;
 static int settingsInWorldHPMode = 0; // 0 = Always, 1 = On Hover, 2 = Off
 static ofRectangle settingsInWorldHPBtn;
+static ofRectangle settingsInWorldHPLeftBtn;
+static ofRectangle settingsInWorldHPRightBtn;
+
+// File-scope UI scale so free helper functions (like getUIScaleFromHeight) can access it
+static float g_settingsUIScale = 1.0f;
 
 // --- DETERMINISTIC PLAYER COLOR PALETTE ---
 static int g_playerColorIndices[4] = { 0, 1, 2, 3 };
@@ -1660,15 +1678,16 @@ static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) 
 	return ui;
 }
 
-// Global UI scale helper: 1440p baseline (1.0 at 1440p). Clamped to avoid extreme sizes.
+// Global UI scale helper: 1440p baseline scaled by g_settingsUIScale (0.50x to 1.50x range)
 static inline float getUIScaleFromHeight(float screenH) {
-	float s = screenH / 1440.0f;
-	return std::clamp(s, 0.5f, 1.25f);
+	float baseline = screenH / 1440.0f;
+	float s = baseline * g_settingsUIScale;
+	return std::clamp(s, 0.35f, 2.50f);
 }
 
 static inline float getHandCardVisualBoost(float screenH) {
 	float boost = 1.15f - ((screenH - 1080.0f) * (0.15f / 360.0f));
-	return std::clamp(boost, 1.0f, 1.15f);
+	return std::clamp(boost, 0.95f, 1.15f);
 }
 
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
@@ -1676,34 +1695,37 @@ static float effectiveBottomGap(const UILayoutSpacing & ui) {
 }
 
 static ofRectangle computeHandAreaRect(float screenW, float screenH) {
-	float scale = getUIScaleFromHeight(screenH);
+	// Synchronize base scale with drawGame() so hand bounds exactly track health bar positions
+	float baseScale = (screenH / 1080.0f) * g_settingsUIScale;
+	float handScale = getUIScaleFromHeight(screenH);
 	float handBoost = getHandCardVisualBoost(screenH);
-	UILayoutSpacing ui = buildUILayoutSpacing(scale, true);
+	UILayoutSpacing ui = buildUILayoutSpacing(baseScale, true);
 
-	float handCardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
+	float handCardH = kCardPixelHeight * kHandCardVisualScale * handBoost * handScale;
 
-	// Exact UI metrics
-	float staticUICardWidth = (kCardPixelWidth * pileCardScale) * scale;
+	// Exact UI metrics matching drawGame()
+	float handBaseCardWidth = kCardPixelWidth;
+	float staticUICardWidth = (handBaseCardWidth * 0.45f) * baseScale;
 	float deckBottomGap = effectiveBottomGap(ui);
 	float sideInset = deckBottomGap;
-	float healthBarW = 220.0f * scale;
+	float healthBarW = 220.0f * baseScale;
 	float gap = ui.healthBarSideGap;
 	float healthBarInwardNudge = ui.healthBarInwardNudge;
 
-	// Find the exact inner edges of the Left and Right HP bars
+	// Inner edges of Left and Right HP bars
 	float p0_healthRight = sideInset + staticUICardWidth + gap + healthBarInwardNudge + healthBarW;
 	float p1_healthLeft = screenW - staticUICardWidth - sideInset - gap - healthBarW - healthBarInwardNudge;
 
-	// Squeeze the box so it physically cannot touch the HP bars
-	float padding = 150.0f * scale; // Shrinks the box inward by an extra 70px on both sides
+	// Dynamic clearance buffer ensures cards fan out without clipping health bars
+	float padding = 20.0f * baseScale;
 	float left = p0_healthRight + padding;
 	float right = p1_healthLeft - padding;
 
 	float handAreaWidth = std::max(0.0f, right - left);
 
-	float restY = screenH - 80.0f * scale;
-	float top = restY - (handCardH * 0.5f) - (56.0f * scale);
-	float bottom = screenH - (8.0f * scale);
+	float restY = screenH - 80.0f * baseScale;
+	float top = restY - (handCardH * 0.5f) - (40.0f * baseScale);
+	float bottom = screenH - (8.0f * baseScale);
 
 	return ofRectangle(left, top, handAreaWidth, std::max(0.0f, bottom - top));
 }
@@ -6621,31 +6643,31 @@ void ofApp::update() {
 		recalculateUI(ofGetWidth(), ofGetHeight());
 	}
 
-	// --- MENU PANNING & DYNAMIC HITBOX SLIDING ---
+	// --- SPELLBOOK PAGE TURN ANIMATION ---
 	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA) {
-		if (isWaitingForMenuTransition) {
-			// Determine the boundaries of the screen we are currently looking at
-			float safeTileSize = std::max(1.0f, menuTileSize);
-			int currentScreen = std::round(targetMenuPanX / (30.0f * safeTileSize));
-			int leftEdge = currentScreen * 30 - 1;
-			int rightEdge = currentScreen * 30 + 13;
+		float dt = std::min((float)ofGetLastFrameTime(), 0.1f);
 
-			if (pendingMenuPanX == targetMenuPanX) {
-				// Safety catch for returning to the exact same screen
-				isWaitingForMenuTransition = false;
-				currentState = pendingMenuState;
-			} else if (mainMenuCirclePos.x <= leftEdge || mainMenuCirclePos.x >= rightEdge || mainMenuCirclePath.empty()) {
-				// The Circle has reached the tunnel edge! Release the camera!
-				isWaitingForMenuTransition = false;
-				targetMenuPanX = pendingMenuPanX;
+		if (isWaitingForMenuTransition) {
+			// currentMenuPanX is now our "Flip Progress" (0.0 to 1.0)
+			currentMenuPanX += dt * 2.5f; // Speed of the page turn
+
+			if (currentMenuPanX >= 0.5f && currentState != pendingMenuState) {
+				// Halfway through the flip (page is completely vertical/invisible)!
+				// Swap the actual UI state now so the new menu scales out.
 				currentState = pendingMenuState;
 			}
+
+			if (currentMenuPanX >= 1.0f) {
+				// Page turn complete
+				currentMenuPanX = 1.0f;
+				isWaitingForMenuTransition = false;
+			}
+		} else {
+			// Not transitioning, ensure progress is settled
+			currentMenuPanX = 0.0f;
 		}
 
-		// Clamp delta time to 0.1s so a massive loading lag spike on frame 1 doesn't blast the camera to infinity!
-		float dt = std::min((float)ofGetLastFrameTime(), 0.1f);
-		currentMenuPanX = ofLerp(currentMenuPanX, targetMenuPanX, 6.0f * dt);
-		// Always update rects so buttons slide perfectly with the background
+		// Keep button hitboxes updated to the static page layout
 		updateMenuRects();
 	}
 
@@ -7562,7 +7584,7 @@ void ofApp::draw() {
 
 	s_hoveredHistoryIndex = -1;
 	if (currentState == STATE_GAMEPLAY && !g_actionHistory.empty()) {
-		float scale = ofGetHeight() / 1080.0f;
+		float scale = (ofGetHeight() / 1080.0f) * g_settingsUIScale;
 		float iconSize = 46.0f * scale;
 		float spacing = 8.0f * scale;
 		float totalW = g_actionHistory.size() * iconSize + (g_actionHistory.size() - 1) * spacing;
@@ -7679,13 +7701,38 @@ void ofApp::draw() {
 		case STATE_SINGLEPLAYER_MENU:
 		case STATE_ENCYCLOPEDIA:
 		case STATE_CUSTOMISATION:
-			// Unified 2D Backdrop
+			// 1. Draw the static spellbook background
 			draw2DMenuBackground();
 
-			// Physical screens
-			drawMainMenu();
-			drawMultiplayerMenu();
-			drawSingleplayerMenu();
+			// 2. Apply the Page Turn Squash
+			ofPushMatrix();
+
+			if (isWaitingForMenuTransition) {
+				// currentMenuPanX goes from 0.0 to 1.0
+				float scaleX = 1.0f;
+				if (currentMenuPanX < 0.5f) {
+					// 0.0 to 0.5: Shrink current page horizontally (1.0 down to 0.0)
+					scaleX = 1.0f - (currentMenuPanX * 2.0f);
+				} else {
+					// 0.5 to 1.0: Expand new page horizontally (0.0 up to 1.0)
+					scaleX = (currentMenuPanX - 0.5f) * 2.0f;
+				}
+
+				// Center the scale effect in the middle of the screen (the book spine)
+				ofTranslate(ofGetWidth() / 2.0f, 0);
+				ofScale(scaleX, 1.0f);
+				ofTranslate(-ofGetWidth() / 2.0f, 0);
+			}
+
+			// 3. Draw the active menu onto the page
+			if (currentState == STATE_MAIN_MENU)
+				drawMainMenu();
+			else if (currentState == STATE_MULTIPLAYER_MENU)
+				drawMultiplayerMenu();
+			else if (currentState == STATE_SINGLEPLAYER_MENU)
+				drawSingleplayerMenu();
+
+			ofPopMatrix();
 
 			// Overlays
 			if (currentState == STATE_ENCYCLOPEDIA) {
@@ -7707,7 +7754,8 @@ void ofApp::draw() {
 			ofDisableLighting();
 			safeEnableAlphaBlending();
 
-			float scale = ofGetHeight() / 1080.0f;
+			// Apply global UI scale factor to all HUD overlay metrics
+			float scale = (ofGetHeight() / 1080.0f) * g_settingsUIScale;
 			float uiScale = getUIScaleFromHeight(ofGetHeight());
 
 			// Draw card interaction and choice menus beneath the pause/settings menus
@@ -8959,20 +9007,15 @@ std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 
 }
 
 void ofApp::navigateToMenu(int screenIndex, GameState newState) {
-	targetMenuScreen = screenIndex;
-	float w = std::max(1.0f, (float)ofGetWidth());
-	float h = std::max(1.0f, (float)ofGetHeight());
-	menuTileSize = std::max(1.0f, std::floor(std::min(w / 15.0f, h / 11.0f)));
-
-	// Pathfind the circle seamlessly across the infinite screens to the new center
-	int targetCircleX = 6 + (screenIndex * 30);
-	glm::vec2 startPos = { std::round(mainMenuCirclePos.x), std::round(mainMenuCirclePos.y) };
-	mainMenuCirclePath = getInfiniteMazePath(startPos, { targetCircleX, 6 });
-
-	// Queue the camera and state transitions to happen WHEN the circle hits the edge!
-	pendingMenuPanX = screenIndex * 30 * menuTileSize;
+	// Start the page turn animation from 0.0
+	currentMenuPanX = 0.0f;
 	pendingMenuState = newState;
 	isWaitingForMenuTransition = true;
+
+	if (s_sfxHoverButton.isLoaded()) {
+		// Play a paper/page-turn sound here if you add one later!
+		s_sfxHoverButton.play();
+	}
 }
 
 void ofApp::updateMenuRects() {
@@ -9349,24 +9392,66 @@ void ofApp::draw2DMenuBackground() {
 }
 
 void ofApp::drawMainMenu() {
-	// draw2DMenuBackground() is already called in drawEverything(); do not call it twice!
+	float uiScale = std::clamp(g_settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 
-	// 3. Draw Title (Top Center)
-	string title = _L("UI_TITLE", "MAGE FIGHT");
-	float titleScale = 1.5f; // Shrunk so it doesn't overlap the buttons
-	// Secure the title so it never flies off the top of the screen
-	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
+	// Restore panning offset so the menu slides naturally!
+	float mX = baseMenuStartX - currentMenuPanX;
+	float centerX = mX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
-	// Slide the title text so it stays above the main board while panning!
-	float titleX = baseMenuStartX - currentMenuPanX + (BOARD_WIDTH * menuTileSize) / 2.0f;
-	drawPixelTextCentered(titleFont, title, titleX, titleY, titleScale, ofColor::gold, 4, ofColor::black);
+	int numRows = 5; // Online, Singleplayer, Rules, Settings, Quit
+	float btnW = 400.0f * uiScale;
+	float btnH = 76.0f * uiScale;
+	float btnGap = 20.0f * uiScale;
+	float titleAreaH = 110.0f * uiScale;
+	float bottomPad = 40.0f * uiScale;
+	float totalBtnH = (numRows * btnH) + ((numRows - 1) * btnGap);
+	float panelH = titleAreaH + totalBtnH + bottomPad;
+	float panelW = 480.0f * uiScale;
+	float panelY = (ofGetHeight() - panelH) / 2.0f;
 
-	drawMenuPlaqueButton(mainMenuOnlineButton, _L("UI_BTN_ONLINE", "Online Versus"), mainMenuOnlineButton.inside(ofGetMouseX(), ofGetMouseY()), false);
-	drawMenuPlaqueButton(mainMenuSingleplayerButton, _L("UI_BTN_SOLO", "Singleplayer"), mainMenuSingleplayerButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuCustomisationButton, _L("UI_BTN_CUSTOM", "Customisation"), mainMenuCustomisationButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuEncyclopediaButton, _L("UI_BTN_RULES", "Rules & Cards"), mainMenuEncyclopediaButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuSettingsButton, _L("UI_BTN_SETTINGS", "Settings"), mainMenuSettingsButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuQuitButton, _L("UI_BTN_QUIT", "Quit"), mainMenuQuitButton.inside(ofGetMouseX(), ofGetMouseY()));
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	ofSetColor(25, 25, 32, 250);
+	ofFill();
+	ofDrawRectRounded(panelRect, 16.0f * uiScale);
+	ofNoFill();
+	ofSetLineWidth(3.0f * uiScale);
+	ofSetColor(80, 80, 100, 255);
+	ofDrawRectRounded(panelRect, 16.0f * uiScale);
+	ofFill();
+
+	drawPixelTextCentered(titleFont, _L("UI_TITLE", "MAGE FIGHT"), centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
+
+	float curY = panelY + titleAreaH;
+	float btnX = centerX - btnW / 2.0f;
+
+	auto drawBtn = [&](ofRectangle & r, const std::string & txt, bool isDanger = false) {
+		r.set(btnX, curY, btnW, btnH);
+		bool isHovered = r.inside(ofGetMouseX(), ofGetMouseY());
+		if (isHovered) g_hoveredButtonId = "mm_" + txt;
+
+		ofColor bgCol = isHovered ? (isDanger ? ofColor(120, 50, 50) : ofColor(60, 65, 80)) : (isDanger ? ofColor(70, 35, 35) : ofColor(35, 38, 48));
+		ofSetColor(bgCol);
+		ofFill();
+		ofDrawRectRounded(r, 10.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(2.0f * uiScale);
+		ofSetColor(isHovered ? (isDanger ? ofColor(255, 100, 100) : ofColor(255, 215, 0)) : (isDanger ? ofColor(150, 60, 60) : ofColor(100, 100, 120)));
+		ofDrawRectRounded(r, 10.0f * uiScale);
+		ofFill();
+
+		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.2f * uiScale, ofColor::white, 2, ofColor::black);
+		curY += btnH + btnGap;
+	};
+
+	drawBtn(mainMenuOnlineButton, _L("UI_BTN_ONLINE", "Online Versus"));
+	drawBtn(mainMenuSingleplayerButton, _L("UI_BTN_SOLO", "Singleplayer"));
+	drawBtn(mainMenuEncyclopediaButton, _L("UI_BTN_RULES", "Rules & Cards"));
+	drawBtn(mainMenuSettingsButton, _L("UI_BTN_SETTINGS", "Settings"));
+	drawBtn(mainMenuQuitButton, _L("UI_BTN_QUIT", "Quit"), true);
+
+	// Hide unused buttons off-screen
+	mainMenuCustomisationButton.set(-1000, -1000, 0, 0);
 }
 
 //--------------------------------------------------------------
@@ -9447,41 +9532,59 @@ void ofApp::drawSettingsMenu() {
 	float settingSpacing = 100.0f * uiScale;
 	float controlWidth = 250.0f * uiScale;
 
-	// --- Helper for drawing a setting row ---
+	// Clean setting row layout: label clearly above box, buttons and value box centered below
 	auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
 		if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
 		if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
-		// Draw Label (centered)
+
+		float boxH = 46.0f * uiScale;
+		float boxY = yPos + 22.0f * uiScale; // Positioned cleanly below label
+		float arrowW = 40.0f * uiScale;
+
+		// 1. Draw Title Label centered above the box
 		ofSetColor(ofColor::white);
 		ofRectangle lb = getCachedBounds(label);
-		SafeDrawText(uiFont, label, centerX - lb.getWidth() / 2, yPos + 25);
+		drawPixelTextCentered(uiFont, label, centerX, yPos + 6.0f * uiScale, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
 
-		// Draw Left/Right buttons (dark bg)
-		leftBtn.set(centerX - (controlWidth / 2) - 45.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
-		rightBtn.set(centerX + (controlWidth / 2) + 5.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
-		ofSetColor(ofColor(50));
-		ofDrawRectRounded(leftBtn, 5.0f * uiScale);
-		ofDrawRectRounded(rightBtn, 5.0f * uiScale);
-		ofSetColor(ofColor(120));
+		// 2. Draw Left/Right arrow buttons
+		leftBtn.set(centerX - (controlWidth / 2) - arrowW - 8.0f * uiScale, boxY, arrowW, boxH);
+		rightBtn.set(centerX + (controlWidth / 2) + 8.0f * uiScale, boxY, arrowW, boxH);
+
+		bool leftHov = leftBtn.inside(ofGetMouseX(), ofGetMouseY());
+		bool rightHov = rightBtn.inside(ofGetMouseX(), ofGetMouseY());
+
+		ofSetColor(leftHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
+		ofDrawRectRounded(leftBtn, 6.0f * uiScale);
+		ofSetColor(ofColor(100, 105, 120));
 		ofNoFill();
-		ofSetLineWidth(1.5 * uiScale);
-		ofDrawRectRounded(leftBtn, 5.0f * uiScale);
-		ofDrawRectRounded(rightBtn, 5.0f * uiScale);
+		ofSetLineWidth(1.5f * uiScale);
+		ofDrawRectRounded(leftBtn, 6.0f * uiScale);
 		ofFill();
 
-		// Draw Background for the value text (dark)
-		ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
-		ofSetColor(ofColor(35));
-		ofDrawRectangle(bgRect);
+		ofSetColor(rightHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
+		ofDrawRectRounded(rightBtn, 6.0f * uiScale);
+		ofSetColor(ofColor(100, 105, 120));
+		ofNoFill();
+		ofSetLineWidth(1.5f * uiScale);
+		ofDrawRectRounded(rightBtn, 6.0f * uiScale);
+		ofFill();
 
-		// Draw TEXT AFTER the background and set its color to WHITE and centered
-		ofSetColor(ofColor::white);
-		ofRectangle vb = getCachedBounds(value);
-		SafeDrawText(uiFont, value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
-		ofRectangle lt = getCachedBounds("<");
-		ofRectangle rt = getCachedBounds(">");
-		SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
-		SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
+		// Arrow labels
+		drawPixelTextCentered(uiFont, "<", leftBtn.getCenter().x, leftBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
+		drawPixelTextCentered(uiFont, ">", rightBtn.getCenter().x, rightBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
+
+		// 3. Draw Center Value Box
+		ofRectangle bgRect(centerX - (controlWidth / 2), boxY, controlWidth, boxH);
+		ofSetColor(ofColor(28, 30, 38));
+		ofDrawRectRounded(bgRect, 6.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(1.5f * uiScale);
+		ofSetColor(ofColor(70, 75, 90));
+		ofDrawRectRounded(bgRect, 6.0f * uiScale);
+		ofFill();
+
+		// Center Value Text
+		drawPixelTextCentered(uiFont, value, bgRect.getCenter().x, bgRect.getCenter().y, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
 	};
 
 	// VIDEO tab: render existing resolution/framerate/fullscreen controls
@@ -9496,40 +9599,11 @@ void ofApp::drawSettingsMenu() {
 		string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
 		drawSettingRow(_L("UI_SETTING_RES", "Resolution"), resText, settingsResLeftButton, settingsResRightButton, settingY);
 
-		// --- Draw Framerate as slider ---
+		// --- Draw Framerate with Fixed Presets & Arrows ---
 		settingY += settingSpacing;
-		float sliderW = 320.0f * uiScale;
-		float sliderH = 32.0f * uiScale;
-		settingsFramerateSlider.set(centerX - sliderW / 2, settingY, sliderW, sliderH);
-		// Draw background
-		ofSetColor(ofColor(35));
-		ofDrawRectangle(settingsFramerateSlider);
-		// Draw fill (audio screen colours removed — use white)
-		float fillW = settingsFramerateSlider.width * settingsFramerateSliderValue;
-		ofSetColor(ofColor::white);
-		ofDrawRectangle(settingsFramerateSlider.x, settingsFramerateSlider.y, fillW, settingsFramerateSlider.height);
-		// Draw handle
-		float handleX = settingsFramerateSlider.x + fillW;
-		ofSetColor(ofColor::white);
-		ofDrawCircle(handleX, settingsFramerateSlider.getCenter().y, 16.0f * uiScale);
-		// Draw label
-		std::string frameText;
-		if (settingsFramerateSliderValue >= 0.999f) {
-			frameText = "Unlimited";
-		} else {
-			int fps = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-			frameText = ofToString(fps) + " FPS";
-		}
-		ofRectangle ftb = getCachedBounds(frameText);
-		SafeDrawText(uiFont, frameText, centerX - ftb.width / 2, settingsFramerateSlider.y - 10);
-		// Draw label left/right (place below slider to avoid overlap with handle)
-		string minLabel = "15";
-		string maxLabel = "Unlimited";
-		ofRectangle minb = getCachedBounds(minLabel);
-		ofRectangle maxb = getCachedBounds(maxLabel);
-		float labelY = settingsFramerateSlider.y + settingsFramerateSlider.height + 20.0f * uiScale;
-		SafeDrawText(uiFont, minLabel, settingsFramerateSlider.x - minb.width - 8.0f * uiScale, labelY + minb.height / 2.0f);
-		SafeDrawText(uiFont, maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8.0f * uiScale, labelY + maxb.height / 2.0f);
+		int currentPresetFPS = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
+		std::string frameText = (currentPresetFPS == 0) ? "Unlimited" : (ofToString(currentPresetFPS) + " FPS");
+		drawSettingRow("Framerate Limit", frameText, settingsFpsLeftBtn, settingsFpsRightBtn, settingY);
 
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
@@ -9573,56 +9647,101 @@ void ofApp::drawSettingsMenu() {
 		ofRectangle hpValBox = getCachedBounds(hpModeText);
 		SafeDrawText(uiFont, hpModeText, settingsInWorldHPBtn.x + (settingsInWorldHPBtn.width - hpValBox.width) / 2, settingsInWorldHPBtn.y + 32.0f * uiScale);
 	}
+	// GAME tab: clean setting rows with titles rendered strictly above the buttons
+	if (currentSettingsTab == SETTINGS_TAB_GAME) {
+		float settingY = contentY + 20.0f * uiScale;
+		float rowSpacing = 110.0f * uiScale;
 
-	// AUDIO tab: spacious, elegant layout matching the Video tab
+		// Row 1: In-World Unit HP
+		std::string hpModeNames[] = { "Always", "On Hover", "Off" };
+		std::string hpModeText = hpModeNames[std::clamp(settingsInWorldHPMode, 0, 2)];
+		drawSettingRow("In-World Unit HP", hpModeText, settingsInWorldHPLeftBtn, settingsInWorldHPRightBtn, settingY);
+
+		// Row 2: UI Scale
+		settingY += rowSpacing;
+		std::string uiScaleText = ofToString((int)std::round(settingsUIScale * 100.0f)) + "%";
+		drawSettingRow("UI Scale", uiScaleText, settingsUIScaleLeftBtn, settingsUIScaleRightBtn, settingY);
+	}
+	// AUDIO tab: sliders equipped with < and > arrow buttons to increment/decrement by 1%
 	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-		float sliderW = 380.0f * uiScale;
+		float sliderW = 320.0f * uiScale;
 		float sliderH = 28.0f * uiScale;
-		float audioSpacing = 110.0f * uiScale; // 110px spacing leaves a clean 68px gap between sliders
+		float arrowW = 36.0f * uiScale;
+		float arrowGap = 10.0f * uiScale;
+		float audioSpacing = 110.0f * uiScale;
 		float sliderY = contentY + 40.0f * uiScale;
 
-		auto drawAudioSlider = [&](ofRectangle & sliderRect, float yPos, float value, const string & label, int sliderID) {
+		auto drawAudioSliderWithArrows = [&](ofRectangle & sliderRect, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos, float value, const string & label, int sliderID) {
 			sliderRect.set(centerX - sliderW / 2, yPos, sliderW, sliderH);
+			leftBtn.set(sliderRect.x - arrowW - arrowGap, yPos, arrowW, sliderH);
+			rightBtn.set(sliderRect.getRight() + arrowGap, yPos, arrowW, sliderH);
 
-			// Draw Label comfortably above the slider (14px baseline clearance)
+			// Label
 			ofSetColor(ofColor::white);
 			ofRectangle lb = getCachedBounds(label);
 			SafeDrawText(uiFont, label, centerX - lb.width / 2, sliderRect.y - 14.0f * uiScale);
 
-			// Background track with rounded corners
+			// Left Arrow (<)
+			bool leftHover = leftBtn.inside(ofGetMouseX(), ofGetMouseY());
+			if (leftHover) g_hoveredButtonId = "audio_minus_" + label;
+			ofSetColor(leftHover ? ofColor(65, 70, 85) : ofColor(40, 42, 50));
+			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
+			ofSetColor(ofColor(120));
+			ofNoFill();
+			ofSetLineWidth(1.5f * uiScale);
+			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
+			ofFill();
+			ofSetColor(ofColor::white);
+			ofRectangle lt = getCachedBounds("<");
+			SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
+
+			// Right Arrow (>)
+			bool rightHover = rightBtn.inside(ofGetMouseX(), ofGetMouseY());
+			if (rightHover) g_hoveredButtonId = "audio_plus_" + label;
+			ofSetColor(rightHover ? ofColor(65, 70, 85) : ofColor(40, 42, 50));
+			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
+			ofSetColor(ofColor(120));
+			ofNoFill();
+			ofSetLineWidth(1.5f * uiScale);
+			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
+			ofFill();
+			ofSetColor(ofColor::white);
+			ofRectangle rt = getCachedBounds(">");
+			SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
+
+			// Background track
 			ofSetColor(ofColor(35));
 			ofDrawRectRounded(sliderRect, 6.0f * uiScale);
 
-			// Progress fill with rounded corners
+			// Fill
 			float fillW = sliderRect.width * std::clamp(value, 0.0f, 1.0f);
 			ofSetColor(ofColor::white);
 			ofDrawRectRounded(sliderRect.x, sliderRect.y, fillW, sliderRect.height, 6.0f * uiScale);
 
-			// Handle knob matching the Video tab
+			// Handle
 			float handleX = sliderRect.x + fillW;
 			ofSetColor(ofColor::white);
 			ofDrawCircle(handleX, sliderRect.getCenter().y, 14.0f * uiScale);
 
-			// Focus outline when selected
 			if (s_activeSettingsSlider == sliderID) {
 				ofNoFill();
 				ofSetLineWidth(2.0f * uiScale);
-				ofSetColor(255, 215, 0, 220); // Gold focus border
+				ofSetColor(255, 215, 0, 220);
 				ofDrawRectRounded(sliderRect.x - 3 * uiScale, sliderRect.y - 3 * uiScale, sliderRect.width + 6 * uiScale, sliderRect.height + 6 * uiScale, 8.0f * uiScale);
 				ofFill();
 			}
 		};
 
 		string masterLabel = "Master Volume: " + ofToString((int)std::round(settingsMasterVolume * 100)) + "%";
-		drawAudioSlider(settingsAudioMasterSlider, sliderY, settingsMasterVolume, masterLabel, 1);
+		drawAudioSliderWithArrows(settingsAudioMasterSlider, settingsAudioMasterLeftBtn, settingsAudioMasterRightBtn, sliderY, settingsMasterVolume, masterLabel, 1);
 
 		sliderY += audioSpacing;
 		string menuLabel = "Music Volume: " + ofToString((int)std::round(settingsMenuVolume * 100)) + "%";
-		drawAudioSlider(settingsAudioVolumeSlider, sliderY, settingsMenuVolume, menuLabel, 2);
+		drawAudioSliderWithArrows(settingsAudioVolumeSlider, settingsAudioVolumeLeftBtn, settingsAudioVolumeRightBtn, sliderY, settingsMenuVolume, menuLabel, 2);
 
 		sliderY += audioSpacing;
 		string sfxLabel = "Game SFX Volume: " + ofToString((int)std::round(settingsSfxVolume * 100)) + "%";
-		drawAudioSlider(settingsAudioSfxSlider, sliderY, settingsSfxVolume, sfxLabel, 3);
+		drawAudioSliderWithArrows(settingsAudioSfxSlider, settingsAudioSfxLeftBtn, settingsAudioSfxRightBtn, sliderY, settingsSfxVolume, sfxLabel, 3);
 	}
 
 	// CONTROLS tab: spacious scrollable list with clean clearance above the Back button
@@ -9708,53 +9827,74 @@ void ofApp::drawSettingsMenu() {
 			ofDrawRectRounded(trackX, thumbY, trackW, thumbH, 3.0f * uiScale);
 		}
 	}
-	// --- Draw Back Button (common) ---
-	float menuBtnW = 420.0f * uiScale;
-	float menuBtnH = 72.0f * uiScale;
-	settingsBackButton.set(centerX - menuBtnW / 2.0f, ofGetHeight() * 0.8, menuBtnW, menuBtnH);
+	// --- Draw Back Button (Standard Top-Left) ---
+	settingsBackButton.set(panelRect.x, 20 * uiScale, 160 * uiScale, 60 * uiScale);
 	bool backHovered = settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()) || settingsHoveredIndex == 0;
 	drawMenuPlaqueButton(settingsBackButton, "Back", backHovered);
 }
-
 void ofApp::drawSingleplayerMenu() {
-	// Periodically check file availability (rate-limited so it doesn't spam the disk)
-	static float lastDiskCheck = 0.0f;
-	if (ofGetElapsedTimef() - lastDiskCheck > 1.0f) {
-		lastDiskCheck = ofGetElapsedTimef();
-		g_hasAvailableSaves = false;
-		g_hasAvailableReplays = false;
-		try {
-			namespace fs = std::filesystem;
-			fs::path dir = getSavesDirPath();
-			if (fs::exists(dir)) {
-				for (const auto & entry : fs::directory_iterator(dir)) {
-					if (!entry.is_regular_file()) continue;
-					std::string name = entry.path().filename().string();
-					if (name.size() > 5 && name.substr(name.size() - 5) == ".json") {
-						if (name.find("replay") != std::string::npos)
-							g_hasAvailableReplays = true;
-						else if (name.find("save") != std::string::npos)
-							g_hasAvailableSaves = true;
-					}
-				}
-			}
-		} catch (...) { }
-	}
+	float uiScale = std::clamp(g_settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
 
-	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
+	// Restore panning offset! Screen 1 = 30 tiles right of the main menu
 	float sX = baseMenuStartX - currentMenuPanX + (30 * menuTileSize);
 	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
 
-	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
-	drawPixelTextCentered(titleFont, _L("UI_SOLO_TITLE", "SINGLEPLAYER"), centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
+	int numRows = 3; // New Game, Local PvP, Back
+	float btnW = 400.0f * uiScale;
+	float btnH = 76.0f * uiScale;
+	float btnGap = 20.0f * uiScale;
+	float titleAreaH = 110.0f * uiScale;
+	float bottomPad = 40.0f * uiScale;
+	float totalBtnH = (numRows * btnH) + ((numRows - 1) * btnGap);
+	float panelH = titleAreaH + totalBtnH + bottomPad;
+	float panelW = 480.0f * uiScale;
+	float panelY = (ofGetHeight() - panelH) / 2.0f;
 
-	drawMenuPlaqueButton(singleplayerNewGameButton, _L("UI_BTN_NEW_VS_AI", "New vs AI"), singleplayerNewGameButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mainMenuLocalPvPButton, _L("UI_BTN_LOCAL_PVP", "Local PvP"), mainMenuLocalPvPButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(singleplayerContinueButton, _L("UI_BTN_CONTINUE", "Continue vs AI"), singleplayerContinueButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
-	drawMenuPlaqueButton(singleplayerReplayButton, _L("UI_BTN_REPLAY", "Watch a Replay"), singleplayerReplayButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableReplays);
-	drawMenuPlaqueButton(singleplayerLoadButton, _L("UI_BTN_LOAD", "Load Game"), singleplayerLoadButton.inside(ofGetMouseX(), ofGetMouseY()), !g_hasAvailableSaves);
-	drawMenuPlaqueButton(singleplayerBackButton, _L("UI_BTN_BACK", "Back"), singleplayerBackButton.inside(ofGetMouseX(), ofGetMouseY()));
+	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+
+	ofSetColor(25, 25, 32, 250);
+	ofFill();
+	ofDrawRectRounded(panelRect, 16.0f * uiScale);
+	ofNoFill();
+	ofSetLineWidth(3.0f * uiScale);
+	ofSetColor(80, 80, 100, 255);
+	ofDrawRectRounded(panelRect, 16.0f * uiScale);
+	ofFill();
+
+	drawPixelTextCentered(titleFont, _L("UI_SOLO_TITLE", "SINGLEPLAYER"), centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
+
+	float curY = panelY + titleAreaH;
+	float btnX = centerX - btnW / 2.0f;
+
+	auto drawBtn = [&](ofRectangle & r, const std::string & txt) {
+		r.set(btnX, curY, btnW, btnH);
+		bool isHovered = r.inside(ofGetMouseX(), ofGetMouseY());
+		if (isHovered) g_hoveredButtonId = "sp_" + txt;
+
+		ofColor bgCol = isHovered ? ofColor(60, 65, 80) : ofColor(35, 38, 48);
+		ofSetColor(bgCol);
+		ofFill();
+		ofDrawRectRounded(r, 10.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(2.0f * uiScale);
+		ofSetColor(isHovered ? ofColor(255, 215, 0) : ofColor(100, 100, 120));
+		ofDrawRectRounded(r, 10.0f * uiScale);
+		ofFill();
+
+		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.2f * uiScale, ofColor::white, 2, ofColor::black);
+		curY += btnH + btnGap;
+	};
+
+	drawBtn(singleplayerNewGameButton, _L("UI_BTN_NEW_VS_AI", "New vs AI"));
+	drawBtn(mainMenuLocalPvPButton, _L("UI_BTN_LOCAL_PVP", "Local PvP"));
+	drawBtn(singleplayerBackButton, _L("UI_BTN_BACK", "Back"));
+
+	// Hide obsolete save/load buttons off screen
+	singleplayerContinueButton.set(-1000, -1000, 0, 0);
+	singleplayerLoadButton.set(-1000, -1000, 0, 0);
+	singleplayerReplayButton.set(-1000, -1000, 0, 0);
 }
+
 void ofApp::drawCustomisationState() {
 	draw2DMenuBackground();
 	drawMainMenu();
@@ -10263,10 +10403,19 @@ void ofApp::drawMultiplayerMenu() {
 		glDisable(GL_SCISSOR_TEST);
 	}
 
-	// Action Buttons: Refresh is disabled if offline, Host and Back remain enabled
+	// Action Buttons
+	float btnW = 260 * uiScale;
+	float btnH = 60 * uiScale;
+	float panelX = centerX - (ofGetWidth() * 0.9f) / 2.0f;
+	mpRefreshButton.set(panelX, ofGetHeight() - 80 * uiScale, btnW, btnH);
+	mpHostButton.set(panelX + (ofGetWidth() * 0.9f) - btnW, ofGetHeight() - 80 * uiScale, btnW, btnH);
+
 	drawMenuPlaqueButton(mpRefreshButton, _L("UI_ONLINE_REFRESH", "Refresh List"), mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()), !isOnline);
 	drawMenuPlaqueButton(mpHostButton, _L("UI_ONLINE_HOST", "Host Match"), mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
-	drawMenuPlaqueButton(mpBackButton, _L("UI_BTN_BACK", "Back to Menu"), mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
+
+	// Standard Top-Left Back Button
+	mpBackButton.set(panelX, 20 * uiScale, 160 * uiScale, 60 * uiScale);
+	drawMenuPlaqueButton(mpBackButton, _L("UI_BTN_BACK", "Back"), mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 
 	if (g_isConnectingToLobby) {
 		ofSetColor(0, 0, 0, 220);
@@ -10305,12 +10454,8 @@ void ofApp::applySettings() {
 		ofSetFrameRate(0);
 	} else {
 		ofSetVerticalSync(false);
-		if (settingsFramerateSliderValue >= 0.999f) {
-			ofSetFrameRate(0);
-		} else {
-			int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
-			ofSetFrameRate(std::min(targetFPS, 300));
-		}
+		int targetFPS = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
+		ofSetFrameRate(targetFPS);
 	}
 
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
@@ -10396,7 +10541,7 @@ void ofApp::recalculateUI(int w, int h) {
 	lastWindowWidth = w;
 	lastWindowHeight = h;
 
-	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.75f, 1.25f);
+	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, getUIScaleFromHeight((float)h)), 0.45f, 2.8f);
 
 	// 2. Recalculate Main Menu Buttons
 	menuTileSize = std::max(1.0f, std::ceil(std::max(w / 19.0f, h / 14.0f)));
@@ -11373,19 +11518,15 @@ void ofApp::prepareGameVisualState() {
 	headlight.setPosition(cam.getPosition() + glm::vec3(wiggleX, wiggleY, 0));
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
-	float uiScale = getUIScaleFromHeight(ofGetHeight());
-	float scale1080 = (float)ofGetHeight() / 1080.0f;
-	float btnWidth = 260 * uiScale;
+	float scale = (ofGetHeight() / 1080.0f) * g_settingsUIScale;
+	float btnWidth = 260.0f * scale;
 
-	// History Y is at 16 (timer) + 12 (margin) = 28 * scale1080
-	// History H is 46 * scale1080
-	// History Bottom = 74 * scale1080
-	// Provide a nice 12px gap below history
-	float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
+	// Position End Turn button comfortably below the scaled action history and timer bar
+	float timerH = turnTimerEnabled ? (16.0f * scale) : 0.0f;
+	float historyH = (!g_actionHistory.empty()) ? (46.0f * scale + 12.0f * scale) : 0.0f;
+	float visibleY = timerH + historyH + (18.0f * scale);
 
-	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
-	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
-	float hiddenY = -100 * uiScale;
+	float hiddenY = -120.0f * scale;
 
 	bool myTurn = isMyTurn();
 	if (isMultiplayer || myTurn) {
@@ -11958,7 +12099,7 @@ void ofApp::prepareGameVisualState() {
 	// Defaults for minion UI
 	float standardEntryHeight = 135.0f;
 	float panelWidth = 510.0f;
-	float scale = getUIScaleFromHeight(ofGetHeight());
+	scale = getUIScaleFromHeight(ofGetHeight());
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 	float gap = layoutSpacing.minionEntryGapUnscaled;
 	float panelWidthScaled = panelWidth * scale;
@@ -15227,26 +15368,84 @@ void ofApp::drawGame() {
 
 		// (Outlines drawn earlier before per-tile loop)
 
-		// 5. Draw Path Highlights (Green Circles)
-		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
+		// 5. Tactical Dungeon Trail: Clean connected path with directional step chevrons
+		if ((playerAction == PIECE_SELECTED) && hoverPath.size() > 1) {
 			glDepthMask(GL_FALSE);
 			ofEnableDepthTest();
-			for (size_t i = 1; i < hoverPath.size(); i++) {
-				const auto & step = hoverPath[i];
-				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
+			ofPushStyle();
 
-				float pathY = 0.08f;
-				if (board[(int)step.x][(int)step.y].hasWall) {
-					pathY = (TILE_SIZE * 0.5f) + 0.08f;
-				}
+			ofColor trailCol(120, 220, 160, 200);
 
-				ofSetColor(ofColor::green, 180);
+			// A. Draw connecting center line between steps
+			ofSetLineWidth(3.0f);
+			ofSetColor(trailCol);
+			for (size_t i = 0; i < hoverPath.size() - 1; ++i) {
+				glm::vec3 p1 = gridToWorld((int)hoverPath[i].x, (int)hoverPath[i].y);
+				glm::vec3 p2 = gridToWorld((int)hoverPath[i + 1].x, (int)hoverPath[i + 1].y);
+				float y1 = board[(int)hoverPath[i].x][(int)hoverPath[i].y].hasWall ? (TILE_SIZE * 0.5f + 0.06f) : 0.06f;
+				float y2 = board[(int)hoverPath[i + 1].x][(int)hoverPath[i + 1].y].hasWall ? (TILE_SIZE * 0.5f + 0.06f) : 0.06f;
+				ofDrawLine(p1.x, y1, p1.z, p2.x, y2, p2.z);
+			}
+
+			// B. Draw small directional chevrons along path tiles
+			for (size_t i = 1; i < hoverPath.size(); ++i) {
+				glm::ivec2 prev((int)hoverPath[i - 1].x, (int)hoverPath[i - 1].y);
+				glm::ivec2 curr((int)hoverPath[i].x, (int)hoverPath[i].y);
+				glm::vec3 worldPos = gridToWorld(curr.x, curr.y);
+				float surfaceY = board[curr.x][curr.y].hasWall ? (TILE_SIZE * 0.5f + 0.08f) : 0.08f;
+
+				glm::ivec2 dir = curr - prev;
+
 				ofPushMatrix();
-				ofTranslate(pathWorldPos.x, pathY, pathWorldPos.z);
+				ofTranslate(worldPos.x, surfaceY, worldPos.z);
 				ofRotateXDeg(90);
-				ofDrawCircle(0, 0, TILE_SIZE * 0.32f);
+
+				float angleDeg = 0.0f;
+				if (dir.x == 1) angleDeg = 90.0f;
+				if (dir.x == -1) angleDeg = -90.0f;
+				if (dir.y == 1) angleDeg = 180.0f;
+				if (dir.y == -1) angleDeg = 0.0f;
+				ofRotateZDeg(angleDeg);
+
+				// Directional step chevron
+				float s = TILE_SIZE * 0.16f;
+				ofSetLineWidth(2.5f);
+				ofSetColor(180, 255, 210, 240);
+				ofDrawLine(-s * 0.7f, s * 0.5f, 0.0f, -s * 0.5f);
+				ofDrawLine(s * 0.7f, s * 0.5f, 0.0f, -s * 0.5f);
+
 				ofPopMatrix();
 			}
+
+			// C. Destination tile corner brackets
+			glm::ivec2 dest((int)hoverPath.back().x, (int)hoverPath.back().y);
+			glm::vec3 destPos = gridToWorld(dest.x, dest.y);
+			float destY = board[dest.x][dest.y].hasWall ? (TILE_SIZE * 0.5f + 0.08f) : 0.08f;
+
+			ofPushMatrix();
+			ofTranslate(destPos.x, destY, destPos.z);
+			ofRotateXDeg(90);
+			float half = TILE_SIZE * 0.44f;
+			float bLen = TILE_SIZE * 0.15f;
+			ofSetLineWidth(3.0f);
+			ofSetColor(240, 255, 220, 240);
+
+			// Top-left
+			ofDrawLine(-half, -half, -half + bLen, -half);
+			ofDrawLine(-half, -half, -half, -half + bLen);
+			// Top-right
+			ofDrawLine(half, -half, half - bLen, -half);
+			ofDrawLine(half, -half, half, -half + bLen);
+			// Bottom-left
+			ofDrawLine(-half, half, -half + bLen, half);
+			ofDrawLine(-half, half, -half, half - bLen);
+			// Bottom-right
+			ofDrawLine(half, half, half - bLen, half);
+			ofDrawLine(half, half, half, half - bLen);
+
+			ofPopMatrix();
+
+			ofPopStyle();
 			glDepthMask(GL_TRUE);
 			ofDisableDepthTest();
 		}
@@ -15920,12 +16119,11 @@ void ofApp::drawGame() {
 	// 4. Re-enable Alpha for UI
 	safeEnableAlphaBlending();
 
-	// (floating key is rendered as a vertical 3D billboard in the world pass so it can be occluded)
-
 	drawMinionManagerUI();
 
+	// Unified scale: dynamically adapts to screen height and the 50%-150% UI scale setting
 	float designHeight = 1080.0f;
-	float scale = ofGetHeight() / designHeight;
+	float scale = (ofGetHeight() / designHeight) * g_settingsUIScale;
 	float fontScale = scale * 1.0f;
 	(void)fontScale;
 
@@ -16305,21 +16503,21 @@ void ofApp::drawGame() {
 		float hpW = healthBarWidth - usedWidth;
 		float currentX = x;
 
-		// 2. Health Segment (with Metallic Foil)
+		// 2. Health Segment (text scales proportionally with UI scale setting)
 		ofSetColor(40, 0, 0);
 		ofDrawRectangle(currentX, y, hpW, healthBarHeight);
 		float hpPct = (float)player.health / player.maxHealth;
 		drawMetallicBar(currentX, y, hpW * hpPct, healthBarHeight, healthColor, 2);
 		string hpText = ofToString(player.health) + "/" + ofToString(player.maxHealth);
-		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.2f);
+		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.2f * scale);
 
 		currentX += hpW;
 
-		// 3. Shield Segments (with Metallic Foil)
+		// 3. Shield Segments (text scales proportionally with UI scale setting)
 		auto drawSeg = [&](int val, ofColor c, string label, int mClass) {
 			if (val > 0) {
 				drawMetallicBar(currentX, y, statW, healthBarHeight, c, mClass);
-				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white), 1.0f);
+				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white), 1.0f * scale);
 
 				// Tooltip Check
 				if (ofRectangle(currentX, y, statW, healthBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -16392,7 +16590,24 @@ void ofApp::drawGame() {
 				}
 			}
 
-			// Accurate head height calculation so it floats comfortably above the head
+			// Pin to live 3D position so HP bar follows the unit smoothly while moving across tiles
+			glm::vec3 unitRealPos;
+			if (isPlayerAnimating && animatingPlayerIndex == (int)uIdx) {
+				unitRealPos = playerVisualPos;
+			} else if (isEarthquakeActive) {
+				bool foundEq = false;
+				for (const auto & eq : earthquakeUnits) {
+					if (eq.playerIndex == (int)uIdx) {
+						unitRealPos = eq.visualPos;
+						foundEq = true;
+						break;
+					}
+				}
+				if (!foundEq) unitRealPos = gridToWorld(u.x, u.y);
+			} else {
+				unitRealPos = gridToWorld(u.x, u.y);
+			}
+
 			float headY = 4.8f;
 			if (u.isDemon || u.isGolem || u.isWallUnit)
 				headY = 7.5f;
@@ -16401,10 +16616,9 @@ void ofApp::drawGame() {
 			else if (u.isKobold)
 				headY = 3.8f;
 
-			// Clear the active unit's bobbing yellow chevron
 			if ((int)uIdx == currentPlayerIndex) headY += 1.6f;
 
-			glm::vec3 headWorld = gridToWorld(u.x, u.y) + glm::vec3(0, headY, 0);
+			glm::vec3 headWorld = unitRealPos + glm::vec3(0, headY, 0);
 			glm::vec3 sp = getActiveCamera().worldToScreen(headWorld);
 			if (sp.z < 0.0f || sp.z > 1.0f) continue;
 
@@ -16430,7 +16644,7 @@ void ofApp::drawGame() {
 			ofSetColor(hpCol);
 			ofDrawRectRounded(bx, by, barW * hpRatio, barH, 2);
 
-			// Shield Pip (colored pip to right of bar)
+			// Shield Pip
 			int totalDef = u.block + u.barrier + u.ward + u.holyBlock + u.fortification;
 			if (totalDef > 0) {
 				ofColor pipCol = ofColor::gray;
@@ -16447,107 +16661,103 @@ void ofApp::drawGame() {
 				ofDrawCircle(bx + barW + 6.0f * uiScaleLocal, by + barH * 0.5f, 3.0f * uiScaleLocal);
 			}
 
-			// Clean numbers displayed on hover or critical health
+			// Clean HP numbers above bar
 			if (hoveredUnitIndex == (int)uIdx || u.health <= 3) {
 				std::string hpStr = ofToString(u.health) + "/" + ofToString(u.maxHealth);
-				drawPixelTextCentered(uiFont, hpStr, sp.x, by - 7.0f * uiScaleLocal, 0.70f * uiScaleLocal, ofColor::white, 1, ofColor::black);
+				drawPixelTextCentered(uiFont, hpStr, sp.x, by - 12.0f * uiScaleLocal, 0.90f * uiScaleLocal, ofColor::white, 2, ofColor::black);
 			}
 
-			// Complete In-World Unit Information (replaces mouse tooltip entirely)
+			// All-white text with 2px black outline, dynamically spaced to prevent overlap
 			if (hoveredUnitIndex == (int)uIdx) {
-				float infoY = by + barH + (9.0f * uiScaleLocal);
-				float lineStep = 12.0f * uiScaleLocal;
-				float textScale = 0.70f * uiScaleLocal;
+				float textScale = std::clamp(uiScaleLocal * 0.88f, 0.78f, 1.40f);
+				float fontHeight = uiFont.getLineHeight() * textScale;
+				float lineStep = fontHeight + (6.0f * uiScaleLocal);
+				float infoY = by + barH + (14.0f * uiScaleLocal);
 
 				// Line 1: Unit Name
-				int ownerID = u.isMinion ? u.ownerID : u.playerID;
-				ofColor nameColor = getPlayerThemeColor(ownerID);
 				std::string unitName = getPlayerDisplayName((int)uIdx);
-				drawPixelTextCentered(uiFont, unitName, sp.x, infoY, textScale * 1.05f, nameColor, 1, ofColor::black);
+				drawPixelTextCentered(uiFont, unitName, sp.x, infoY, textScale * 1.05f, ofColor::white, 2, ofColor::black);
 				infoY += lineStep;
 
-				std::vector<std::pair<std::string, ofColor>> infoLines;
+				std::vector<std::string> lines;
 
 				// Forms
 				if (u.inTortoiseForm) {
 					int rem = 5 - u.tortoiseDamageTaken;
-					infoLines.push_back({ "Tortoise: " + ofToString(rem) + "/5 HP", ofColor(120, 230, 120) });
+					lines.push_back("Tortoise: " + ofToString(rem) + "/5 HP");
 				}
 				if (u.inGhostForm) {
 					int rem = 4 - u.ghostDamageTaken;
-					infoLines.push_back({ "Ghost: " + ofToString(rem) + "/4 HP", ofColor(160, 180, 255) });
+					lines.push_back("Ghost: " + ofToString(rem) + "/4 HP");
 				}
 
-				// AP-adjacent & Minion AP traits
+				// Buffs & AP Traits
 				if (u.nextTurnAPBonus > 0) {
-					infoLines.push_back({ "+" + ofToString(u.nextTurnAPBonus) + " AP Next Turn", ofColor(255, 215, 0) });
+					lines.push_back("+" + ofToString(u.nextTurnAPBonus) + " AP Next Turn");
 				}
 				if (u.nextTurnD10AP) {
-					infoLines.push_back({ "D10 AP", ofColor::white });
+					lines.push_back("D10 AP");
 				}
 				if (u.strengthenElementsTurnsRemaining > 0) {
-					infoLines.push_back({ "Elem Buff (" + ofToString(u.strengthenElementsTurnsRemaining) + ")", ofColor(255, 140, 0) });
+					lines.push_back("Elem Buff (" + ofToString(u.strengthenElementsTurnsRemaining) + ")");
 				}
 
 				int passLuck = computePassiveLuck((int)uIdx);
 				int totalLuck = u.luck + passLuck;
 				if (totalLuck > 0) {
-					infoLines.push_back({ "+" + ofToString(totalLuck) + " Luck", ofColor(100, 240, 100) });
+					lines.push_back("+" + ofToString(totalLuck) + " Luck");
 				}
 				if (u.freeKickTurns > 0) {
-					infoLines.push_back({ "Kick: Free", ofColor(255, 215, 0) });
+					lines.push_back("Kick: Free");
 				}
 
-				// Minion AP roll hints
+				// Minion AP dice
 				if (u.isAssistant) {
-					infoLines.push_back({ u.assistantRerollUsedThisTurn ? "Reroll: Used" : "Reroll: Available", u.assistantRerollUsedThisTurn ? ofColor::gray : ofColor(255, 215, 0) });
-					infoLines.push_back({ "AP: Coinflip", ofColor(150, 230, 150) });
+					lines.push_back(u.assistantRerollUsedThisTurn ? "Reroll: Used" : "Reroll: Available");
+					lines.push_back("AP: Coinflip");
 				} else if (u.isWolf) {
-					infoLines.push_back({ "AP: 1d10", ofColor(150, 230, 150) });
+					lines.push_back("AP: 1d10");
 				} else if (u.isHellhound) {
-					infoLines.push_back({ "AP: 2d6", ofColor(150, 230, 150) });
+					lines.push_back("AP: 2d6");
 				} else if (u.isDemon) {
-					infoLines.push_back({ "AP: 4d4", ofColor(150, 230, 150) });
+					lines.push_back("AP: 4d4");
 				} else if (u.isKobold) {
-					infoLines.push_back({ "AP: 1d4", ofColor(150, 230, 150) });
+					lines.push_back("AP: 1d4");
 				} else if (u.isWallUnit) {
-					if (u.isMagicWallUnit)
-						infoLines.push_back({ "AP: 1d6 (Magic Wall)", ofColor(180, 140, 255) });
-					else
-						infoLines.push_back({ "AP: 1d4 (Wall Unit)", ofColor(150, 230, 150) });
+					lines.push_back(u.isMagicWallUnit ? "AP: 1d6 (Magic Wall)" : "AP: 1d4 (Wall Unit)");
 				} else if (u.isKoboldKing) {
-					infoLines.push_back({ "AP: 1d6 (Kobold King)", ofColor(150, 230, 150) });
+					lines.push_back("AP: 1d6 (Kobold King)");
 				} else if (u.isMinion) {
-					infoLines.push_back({ "AP: 1d6", ofColor(150, 230, 150) });
+					lines.push_back("AP: 1d6");
 				}
 
-				// Status Effects & Turn Flags
+				// Status Effects
 				if (u.sleepTurnsRemaining > 0) {
-					infoLines.push_back({ "Sleep (" + ofToString(u.sleepTurnsRemaining) + "t)", ofColor(0, 220, 255) });
+					lines.push_back("Sleep (" + ofToString(u.sleepTurnsRemaining) + ")");
 				}
 				if (u.isParalyzed) {
-					infoLines.push_back({ "Paralyzed", ofColor(255, 235, 50) });
+					lines.push_back("Paralyzed");
 				}
 				if (u.onFire) {
-					infoLines.push_back({ "Burning", ofColor(255, 120, 0) });
+					lines.push_back("Burning");
 				}
 				if (u.isPoisoned) {
-					infoLines.push_back({ "Poisoned", ofColor(50, 220, 50) });
+					lines.push_back("Poisoned");
 				}
 				if (u.summonedOnTurnCycle == globalTurnCounter) {
-					infoLines.push_back({ "Summoning Sickness", ofColor(160, 160, 160) });
+					lines.push_back("Summoning Sickness");
 				}
 				if (u.nextTurnExtraDraw) {
-					infoLines.push_back({ "Extra Draw Ready", ofColor(255, 120, 220) });
+					lines.push_back("Extra Draw Ready");
 				}
 				if (u.replicateQueued) {
-					infoLines.push_back({ "Replicate Active", ofColor(0, 255, 255) });
+					lines.push_back("Replicate Active");
 				}
 				if (u.hasRegeneration) {
-					infoLines.push_back({ "Regeneration", ofColor(255, 90, 120) });
+					lines.push_back("Regeneration");
 				}
 
-				// Weaknesses (Aggregate)
+				// Weaknesses
 				bool vulnHoly = (u.isHellhound || u.isDemon || u.isSkeleton || u.inGhostForm);
 				bool vulnPiercing = false;
 				for (const auto & c : u.deck) {
@@ -16559,19 +16769,10 @@ void ofApp::drawGame() {
 					if (c.type == CARD_VAMPIRE_BITE) vulnHoly = true;
 				}
 
-				std::vector<std::string> vulnNames;
-				if (vulnPiercing) vulnNames.push_back("Piercing");
-				if (vulnHoly) vulnNames.push_back("Holy");
-				if (!vulnNames.empty()) {
-					std::string vStr = "Weakness 2x: ";
-					for (size_t vi = 0; vi < vulnNames.size(); ++vi) {
-						if (vi > 0) vStr += ", ";
-						vStr += vulnNames[vi];
-					}
-					infoLines.push_back({ vStr, ofColor(255, 180, 60) });
-				}
+				if (vulnHoly) lines.push_back("Weakness 2x: Holy");
+				if (vulnPiercing) lines.push_back("Weakness 2x: Piercing");
 
-				// Range & AOE Targeting preview
+				// Range & AOE Targeting
 				if (board[u.x][u.y].hasTooltipInfo) {
 					int minRoll = board[u.x][u.y].minRollRequired;
 					int percentage = (int)std::round(board[u.x][u.y].hitChance * 100.0f);
@@ -16581,12 +16782,12 @@ void ofApp::drawGame() {
 						int tiles = (int)std::round((double)feet / 5.0);
 						rangeText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
 					}
-					infoLines.push_back({ rangeText, ofColor::cyan });
+					lines.push_back(rangeText);
 				}
 
-				// Render each line
-				for (const auto & line : infoLines) {
-					drawPixelTextCentered(uiFont, line.first, sp.x, infoY, textScale * 0.90f, line.second, 1, ofColor::black);
+				// Render lines in white with 2px black outline
+				for (const auto & lineText : lines) {
+					drawPixelTextCentered(uiFont, lineText, sp.x, infoY, textScale, ofColor::white, 2, ofColor::black);
 					infoY += lineStep;
 				}
 			}
@@ -17212,10 +17413,12 @@ void ofApp::drawGame() {
 		endTurnButtonTargetPos = endTurnButtonCurrentPos;
 	}
 
-	float btnWidth_end = 260 * uiScaleBtn;
-	float btnHeight_end = 66 * uiScaleBtn;
+	float btnWidth_end = 260.0f * scale;
+	float btnHeight_end = 66.0f * scale;
 
-	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
+	// Dead-center X horizontally on screen; interpolate only Y for vertical entrance/exit
+	float exactCenterX = std::round((ofGetWidth() - btnWidth_end) * 0.5f);
+	endTurnButtonRect.set(exactCenterX, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
 
 	bool myTurn = isMyTurn();
 	if (isAIvsAI) myTurn = true;
@@ -19666,18 +19869,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (settingsLangLeftButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex - 1 + g_availableLanguageCodes.size()) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
-				reloadFonts(); // Fast: Updates UI text immediately
+				reloadFonts();
 				g_cardsNeedTranslationRebuild = true;
-				g_languageChangedTime = ofGetElapsedTimef(); // Reset the 0.5s timer!
+				g_languageChangedTime = ofGetElapsedTimef();
 				saveSettings();
 				return;
 			}
 			if (settingsLangRightButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex + 1) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
-				reloadFonts(); // Fast: Updates UI text immediately
+				reloadFonts();
 				g_cardsNeedTranslationRebuild = true;
-				g_languageChangedTime = ofGetElapsedTimef(); // Reset the 0.5s timer!
+				g_languageChangedTime = ofGetElapsedTimef();
 				saveSettings();
 				return;
 			}
@@ -19694,10 +19897,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveSettings();
 				return;
 			}
-			if (settingsFramerateSlider.inside(x, y)) {
-				draggingFramerateSlider = true;
-				float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
-				settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
+
+			// FPS Preset Left/Right step
+			if (settingsFpsLeftBtn.inside(x, y)) {
+				s_currentFpsIndex = (s_currentFpsIndex - 1 + (int)s_fpsPresets.size()) % (int)s_fpsPresets.size();
+				int fps = s_fpsPresets[s_currentFpsIndex];
+				settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsFpsRightBtn.inside(x, y)) {
+				s_currentFpsIndex = (s_currentFpsIndex + 1) % (int)s_fpsPresets.size();
+				int fps = s_fpsPresets[s_currentFpsIndex];
+				settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
 				applySettings();
 				saveSettings();
 				return;
@@ -19706,6 +19919,80 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (settingsFullscreenButton.inside(x, y)) {
 				g_windowModeState = (g_windowModeState + 1) % 3;
 				applySettings();
+				saveSettings();
+				return;
+			}
+		}
+
+		if (currentSettingsTab == SETTINGS_TAB_GAME) {
+			// In-World HP Mode step
+			if (settingsInWorldHPLeftBtn.inside(x, y) || settingsInWorldHPBtn.inside(x, y)) {
+				settingsInWorldHPMode = (settingsInWorldHPMode - 1 + 3) % 3;
+				saveSettings();
+				return;
+			}
+			if (settingsInWorldHPRightBtn.inside(x, y)) {
+				settingsInWorldHPMode = (settingsInWorldHPMode + 1) % 3;
+				saveSettings();
+				return;
+			}
+
+			// UI Scale step (Strictly 50% to 150% in 10% increments)
+			if (settingsUIScaleLeftBtn.inside(x, y)) {
+				settingsUIScale = std::max(0.50f, std::round((settingsUIScale - 0.10f) * 100.0f) / 100.0f);
+				g_settingsUIScale = settingsUIScale;
+				recalculateUI(ofGetWidth(), ofGetHeight());
+				saveSettings();
+				return;
+			}
+			if (settingsUIScaleRightBtn.inside(x, y)) {
+				settingsUIScale = std::min(1.50f, std::round((settingsUIScale + 0.10f) * 100.0f) / 100.0f);
+				g_settingsUIScale = settingsUIScale;
+				recalculateUI(ofGetWidth(), ofGetHeight());
+				saveSettings();
+				return;
+			}
+		}
+
+		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			// Master Volume +/- 1%
+			if (settingsAudioMasterLeftBtn.inside(x, y)) {
+				settingsMasterVolume = std::max(0.0f, std::round((settingsMasterVolume - 0.01f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioMasterRightBtn.inside(x, y)) {
+				settingsMasterVolume = std::min(1.0f, std::round((settingsMasterVolume + 0.01f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+
+			// Music Volume +/- 1%
+			if (settingsAudioVolumeLeftBtn.inside(x, y)) {
+				settingsMenuVolume = std::max(0.0f, std::round((settingsMenuVolume - 0.01f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioVolumeRightBtn.inside(x, y)) {
+				settingsMenuVolume = std::min(1.0f, std::round((settingsMenuVolume + 0.01f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+
+			// SFX Volume +/- 1%
+			if (settingsAudioSfxLeftBtn.inside(x, y)) {
+				settingsSfxVolume = std::max(0.0f, std::round((settingsSfxVolume - 0.01f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioSfxRightBtn.inside(x, y)) {
+				settingsSfxVolume = std::min(1.0f, std::round((settingsSfxVolume + 0.01f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
 				saveSettings();
 				return;
 			}
@@ -23292,14 +23579,6 @@ void ofApp::startNewTurn() {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "START NEW TURN. Starting Checksum: " + std::to_string(calculateChecksum()));
 	}
 
-	try {
-		saveGameStateToFile("autosave.json");
-		std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
-		saveGameStateToFile(stamped);
-	} catch (...) {
-		ofLogWarning("Save") << "Failed to autosave game state at turn start.";
-	}
-
 	bool activePlayerDied = g_activePlayerDiedThisTurn;
 	g_activePlayerDiedThisTurn = false;
 
@@ -23701,18 +23980,6 @@ void ofApp::startNewTurn() {
 			chk.checksum = mySum;
 			steamManager.sendPacket(&chk, sizeof(chk));
 			writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM (Skip): " + std::to_string(chk.checksum) + " ID: " + std::to_string(uniqueTurnId));
-		}
-
-		if (!isMultiplayer || isHost()) {
-			bool ok = saveGameStateToFile("autosave.json");
-			if (ok) {
-				std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
-				saveGameStateToFile(stamped);
-				pruneOldSaves(5);
-				addGameLog("Autosaved turn-start (autosave.json)");
-			} else {
-				ofLogWarning("Save") << "Failed to autosave turn-start.";
-			}
 		}
 
 		return;
@@ -24251,19 +24518,6 @@ void ofApp::continueNewTurn() {
 		chk.checksum = mySum;
 		steamManager.sendPacket(&chk, sizeof(chk));
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "BROADCAST CHECKSUM: " + std::to_string(chk.checksum) + " ID: " + std::to_string(uniqueTurnId));
-	}
-
-	// Autosave at the start of each turn (singleplayer or host in multiplayer).
-	if (!isMultiplayer || isHost()) {
-		bool ok = saveGameStateToFile("autosave.json");
-		if (ok) {
-			std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
-			saveGameStateToFile(stamped);
-			pruneOldSaves(5);
-			addGameLog("Autosaved turn-start (autosave.json)");
-		} else {
-			ofLogWarning("Save") << "Failed to autosave turn-start.";
-		}
 	}
 }
 
@@ -42151,11 +42405,23 @@ void ofApp::loadSettings() {
 		settingsShowFPS = json.value("showFPS", settingsShowFPS);
 		settingsCameraSensitivity = json.value("cameraSensitivity", settingsCameraSensitivity);
 		settingsInvertCameraY = json.value("invertCameraY", settingsInvertCameraY);
-		settingsUIScale = json.value("uiScale", settingsUIScale);
+		settingsUIScale = std::clamp(json.value("uiScale", 1.0f), 0.50f, 1.50f);
+		g_settingsUIScale = settingsUIScale;
 		settingsUseVSync = json.value("useVSync", settingsUseVSync);
 		settingsShowHints = json.value("showHints", settingsShowHints);
 
 		settingsFramerateSliderValue = json.value("framerateSliderValue", settingsFramerateSliderValue);
+
+		// Map loaded legacy float back to exact preset index
+		int loadedFPS = (settingsFramerateSliderValue >= 0.999f) ? 0 : (15 + (int)std::round(settingsFramerateSliderValue * 285.0f));
+		s_currentFpsIndex = 1; // Default 60
+		for (size_t i = 0; i < s_fpsPresets.size(); ++i) {
+			if (s_fpsPresets[i] == loadedFPS || (loadedFPS >= 240 && s_fpsPresets[i] == 0)) {
+				s_currentFpsIndex = (int)i;
+				break;
+			}
+		}
+
 		currentResolutionIndex = json.value("currentResolutionIndex", currentResolutionIndex);
 		g_windowModeState = json.value("windowModeState", g_windowModeState);
 
@@ -44503,32 +44769,46 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 // Simple layout helper for draft card metrics (keeps UI compiling).
 void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
-	float screenScale = std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight()));
-	float scale = screenScale * std::clamp(settingsUIScale, 0.75f, 1.25f);
+	float uiScale = (ofGetHeight() / 1080.0f) * g_settingsUIScale;
 
-	// Slightly calibrated card scale (1.02x) so cards fit with generous margins
-	outCardW = kCardPixelWidth * 1.02f * scale;
-	outCardH = kCardPixelHeight * 1.02f * scale;
+	float btnH = std::clamp(72.0f * uiScale, 48.0f, 96.0f);
+	float bottomMargin = btnH + (30.0f * uiScale);
 
-	outSpacing = outCardW * 0.10f;
+	// Header text sits safely below timer
+	float timerH = turnTimerEnabled ? (16.0f * uiScale) : 0.0f;
+	outStartY = timerH + (95.0f * uiScale);
 
-	float totalWidth = outCardW * 3.0f + outSpacing * 2.0f;
-	outStartX = (ofGetWidth() - totalWidth) / 2.0f;
+	// Calculate maximum vertical space between header text and bottom buttons
+	float maxAvailableH = ofGetHeight() - outStartY - bottomMargin;
 
-	float uiScale = std::clamp(screenScale * settingsUIScale, 0.75f, 1.25f);
-	float scale1080 = (float)ofGetHeight() / 1080.0f;
+	// Base target card size
+	float targetH = kCardPixelHeight * 0.95f * uiScale;
+	float targetW = targetH / kCardAspectRatio;
 
-	// Use fixed, stable baseline below the top bar so AI drafts never pull the screen upward
-	float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
+	// Scale down if cards exceed available height
+	if (targetH > maxAvailableH) {
+		float scaleDown = maxAvailableH / targetH;
+		targetH *= scaleDown;
+		targetW *= scaleDown;
+	}
 
-	// Align cards to sit with a 24px gap below Line 3 ("Class 1")
-	float line1BaselineY = indicatorBottomY + (22.0f * uiScale) + (38.0f * uiScale);
-	float line2BaselineY = line1BaselineY + (48.0f * uiScale);
-	float line3BaselineY = line2BaselineY + (44.0f * uiScale);
-	float textBlockBottom = line3BaselineY + (8.0f * uiScale);
+	// Fit horizontally inside screen width
+	float maxAvailableTotalW = ofGetWidth() * 0.92f;
+	float spacing = targetW * 0.12f;
+	float totalW = targetW * 3.0f + spacing * 2.0f;
 
-	// Cards start cleanly below the entire 3-line text block
-	outStartY = textBlockBottom + (24.0f * uiScale);
+	if (totalW > maxAvailableTotalW) {
+		float scaleDownW = maxAvailableTotalW / totalW;
+		targetW *= scaleDownW;
+		targetH *= scaleDownW;
+		spacing *= scaleDownW;
+		totalW = targetW * 3.0f + spacing * 2.0f;
+	}
+
+	outCardW = targetW;
+	outCardH = targetH;
+	outSpacing = spacing;
+	outStartX = (ofGetWidth() - totalW) * 0.5f;
 }
 
 void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
@@ -44566,7 +44846,7 @@ void ofApp::drawPauseMenu() {
 	}
 
 	// Determine how many rows of buttons we need
-	int numRows = !isMultiplayer ? 5 : 4;
+	int numRows = !isMultiplayer ? 3 : 4; // Save & Load completely removed
 
 	// Make the buttons much chunkier and easier to click
 	float btnW = 400.0f * uiScale;
@@ -44627,17 +44907,13 @@ void ofApp::drawPauseMenu() {
 	curY += btnH + btnGap;
 
 	if (!isMultiplayer) {
-		if (ofGetElapsedTimef() - g_gameSavedNotificationTimer < 2.0f) {
-			drawBtn(pauseMenuSaveButton, curY, _L("UI_PAUSE_SAVED", "Game Saved!"), 1, ofColor(50, 140, 50));
-		} else {
-			drawBtn(pauseMenuSaveButton, curY, _L("UI_PAUSE_SAVE", "Save Game"), 1);
-		}
-		curY += btnH + btnGap;
-		drawBtn(pauseMenuLoadButton, curY, _L("UI_PAUSE_LOAD", "Load Game"), 2);
-		curY += btnH + btnGap;
 		drawBtn(pauseMenuSettingsButton, curY, _L("UI_BTN_SETTINGS", "Settings"), 3);
 		curY += btnH + btnGap;
 		drawBtn(pauseMenuQuitButton, curY, _L("UI_PAUSE_QUIT", "Quit to Menu"), 4);
+
+		// Hide unused legacy buttons off-screen
+		pauseMenuSaveButton.set(-1000, -1000, 0, 0);
+		pauseMenuLoadButton.set(-1000, -1000, 0, 0);
 	} else {
 		// Multiplayer Draw System
 		if (g_isGameOver) {
