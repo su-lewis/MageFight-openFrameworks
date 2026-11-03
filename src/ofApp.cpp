@@ -1014,12 +1014,14 @@ static uint32_t replayMaxFrame = 100;
 static float g_uniformEffectScale = 1.0f;
 static float g_uniformNameScale = 1.0f;
 static float g_effectLineSpacing = 0.82f;
-static ofRectangle g_effectTextRect(96, 928, 864, 384);
+static ofRectangle g_effectTextRect(96, 940, 864, 360);
 static float g_templateWidth = 1056.0f;
 static float g_templateHeight = 1448.0f;
 static ofImage g_cardTextSpriteSheet;
 static float g_uniformAPCostScale = 1.0f;
-static ofRectangle g_costRect(32, 32, 128, 128);
+
+// New Cost Coords: Top-Left (64, 48), Bottom-Right (191, 207) -> w = 127, h = 159 (Center: 127.5, 127.5)
+static ofRectangle g_costRect(64, 48, 127, 159);
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
 
 // g_cardLayout initialized with template coordinate space (1056 x 1448)
@@ -1029,11 +1031,19 @@ static CardTemplateLayout g_cardLayout = []() {
 	l.damageTypeRect = ofRectangle(44, 150, 140, 140);
 	l.classRect = ofRectangle(872, 150, 140, 140);
 	l.nameRect = ofRectangle(140, 720, 776, 170);
-	l.targetingRect = ofRectangle(200, 890, 656, 70);
-	l.effectRect = ofRectangle(96, 960, 864, 400);
-	l.summonAPRect = ofRectangle(470, 1310, 80, 80);
-	l.summonHPRect = ofRectangle(550, 1310, 80, 80);
-	l.costRect = ofRectangle(32, 32, 128, 128);
+
+	// New Targeting Type Area: Top-Left (288, 1328), Bottom-Right (799, 1423) -> w = 511, h = 95
+	l.targetingRect = ofRectangle(288, 1328, 511, 95);
+
+	// AP & HP Chambers: pushed further apart towards the visual center of each box
+	// Green AP Chamber (left):  Center X = 385 (288 to 482)
+	// Red HP Chamber (right):   Center X = 705 (608 to 802)
+	l.summonAPRect = ofRectangle(285, 1332, 200, 87);
+	l.summonHPRect = ofRectangle(605, 1332, 200, 87);
+
+	// Cost Gem Area: Top-Left (64, 48), Bottom-Right (191, 207) -> Center is (127.5, 127.5)
+	l.costRect = ofRectangle(64, 48, 127, 159);
+
 	l.nameCurveDropPx = 28.0f;
 	l.nameMiddleClampXMin = 300.0f;
 	l.nameMiddleClampXMax = 756.0f;
@@ -1475,8 +1485,8 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 				if (s_targetingMaskTex.isAllocated()) {
 					float mw = s_targetingMaskTex.getWidth();
 					float mh = s_targetingMaskTex.getHeight();
-					if (mh > 0.0f && (mw / mh) > 2.2f) {
-						// Cropped banner image
+					if (mh > 0.0f && (mw / mh) > 2.0f) {
+						// Cropped banner image -> maps to new (288, 1328, 511, 95)
 						maskRectNorm = glm::vec4(
 							g_cardLayout.targetingRect.x / g_templateWidth,
 							g_cardLayout.targetingRect.y / g_templateHeight,
@@ -1510,11 +1520,9 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 				s_foilShader.setUniform1i("uHasMask", s_targetingMaskTex.isAllocated() ? 1 : 0);
 				s_foilShader.setUniform1f("uParallaxStrength", 0.022f);
 
-				// 1. Bind Card Texture to Unit 0
 				currentTex.bind(0);
 				s_foilShader.setUniformTexture("tex0", currentTex, 0);
 
-				// 2. Bind Depth Mask to Unit 1
 				if (s_targetingMaskTex.isAllocated()) {
 					s_targetingMaskTex.bind(1);
 					s_foilShader.setUniformTexture("depthMaskTex", s_targetingMaskTex, 1);
@@ -1556,7 +1564,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		}
 	}
 
-	// PASS 2: Crisp Text Overlay (Synced with Burn Shader & Parallax)
+	// PASS 2: Crisp Text Overlay
 	if (g_renderText) {
 		float textBurnAlpha = 1.0f;
 		if (g_isBurningCard) {
@@ -1572,7 +1580,9 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		ofTranslate(drawX, drawY);
 		ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
 
-		// 1. AP Cost
+		// -------------------------------------------------------------
+		// 1. AP Cost: Centered at (127.5, 127.5), Bigger text, Thinner 2px outline
+		// -------------------------------------------------------------
 		int effCost = card.cost;
 		if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
 
@@ -1585,12 +1595,25 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		ofColor costOutline = ofColor(0, 0, 0, (int)(255 * textBurnAlpha));
 
 		std::string costStr = ofToString(effCost);
-		float costScale = (costStr.size() > 1) ? 2.40f : 3.15f;
-		ofRectangle costGemRect(8, 8, 176, 176);
+		ofRectangle costBounds = titleFont.getStringBoundingBox(costStr, 0, 0);
 
-		drawCenteredTextScaledOutlined(titleFont, costStr, costGemRect, costScale, costColor, costOutline, 4);
+		// Circular bounds centered at exactly (127.5, 127.5)
+		ofRectangle costCircleGemRect(64, 64, 127, 127);
+		float costFitW = 115.0f;
+		float costFitH = 115.0f;
+		float costScale = 4.2f;
+		if (costBounds.width > 0 && costBounds.height > 0) {
+			float sX = costFitW / costBounds.width;
+			float sY = costFitH / costBounds.height;
+			costScale = std::min(4.4f, std::min(sX, sY)); // Scales up to 4.4x
+		}
 
+		// Reduced outline thickness from 4 to 2 for cleaner, crisper numbers
+		drawCenteredTextScaledOutlined(titleFont, costStr, costCircleGemRect, costScale, costColor, costOutline, 2);
+
+		// -------------------------------------------------------------
 		// 2. Fetch Card Template Text Records
+		// -------------------------------------------------------------
 		int col = (int)std::round(card.textureRect.x / card.textureRect.width);
 		int row = (int)std::round(card.textureRect.y / card.textureRect.height);
 		int cardId = row * 10 + col + 1;
@@ -1643,39 +1666,141 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		ofColor nameOutline = ofColor(0, 0, 0, (int)(255 * textBurnAlpha));
 		ofColor effectFill = ofColor(12, 12, 12, (int)(255 * textBurnAlpha));
 
-		// 4. Live Native Text Drawing
+		// 4. Live Native Text Drawing (Name Arc)
 		drawArcCenteredTextScaledOutlined(titleFont, cardName, g_cardLayout.nameRect, g_uniformNameScale, g_cardLayout.nameCurveDropPx, g_cardLayout.nameMiddleClampXMin, g_cardLayout.nameMiddleClampXMax, g_cardLayout.nameMiddleBottomMaxY, nameColor, nameOutline, 4);
 
+		// Parallax offset aligned with the #b0b0b0 middle-ground plane (176 / 255 = 0.6902)
+		float textShiftX = 0.0f;
+		float textShiftY = 0.0f;
+		if (s_targetingMaskTex.isAllocated()) {
+			float cardCenterX = drawX + safeW * 0.5f;
+			float cardCenterY = drawY + safeH * 0.5f;
+			float mouseDistX = (ofGetMouseX() - cardCenterX) / std::max(1.0f, safeW * 0.85f);
+			float mouseDistY = (ofGetMouseY() - cardCenterY) / std::max(1.0f, safeH * 0.85f);
+			float mouseTiltX = std::clamp(mouseDistX, -1.2f, 1.2f);
+			float mouseTiltY = std::clamp(mouseDistY, -1.2f, 1.2f);
+			float idleTiltX = sin(ofGetElapsedTimef() * 1.4f) * 0.10f;
+			float idleTiltY = cos(ofGetElapsedTimef() * 1.1f) * 0.10f;
+
+			float middleGroundHeight = 176.0f / 255.0f; // 0.6902
+			textShiftX = (mouseTiltX + idleTiltX) * 0.022f * g_templateWidth * middleGroundHeight;
+			textShiftY = (mouseTiltY + idleTiltY) * 0.022f * g_templateHeight * middleGroundHeight;
+		}
+
+		// -------------------------------------------------------------
+		// 5. Targeting Area Text (Auto-scaled to fit 288, 1328 to 799, 1423)
+		// -------------------------------------------------------------
 		if (!cardTargeting.empty()) {
-			// Offset text in sync with the floating banner's 3D parallax shift
 			ofRectangle targetRectShifted = g_cardLayout.targetingRect;
-			if (s_targetingMaskTex.isAllocated()) {
-				float cardCenterX = drawX + safeW * 0.5f;
-				float cardCenterY = drawY + safeH * 0.5f;
-				float mouseDistX = (ofGetMouseX() - cardCenterX) / std::max(1.0f, safeW * 0.85f);
-				float mouseDistY = (ofGetMouseY() - cardCenterY) / std::max(1.0f, safeH * 0.85f);
-				float mouseTiltX = std::clamp(mouseDistX, -1.2f, 1.2f);
-				float mouseTiltY = std::clamp(mouseDistY, -1.2f, 1.2f);
-				float idleTiltX = sin(ofGetElapsedTimef() * 1.4f) * 0.10f;
-				float idleTiltY = cos(ofGetElapsedTimef() * 1.1f) * 0.10f;
+			targetRectShifted.x += textShiftX;
+			targetRectShifted.y += textShiftY;
 
-				targetRectShifted.x += (mouseTiltX + idleTiltX) * 0.022f * g_templateWidth;
-				targetRectShifted.y += (mouseTiltY + idleTiltY) * 0.022f * g_templateHeight;
+			ofRectangle tBounds = titleFont.getStringBoundingBox(cardTargeting, 0, 0);
+			float tFitW = targetRectShifted.width - 36.0f;
+			float tFitH = targetRectShifted.height - 20.0f;
+			float targetScale = 2.0f;
+			if (tBounds.width > 0 && tBounds.height > 0) {
+				float sX = tFitW / tBounds.width;
+				float sY = tFitH / tBounds.height;
+				targetScale = std::min(2.2f, std::min(sX, sY));
 			}
-			drawCenteredTextScaledOutlined(titleFont, cardTargeting, targetRectShifted, 1.25f, nameColor, nameOutline, 3);
+
+			drawCenteredTextScaledOutlined(titleFont, cardTargeting, targetRectShifted, targetScale, nameColor, nameOutline, 2);
 		}
 
-		if (!summonAP.empty()) {
-			drawCenteredTextScaledOutlined(titleFont, summonAP, g_cardLayout.summonAPRect, 1.0f, nameColor, nameOutline, 3);
-		}
-		if (!summonHP.empty()) {
-			drawCenteredTextScaledOutlined(titleFont, summonHP, g_cardLayout.summonHPRect, 1.0f, nameColor, nameOutline, 3);
+		// -------------------------------------------------------------
+		// 6. AP / HP Text: Centered in Respective Chambers (Spread Apart)
+		// -------------------------------------------------------------
+		bool hasAP = !summonAP.empty();
+		bool hasHP = !summonHP.empty();
+
+		if (hasAP && hasHP) {
+			// Green AP chamber on left (Center X = 385)
+			ofRectangle apRect = g_cardLayout.summonAPRect;
+			// Red HP chamber on right (Center X = 705)
+			ofRectangle hpRect = g_cardLayout.summonHPRect;
+			apRect.x += textShiftX;
+			apRect.y += textShiftY;
+			hpRect.x += textShiftX;
+			hpRect.y += textShiftY;
+
+			ofRectangle bAP = titleFont.getStringBoundingBox(summonAP, 0, 0);
+			float apFitW = apRect.width - 16.0f;
+			float apFitH = apRect.height - 12.0f;
+			float apScale = 2.5f;
+			if (bAP.width > 0 && bAP.height > 0) {
+				float sX = apFitW / bAP.width;
+				float sY = apFitH / bAP.height;
+				apScale = std::min(2.6f, std::min(sX, sY));
+			}
+			drawCenteredTextScaledOutlined(titleFont, summonAP, apRect, apScale, nameColor, nameOutline, 2);
+
+			ofRectangle bHP = titleFont.getStringBoundingBox(summonHP, 0, 0);
+			float hpFitW = hpRect.width - 16.0f;
+			float hpFitH = hpRect.height - 12.0f;
+			float hpScale = 2.5f;
+			if (bHP.width > 0 && bHP.height > 0) {
+				float sX = hpFitW / bHP.width;
+				float sY = hpFitH / bHP.height;
+				hpScale = std::min(2.6f, std::min(sX, sY));
+			}
+			drawCenteredTextScaledOutlined(titleFont, summonHP, hpRect, hpScale, nameColor, nameOutline, 2);
+
+		} else if (hasAP || hasHP) {
+			std::string singleText = hasAP ? summonAP : summonHP;
+			ofRectangle singleRect = g_cardLayout.targetingRect;
+			singleRect.x += textShiftX;
+			singleRect.y += textShiftY;
+
+			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
+			float fitW = singleRect.width - 32.0f;
+			float fitH = singleRect.height - 16.0f;
+			float singleScale = 2.4f;
+			if (bSingle.width > 0 && bSingle.height > 0) {
+				float sX = fitW / bSingle.width;
+				float sY = fitH / bSingle.height;
+				singleScale = std::min(2.5f, std::min(sX, sY));
+			}
+			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 2);
+
+		} else if (hasAP || hasHP) {
+			std::string singleText = hasAP ? summonAP : summonHP;
+			ofRectangle singleRect = g_cardLayout.targetingRect;
+			singleRect.x += textShiftX;
+			singleRect.y += textShiftY;
+
+			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
+			float fitW = singleRect.width - 32.0f;
+			float fitH = singleRect.height - 16.0f;
+			float singleScale = 2.4f;
+			if (bSingle.width > 0 && bSingle.height > 0) {
+				float sX = fitW / bSingle.width;
+				float sY = fitH / bSingle.height;
+				singleScale = std::min(2.5f, std::min(sX, sY));
+			}
+			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 2);
 		}
 
+		else if (hasAP || hasHP) {
+			std::string singleText = hasAP ? summonAP : summonHP;
+			ofRectangle singleRect = g_cardLayout.targetingRect;
+			singleRect.x += textShiftX;
+			singleRect.y += textShiftY;
+
+			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
+			float fitW = singleRect.width - 36.0f;
+			float fitH = singleRect.height - 20.0f;
+			float singleScale = 2.0f;
+			if (bSingle.width > 0 && bSingle.height > 0) {
+				float sX = fitW / bSingle.width;
+				float sY = fitH / bSingle.height;
+				singleScale = std::min(2.3f, std::min(sX, sY));
+			}
+			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 3);
+		}
+
+		// 7. Card Effect Description Text
 		ofRectangle effRect = g_cardLayout.effectRect;
-		if (summonAP.empty() && summonHP.empty()) {
-			effRect.height += 90.0f;
-		}
 		drawRichEffectText(font, cardEffect, effRect, g_uniformEffectScale, g_effectLineSpacing, effectFill);
 
 		ofPopMatrix();
@@ -2119,45 +2244,55 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 }
 
 // Pixel-precise card hover test removed; simpler bounding checks are used instead.
-
+static inline bool startsWith(const std::string & s, const std::string & prefix) {
+	return s.rfind(prefix, 0) == 0;
+}
 static void drawCardEdgeOutline(float x, float y, float w, float h, float expandPx = 0.0f) {
-	if (w <= 0.0f || h <= 0.0f || gCardEdgeOutlineNormalized.size() < 3) {
-		ofRectangle fallback = getOpaqueCardBounds(x, y, w, h);
-		ofDrawRectangle(fallback.x - expandPx, fallback.y - expandPx, fallback.width + expandPx * 2.0f, fallback.height + expandPx * 2.0f);
-		return;
+	if (w <= 0.0f || h <= 0.0f) return;
+
+	// Inset adjustments to match the actual visible card frame inside the texture slot
+	// Top is slightly lower than texture 0; bottom sits slightly higher than texture H
+	float insetTop = h * 0.018f;
+	float insetBottom = h * 0.024f;
+	float insetLeft = w * 0.012f;
+	float insetRight = w * 0.012f;
+
+	float rx = std::round((x + insetLeft) - expandPx);
+	float ry = std::round((y + insetTop) - expandPx);
+	float rw = std::round((w - insetLeft - insetRight) + expandPx * 2.0f);
+	float rh = std::round((h - insetTop - insetBottom) + expandPx * 2.0f);
+
+	float cornerRadius = 14.0f * (w / 409.0f);
+	float rad = std::max(0.0f, cornerRadius + expandPx);
+
+	ofDrawRectRounded(rx, ry, rw, rh, rad);
+}
+
+static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor color, int layers = 4) {
+	ofPushStyle();
+	ofFill();
+
+	// Concentric high-opacity neon glow: tight, bright, and vibrant
+	const int glowLayers = 4;
+	const float stepPx = 1.3f;
+
+	for (int i = glowLayers; i >= 1; --i) {
+		float expand = (float)i * stepPx;
+		float norm = (float)i / (float)glowLayers;
+		float alphaFactor = pow(1.0f - norm * 0.55f, 1.6f);
+
+		ofSetColor(color.r, color.g, color.b, (int)(color.a * alphaFactor * 0.85f));
+		drawCardEdgeOutline(drawX, drawY, w, h, expand);
 	}
 
-	float cx = x + w * 0.5f;
-	float cy = y + h * 0.5f;
-	float sx = (w > 0.0f) ? ((w + expandPx * 2.0f) / w) : 1.0f;
-	float sy = (h > 0.0f) ? ((h + expandPx * 2.0f) / h) : 1.0f;
+	// Crisp inner edge highlight
+	ofSetColor(color.r, color.g, color.b, std::min(255, (int)(color.a * 0.95f)));
+	drawCardEdgeOutline(drawX, drawY, w, h, 0.8f);
 
-	// Prefer sub-pixel vertices for smooth movement. Only snap to integer
-	// pixels when the input rectangle is already integral to avoid gaps.
-	bool inputsIntegral = (std::fabs(x - std::round(x)) < 0.001f && std::fabs(y - std::round(y)) < 0.001f && std::fabs(w - std::round(w)) < 0.001f && std::fabs(h - std::round(h)) < 0.001f);
-	ofBeginShape();
-	float prevVx = NAN, prevVy = NAN;
-	for (const auto & p : gCardEdgeOutlineNormalized) {
-		float vx = x + p.x * w;
-		float vy = y + p.y * h;
-		vx = cx + (vx - cx) * sx;
-		vy = cy + (vy - cy) * sy;
-		if (inputsIntegral) {
-			vx = std::round(vx);
-			vy = std::round(vy);
-		}
-		// skip near-duplicate consecutive vertices introduced by rounding or precision
-		if (!std::isnan(prevVx) && (std::fabs(vx - prevVx) < 0.001f && std::fabs(vy - prevVy) < 0.001f)) continue;
-		ofVertex(vx, vy);
-		prevVx = vx;
-		prevVy = vy;
-	}
-	ofEndShape(true);
+	safePopStyle();
 }
 
 static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx, float gapPx = 1.0f) {
-	// Only quantize the rectangle to integer pixels when already integral,
-	// otherwise keep fractional positions to allow smooth sub-pixel movement.
 	float sx = x;
 	float sy = y;
 	float sw = w;
@@ -2170,31 +2305,6 @@ static void drawCardOutlineOutside(float x, float y, float w, float h, float lin
 	}
 	float expand = std::max(0.0f, gapPx + std::max(0.0f, lineWidthPx) * 0.5f);
 	drawCardEdgeOutline(sx, sy, sw, sh, expand);
-}
-
-static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor color, int layers = 6) {
-	ofPushStyle();
-	ofFill();
-
-	// Concentric expanding alpha halos creating a soft glowing bloom aura
-	for (int i = layers; i >= 1; --i) {
-		float expand = (float)i * 2.2f;
-		float alphaFactor = (1.0f - ((float)i / (float)(layers + 1)));
-		alphaFactor = alphaFactor * alphaFactor; // Soft quadratic falloff
-
-		ofSetColor(color.r, color.g, color.b, (int)(color.a * alphaFactor * 0.45f));
-		drawCardEdgeOutline(drawX, drawY, w, h, expand);
-	}
-
-	// Crisp inner edge highlight
-	ofSetColor(color.r, color.g, color.b, std::min(255, (int)(color.a * 0.9f)));
-	drawCardEdgeOutline(drawX, drawY, w, h, 1.5f);
-
-	safePopStyle();
-}
-
-static bool startsWith(const std::string & s, const std::string & prefix) {
-	return s.rfind(prefix, 0) == 0;
 }
 
 static float quantizePixelTextScale(float scale) {
@@ -2295,7 +2405,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const st
 		return bounds;
 	};
 
-	float drawScale = std::max(0.5f, std::round(scale * 2.0f) / 2.0f);
+	float drawScale = scale;
 	ofRectangle b = getBounds(text);
 
 	float centerX = rect.x + rect.width * 0.5f;
@@ -4135,8 +4245,13 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		for (int i = 0; i < wallEffectCount; i++)
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
-		for (int i = 0; i < wallEffectCount; i++) {
-			if (dmg > 0) dmg /= 2;
+		if (wallEffectCount == 1) {
+			// 3 / 2 = 1.5 -> rounds down to 1
+			dmg = dmg / 2;
+		} else if (wallEffectCount >= 2) {
+			// 3 / 4 = 0.75 -> remainder 3 (>= 3) rounds up to 1
+			int rem = dmg % 4;
+			dmg = (dmg / 4) + (rem >= 3 ? 1 : 0);
 		}
 		if (targetNearWall) {
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
@@ -4424,8 +4539,13 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 		for (int i = 0; i < wallEffectCount; i++)
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
-		for (int i = 0; i < wallEffectCount; i++) {
-			if (dmg > 0) dmg /= 2;
+		if (wallEffectCount == 1) {
+			// 3 / 2 = 1.5 -> rounds down to 1
+			dmg = dmg / 2;
+		} else if (wallEffectCount >= 2) {
+			// 3 / 4 = 0.75 -> remainder 3 (>= 3) rounds up to 1
+			int rem = dmg % 4;
+			dmg = (dmg / 4) + (rem >= 3 ? 1 : 0);
 		}
 		if (targetNearWall) {
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
@@ -5576,24 +5696,25 @@ void ofApp::setup() {
 
 			std::string foilFrag = R"(
 		#version 150
-		uniform sampler2D tex0;          // Card Art or Template Frame
-		uniform sampler2D depthMaskTex;  // Parallax Depth Mask
-		uniform vec2 uMouseOffset;       // Mouse tilt direction
+		uniform sampler2D tex0;
+		uniform sampler2D depthMaskTex;
+		uniform vec2 uMouseOffset;
 		uniform float uTime;
 		uniform float uMaxDepth;
 		uniform int uClass;
 		uniform vec4 globalColor;
-		uniform vec4 uDrawRect;          // (x, y, w, h) in screen pixels
+		uniform vec4 uDrawRect;
 		uniform vec4 uMaskRect;          // Normalized card rect of mask: (x, y, w, h)
 		uniform vec4 uAtlasCardRect;      // Normalized atlas bounds of this card: (u, v, w, h)
-		uniform int uHasMask;            // 1 if mask allocated, 0 otherwise
-		uniform float uParallaxStrength; // Scale of the 3D shift
+		uniform int uHasMask;            // 1 if mask allocated
+		uniform float uParallaxStrength; // Scale of 3D parallax shift
 
 		in vec2 texCoordVarying;
 		in vec2 localPos;
 		out vec4 fragColor;
 
 		// Samples the mask in normalized card coordinates [0.0 .. 1.0]
+		// #000000 = 0.0 (no raise), #b0b0b0 = 0.6902 (middle ground), #ffffff = 1.0 (top bump)
 		float sampleMask(vec2 cUV) {
 			if (uHasMask == 0) return 0.0;
 			vec2 mUV = (cUV - uMaskRect.xy) / uMaskRect.zw;
@@ -5605,28 +5726,21 @@ void ofApp::setup() {
 		}
 
 		void main() {
-			// Local normalized card UV [0.0 .. 1.0]
 			vec2 cardUV = (localPos - uDrawRect.xy) / uDrawRect.zw;
 			float h = sampleMask(cardUV);
 
-			// ----------------------------------------------------
-			// 1. 3D PARALLAX COORDINATE SHIFT
-			// ----------------------------------------------------
-			// Offset shifts opposite the tilt to simulate depth pop-out
+			// 1. 3D Parallax Coordinate Shift
 			vec2 uvShift = -uMouseOffset * (uParallaxStrength * h);
 			vec2 sampleCoord = texCoordVarying;
 			if (h > 0.01 && uHasMask == 1) {
 				sampleCoord = texCoordVarying + uvShift * uAtlasCardRect.zw;
-				// Clamp within this card's slot in the sprite sheet
 				sampleCoord = clamp(sampleCoord, uAtlasCardRect.xy, uAtlasCardRect.xy + uAtlasCardRect.zw);
 			}
 
 			vec4 texColor = texture(tex0, sampleCoord);
 			if (texColor.a < 0.05) discard;
 
-			// ----------------------------------------------------
-			// 2. 3D DROP SHADOW CAST ONTO SURFACE BEHIND BANNER
-			// ----------------------------------------------------
+			// 2. 3D Drop Shadow Cast by Raised Layers
 			if (uHasMask == 1) {
 				vec2 shadowOffset = uMouseOffset * 0.025 + vec2(0.0, 0.012);
 				float shadowSample = sampleMask(cardUV - shadowOffset);
@@ -5634,9 +5748,7 @@ void ofApp::setup() {
 				texColor.rgb *= (1.0 - dropShadow * 0.45);
 			}
 
-			// ----------------------------------------------------
-			// 3. CHISELED 3D BEVEL & SPECULAR GLINT ON EDGES
-			// ----------------------------------------------------
+			// 3. Bevel Normals & Specular Glint
 			if (h > 0.01 && uHasMask == 1) {
 				vec2 eps = vec2(0.006, 0.006);
 				float hL = sampleMask(cardUV - vec2(eps.x, 0.0));
@@ -5644,7 +5756,7 @@ void ofApp::setup() {
 				float hU = sampleMask(cardUV - vec2(0.0, eps.y));
 				float hD = sampleMask(cardUV + vec2(0.0, eps.y));
 
-				vec3 normal = normalize(vec3((hL - hR) * uMaxDepth * 12.0, (hU - hD) * uMaxDepth * 12.0, 1.0));
+				vec3 normal = normalize(vec3((hL - hR) * uMaxDepth * 14.0, (hU - hD) * uMaxDepth * 14.0, 1.0));
 				vec3 lightDir = normalize(vec3(uMouseOffset.x * 2.0 - 0.3, -uMouseOffset.y * 2.0 - 0.5, 0.8));
 				float diff = max(dot(normal, lightDir), 0.0);
 
@@ -5656,9 +5768,7 @@ void ofApp::setup() {
 				texColor.rgb = clamp(texColor.rgb + vec3(bevel) * h, 0.0, 1.0);
 			}
 
-			// ----------------------------------------------------
-			// 4. METALLIC CLASS SHEEN & GLOSS
-			// ----------------------------------------------------
+			// 4. Metallic Foil Sheen
 			vec2 localUV = cardUV;
 			float pos = localUV.x + localUV.y;
 			float loopDuration = 4.0;
@@ -5693,7 +5803,6 @@ void ofApp::setup() {
 				finalColor += (shine * sheenColor * 0.6 * texColor.a);
 			}
 
-			// Subtle anti-banding micro-dither
 			float dither = (fract(sin(dot(localPos, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
 			finalColor += vec3(dither);
 
@@ -22632,7 +22741,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 				if (candidate.type == CARD_SHOOT_ARROW && currentPlayer.deck.empty()) return false;
 
-				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_BLOCKING_BOON) return true;
+				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_HASTEN || candidate.type == CARD_SPARK_OF_GENIUS || candidate.type == CARD_STRENGTHEN_ELEMENTS || candidate.type == CARD_ADD_POISON || candidate.type == CARD_TIME_VORTEX || candidate.type == CARD_NECROMANCER_S_BLESSING || candidate.type == CARD_FULL_RESTORE || candidate.type == CARD_PSIONIC_WAVE) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth) return true;
 					glm::vec2 casterPos(currentPlayer.x, currentPlayer.y);
@@ -30005,6 +30114,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
+			// Direct hit deals 1d20 Magic damage
 			if (directHitIdx >= 0) {
 				EffectOp res = {};
 				res.type = EffectOpType::APPLY_GENERIC_DAMAGE;
@@ -30015,39 +30125,24 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueEffect(res);
 			}
 
-			// Pre-calculate if anyone is in the AOE splash before rolling
+			// Check if any valid targets exist in the 1d20 ft AOE (blocked by walls/units)
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
 			bool hasAoeTargets = false;
-			long long maxAoeDistSqScaled = (long long)aoeRadiusFeet * (long long)aoeRadiusFeet * 4LL;
-			glm::vec2 impactTileFloat((float)impactTile.x, (float)impactTile.y);
-			glm::vec2 impactCenter = impactTileFloat + 0.5f;
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.x == impactTile.x && p.y == impactTile.y) continue;
-				if (p.health <= 0 || board[p.x][p.y].hasWall) continue;
+				if (p.health <= 0 || board[p.x][p.y].hasWall) continue; // Units in walls protected
 
-				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, glm::vec2((float)p.x, (float)p.y));
-				if (distSq * 25LL <= maxAoeDistSqScaled) {
-					bool blockedByWall = false;
-					int pDx = std::abs(p.x - impactTile.x);
-					int pDy = std::abs(p.y - impactTile.y);
-					if (pDx == 1 && pDy == 1) {
-						bool wall1 = isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y);
-						bool wall2 = isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y));
-						if (wall1 && wall2) blockedByWall = true;
-					} else {
-						auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
-						for (const auto & stepP : losPath) {
-							if ((int)stepP.x == impactTile.x && (int)stepP.y == impactTile.y) continue;
-							if ((int)stepP.x == p.x && (int)stepP.y == p.y) break;
-							if (isTileWall((int)stepP.x, (int)stepP.y)) {
-								blockedByWall = true;
-								break;
-							}
-						}
-					}
-					if (!blockedByWall) {
+				// Radial distance from center of impact tile
+				float dx = std::max(0.0f, std::abs((float)(p.x - impactTile.x)) - 0.5f) * 5.0f;
+				float dy = std::max(0.0f, std::abs((float)(p.y - impactTile.y)) - 0.5f) * 5.0f;
+				float distFeet = std::sqrt(dx * dx + dy * dy);
+
+				if (distFeet <= (float)aoeRadiusFeet) {
+					// AOE IS BLOCKED: Check LOS from impact tile (blocked by walls and units)
+					auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)p.x, (float)p.y), CARD_FIREBALL);
+					if (los.hasLos) {
 						hasAoeTargets = true;
 						break;
 					}
@@ -30070,7 +30165,41 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueEffect(next);
 			}
 
-			// FIX: Mark the step as absolutely finished regardless of whether the AOE fired or not!
+			opComplete = true;
+			break;
+		} else if (step == 4) {
+			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
+			std::vector<int> aoeTargets;
+			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
+
+			for (size_t i = 0; i < players.size(); ++i) {
+				Player & p = players[i];
+				if (p.x == impactTile.x && p.y == impactTile.y) continue;
+				if (p.health <= 0 || board[p.x][p.y].hasWall) continue; // Cannot hit units inside walls
+
+				float dx = std::max(0.0f, std::abs((float)(p.x - impactTile.x)) - 0.5f) * 5.0f;
+				float dy = std::max(0.0f, std::abs((float)(p.y - impactTile.y)) - 0.5f) * 5.0f;
+				float distFeet = std::sqrt(dx * dx + dy * dy);
+
+				if (distFeet <= (float)aoeRadiusFeet) {
+					// AOE IS BLOCKED: Blocked by walls and intervening units
+					auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)p.x, (float)p.y), CARD_FIREBALL);
+					if (los.hasLos) {
+						aoeTargets.push_back((int)i);
+					}
+				}
+			}
+
+			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
+				int pidx = aoeTargets[idx];
+				EffectOp aoeDmg = {};
+				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
+				aoeDmg.data.damage.targetIndex = pidx;
+				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
+				aoeDmg.data.damage.fixedDamage = 3;
+				aoeDmg.data.damage.damageFromSlot = -1;
+				queueEffect(aoeDmg);
+			}
 			opComplete = true;
 			break;
 		} else if (step == 4) {
@@ -30587,8 +30716,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			computeTracerEndpoints(casterTile + 0.5f, endPoint, worldStart, worldEnd);
 			queueVisualTracer(worldStart, worldEnd, getActiveTracerColor(), 2.0f);
 
-			// Check for real wall impact vs falling short
-			if (isTileWall(impactTile.x, impactTile.y) && impactTile != glm::ivec2((int)targetTile.x, (int)targetTile.y)) {
+			// If it hits a wall, detonate on the wall and stop completely (no splash through walls)
+			if (isTileWall(impactTile.x, impactTile.y)) {
 				queueFloatingTextVisual(gridToWorld(impactTile.x, impactTile.y), "Hit Wall", ofColor::gray);
 				EffectOp wEnd = {};
 				wEnd.type = EffectOpType::WAIT_VISUAL;
@@ -30615,15 +30744,20 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 			magicBlastSplashTargetIndices.clear();
 
-			// Find splash units (adjacent orthogonal tiles)
+			// Find splash units (adjacent orthogonal tiles with unobstructed LOS)
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i == targetIdx) continue;
 				if (players[i].health <= 0) continue;
-				if (board[players[i].x][players[i].y].hasWall) continue;
+				if (board[players[i].x][players[i].y].hasWall) continue; // Immune inside walls
+
 				int dx = std::abs(players[i].x - impactTile.x);
 				int dy = std::abs(players[i].y - impactTile.y);
 				if (dx + dy == 1) {
-					magicBlastSplashTargetIndices.push_back(players[i].playerID);
+					// Verify no wall or obstacle between impact tile and splash target
+					auto losCheck = getClearLosRay(glm::vec2(impactTile.x, impactTile.y), glm::vec2(players[i].x, players[i].y), CARD_FIREBALL);
+					if (losCheck.hasLos) {
+						magicBlastSplashTargetIndices.push_back(players[i].playerID);
+					}
 				}
 			}
 
@@ -33955,11 +34089,18 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_MAGIC_BLAST: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+		// Magic Blast requires clear Line of Sight (up to 20 ft + luck)
+		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+		float maxRangeFeet = 20.0f + (float)luckBonus;
+		TargetInfo info = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
+		if (info.reason != VALID) return true; // Abort if blocked by wall or unit
+
 		beginEffectSequence();
 		interactionTargetTile = glm::vec2(targetX, targetY);
 		interactingCardIndex = cardIndex;
-
-		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 
 		// 1. Roll Range
 		std::vector<int> rawRange;
@@ -33971,7 +34112,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// 2. Trigger Sequence
 		EffectOp applyMb = {};
 		applyMb.type = EffectOpType::APPLY_MAGIC_BLAST;
-		applyMb.data.damage.fixedDamage = 0; // START AT STEP 0
+		applyMb.data.damage.fixedDamage = 0;
 		queueEffect(applyMb);
 
 		playedSuccessfully = true;
@@ -34202,57 +34343,52 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 
-		// 1. Roll Range (AOE Radius) -> blackboard[0]
+		// 1. Roll Range (AOE Radius: 2d20 + Luck)
 		std::vector<int> rawRange;
 		int rangeFeet = resolveDiceRollDetailed(2, 20, rawRange);
-		rangeFeet += 2 * luckBonus; // 2 dice
+		rangeFeet += 2 * luckBonus;
 		currentEffectSequence.blackboard[0] = rangeFeet;
 		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 2, 20, rawRange, rangeFeet, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 
-		// Wait for Range Dice
+		// Wait for Range Dice visual
 		EffectOp waitRange = {};
 		waitRange.type = EffectOpType::WAIT_VISUAL;
 		queueEffect(waitRange);
 
-		// 2. Roll Cards to Destroy -> blackboard[1]
+		// 2. Roll Cards to Destroy (2d4 + Luck)
 		std::vector<int> rawDest;
 		int destCount = resolveDiceRollDetailed(2, 4, rawDest);
-		destCount += 2 * luckBonus; // 2 dice
+		destCount += 2 * luckBonus;
 		currentEffectSequence.blackboard[1] = destCount;
-
-		// Queue damage/destroy dice
 		queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0), 2, 4, rawDest, destCount, PURPOSE_DEBUG, currentPlayerIndex, 1.0f, "Psionic Wave Amount Roll");
 
-		// 3. Find Targets (Using Deterministic Integer Math)
+		// 3. Find All Targets in Center-Origin Radial Burst (Ignores walls)
 		psionicWaveTargetIndices.clear();
 
-		// SECURITY FIX: Standardize math to use the 25LL/4LL ratio for leniency support
-		long long maxDistSqScaled = (long long)rangeFeet * (long long)rangeFeet * 4LL;
-
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		int cx = currentPlayer.x;
+		int cy = currentPlayer.y;
 
 		for (size_t i = 0; i < players.size(); ++i) {
-			if ((int)i == currentPlayerIndex) continue; // Do not affect self
+			if ((int)i == currentPlayerIndex) continue; // Exclude self
 			Player & p = players[i];
 			if (p.health <= 0) continue;
-			if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
 
-			glm::vec2 targetTile = { (float)p.x, (float)p.y };
-			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+			// Distance from center of caster tile to nearest edge of target tile
+			float dx = std::max(0.0f, std::abs((float)(p.x - cx)) - 0.5f);
+			float dy = std::max(0.0f, std::abs((float)(p.y - cy)) - 0.5f);
+			float distFeet = std::sqrt(dx * dx + dy * dy) * 5.0f;
 
-			// SECURITY FIX: Add +4LL leniency
-			if (distSq * 25LL <= maxDistSqScaled + 4LL) {
-				// No LOS check - goes through walls!
+			if (distFeet <= (float)rangeFeet) {
 				psionicWaveTargetIndices.push_back((int)i);
 			}
 		}
 
-		// 4. Wait for Visuals
+		// 4. Wait for dice to finish before resolving cards
 		EffectOp waitOp = {};
 		waitOp.type = EffectOpType::WAIT_VISUAL;
 		queueEffect(waitOp);
 
-		// 5. Apply
+		// 5. Apply card destruction to all targets
 		EffectOp psionicOp = {};
 		psionicOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
 		queueEffect(psionicOp);

@@ -1,12 +1,9 @@
-Unit Models:
+3D Unit Models:
+Hellhound - 
+Faerie - 
+Golem - 
+Kobold -
 
-
-
-
-
-
-
-
-
-
-Music - Peace out Pat
+Card Art Curation - ComplexGame
+Game Music - Peace out Pat
+Everything else - Me
