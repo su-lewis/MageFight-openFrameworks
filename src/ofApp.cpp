@@ -57,6 +57,7 @@ static ofColor getTracerColorForDamageType(DamageType dt) {
 // --- VFX SHADERS & PARTICLES ---
 static ofShader s_foilShader;
 static ofShader s_burnShader;
+static ofTexture s_targetingMaskTex; // <-- Added Depth Mask Texture
 static bool g_isBurningCard = false;
 static float g_burnProgress = 0.0f;
 
@@ -1449,30 +1450,58 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		bool useFoil = !g_isBurningCard && (card.cardClass >= 1 && card.cardClass <= 3) && s_foilShader.isLoaded();
 		bool useBurn = g_isBurningCard && s_burnShader.isLoaded();
 
-		auto applyActiveShader = [&](ofTexture & activeTex) {
+		auto applyActiveShader = [&]() { // No parameters needed
 			if (useBurn) {
 				s_burnShader.begin();
 				s_burnShader.setUniform1f("uProgress", g_burnProgress);
 				s_burnShader.setUniform4f("uDrawRect", drawX, drawY, safeW, safeH);
-				s_burnShader.setUniformTexture("tex0", activeTex, 0);
+				s_burnShader.setUniformTexture("tex0", sheet.getTexture(), 0);
 			} else if (useFoil) {
 				s_foilShader.begin();
 				s_foilShader.setUniform1f("uTime", ofGetElapsedTimef());
 				s_foilShader.setUniform1i("uClass", card.cardClass);
 				s_foilShader.setUniform4f("uDrawRect", drawX, drawY, safeW, safeH);
-				s_foilShader.setUniformTexture("tex0", activeTex, 0);
+				s_foilShader.setUniform1f("uMaxDepth", 2.0f);
+
+				// 1. Bind Card Texture to Unit 0
+				sheet.getTexture().bind(0);
+				s_foilShader.setUniformTexture("tex0", sheet.getTexture(), 0);
+
+				// 2. Bind Depth Mask to Unit 1
+				if (s_targetingMaskTex.isAllocated()) {
+					s_targetingMaskTex.bind(1);
+					s_foilShader.setUniformTexture("depthMaskTex", s_targetingMaskTex, 1);
+				} else {
+					// Fallback: Bind a blank 1x1 texture or unit 0 again if mask missing
+					// This prevents the shader from trying to sample an empty texture unit
+					s_foilShader.setUniformTexture("depthMaskTex", sheet.getTexture(), 0);
+				}
+
+				// 3. Mouse Tilt
+				float cardCenterX = drawX + safeW * 0.5f;
+				float cardCenterY = drawY + safeH * 0.5f;
+				float mouseTiltX = std::clamp((ofGetMouseX() - cardCenterX) / (safeW * 0.5f), -1.0f, 1.0f);
+				float mouseTiltY = std::clamp((ofGetMouseY() - cardCenterY) / (safeH * 0.5f), -1.0f, 1.0f);
+				s_foilShader.setUniform2f("uMouseOffset", mouseTiltX * 0.02f, mouseTiltY * 0.02f);
 			}
 		};
 
+		// Use the 'sheet' reference which is already in scope of drawCardFaceDynamic
 		auto endActiveShader = [&]() {
-			if (useBurn)
+			if (useBurn) {
 				s_burnShader.end();
-			else if (useFoil)
+			} else if (useFoil) {
 				s_foilShader.end();
+				// Unbind the specific units
+				sheet.getTexture().unbind(0);
+				if (s_targetingMaskTex.isAllocated()) {
+					s_targetingMaskTex.unbind(1);
+				}
+			}
 		};
 
 		// Draw Layer 1: Base Art
-		applyActiveShader(sheet.getTexture());
+		applyActiveShader(); // No argument
 		drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
 			card.textureRect.x, card.textureRect.y,
 			card.textureRect.width, card.textureRect.height);
@@ -1480,7 +1509,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 
 		// Draw Layer 2: Card Template Frame
 		if (g_cardTextSpriteSheet.isAllocated()) {
-			applyActiveShader(g_cardTextSpriteSheet.getTexture());
+			applyActiveShader(); // No argument
 			drawCardSpriteSubsectionSafe(g_cardTextSpriteSheet, drawX, drawY, safeW, safeH,
 				card.textureRect.x, card.textureRect.y,
 				card.textureRect.width, card.textureRect.height);
@@ -5398,6 +5427,23 @@ void ofApp::setup() {
 			cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			cardBackImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 		}
+
+		// Load Parallax Depth Mask for Targeting Banner
+		ofImage maskImg;
+		std::vector<std::string> maskPaths = { "UI/Cards/Art/TargetingTypeAreaMask.png", "UI/TargetingTypeAreaMask.png", "bin/data/UI/Cards/Art/TargetingTypeAreaMask.png" };
+		for (const auto & mp : maskPaths) {
+			if (ofFile(mp).exists() && maskImg.load(mp)) {
+				maskImg.setImageType(OF_IMAGE_COLOR_ALPHA);
+				s_targetingMaskTex = maskImg.getTexture();
+				s_targetingMaskTex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				s_targetingMaskTex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				ofLogNotice("Parallax") << "Loaded TargetingTypeAreaMask from " << mp << " (Size: " << maskImg.getWidth() << "x" << maskImg.getHeight() << ")";
+				break;
+			}
+		}
+		if (!s_targetingMaskTex.isAllocated()) {
+			ofLogError("Parallax") << "WARNING: TargetingTypeAreaMask.png could not be found or allocated!";
+		}
 		if (cardSpriteSheet.isAllocated()) {
 			cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
@@ -5468,8 +5514,11 @@ void ofApp::setup() {
 
 			std::string foilFrag = R"(
 		#version 150
-		uniform sampler2D tex0;
+		uniform sampler2D tex0;          // Binding 0
+		uniform sampler2D depthMaskTex;  // Binding 2
+		uniform vec2 uMouseOffset;      
 		uniform float uTime;
+		uniform float uMaxDepth; // You added this in the previous fix!
 		uniform int uClass;
 		uniform vec4 globalColor;
 		uniform vec4 uDrawRect;
@@ -5479,11 +5528,31 @@ void ofApp::setup() {
 		out vec4 fragColor;
 
 		void main() {
+			// Ensure we are reading from the correct uniform name
 			vec4 texColor = texture(tex0, texCoordVarying);
 			if (texColor.a < 0.05) discard;
 
+			// --- SAFE PIXEL BUMP ---
+			// Ensure we are reading from the correct uniform name
+			vec2 texelSize = 1.0 / vec2(textureSize(depthMaskTex, 0));
+			float hCenter = texture(depthMaskTex, texCoordVarying).r;
+			
+			if (hCenter > 0.01 && hCenter < 0.99) {
+				float hLeft   = texture(depthMaskTex, texCoordVarying - vec2(texelSize.x, 0.0)).r;
+				float hRight  = texture(depthMaskTex, texCoordVarying + vec2(texelSize.x, 0.0)).r;
+				float hUp     = texture(depthMaskTex, texCoordVarying - vec2(0.0, texelSize.y)).r;
+				float hDown   = texture(depthMaskTex, texCoordVarying + vec2(0.0, texelSize.y)).r;
+
+				vec3 normal = normalize(vec3((hLeft - hRight) * uMaxDepth, (hUp - hDown) * uMaxDepth, 1.0));
+				vec3 lightDir = normalize(vec3(-0.5, -0.5, 0.7)); 
+				float diff = max(dot(normal, lightDir), 0.0);
+
+				float bump = (diff - 0.5) * hCenter * 0.2; 
+				texColor.rgb = clamp(texColor.rgb + vec3(bump), 0.0, 1.0);
+			}
+
 			vec2 localUV = (localPos - uDrawRect.xy) / uDrawRect.zw;
-			float pos = localUV.x + localUV.y; 
+			float pos = localUV.x + localUV.y;
 
 			// ----------------------------------------------------
 			// 1. TF2 SWEEPING SHEEN
