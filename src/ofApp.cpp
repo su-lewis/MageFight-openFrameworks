@@ -93,14 +93,21 @@ static void drawMetallicBar(float x, float y, float w, float h, ofColor baseColo
 		s_foilShader.setUniform1f("uTime", ofGetElapsedTimef() * 0.75f);
 		s_foilShader.setUniform1i("uClass", metallicClass);
 		s_foilShader.setUniform4f("uDrawRect", x, y, w, h);
+		s_foilShader.setUniform4f("uMaskRect", 0.0f, 0.0f, 1.0f, 1.0f);
+		s_foilShader.setUniform4f("uAtlasCardRect", 0.0f, 0.0f, 1.0f, 1.0f);
+		s_foilShader.setUniform1i("uHasMask", 0);
+		s_foilShader.setUniform1f("uParallaxStrength", 0.0f);
+		s_foilShader.setUniform1f("uMaxDepth", 0.0f);
+		s_foilShader.setUniform2f("uMouseOffset", 0.0f, 0.0f);
 		s_foilShader.setUniformTexture("tex0", s_whiteTex, 0);
+		s_foilShader.setUniformTexture("depthMaskTex", s_whiteTex, 1);
+		s_whiteTex.bind(1);
 
-		// Tight, sharp specular reflection instead of a milky white haze
 		ofSetColor(baseColor.r, baseColor.g, baseColor.b, 65);
 		s_whiteTex.draw(x, y, w, h);
 
 		s_foilShader.end();
-
+		s_whiteTex.unbind(1);
 		ofDisableBlendMode();
 		ofPopStyle();
 	}
@@ -1447,15 +1454,15 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 
 	// PASS 1: Base Card Art & Frame Geometry
 	if (g_renderGeometryMask) {
-		bool useFoil = !g_isBurningCard && (card.cardClass >= 1 && card.cardClass <= 3) && s_foilShader.isLoaded();
+		bool useFoil = !g_isBurningCard && (card.cardClass >= 1 || s_targetingMaskTex.isAllocated()) && s_foilShader.isLoaded();
 		bool useBurn = g_isBurningCard && s_burnShader.isLoaded();
 
-		auto applyActiveShader = [&]() { // No parameters needed
+		auto applyActiveShader = [&](ofTexture & currentTex) {
 			if (useBurn) {
 				s_burnShader.begin();
 				s_burnShader.setUniform1f("uProgress", g_burnProgress);
 				s_burnShader.setUniform4f("uDrawRect", drawX, drawY, safeW, safeH);
-				s_burnShader.setUniformTexture("tex0", sheet.getTexture(), 0);
+				s_burnShader.setUniformTexture("tex0", currentTex, 0);
 			} else if (useFoil) {
 				s_foilShader.begin();
 				s_foilShader.setUniform1f("uTime", ofGetElapsedTimef());
@@ -1463,71 +1470,102 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 				s_foilShader.setUniform4f("uDrawRect", drawX, drawY, safeW, safeH);
 				s_foilShader.setUniform1f("uMaxDepth", 2.0f);
 
+				// Determine if mask is cropped to targeting area or full-card canvas
+				glm::vec4 maskRectNorm(0.0f, 0.0f, 1.0f, 1.0f);
+				if (s_targetingMaskTex.isAllocated()) {
+					float mw = s_targetingMaskTex.getWidth();
+					float mh = s_targetingMaskTex.getHeight();
+					if (mh > 0.0f && (mw / mh) > 2.2f) {
+						// Cropped banner image
+						maskRectNorm = glm::vec4(
+							g_cardLayout.targetingRect.x / g_templateWidth,
+							g_cardLayout.targetingRect.y / g_templateHeight,
+							g_cardLayout.targetingRect.width / g_templateWidth,
+							g_cardLayout.targetingRect.height / g_templateHeight);
+					} else {
+						// Full-card size
+						maskRectNorm = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+					}
+				}
+				s_foilShader.setUniform4f("uMaskRect", maskRectNorm.x, maskRectNorm.y, maskRectNorm.z, maskRectNorm.w);
+
+				// Atlas card slot normalized rect
+				float atX = (currentTex.getWidth() > 0) ? (card.textureRect.x / currentTex.getWidth()) : 0.0f;
+				float atY = (currentTex.getHeight() > 0) ? (card.textureRect.y / currentTex.getHeight()) : 0.0f;
+				float atW = (currentTex.getWidth() > 0) ? (card.textureRect.width / currentTex.getWidth()) : 1.0f;
+				float atH = (currentTex.getHeight() > 0) ? (card.textureRect.height / currentTex.getHeight()) : 1.0f;
+				s_foilShader.setUniform4f("uAtlasCardRect", atX, atY, atW, atH);
+
+				// Mouse tilt + subtle idle breathing
+				float cardCenterX = drawX + safeW * 0.5f;
+				float cardCenterY = drawY + safeH * 0.5f;
+				float mouseDistX = (ofGetMouseX() - cardCenterX) / std::max(1.0f, safeW * 0.85f);
+				float mouseDistY = (ofGetMouseY() - cardCenterY) / std::max(1.0f, safeH * 0.85f);
+				float mouseTiltX = std::clamp(mouseDistX, -1.2f, 1.2f);
+				float mouseTiltY = std::clamp(mouseDistY, -1.2f, 1.2f);
+				float idleTiltX = sin(ofGetElapsedTimef() * 1.4f) * 0.10f;
+				float idleTiltY = cos(ofGetElapsedTimef() * 1.1f) * 0.10f;
+
+				s_foilShader.setUniform2f("uMouseOffset", mouseTiltX + idleTiltX, mouseTiltY + idleTiltY);
+				s_foilShader.setUniform1i("uHasMask", s_targetingMaskTex.isAllocated() ? 1 : 0);
+				s_foilShader.setUniform1f("uParallaxStrength", 0.022f);
+
 				// 1. Bind Card Texture to Unit 0
-				sheet.getTexture().bind(0);
-				s_foilShader.setUniformTexture("tex0", sheet.getTexture(), 0);
+				currentTex.bind(0);
+				s_foilShader.setUniformTexture("tex0", currentTex, 0);
 
 				// 2. Bind Depth Mask to Unit 1
 				if (s_targetingMaskTex.isAllocated()) {
 					s_targetingMaskTex.bind(1);
 					s_foilShader.setUniformTexture("depthMaskTex", s_targetingMaskTex, 1);
 				} else {
-					// Fallback: Bind a blank 1x1 texture or unit 0 again if mask missing
-					// This prevents the shader from trying to sample an empty texture unit
-					s_foilShader.setUniformTexture("depthMaskTex", sheet.getTexture(), 0);
+					currentTex.bind(1);
+					s_foilShader.setUniformTexture("depthMaskTex", currentTex, 1);
 				}
-
-				// 3. Mouse Tilt
-				float cardCenterX = drawX + safeW * 0.5f;
-				float cardCenterY = drawY + safeH * 0.5f;
-				float mouseTiltX = std::clamp((ofGetMouseX() - cardCenterX) / (safeW * 0.5f), -1.0f, 1.0f);
-				float mouseTiltY = std::clamp((ofGetMouseY() - cardCenterY) / (safeH * 0.5f), -1.0f, 1.0f);
-				s_foilShader.setUniform2f("uMouseOffset", mouseTiltX * 0.02f, mouseTiltY * 0.02f);
 			}
 		};
 
-		// Use the 'sheet' reference which is already in scope of drawCardFaceDynamic
-		auto endActiveShader = [&]() {
+		auto endActiveShader = [&](ofTexture & currentTex) {
 			if (useBurn) {
 				s_burnShader.end();
 			} else if (useFoil) {
 				s_foilShader.end();
-				// Unbind the specific units
-				sheet.getTexture().unbind(0);
+				currentTex.unbind(0);
 				if (s_targetingMaskTex.isAllocated()) {
 					s_targetingMaskTex.unbind(1);
+				} else {
+					currentTex.unbind(1);
 				}
 			}
 		};
 
 		// Draw Layer 1: Base Art
-		applyActiveShader(); // No argument
+		applyActiveShader(sheet.getTexture());
 		drawCardSpriteSubsectionSafe(sheet, drawX, drawY, safeW, safeH,
 			card.textureRect.x, card.textureRect.y,
 			card.textureRect.width, card.textureRect.height);
-		endActiveShader();
+		endActiveShader(sheet.getTexture());
 
 		// Draw Layer 2: Card Template Frame
 		if (g_cardTextSpriteSheet.isAllocated()) {
-			applyActiveShader(); // No argument
+			applyActiveShader(g_cardTextSpriteSheet.getTexture());
 			drawCardSpriteSubsectionSafe(g_cardTextSpriteSheet, drawX, drawY, safeW, safeH,
 				card.textureRect.x, card.textureRect.y,
 				card.textureRect.width, card.textureRect.height);
-			endActiveShader();
+			endActiveShader(g_cardTextSpriteSheet.getTexture());
 		}
 	}
 
-	// PASS 2: Crisp Text Overlay (Synced with Burn Shader)
+	// PASS 2: Crisp Text Overlay (Synced with Burn Shader & Parallax)
 	if (g_renderText) {
 		float textBurnAlpha = 1.0f;
 		if (g_isBurningCard) {
-			// Once the card is 80% burned, completely eliminate text so nothing lingers
 			if (g_burnProgress >= 0.80f) {
 				safePopStyle();
 				return;
 			}
 			textBurnAlpha = std::clamp((0.80f - g_burnProgress) / 0.80f, 0.0f, 1.0f);
-			textBurnAlpha = textBurnAlpha * textBurnAlpha; // Quadratic dissolve
+			textBurnAlpha = textBurnAlpha * textBurnAlpha;
 		}
 
 		ofPushMatrix();
@@ -1609,7 +1647,22 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		drawArcCenteredTextScaledOutlined(titleFont, cardName, g_cardLayout.nameRect, g_uniformNameScale, g_cardLayout.nameCurveDropPx, g_cardLayout.nameMiddleClampXMin, g_cardLayout.nameMiddleClampXMax, g_cardLayout.nameMiddleBottomMaxY, nameColor, nameOutline, 4);
 
 		if (!cardTargeting.empty()) {
-			drawCenteredTextScaledOutlined(titleFont, cardTargeting, g_cardLayout.targetingRect, 1.25f, nameColor, nameOutline, 3);
+			// Offset text in sync with the floating banner's 3D parallax shift
+			ofRectangle targetRectShifted = g_cardLayout.targetingRect;
+			if (s_targetingMaskTex.isAllocated()) {
+				float cardCenterX = drawX + safeW * 0.5f;
+				float cardCenterY = drawY + safeH * 0.5f;
+				float mouseDistX = (ofGetMouseX() - cardCenterX) / std::max(1.0f, safeW * 0.85f);
+				float mouseDistY = (ofGetMouseY() - cardCenterY) / std::max(1.0f, safeH * 0.85f);
+				float mouseTiltX = std::clamp(mouseDistX, -1.2f, 1.2f);
+				float mouseTiltY = std::clamp(mouseDistY, -1.2f, 1.2f);
+				float idleTiltX = sin(ofGetElapsedTimef() * 1.4f) * 0.10f;
+				float idleTiltY = cos(ofGetElapsedTimef() * 1.1f) * 0.10f;
+
+				targetRectShifted.x += (mouseTiltX + idleTiltX) * 0.022f * g_templateWidth;
+				targetRectShifted.y += (mouseTiltY + idleTiltY) * 0.022f * g_templateHeight;
+			}
+			drawCenteredTextScaledOutlined(titleFont, cardTargeting, targetRectShifted, 1.25f, nameColor, nameOutline, 3);
 		}
 
 		if (!summonAP.empty()) {
@@ -5430,12 +5483,21 @@ void ofApp::setup() {
 
 		// Load Parallax Depth Mask for Targeting Banner
 		ofImage maskImg;
-		std::vector<std::string> maskPaths = { "UI/Cards/Art/TargetingTypeAreaMask.png", "UI/TargetingTypeAreaMask.png", "bin/data/UI/Cards/Art/TargetingTypeAreaMask.png" };
+		std::vector<std::string> maskPaths = {
+			"UI/Cards/Art/TargetingTypeAreaMask.png",
+			"UI/Cards/Art/TargetingTypeAreaMask.PNG",
+			"UI/TargetingTypeAreaMask.png",
+			"UI/TargetingTypeAreaMask.PNG",
+			"UI/TargetingMask.png",
+			"UI/Cards/Art/TargetingMask.png",
+			"bin/data/UI/Cards/Art/TargetingTypeAreaMask.png",
+			"data/UI/Cards/Art/TargetingTypeAreaMask.png"
+		};
 		for (const auto & mp : maskPaths) {
 			if (ofFile(mp).exists() && maskImg.load(mp)) {
 				maskImg.setImageType(OF_IMAGE_COLOR_ALPHA);
 				s_targetingMaskTex = maskImg.getTexture();
-				s_targetingMaskTex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				s_targetingMaskTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
 				s_targetingMaskTex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 				ofLogNotice("Parallax") << "Loaded TargetingTypeAreaMask from " << mp << " (Size: " << maskImg.getWidth() << "x" << maskImg.getHeight() << ")";
 				break;
@@ -5514,98 +5576,124 @@ void ofApp::setup() {
 
 			std::string foilFrag = R"(
 		#version 150
-		uniform sampler2D tex0;          // Binding 0
-		uniform sampler2D depthMaskTex;  // Binding 2
-		uniform vec2 uMouseOffset;      
+		uniform sampler2D tex0;          // Card Art or Template Frame
+		uniform sampler2D depthMaskTex;  // Parallax Depth Mask
+		uniform vec2 uMouseOffset;       // Mouse tilt direction
 		uniform float uTime;
-		uniform float uMaxDepth; // You added this in the previous fix!
+		uniform float uMaxDepth;
 		uniform int uClass;
 		uniform vec4 globalColor;
-		uniform vec4 uDrawRect;
+		uniform vec4 uDrawRect;          // (x, y, w, h) in screen pixels
+		uniform vec4 uMaskRect;          // Normalized card rect of mask: (x, y, w, h)
+		uniform vec4 uAtlasCardRect;      // Normalized atlas bounds of this card: (u, v, w, h)
+		uniform int uHasMask;            // 1 if mask allocated, 0 otherwise
+		uniform float uParallaxStrength; // Scale of the 3D shift
 
 		in vec2 texCoordVarying;
 		in vec2 localPos;
 		out vec4 fragColor;
 
+		// Samples the mask in normalized card coordinates [0.0 .. 1.0]
+		float sampleMask(vec2 cUV) {
+			if (uHasMask == 0) return 0.0;
+			vec2 mUV = (cUV - uMaskRect.xy) / uMaskRect.zw;
+			if (mUV.x < 0.0 || mUV.x > 1.0 || mUV.y < 0.0 || mUV.y > 1.0) return 0.0;
+			vec4 m = texture(depthMaskTex, mUV);
+			float luma = dot(m.rgb, vec3(0.299, 0.587, 0.114));
+			if (luma < 0.01) return m.a;
+			return luma * m.a;
+		}
+
 		void main() {
-			// Ensure we are reading from the correct uniform name
-			vec4 texColor = texture(tex0, texCoordVarying);
-			if (texColor.a < 0.05) discard;
+			// Local normalized card UV [0.0 .. 1.0]
+			vec2 cardUV = (localPos - uDrawRect.xy) / uDrawRect.zw;
+			float h = sampleMask(cardUV);
 
-			// --- SAFE PIXEL BUMP ---
-			// Ensure we are reading from the correct uniform name
-			vec2 texelSize = 1.0 / vec2(textureSize(depthMaskTex, 0));
-			float hCenter = texture(depthMaskTex, texCoordVarying).r;
-			
-			if (hCenter > 0.01 && hCenter < 0.99) {
-				float hLeft   = texture(depthMaskTex, texCoordVarying - vec2(texelSize.x, 0.0)).r;
-				float hRight  = texture(depthMaskTex, texCoordVarying + vec2(texelSize.x, 0.0)).r;
-				float hUp     = texture(depthMaskTex, texCoordVarying - vec2(0.0, texelSize.y)).r;
-				float hDown   = texture(depthMaskTex, texCoordVarying + vec2(0.0, texelSize.y)).r;
-
-				vec3 normal = normalize(vec3((hLeft - hRight) * uMaxDepth, (hUp - hDown) * uMaxDepth, 1.0));
-				vec3 lightDir = normalize(vec3(-0.5, -0.5, 0.7)); 
-				float diff = max(dot(normal, lightDir), 0.0);
-
-				float bump = (diff - 0.5) * hCenter * 0.2; 
-				texColor.rgb = clamp(texColor.rgb + vec3(bump), 0.0, 1.0);
+			// ----------------------------------------------------
+			// 1. 3D PARALLAX COORDINATE SHIFT
+			// ----------------------------------------------------
+			// Offset shifts opposite the tilt to simulate depth pop-out
+			vec2 uvShift = -uMouseOffset * (uParallaxStrength * h);
+			vec2 sampleCoord = texCoordVarying;
+			if (h > 0.01 && uHasMask == 1) {
+				sampleCoord = texCoordVarying + uvShift * uAtlasCardRect.zw;
+				// Clamp within this card's slot in the sprite sheet
+				sampleCoord = clamp(sampleCoord, uAtlasCardRect.xy, uAtlasCardRect.xy + uAtlasCardRect.zw);
 			}
 
-			vec2 localUV = (localPos - uDrawRect.xy) / uDrawRect.zw;
-			float pos = localUV.x + localUV.y;
+			vec4 texColor = texture(tex0, sampleCoord);
+			if (texColor.a < 0.05) discard;
 
 			// ----------------------------------------------------
-			// 1. TF2 SWEEPING SHEEN
+			// 2. 3D DROP SHADOW CAST ONTO SURFACE BEHIND BANNER
 			// ----------------------------------------------------
-			float loopDuration = 4.0; 
-			float localTime = mod(uTime, loopDuration); 
-			float currentSweepPos = (localTime * 4.0) - 0.5; 
+			if (uHasMask == 1) {
+				vec2 shadowOffset = uMouseOffset * 0.025 + vec2(0.0, 0.012);
+				float shadowSample = sampleMask(cardUV - shadowOffset);
+				float dropShadow = clamp((shadowSample - h) * 1.6, 0.0, 1.0);
+				texColor.rgb *= (1.0 - dropShadow * 0.45);
+			}
+
+			// ----------------------------------------------------
+			// 3. CHISELED 3D BEVEL & SPECULAR GLINT ON EDGES
+			// ----------------------------------------------------
+			if (h > 0.01 && uHasMask == 1) {
+				vec2 eps = vec2(0.006, 0.006);
+				float hL = sampleMask(cardUV - vec2(eps.x, 0.0));
+				float hR = sampleMask(cardUV + vec2(eps.x, 0.0));
+				float hU = sampleMask(cardUV - vec2(0.0, eps.y));
+				float hD = sampleMask(cardUV + vec2(0.0, eps.y));
+
+				vec3 normal = normalize(vec3((hL - hR) * uMaxDepth * 12.0, (hU - hD) * uMaxDepth * 12.0, 1.0));
+				vec3 lightDir = normalize(vec3(uMouseOffset.x * 2.0 - 0.3, -uMouseOffset.y * 2.0 - 0.5, 0.8));
+				float diff = max(dot(normal, lightDir), 0.0);
+
+				vec3 viewDir = vec3(0.0, 0.0, 1.0);
+				vec3 halfVec = normalize(lightDir + viewDir);
+				float spec = pow(max(dot(normal, halfVec), 0.0), 16.0);
+
+				float bevel = (diff - 0.5) * 0.35 + spec * 0.45;
+				texColor.rgb = clamp(texColor.rgb + vec3(bevel) * h, 0.0, 1.0);
+			}
+
+			// ----------------------------------------------------
+			// 4. METALLIC CLASS SHEEN & GLOSS
+			// ----------------------------------------------------
+			vec2 localUV = cardUV;
+			float pos = localUV.x + localUV.y;
+			float loopDuration = 4.0;
+			float localTime = mod(uTime, loopDuration);
+			float currentSweepPos = (localTime * 4.0) - 0.5;
 
 			float dist = abs(pos - currentSweepPos);
-			float shine = smoothstep(0.18, 0.0, dist); // Softened edges to prevent stepping
-
+			float shine = smoothstep(0.18, 0.0, dist);
 			float trailDist = abs(pos - (currentSweepPos - 0.25));
 			shine += smoothstep(0.10, 0.0, trailDist) * 0.5;
 
-			if (uClass == 1) { shine = 0.0; } // Bronze does not get the fast sweep
+			if (uClass <= 1) { shine = 0.0; }
 
-			// ----------------------------------------------------
-			// 2. METALLIC COLORS
-			// ----------------------------------------------------
-			vec3 sheenColor;
+			vec3 sheenColor = vec3(0.0);
 			if (uClass == 3) {
-				sheenColor = vec3(1.0, 0.82, 0.35); // Gold (Slightly warmer)
+				sheenColor = vec3(1.0, 0.82, 0.35); // Gold
 			} else if (uClass == 2) {
 				sheenColor = vec3(0.9, 0.95, 1.0);  // Silver
-			} else {
+			} else if (uClass == 1) {
 				sheenColor = vec3(0.85, 0.60, 0.40); // Bronze
 			}
 
-			// ----------------------------------------------------
-			// 3. COMPLEX AMBIENT GLOSS (Fixes Banding & Brightness)
-			// ----------------------------------------------------
-			// By combining two waves moving in different directions, we create a "cloudy" 
-			// brushed metal reflection that naturally hides rigid color bands.
 			float wave1 = sin(localUV.x * 3.1 + localUV.y * 1.5 + uTime * 0.4);
 			float wave2 = cos(localUV.x * -1.8 + localUV.y * 2.7 - uTime * 0.25);
-			float ambientGloss = (wave1 * wave2 * 0.5 + 0.5) * 0.14; // Reduced intensity to prevent blowouts
+			float ambientGloss = (wave1 * wave2 * 0.5 + 0.5) * 0.14;
 
 			vec3 finalColor = texColor.rgb;
+			if (uClass >= 1) {
+				float luma = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
+				float highlightMask = 1.0 - (luma * 0.4);
+				finalColor += (sheenColor * ambientGloss * highlightMask * texColor.a);
+				finalColor += (shine * sheenColor * 0.6 * texColor.a);
+			}
 
-			// Highlight Mask: Prevents the shine from blowing out already-bright parts of the card
-			float luma = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
-			float highlightMask = 1.0 - (luma * 0.4); 
-
-			// Apply the ambient metal look
-			finalColor += (sheenColor * ambientGloss * highlightMask * texColor.a);
-
-			// Apply the sweeping sheen
-			finalColor += (shine * sheenColor * 0.6 * texColor.a); // Reduced from 0.8 to 0.6 to prevent blinding white
-			
-			// ----------------------------------------------------
-			// 4. ANTI-BANDING MICRO-DITHER
-			// ----------------------------------------------------
-			// Adds a mathematically invisible amount of noise (1/255th) to force the monitor to blend 8-bit colors perfectly.
+			// Subtle anti-banding micro-dither
 			float dither = (fract(sin(dot(localPos, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
 			finalColor += vec3(dither);
 
@@ -13701,7 +13789,15 @@ void ofApp::drawGame() {
 				s_foilShader.setUniform1f("uTime", ofGetElapsedTimef());
 				s_foilShader.setUniform1i("uClass", foilClass);
 				s_foilShader.setUniform4f("uDrawRect", -halfW, -halfH, widthWorld, heightWorld);
+				s_foilShader.setUniform4f("uMaskRect", 0.0f, 0.0f, 1.0f, 1.0f);
+				s_foilShader.setUniform4f("uAtlasCardRect", 0.0f, 0.0f, 1.0f, 1.0f);
+				s_foilShader.setUniform1i("uHasMask", 0);
+				s_foilShader.setUniform1f("uParallaxStrength", 0.0f);
+				s_foilShader.setUniform1f("uMaxDepth", 0.0f);
+				s_foilShader.setUniform2f("uMouseOffset", 0.0f, 0.0f);
 				s_foilShader.setUniformTexture("tex0", (*setTex)[curIdx], 0);
+				s_foilShader.setUniformTexture("depthMaskTex", (*setTex)[curIdx], 1);
+				(*setTex)[curIdx].bind(1);
 			}
 
 			(*setTex)[curIdx].bind();
@@ -13710,6 +13806,7 @@ void ofApp::drawGame() {
 
 			if (useFoilOnKey) {
 				s_foilShader.end();
+				(*setTex)[curIdx].unbind(1);
 			}
 
 			glDisable(GL_ALPHA_TEST);
