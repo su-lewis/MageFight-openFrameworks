@@ -7984,7 +7984,9 @@ void ofApp::draw() {
 	const bool useC64Pass = (enableC64Shader && c64ShaderLoaded);
 	const bool useBlurPass = (enableWorldPostProcess && worldPostShaderLoaded);
 
-	const bool applyPostToUI = (usePixelPass || useC64Pass || useBlurPass);
+	// Never run 3D post-processing blur shaders on 2D pixel-art menus!
+	bool inMenuState = (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_ENCYCLOPEDIA || currentState == STATE_CUSTOMISATION);
+	const bool applyPostToUI = !inMenuState && (usePixelPass || useC64Pass || useBlurPass);
 
 	if (applyPostToUI) {
 		int safeW = std::max(2, ofGetWidth());
@@ -9616,17 +9618,18 @@ void ofApp::draw2DMenuBackground() {
 	ofDisableDepthTest();
 	ofSetColor(255, 255, 255, 255);
 
-	// 1. Calculate Book Dimensions (Resolution-independent integer scaling)
+	// 1. Calculate Book Dimensions
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
 
-	// Scale smoothly to fit any resolution (720p, 1080p, 1440p, 4K)
-	float scaleMultiplier = std::floor((ofGetHeight() * 0.85f) / singleFrameH);
+	// Scale to fit ~95% of screen height (steps 1440p from 6x up to 7x -> +16.7% bigger with ZERO quality loss!)
+	float scaleMultiplier = std::floor((ofGetHeight() * 0.95f) / singleFrameH);
 	if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
 
-	// Guard for narrow aspect ratios so it never overflows horizontally
-	if ((singleFrameW * scaleMultiplier) > ofGetWidth() * 0.90f) {
-		scaleMultiplier = std::floor((ofGetWidth() * 0.90f) / singleFrameW);
+	// Ensure the book AND the protruding bookmarks never clip off the right edge on narrow screens
+	float totalWidthNeeded = (235.0f + 32.0f) * scaleMultiplier;
+	if (totalWidthNeeded > ofGetWidth() * 0.96f) {
+		scaleMultiplier = std::floor((ofGetWidth() * 0.96f) / (235.0f + 32.0f));
 		if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
 	}
 
@@ -9644,23 +9647,20 @@ void ofApp::draw2DMenuBackground() {
 	} else if (s_bookState == BOOK_TURNING_LEFT) {
 		s_animTurnLeft.draw(bookX, bookY, targetW, targetH);
 	} else {
-		// When idle, hold the final open frame
 		s_animOpen.currentFrame = s_animOpen.totalFrames - 1;
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	}
 
-	// 3. Render Bookmarks (Single 32x144 column containing all 5 bookmarks + gap)
+	// 3. Render Bookmarks (Scales in lockstep with the book)
 	if (s_bookmarksImg.isAllocated()) {
 		s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
-		// Frame progression: 0 (invisible), 1 (sliver), 2 (medium), 3 (wide), 4+ (fully extended)
 		int bFrame = 4;
 		if (s_bookState == BOOK_OPENING) {
 			bFrame = std::min(4, s_animOpen.currentFrame);
 		}
 
-		// Exact integer dimensions from the 384x144 sprite sheet
 		const float srcColW = 32.0f;
 		const float srcTotalH = 144.0f;
 		const float srcRowH = 24.0f;
@@ -9668,32 +9668,27 @@ void ofApp::draw2DMenuBackground() {
 		float srcX = bFrame * srcColW;
 		float srcY = 0.0f;
 
-		// Scaled dimensions on screen
 		float dstW = srcColW * scaleMultiplier;
 		float dstH = srcTotalH * scaleMultiplier;
 		float rowH = srcRowH * scaleMultiplier;
 
-		// Native pixel positions relative to the 256x192 book canvas:
-		// nativeX = 224.0f anchors the ribbons to the right page edge
-		// nativeY = 72.0f moves the top bookmark (Purple) down to the top edge of the paper
+		// Your calibrated coordinates
 		static float s_bookmarkNativeX = 235.0f;
 		static float s_bookmarkNativeY = 100.0f;
 
 		float dstX = std::round(bookX + (s_bookmarkNativeX * scaleMultiplier));
 		float dstY = std::round(bookY + (s_bookmarkNativeY * scaleMultiplier));
 
-		// Hover check & cursor change
-		int mx = ofGetMouseX();
-		int my = ofGetMouseY();
-		bool anyHovered = false;
-
-		// Hitboxes match each bookmark's drawn region:
-		// Row 0 = Versus, Row 1 = Solo, Row 2 = Rules, Row 3 = Gap, Row 4 = Settings, Row 5 = Quit
+		// Hitboxes scale simultaneously
 		s_bookmarkVersus.set(dstX, dstY + (0 * rowH), dstW, rowH);
 		s_bookmarkSolo.set(dstX, dstY + (1 * rowH), dstW, rowH);
 		s_bookmarkRules.set(dstX, dstY + (2 * rowH), dstW, rowH);
-		s_bookmarkSettings.set(dstX, dstY + (4 * rowH), dstW, rowH); // Skips Row 3 gap
+		s_bookmarkSettings.set(dstX, dstY + (4 * rowH), dstW, rowH);
 		s_bookmarkQuit.set(dstX, dstY + (5 * rowH), dstW, rowH);
+
+		int mx = ofGetMouseX();
+		int my = ofGetMouseY();
+		bool anyHovered = false;
 
 		if (s_bookState == BOOK_IDLE_OPEN) {
 			if (s_bookmarkVersus.inside(mx, my)) {
@@ -9718,7 +9713,6 @@ void ofApp::draw2DMenuBackground() {
 			}
 		}
 
-		// Draw the sprite cleanly (no boxes, no outlines)
 		ofSetColor(anyHovered ? ofColor(255, 255, 255) : ofColor(235, 235, 235));
 		s_bookmarksImg.drawSubsection(dstX, dstY, dstW, dstH, srcX, srcY, srcColW, srcTotalH);
 		ofSetColor(255, 255, 255, 255);
@@ -9866,94 +9860,170 @@ void ofApp::drawSettingsMenu() {
 	float settingSpacing = 100.0f * uiScale;
 	float controlWidth = 250.0f * uiScale;
 
-	// Clean setting row layout: label clearly above box, buttons and value box centered below
-	auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
-		if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
-		if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
-
+	// Clean setting row layout with support for disabled / greyed-out state
+	auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos, bool disabled = false) {
 		float boxH = 46.0f * uiScale;
 		float boxY = yPos + 22.0f * uiScale; // Positioned cleanly below label
 		float arrowW = 40.0f * uiScale;
 
-		// 1. Draw Title Label centered above the box
-		ofSetColor(ofColor::white);
-		ofRectangle lb = getCachedBounds(label);
-		drawPixelTextCentered(uiFont, label, centerX, yPos + 6.0f * uiScale, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
-
-		// 2. Draw Left/Right arrow buttons
 		leftBtn.set(centerX - (controlWidth / 2) - arrowW - 8.0f * uiScale, boxY, arrowW, boxH);
 		rightBtn.set(centerX + (controlWidth / 2) + 8.0f * uiScale, boxY, arrowW, boxH);
 
-		bool leftHov = leftBtn.inside(ofGetMouseX(), ofGetMouseY());
-		bool rightHov = rightBtn.inside(ofGetMouseX(), ofGetMouseY());
+		if (!disabled) {
+			if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
+			if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
+		}
 
-		ofSetColor(leftHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
+		// 1. Title Label
+		ofColor labelCol = disabled ? ofColor(120, 125, 135) : ofColor::white;
+		drawPixelTextCentered(uiFont, label, centerX, yPos + 6.0f * uiScale, 1.0f * uiScale, labelCol, 1, ofColor::black);
+
+		// 2. Left / Right Buttons
+		bool leftHov = !disabled && leftBtn.inside(ofGetMouseX(), ofGetMouseY());
+		bool rightHov = !disabled && rightBtn.inside(ofGetMouseX(), ofGetMouseY());
+
+		ofColor btnBg = disabled ? ofColor(22, 24, 28) : (leftHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
+		ofColor btnBorder = disabled ? ofColor(48, 50, 58) : ofColor(100, 105, 120);
+		ofColor arrowCol = disabled ? ofColor(75, 80, 90) : ofColor::white;
+
+		ofSetColor(btnBg);
 		ofDrawRectRounded(leftBtn, 6.0f * uiScale);
-		ofSetColor(ofColor(100, 105, 120));
+		ofSetColor(btnBorder);
 		ofNoFill();
 		ofSetLineWidth(1.5f * uiScale);
 		ofDrawRectRounded(leftBtn, 6.0f * uiScale);
 		ofFill();
 
-		ofSetColor(rightHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
+		ofColor rightBg = disabled ? ofColor(22, 24, 28) : (rightHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
+		ofSetColor(rightBg);
 		ofDrawRectRounded(rightBtn, 6.0f * uiScale);
-		ofSetColor(ofColor(100, 105, 120));
+		ofSetColor(btnBorder);
 		ofNoFill();
 		ofSetLineWidth(1.5f * uiScale);
 		ofDrawRectRounded(rightBtn, 6.0f * uiScale);
 		ofFill();
 
-		// Arrow labels
-		drawPixelTextCentered(uiFont, "<", leftBtn.getCenter().x, leftBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
-		drawPixelTextCentered(uiFont, ">", rightBtn.getCenter().x, rightBtn.getCenter().y, 1.0f * uiScale, ofColor::white);
+		drawPixelTextCentered(uiFont, "<", leftBtn.getCenter().x, leftBtn.getCenter().y, 1.0f * uiScale, arrowCol);
+		drawPixelTextCentered(uiFont, ">", rightBtn.getCenter().x, rightBtn.getCenter().y, 1.0f * uiScale, arrowCol);
 
-		// 3. Draw Center Value Box
+		// 3. Center Value Box
 		ofRectangle bgRect(centerX - (controlWidth / 2), boxY, controlWidth, boxH);
-		ofSetColor(ofColor(28, 30, 38));
+		ofColor boxBg = disabled ? ofColor(18, 20, 24) : ofColor(28, 30, 38);
+		ofColor boxBorder = disabled ? ofColor(45, 48, 55) : ofColor(70, 75, 90);
+		ofColor valCol = disabled ? ofColor(135, 140, 150) : ofColor::white;
+
+		ofSetColor(boxBg);
 		ofDrawRectRounded(bgRect, 6.0f * uiScale);
 		ofNoFill();
 		ofSetLineWidth(1.5f * uiScale);
-		ofSetColor(ofColor(70, 75, 90));
+		ofSetColor(boxBorder);
 		ofDrawRectRounded(bgRect, 6.0f * uiScale);
 		ofFill();
 
-		// Center Value Text
-		drawPixelTextCentered(uiFont, value, bgRect.getCenter().x, bgRect.getCenter().y, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
+		drawPixelTextCentered(uiFont, value, bgRect.getCenter().x, bgRect.getCenter().y, 1.0f * uiScale, valCol, 1, ofColor::black);
 	};
 
-	// VIDEO tab: render existing resolution/framerate/fullscreen controls
+	// VIDEO TAB
 	if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
 		float settingY = contentY;
+		float rowSpacing = 82.0f * uiScale;
 
-		// --- Draw Language Selector ---
+		// 1. Language
 		drawSettingRow(_L("UI_SETTING_LANG", "Language"), g_availableLanguageNames[g_currentLanguageIndex], settingsLangLeftButton, settingsLangRightButton, settingY);
-		settingY += settingSpacing;
+		settingY += rowSpacing;
 
-		// --- Draw Resolution ---
+		// 2. Resolution
 		string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
 		drawSettingRow(_L("UI_SETTING_RES", "Resolution"), resText, settingsResLeftButton, settingsResRightButton, settingY);
+		settingY += rowSpacing;
 
-		// --- Draw Framerate with Fixed Presets & Arrows ---
-		settingY += settingSpacing;
+		// 3. VSync Tick Box Row
+		float vsyncBoxH = 46.0f * uiScale;
+		float vsyncBoxY = settingY + 22.0f * uiScale;
+		settingsVSyncBox.set(centerX - (controlWidth / 2), vsyncBoxY, controlWidth, vsyncBoxH);
+		bool vsyncHov = settingsVSyncBox.inside(ofGetMouseX(), ofGetMouseY());
+		if (vsyncHov) g_hoveredButtonId = "set_vsync";
+
+		// Draw VSync row box
+		ofSetColor(vsyncHov ? ofColor(45, 48, 60) : ofColor(28, 30, 38));
+		ofDrawRectRounded(settingsVSyncBox, 6.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(1.5f * uiScale);
+		ofSetColor(vsyncHov ? ofColor(255, 215, 0, 200) : ofColor(70, 75, 90));
+		ofDrawRectRounded(settingsVSyncBox, 6.0f * uiScale);
+		ofFill();
+
+		// Checkbox square inside pill
+		float boxSize = 24.0f * uiScale;
+		float checkX = settingsVSyncBox.x + 16.0f * uiScale;
+		float checkY = settingsVSyncBox.y + (vsyncBoxH - boxSize) * 0.5f;
+		ofRectangle checkRect(checkX, checkY, boxSize, boxSize);
+
+		ofSetColor(18, 20, 24);
+		ofDrawRectRounded(checkRect, 4.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(1.5f * uiScale);
+		ofSetColor(settingsUseVSync ? ofColor(50, 220, 90) : ofColor(100, 105, 120));
+		ofDrawRectRounded(checkRect, 4.0f * uiScale);
+		ofFill();
+
+		// Draw emerald green checkmark when active
+		if (settingsUseVSync) {
+			ofSetColor(50, 220, 90);
+			ofDrawRectRounded(checkRect.x + 3.0f * uiScale, checkRect.y + 3.0f * uiScale, checkRect.width - 6.0f * uiScale, checkRect.height - 6.0f * uiScale, 2.0f * uiScale);
+
+			// White check icon
+			ofSetColor(255);
+			ofSetLineWidth(2.5f * uiScale);
+			ofDrawLine(checkRect.x + 6.0f * uiScale, checkRect.y + 12.0f * uiScale, checkRect.x + 10.0f * uiScale, checkRect.y + 17.0f * uiScale);
+			ofDrawLine(checkRect.x + 10.0f * uiScale, checkRect.y + 17.0f * uiScale, checkRect.x + 18.0f * uiScale, checkRect.y + 7.0f * uiScale);
+		}
+
+		// Text label next to checkmark
+		string vsyncLabel = settingsUseVSync ? "Vertical Sync: ON" : "Vertical Sync: OFF";
+		ofColor vsyncCol = settingsUseVSync ? ofColor::white : ofColor(180, 185, 195);
+		drawPixelTextBaseline(uiFont, vsyncLabel, checkX + boxSize + 14.0f * uiScale, settingsVSyncBox.getCenter().y + 6.0f * uiScale, 1.0f * uiScale, vsyncCol, 1, ofColor::black);
+
+		settingY += rowSpacing;
+
+		// 4. Framerate Limit (Greyed out when VSync is ON)
+		int monitorHz = 60;
+		GLFWmonitor * primary = glfwGetPrimaryMonitor();
+		if (primary) {
+			const GLFWvidmode * mode = glfwGetVideoMode(primary);
+			if (mode && mode->refreshRate > 0) monitorHz = mode->refreshRate;
+		}
+
 		int currentPresetFPS = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
-		std::string frameText = (currentPresetFPS == 0) ? "Unlimited" : (ofToString(currentPresetFPS) + " FPS");
-		drawSettingRow("Framerate Limit", frameText, settingsFpsLeftBtn, settingsFpsRightBtn, settingY);
+		std::string frameText;
+		if (settingsUseVSync) {
+			frameText = ofToString(monitorHz) + " Hz (Auto VSync)";
+		} else {
+			frameText = (currentPresetFPS == 0) ? "Unlimited" : (ofToString(currentPresetFPS) + " FPS");
+		}
+		drawSettingRow("Framerate Limit", frameText, settingsFpsLeftBtn, settingsFpsRightBtn, settingY, settingsUseVSync);
+		settingY += rowSpacing;
 
-		// --- Draw Fullscreen ---
-		settingY += settingSpacing;
-		ofSetColor(ofColor(35));
+		// 5. Window Mode
 		string fsText = "Windowed";
 		if (g_windowModeState == 1)
 			fsText = "Fullscreen";
 		else if (g_windowModeState == 2)
 			fsText = "Borderless";
 
-		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
-		if (settingsFullscreenButton.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_fs";
-		ofDrawRectangle(settingsFullscreenButton);
-		ofSetColor(ofColor::white);
-		ofRectangle fb = getCachedBounds(fsText);
-		SafeDrawText(uiFont, fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30.0f * uiScale);
+		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY + 22.0f * uiScale, controlWidth, 46.0f * uiScale);
+		bool fsHov = settingsFullscreenButton.inside(ofGetMouseX(), ofGetMouseY());
+		if (fsHov) g_hoveredButtonId = "set_fs";
+
+		ofSetColor(fsHov ? ofColor(45, 48, 60) : ofColor(28, 30, 38));
+		ofDrawRectRounded(settingsFullscreenButton, 6.0f * uiScale);
+		ofNoFill();
+		ofSetLineWidth(1.5f * uiScale);
+		ofSetColor(fsHov ? ofColor(255, 215, 0, 200) : ofColor(70, 75, 90));
+		ofDrawRectRounded(settingsFullscreenButton, 6.0f * uiScale);
+		ofFill();
+
+		drawPixelTextCentered(uiFont, fsText, settingsFullscreenButton.getCenter().x, settingsFullscreenButton.getCenter().y, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
 	}
 
 	// GAME tab: gameplay settings
@@ -10775,18 +10845,28 @@ void ofApp::drawMultiplayerMenu() {
 
 //--------------------------------------------------------------
 void ofApp::applySettings() {
-	// SPEEDUP FIX: Bypass V-Sync and framerate caps in headless mode!
 	if (headless) {
 		ofSetVerticalSync(false);
 		ofSetFrameRate(0);
 		return;
 	}
 
-	// --- FRAMERATE & VSYNC FIX ---
+	int monitorHz = 60;
+	GLFWmonitor * primary = glfwGetPrimaryMonitor();
+	if (primary) {
+		const GLFWvidmode * mode = glfwGetVideoMode(primary);
+		if (mode && mode->refreshRate > 0) {
+			monitorHz = mode->refreshRate;
+		}
+	}
+
+	// --- FRAMERATE & VSYNC LOGIC ---
 	if (settingsUseVSync) {
+		// VSync ON -> Lock to hardware monitor Hz
 		ofSetVerticalSync(true);
-		ofSetFrameRate(0);
+		ofSetFrameRate(monitorHz);
 	} else {
+		// VSync OFF -> Obey the custom framerate limit preset
 		ofSetVerticalSync(false);
 		int targetFPS = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
 		ofSetFrameRate(targetFPS);
@@ -10798,26 +10878,21 @@ void ofApp::applySettings() {
 	int finalW = std::max(800, (int)res.x);
 	int finalH = std::max(600, (int)res.y);
 
-	// CRITICAL PROTON FIX: Set these attributes BEFORE changing window states
-	// so the Window Manager / Proton knows exactly how to handle the transition!
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
-		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE); // Allows Alt+Tab to minimize the game
+		glfwSetWindowAttrib(win, GLFW_AUTO_ICONIFY, GLFW_TRUE);
 		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
 	}
 
-	// WAYLAND / PROTON FULLSCREEN FIX:
+	// Window Mode
 	if (g_windowModeState == 1 || g_windowModeState == 2) {
 		finalW = std::max(800, ofGetScreenWidth());
 		finalH = std::max(600, ofGetScreenHeight());
 
 		if (g_windowModeState == 1) {
-			// True Fullscreen
 			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
 			ofSetFullscreen(true);
-
 		} else {
-			// Borderless Windowed
 			if (ofGetWindowMode() == OF_FULLSCREEN) {
 				ofSetFullscreen(false);
 			}
@@ -10825,9 +10900,8 @@ void ofApp::applySettings() {
 			ofSetWindowShape(finalW, finalH);
 			ofSetWindowPosition(0, 0);
 		}
-
 		isFullscreen = true;
-	} else { // Standard Windowed
+	} else {
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
 			ofSetFullscreen(false);
 		}
@@ -10840,9 +10914,6 @@ void ofApp::applySettings() {
 		isFullscreen = false;
 	}
 
-	// CRITICAL MOUSE & FBO FIX: Always recalculate UI and FBOs when applying settings,
-	// because Wine/Proton/macOS might drop the windowResized event when launching!
-	// If this isn't called, the worldFbo is never allocated and the screen stays black!
 	recalculateUI(finalW, finalH);
 	allocateWorldFbo(finalW, finalH);
 }
@@ -20233,6 +20304,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+			// Toggle VSync
+			if (settingsVSyncBox.inside(x, y)) {
+				settingsUseVSync = !settingsUseVSync;
+				applySettings();
+				saveSettings();
+				return;
+			}
+
 			if (settingsLangLeftButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex - 1 + g_availableLanguageCodes.size()) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
@@ -20265,22 +20344,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			// FPS Preset Left/Right step
-			if (settingsFpsLeftBtn.inside(x, y)) {
-				s_currentFpsIndex = (s_currentFpsIndex - 1 + (int)s_fpsPresets.size()) % (int)s_fpsPresets.size();
-				int fps = s_fpsPresets[s_currentFpsIndex];
-				settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
-				applySettings();
-				saveSettings();
-				return;
-			}
-			if (settingsFpsRightBtn.inside(x, y)) {
-				s_currentFpsIndex = (s_currentFpsIndex + 1) % (int)s_fpsPresets.size();
-				int fps = s_fpsPresets[s_currentFpsIndex];
-				settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
-				applySettings();
-				saveSettings();
-				return;
+			// Framerate buttons ONLY respond when VSync is OFF
+			if (!settingsUseVSync) {
+				if (settingsFpsLeftBtn.inside(x, y)) {
+					s_currentFpsIndex = (s_currentFpsIndex - 1 + (int)s_fpsPresets.size()) % (int)s_fpsPresets.size();
+					int fps = s_fpsPresets[s_currentFpsIndex];
+					settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
+					applySettings();
+					saveSettings();
+					return;
+				}
+				if (settingsFpsRightBtn.inside(x, y)) {
+					s_currentFpsIndex = (s_currentFpsIndex + 1) % (int)s_fpsPresets.size();
+					int fps = s_fpsPresets[s_currentFpsIndex];
+					settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
+					applySettings();
+					saveSettings();
+					return;
+				}
 			}
 
 			if (settingsFullscreenButton.inside(x, y)) {
