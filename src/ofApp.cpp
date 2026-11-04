@@ -9676,8 +9676,8 @@ void ofApp::draw2DMenuBackground() {
 		// Native pixel positions relative to the 256x192 book canvas:
 		// nativeX = 224.0f anchors the ribbons to the right page edge
 		// nativeY = 72.0f moves the top bookmark (Purple) down to the top edge of the paper
-		static float s_bookmarkNativeX = 260.0f;
-		static float s_bookmarkNativeY = 130.0f;
+		static float s_bookmarkNativeX = 235.0f;
+		static float s_bookmarkNativeY = 100.0f;
 
 		float dstX = std::round(bookX + (s_bookmarkNativeX * scaleMultiplier));
 		float dstY = std::round(bookY + (s_bookmarkNativeY * scaleMultiplier));
