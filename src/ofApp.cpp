@@ -5973,13 +5973,14 @@ void ofApp::setup() {
 		s_animTurnRight.setup("UI/Book/Turning_pages_right.png", 4, 4, 15, 0.045f, false);
 		s_animTurnLeft.setup("UI/Book/Turning_pages_left.png", 4, 4, 15, 0.045f, false);
 
-		// Load the 11x5 sprite sheet as a standard texture
-		s_bookmarksImg.load("UI/Book/Open_book_bookmarks1.png");
-		if (s_bookmarksImg.isAllocated()) {
+		// Exclusively load Open_book_bookmarks2.png
+		if (s_bookmarksImg.load("UI/Book/Open_book_bookmarks2.png")) {
 			s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+		} else {
+			ofLogWarning("Book") << "Failed to load UI/Book/Open_book_bookmarks2.png";
 		}
 
-		// Trigger opening animation on boot
 		s_animOpen.play();
 		s_bookState = BOOK_OPENING;
 
@@ -9615,13 +9616,19 @@ void ofApp::draw2DMenuBackground() {
 	ofDisableDepthTest();
 	ofSetColor(255, 255, 255, 255);
 
-	// 1. Calculate Book Dimensions (Perfect Integer Scaling for crisp pixel art)
+	// 1. Calculate Book Dimensions (Resolution-independent integer scaling)
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
 
-	// Force integer scaling (1.0, 2.0, 3.0, 4.0, etc.) so pixel art never distorts or blurs
+	// Scale smoothly to fit any resolution (720p, 1080p, 1440p, 4K)
 	float scaleMultiplier = std::floor((ofGetHeight() * 0.85f) / singleFrameH);
 	if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
+
+	// Guard for narrow aspect ratios so it never overflows horizontally
+	if ((singleFrameW * scaleMultiplier) > ofGetWidth() * 0.90f) {
+		scaleMultiplier = std::floor((ofGetWidth() * 0.90f) / singleFrameW);
+		if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
+	}
 
 	float targetW = singleFrameW * scaleMultiplier;
 	float targetH = singleFrameH * scaleMultiplier;
@@ -9629,7 +9636,7 @@ void ofApp::draw2DMenuBackground() {
 	float bookX = std::round((ofGetWidth() - targetW) * 0.5f);
 	float bookY = std::round((ofGetHeight() - targetH) * 0.5f);
 
-	// 2. Render Animated Book Frame
+	// 2. Render Animated Book
 	if (s_bookState == BOOK_OPENING) {
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	} else if (s_bookState == BOOK_TURNING_RIGHT) {
@@ -9637,81 +9644,84 @@ void ofApp::draw2DMenuBackground() {
 	} else if (s_bookState == BOOK_TURNING_LEFT) {
 		s_animTurnLeft.draw(bookX, bookY, targetW, targetH);
 	} else {
-		// When idle, hold the final open frame of the open book
+		// When idle, hold the final open frame
 		s_animOpen.currentFrame = s_animOpen.totalFrames - 1;
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	}
 
-	// 3. Render Bookmarks & Hitboxes
+	// 3. Render Bookmarks (Single 32x144 column containing all 5 bookmarks + gap)
 	if (s_bookmarksImg.isAllocated()) {
+		s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
-		// Sync bookmark frame with book frame
-		// The book opening has 12 frames (0 to 11). The bookmarks have 11 frames (0 to 10).
-		// This makes them slide out perfectly in sync as the book opens!
-		int bFrame = 10; // Frame 10 is fully extended
+		// Frame progression: 0 (invisible), 1 (sliver), 2 (medium), 3 (wide), 4+ (fully extended)
+		int bFrame = 4;
 		if (s_bookState == BOOK_OPENING) {
-			bFrame = std::min(10, s_animOpen.currentFrame);
+			bFrame = std::min(4, s_animOpen.currentFrame);
 		}
 
-		// The sheet has 11 columns, 5 rows
-		float bFrameW = s_bookmarksImg.getWidth() / 11.0f;
-		float bFrameH = s_bookmarksImg.getHeight() / 5.0f;
+		// Exact integer dimensions from the 384x144 sprite sheet
+		const float srcColW = 32.0f;
+		const float srcTotalH = 144.0f;
+		const float srcRowH = 24.0f;
 
-		// Scale the bookmarks by the EXACT same integer multiplier as the book
-		float bmDestW = bFrameW * scaleMultiplier;
-		float bmDestH = bFrameH * scaleMultiplier;
+		float srcX = bFrame * srcColW;
+		float srcY = 0.0f;
 
-		// --- NEW EASIER ALIGNMENT ---
-		// These offsets are based on the original 256x192 pixel art size.
-		// If they don't line up perfectly, just change these 3 numbers!
-		float nativeX = 188.0f; // The X pixel coordinate of the right page edge
-		float nativeY = 22.0f; // The Y pixel coordinate for the top bookmark
-		float nativeGap = 28.0f; // How many pixels from the top of one bookmark to the next
+		// Scaled dimensions on screen
+		float dstW = srcColW * scaleMultiplier;
+		float dstH = srcTotalH * scaleMultiplier;
+		float rowH = srcRowH * scaleMultiplier;
 
-		float bmX = bookX + (nativeX * scaleMultiplier);
-		float bmStartY = bookY + (nativeY * scaleMultiplier);
-		float bmGap = nativeGap * scaleMultiplier;
+		// Native pixel positions relative to the 256x192 book canvas:
+		// nativeX = 224.0f anchors the ribbons to the right page edge
+		// nativeY = 72.0f moves the top bookmark (Purple) down to the top edge of the paper
+		static float s_bookmarkNativeX = 260.0f;
+		static float s_bookmarkNativeY = 130.0f;
 
-		ofRectangle tabs[5];
-		std::string names[] = { "VS", "SOLO", "RULES", "SETTINGS", "QUIT" };
+		float dstX = std::round(bookX + (s_bookmarkNativeX * scaleMultiplier));
+		float dstY = std::round(bookY + (s_bookmarkNativeY * scaleMultiplier));
 
-		for (int i = 0; i < 5; ++i) {
-			float srcX = bFrame * bFrameW;
-			float srcY = i * bFrameH;
+		// Hover check & cursor change
+		int mx = ofGetMouseX();
+		int my = ofGetMouseY();
+		bool anyHovered = false;
 
-			float drawY = bmStartY + (i * bmGap);
+		// Hitboxes match each bookmark's drawn region:
+		// Row 0 = Versus, Row 1 = Solo, Row 2 = Rules, Row 3 = Gap, Row 4 = Settings, Row 5 = Quit
+		s_bookmarkVersus.set(dstX, dstY + (0 * rowH), dstW, rowH);
+		s_bookmarkSolo.set(dstX, dstY + (1 * rowH), dstW, rowH);
+		s_bookmarkRules.set(dstX, dstY + (2 * rowH), dstW, rowH);
+		s_bookmarkSettings.set(dstX, dstY + (4 * rowH), dstW, rowH); // Skips Row 3 gap
+		s_bookmarkQuit.set(dstX, dstY + (5 * rowH), dstW, rowH);
 
-			// Draw the pixel-perfect bookmark
-			s_bookmarksImg.drawSubsection(bmX, drawY, bmDestW, bmDestH, srcX, srcY, bFrameW, bFrameH);
-
-			// Set the hitbox to perfectly match the drawn image
-			tabs[i].set(bmX, drawY, bmDestW, bmDestH);
-		}
-
-		// Assign hitboxes to our global variables so clicks work
-		s_bookmarkVersus = tabs[0];
-		s_bookmarkSolo = tabs[1];
-		s_bookmarkRules = tabs[2];
-		s_bookmarkSettings = tabs[3];
-		s_bookmarkQuit = tabs[4];
-
-		// Hover highlights & clicks
 		if (s_bookState == BOOK_IDLE_OPEN) {
-			for (int i = 0; i < 5; ++i) {
-				bool hov = tabs[i].inside(ofGetMouseX(), ofGetMouseY());
-				if (hov) {
-					g_hoveredButtonId = "bookmark_" + names[i];
-
-					// Subtle white highlight to indicate it's a clickable button
-					ofPushStyle();
-					ofEnableBlendMode(OF_BLENDMODE_ADD);
-					ofSetColor(255, 255, 255, 60);
-					ofDrawRectRounded(tabs[i], 4);
-					ofDisableBlendMode();
-					safePopStyle();
-				}
+			if (s_bookmarkVersus.inside(mx, my)) {
+				g_hoveredButtonId = "bookmark_VS";
+				anyHovered = true;
+			}
+			if (s_bookmarkSolo.inside(mx, my)) {
+				g_hoveredButtonId = "bookmark_SOLO";
+				anyHovered = true;
+			}
+			if (s_bookmarkRules.inside(mx, my)) {
+				g_hoveredButtonId = "bookmark_RULES";
+				anyHovered = true;
+			}
+			if (s_bookmarkSettings.inside(mx, my)) {
+				g_hoveredButtonId = "bookmark_SETTINGS";
+				anyHovered = true;
+			}
+			if (s_bookmarkQuit.inside(mx, my)) {
+				g_hoveredButtonId = "bookmark_QUIT";
+				anyHovered = true;
 			}
 		}
+
+		// Draw the sprite cleanly (no boxes, no outlines)
+		ofSetColor(anyHovered ? ofColor(255, 255, 255) : ofColor(235, 235, 235));
+		s_bookmarksImg.drawSubsection(dstX, dstY, dstW, dstH, srcX, srcY, srcColW, srcTotalH);
+		ofSetColor(255, 255, 255, 255);
 	}
 }
 
