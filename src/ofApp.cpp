@@ -1122,11 +1122,9 @@ static CardTemplateLayout g_cardLayout = []() {
 	// New Targeting Type Area: Top-Left (288, 1328), Bottom-Right (799, 1423) -> w = 511, h = 95
 	l.targetingRect = ofRectangle(288, 1328, 511, 95);
 
-	// AP & HP Chambers: pushed further apart towards the visual center of each box
-	// Green AP Chamber (left):  Center X = 385 (288 to 482)
-	// Red HP Chamber (right):   Center X = 705 (608 to 802)
-	l.summonAPRect = ofRectangle(285, 1332, 200, 87);
-	l.summonHPRect = ofRectangle(605, 1332, 200, 87);
+	// Pushed to the absolute left and right extremes!
+	l.summonAPRect = ofRectangle(288, 1332, 212, 87);
+	l.summonHPRect = ofRectangle(580, 1332, 219, 87);
 
 	// Cost Gem Area: Top-Left (64, 48), Bottom-Right (191, 207) -> Center is (127.5, 127.5)
 	l.costRect = ofRectangle(64, 48, 127, 159);
@@ -1668,7 +1666,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		ofScale(safeW / std::max(1.0f, g_templateWidth), safeH / std::max(1.0f, g_templateHeight));
 
 		// -------------------------------------------------------------
-		// 1. AP Cost: Centered at (127.5, 127.5), Bigger text, Thinner 2px outline
+		// 1. AP Cost: Maximized size, 1px outline
 		// -------------------------------------------------------------
 		int effCost = card.cost;
 		if (owner && card.type == CARD_KICK && owner->freeKickTurns > 0) effCost = 0;
@@ -1684,19 +1682,18 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		std::string costStr = ofToString(effCost);
 		ofRectangle costBounds = titleFont.getStringBoundingBox(costStr, 0, 0);
 
-		// Circular bounds centered at exactly (127.5, 127.5)
 		ofRectangle costCircleGemRect(64, 64, 127, 127);
-		float costFitW = 115.0f;
-		float costFitH = 115.0f;
-		float costScale = 4.2f;
+		float costFitW = 125.0f; // Max horizontal space
+		float costFitH = 125.0f; // Max vertical space
+		float costScale = 4.8f;
 		if (costBounds.width > 0 && costBounds.height > 0) {
 			float sX = costFitW / costBounds.width;
 			float sY = costFitH / costBounds.height;
-			costScale = std::min(4.4f, std::min(sX, sY)); // Scales up to 4.4x
+			costScale = std::min(5.8f, std::min(sX, sY)); // Allowed to scale up massively
 		}
 
-		// Reduced outline thickness from 4 to 2 for cleaner, crisper numbers
-		drawCenteredTextScaledOutlined(titleFont, costStr, costCircleGemRect, costScale, costColor, costOutline, 2);
+		// Outline thickness explicitly locked to 1
+		drawCenteredTextScaledOutlined(titleFont, costStr, costCircleGemRect, costScale, costColor, costOutline, 1);
 
 		// -------------------------------------------------------------
 		// 2. Fetch Card Template Text Records
@@ -1796,15 +1793,13 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		}
 
 		// -------------------------------------------------------------
-		// 6. AP / HP Text: Centered in Respective Chambers (Spread Apart)
+		// 6. AP / HP Text: Spaced far apart and bold
 		// -------------------------------------------------------------
 		bool hasAP = !summonAP.empty();
 		bool hasHP = !summonHP.empty();
 
 		if (hasAP && hasHP) {
-			// Green AP chamber on left (Center X = 385)
 			ofRectangle apRect = g_cardLayout.summonAPRect;
-			// Red HP chamber on right (Center X = 705)
 			ofRectangle hpRect = g_cardLayout.summonHPRect;
 			apRect.x += textShiftX;
 			apRect.y += textShiftY;
@@ -1814,22 +1809,22 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			ofRectangle bAP = titleFont.getStringBoundingBox(summonAP, 0, 0);
 			float apFitW = apRect.width - 16.0f;
 			float apFitH = apRect.height - 12.0f;
-			float apScale = 2.5f;
+			float apScale = 2.6f;
 			if (bAP.width > 0 && bAP.height > 0) {
 				float sX = apFitW / bAP.width;
 				float sY = apFitH / bAP.height;
-				apScale = std::min(2.6f, std::min(sX, sY));
+				apScale = std::min(2.8f, std::min(sX, sY));
 			}
 			drawCenteredTextScaledOutlined(titleFont, summonAP, apRect, apScale, nameColor, nameOutline, 2);
 
 			ofRectangle bHP = titleFont.getStringBoundingBox(summonHP, 0, 0);
 			float hpFitW = hpRect.width - 16.0f;
 			float hpFitH = hpRect.height - 12.0f;
-			float hpScale = 2.5f;
+			float hpScale = 2.6f;
 			if (bHP.width > 0 && bHP.height > 0) {
 				float sX = hpFitW / bHP.width;
 				float sY = hpFitH / bHP.height;
-				hpScale = std::min(2.6f, std::min(sX, sY));
+				hpScale = std::min(2.8f, std::min(sX, sY));
 			}
 			drawCenteredTextScaledOutlined(titleFont, summonHP, hpRect, hpScale, nameColor, nameOutline, 2);
 
@@ -1842,48 +1837,13 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
 			float fitW = singleRect.width - 32.0f;
 			float fitH = singleRect.height - 16.0f;
-			float singleScale = 2.4f;
+			float singleScale = 2.6f;
 			if (bSingle.width > 0 && bSingle.height > 0) {
 				float sX = fitW / bSingle.width;
 				float sY = fitH / bSingle.height;
-				singleScale = std::min(2.5f, std::min(sX, sY));
+				singleScale = std::min(2.8f, std::min(sX, sY));
 			}
 			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 2);
-
-		} else if (hasAP || hasHP) {
-			std::string singleText = hasAP ? summonAP : summonHP;
-			ofRectangle singleRect = g_cardLayout.targetingRect;
-			singleRect.x += textShiftX;
-			singleRect.y += textShiftY;
-
-			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
-			float fitW = singleRect.width - 32.0f;
-			float fitH = singleRect.height - 16.0f;
-			float singleScale = 2.4f;
-			if (bSingle.width > 0 && bSingle.height > 0) {
-				float sX = fitW / bSingle.width;
-				float sY = fitH / bSingle.height;
-				singleScale = std::min(2.5f, std::min(sX, sY));
-			}
-			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 2);
-		}
-
-		else if (hasAP || hasHP) {
-			std::string singleText = hasAP ? summonAP : summonHP;
-			ofRectangle singleRect = g_cardLayout.targetingRect;
-			singleRect.x += textShiftX;
-			singleRect.y += textShiftY;
-
-			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
-			float fitW = singleRect.width - 36.0f;
-			float fitH = singleRect.height - 20.0f;
-			float singleScale = 2.0f;
-			if (bSingle.width > 0 && bSingle.height > 0) {
-				float sX = fitW / bSingle.width;
-				float sY = fitH / bSingle.height;
-				singleScale = std::min(2.3f, std::min(sX, sY));
-			}
-			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 3);
 		}
 
 		// 7. Card Effect Description Text
@@ -2337,46 +2297,52 @@ static inline bool startsWith(const std::string & s, const std::string & prefix)
 static void drawCardEdgeOutline(float x, float y, float w, float h, float expandPx = 0.0f) {
 	if (w <= 0.0f || h <= 0.0f) return;
 
-	// Inset adjustments to match the actual visible card frame inside the texture slot
-	// Top is slightly lower than texture 0; bottom sits slightly higher than texture H
-	float insetTop = h * 0.018f;
-	float insetBottom = h * 0.024f;
-	float insetLeft = w * 0.012f;
-	float insetRight = w * 0.012f;
+	float macroPx = w / 66.0f;
+	float blockyExpand = std::round(expandPx / macroPx) * macroPx;
+	if (blockyExpand < macroPx && expandPx > 0.0f) blockyExpand = macroPx;
 
-	float rx = std::round((x + insetLeft) - expandPx);
-	float ry = std::round((y + insetTop) - expandPx);
-	float rw = std::round((w - insetLeft - insetRight) + expandPx * 2.0f);
-	float rh = std::round((h - insetTop - insetBottom) + expandPx * 2.0f);
+	float cx = x + w * 0.5f;
+	float cy = y + h * 0.5f;
 
-	float cornerRadius = 14.0f * (w / 409.0f);
-	float rad = std::max(0.0f, cornerRadius + expandPx);
+	float cardBodyW = w * 0.88f;
+	float cardBodyH = h * 0.88f;
+	float ox = cx - cardBodyW * 0.5f;
+	float oy = cy - cardBodyH * 0.5f;
+	float cCut = 2.0f * macroPx;
 
-	ofDrawRectRounded(rx, ry, rw, rh, rad);
+	float gemX = x + (64.0f / 1056.0f) * w;
+	float gemY = y + (48.0f / 1448.0f) * h;
+	float gemW = (127.0f / 1056.0f) * w;
+	float gemH = (159.0f / 1448.0f) * h;
+	float gCut = 3.0f * macroPx;
+
+	ofPushStyle();
+	ofNoFill();
+	ofSetLineWidth(std::max(1.5f, macroPx * 2.0f));
+	ofSetColor(255, 215, 0, 255); // Solid yellow contour fallback
+
+	// Outer card body boundary
+	ofDrawRectRounded(ox - blockyExpand, oy - blockyExpand, cardBodyW + 2.0f * blockyExpand, cardBodyH + 2.0f * blockyExpand, cCut + blockyExpand);
+	// AP gem boundary
+	ofDrawRectRounded(gemX - blockyExpand, gemY - blockyExpand, gemW + 2.0f * blockyExpand, gemH + 2.0f * blockyExpand, gCut + blockyExpand);
+
+	ofPopStyle();
 }
 
 static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor color, int layers = 4) {
 	ofPushStyle();
-	ofFill();
+	float macroPx = w / 66.0f;
 
-	// Concentric high-opacity neon glow: tight, bright, and vibrant
-	const int glowLayers = 4;
-	const float stepPx = 1.3f;
-
-	for (int i = glowLayers; i >= 1; --i) {
-		float expand = (float)i * stepPx;
-		float norm = (float)i / (float)glowLayers;
-		float alphaFactor = pow(1.0f - norm * 0.55f, 1.6f);
-
-		ofSetColor(color.r, color.g, color.b, (int)(color.a * alphaFactor * 0.85f));
+	for (int i = 3; i >= 1; --i) {
+		float expand = (float)i * macroPx * 1.5f;
+		float alphaFactor = (i == 3) ? 0.3f : ((i == 2) ? 0.6f : 0.9f);
+		ofSetColor(color.r, color.g, color.b, (int)(color.a * alphaFactor));
 		drawCardEdgeOutline(drawX, drawY, w, h, expand);
 	}
 
-	// Crisp inner edge highlight
-	ofSetColor(color.r, color.g, color.b, std::min(255, (int)(color.a * 0.95f)));
-	drawCardEdgeOutline(drawX, drawY, w, h, 0.8f);
-
-	safePopStyle();
+	ofSetColor(color.r, color.g, color.b, 255);
+	drawCardEdgeOutline(drawX, drawY, w, h, 0.0f);
+	ofPopStyle();
 }
 
 static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx, float gapPx = 1.0f) {
@@ -9623,7 +9589,7 @@ void ofApp::draw2DMenuBackground() {
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
 
-	// Bumping by +1 additional integer step as requested
+	// Bumping by +1 integer step as you requested for the larger size!
 	float scaleMultiplier = std::floor((ofGetHeight() * 0.95f) / singleFrameH) + 1.0f;
 	if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
 
@@ -9644,7 +9610,12 @@ void ofApp::draw2DMenuBackground() {
 
 	// Center the COMBINED (Book + Bookmarks) assembly horizontally on screen
 	float bookX = std::round((ofGetWidth() - totalAssemblyW) * 0.5f);
-	float bookY = std::round((ofGetHeight() - targetH) * 0.5f);
+
+	// --- VERTICAL CENTERING FIX ---
+	// Increased from 14.0f to 24.0f to pull the book further up the screen!
+	// (Change this number if you want to keep tweaking it up or down)
+	float nativeRaiseAmount = 24.0f;
+	float bookY = std::round((ofGetHeight() - targetH) * 0.5f) - (nativeRaiseAmount * scaleMultiplier);
 
 	// 2. Render Animated Book
 	if (s_bookState == BOOK_OPENING) {
