@@ -3,7 +3,7 @@ Hellhound -
 Faerie - 
 Golem - 
 Kobold -
-
+SpellBook - CraftPix
 Card Art Curation - ComplexGame
 Game Music - Peace out Pat
 Everything else - Me

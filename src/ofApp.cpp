@@ -54,6 +54,93 @@ static ofColor getTracerColorForDamageType(DamageType dt) {
 	}
 }
 
+// --- ANIMATED MAGIC BOOK MENU SYSTEM ---
+struct BookAnimation {
+	ofImage sheet;
+	int numCols = 4;
+	int numRows = 3;
+	int totalFrames = 12;
+	float frameDuration = 0.06f;
+	float timer = 0.0f;
+	int currentFrame = 0;
+	bool isPlaying = false;
+	bool loop = false;
+	bool isFinished = false;
+
+	void setup(const std::string & path, int cols, int rows, int frames, float speed = 0.06f, bool looping = false) {
+		numCols = cols;
+		numRows = rows;
+		totalFrames = frames;
+		frameDuration = speed;
+		loop = looping;
+		if (ofFile(path).exists()) {
+			sheet.load(path);
+			sheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			sheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+		} else {
+			ofLogWarning("Book") << "Missing book animation file: " << path;
+		}
+	}
+
+	void play() {
+		currentFrame = 0;
+		timer = 0.0f;
+		isPlaying = true;
+		isFinished = false;
+	}
+
+	void update(float dt) {
+		if (!isPlaying || !sheet.isAllocated()) return;
+		timer += dt;
+		if (timer >= frameDuration) {
+			timer -= frameDuration;
+			currentFrame++;
+			if (currentFrame >= totalFrames) {
+				if (loop) {
+					currentFrame = 0;
+				} else {
+					currentFrame = totalFrames - 1;
+					isPlaying = false;
+					isFinished = true;
+				}
+			}
+		}
+	}
+
+	void draw(float dstX, float dstY, float dstW, float dstH) {
+		if (!sheet.isAllocated()) return;
+		float frameW = sheet.getWidth() / (float)numCols;
+		float frameH = sheet.getHeight() / (float)numRows;
+
+		int c = currentFrame % numCols;
+		int r = currentFrame / numCols;
+		float srcX = c * frameW;
+		float srcY = r * frameH;
+
+		sheet.drawSubsection(dstX, dstY, dstW, dstH, srcX, srcY, frameW, frameH);
+	}
+};
+
+enum BookMenuState {
+	BOOK_OPENING,
+	BOOK_IDLE_OPEN,
+	BOOK_TURNING_RIGHT,
+	BOOK_TURNING_LEFT
+};
+
+static BookMenuState s_bookState = BOOK_OPENING;
+static BookAnimation s_animOpen;
+static BookAnimation s_animTurnRight;
+static BookAnimation s_animTurnLeft;
+static ofImage s_bookmarksImg; // <--- Changed back to ofImage
+
+// Clickable Bookmark Hitboxes (Invisible)
+static ofRectangle s_bookmarkVersus;
+static ofRectangle s_bookmarkSolo;
+static ofRectangle s_bookmarkRules;
+static ofRectangle s_bookmarkSettings;
+static ofRectangle s_bookmarkQuit;
+
 // --- VFX SHADERS & PARTICLES ---
 static ofShader s_foilShader;
 static ofShader s_burnShader;
@@ -5881,6 +5968,21 @@ void ofApp::setup() {
 		// Load persisted settings (overrides defaults)
 		loadSettings();
 
+		// --- LOAD MAGIC BOOK ANIMATIONS ---
+		s_animOpen.setup("UI/Book/Open_book.png", 4, 3, 12, 0.055f, false);
+		s_animTurnRight.setup("UI/Book/Turning_pages_right.png", 4, 4, 15, 0.045f, false);
+		s_animTurnLeft.setup("UI/Book/Turning_pages_left.png", 4, 4, 15, 0.045f, false);
+
+		// Load the 11x5 sprite sheet as a standard texture
+		s_bookmarksImg.load("UI/Book/Open_book_bookmarks1.png");
+		if (s_bookmarksImg.isAllocated()) {
+			s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		}
+
+		// Trigger opening animation on boot
+		s_animOpen.play();
+		s_bookState = BOOK_OPENING;
+
 		// --- LOAD NEW STANDARDIZED MODELS ---
 
 		// Fast boot: 3D models will load progressively in update() while on the Main Menu
@@ -6909,31 +7011,36 @@ void ofApp::update() {
 		recalculateUI(ofGetWidth(), ofGetHeight());
 	}
 
-	// --- SPELLBOOK PAGE TURN ANIMATION ---
-	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA) {
+	// --- SPELLBOOK PAGE TURN & ANIMATION UPDATE ---
+	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA || currentState == STATE_CUSTOMISATION) {
 		float dt = std::min((float)ofGetLastFrameTime(), 0.1f);
 
-		if (isWaitingForMenuTransition) {
-			// currentMenuPanX is now our "Flip Progress" (0.0 to 1.0)
-			currentMenuPanX += dt * 2.5f; // Speed of the page turn
-
-			if (currentMenuPanX >= 0.5f && currentState != pendingMenuState) {
-				// Halfway through the flip (page is completely vertical/invisible)!
-				// Swap the actual UI state now so the new menu scales out.
-				currentState = pendingMenuState;
+		if (s_bookState == BOOK_OPENING) {
+			s_animOpen.update(dt);
+			if (s_animOpen.isFinished) {
+				s_bookState = BOOK_IDLE_OPEN;
 			}
-
-			if (currentMenuPanX >= 1.0f) {
-				// Page turn complete
-				currentMenuPanX = 1.0f;
+		} else if (s_bookState == BOOK_TURNING_RIGHT) {
+			s_animTurnRight.update(dt);
+			// At frame 7 (the peak midpoint of the 15 frames), swap the menu screen
+			if (s_animTurnRight.currentFrame == 7 && isWaitingForMenuTransition) {
+				currentState = pendingMenuState;
 				isWaitingForMenuTransition = false;
 			}
-		} else {
-			// Not transitioning, ensure progress is settled
-			currentMenuPanX = 0.0f;
+			if (s_animTurnRight.isFinished) {
+				s_bookState = BOOK_IDLE_OPEN;
+			}
+		} else if (s_bookState == BOOK_TURNING_LEFT) {
+			s_animTurnLeft.update(dt);
+			if (s_animTurnLeft.currentFrame == 7 && isWaitingForMenuTransition) {
+				currentState = pendingMenuState;
+				isWaitingForMenuTransition = false;
+			}
+			if (s_animTurnLeft.isFinished) {
+				s_bookState = BOOK_IDLE_OPEN;
+			}
 		}
 
-		// Keep button hitboxes updated to the static page layout
 		updateMenuRects();
 	}
 
@@ -7977,23 +8084,19 @@ void ofApp::draw() {
 				// currentMenuPanX goes from 0.0 to 1.0
 				float scaleX = 1.0f;
 				if (currentMenuPanX < 0.5f) {
-					// 0.0 to 0.5: Shrink current page horizontally (1.0 down to 0.0)
 					scaleX = 1.0f - (currentMenuPanX * 2.0f);
 				} else {
-					// 0.5 to 1.0: Expand new page horizontally (0.0 up to 1.0)
 					scaleX = (currentMenuPanX - 0.5f) * 2.0f;
 				}
-
-				// Center the scale effect in the middle of the screen (the book spine)
 				ofTranslate(ofGetWidth() / 2.0f, 0);
 				ofScale(scaleX, 1.0f);
 				ofTranslate(-ofGetWidth() / 2.0f, 0);
 			}
 
 			// 3. Draw the active menu onto the page
-			if (currentState == STATE_MAIN_MENU)
-				drawMainMenu();
-			else if (currentState == STATE_MULTIPLAYER_MENU)
+			if (currentState == STATE_MAIN_MENU) {
+				// drawMainMenu(); // <--- COMMENTED OUT! We don't need this panel anymore.
+			} else if (currentState == STATE_MULTIPLAYER_MENU)
 				drawMultiplayerMenu();
 			else if (currentState == STATE_SINGLEPLAYER_MENU)
 				drawSingleplayerMenu();
@@ -9273,13 +9376,21 @@ std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 
 }
 
 void ofApp::navigateToMenu(int screenIndex, GameState newState) {
-	// Start the page turn animation from 0.0
-	currentMenuPanX = 0.0f;
+	if (s_bookState == BOOK_TURNING_RIGHT || s_bookState == BOOK_TURNING_LEFT) return;
+
 	pendingMenuState = newState;
 	isWaitingForMenuTransition = true;
 
+	// Pick flip direction
+	if (newState == STATE_MAIN_MENU) {
+		s_animTurnLeft.play();
+		s_bookState = BOOK_TURNING_LEFT;
+	} else {
+		s_animTurnRight.play();
+		s_bookState = BOOK_TURNING_RIGHT;
+	}
+
 	if (s_sfxHoverButton.isLoaded()) {
-		// Play a paper/page-turn sound here if you add one later!
 		s_sfxHoverButton.play();
 	}
 }
@@ -9501,160 +9612,107 @@ void ofApp::draw2DMenuBackground() {
 	if (g_isSecondPass) return;
 
 	ofDisableLighting();
-	ofSetColor(ofColor::white);
-
-	float w = std::max(1.0f, (float)ofGetWidth());
-	float h = std::max(1.0f, (float)ofGetHeight());
-
-	// Exact aspect-fit calculation
-	menuTileSize = std::max(1.0f, std::floor(std::min(w / 15.0f, h / 11.0f)));
-	baseMenuStartX = std::round((w - menuTileSize * BOARD_WIDTH) / 2.0f);
-	menuStartY = std::round((h - menuTileSize * BOARD_HEIGHT) / 2.0f);
-
-	float panOffset = baseMenuStartX - currentMenuPanX;
-
-	int startX = std::floor(-panOffset / menuTileSize) - 1;
-	int endX = std::ceil((ofGetWidth() - panOffset) / menuTileSize) + 1;
-	int startY = std::floor(-menuStartY / menuTileSize) - 1;
-	int endY = std::ceil((ofGetHeight() - menuStartY) / menuTileSize) + 1;
-
-	// 1. Interactive Magic Circle Logic
-	if (!g_isSecondPass && !mainMenuCirclePath.empty()) {
-		glm::vec2 target = mainMenuCirclePath.front();
-		glm::vec2 dir = target - mainMenuCirclePos;
-		float dist = glm::length(dir);
-
-		if (dist > 1.5f) {
-			mainMenuCirclePos = target;
-			mainMenuCirclePath.erase(mainMenuCirclePath.begin());
-		} else {
-			float speed = 12.0f * ofGetLastFrameTime();
-			if (dist <= speed) {
-				mainMenuCirclePos = target;
-				mainMenuCirclePath.erase(mainMenuCirclePath.begin());
-			} else {
-				mainMenuCirclePos += glm::normalize(dir) * speed;
-			}
-		}
-	}
-
-	// Static mesh persists across frames so memory is never reallocated
-	static ofMesh gridMesh;
-	gridMesh.clear();
-	gridMesh.setMode(OF_PRIMITIVE_LINES);
-
-	// 2. Draw the 2D Board Background using fast native texture quad draws
-	for (int x = startX; x <= endX; x++) {
-		for (int y = startY; y <= endY; y++) {
-			float tx = std::round(panOffset + x * menuTileSize);
-			float ty = std::round(menuStartY + y * menuTileSize);
-			float nextTx = std::round(panOffset + (x + 1) * menuTileSize);
-			float nextTy = std::round(menuStartY + (y + 1) * menuTileSize);
-
-			float drawW = (nextTx - tx) + 1.0f;
-			float drawH = (nextTy - ty) + 1.0f;
-
-			int modX = (x % 30 + 30) % 30;
-			bool isBoardY = (y >= 0 && y < BOARD_HEIGHT);
-			bool isBoardTile = (modX >= 0 && modX < BOARD_WIDTH && isBoardY);
-			bool isScreenMinus1 = (x >= -30 && x <= -18);
-
-			bool isWall = false;
-			if (isBoardTile) {
-				if (isScreenMinus1 && g_inLobby) {
-					isWall = (modX == 0 || modX == BOARD_WIDTH - 1 || y == 0 || y == BOARD_HEIGHT - 1);
-					if (modX == BOARD_WIDTH - 1 && y == 5) isWall = false;
-				} else {
-					isWall = board[modX][y].hasWall;
-				}
-			} else {
-				if (y == 5 && x >= -30 && x <= 42) {
-					isWall = false;
-				} else {
-					isWall = true;
-				}
-			}
-
-			if (isWall) {
-				bool wallAbove = false;
-				if (isBoardTile) {
-					if (isScreenMinus1 && g_inLobby) {
-						int ny = y - 1;
-						wallAbove = (ny < 0) ? true : (ny == 0 || modX == 0 || modX == BOARD_WIDTH - 1);
-					} else {
-						wallAbove = (y > 0) ? board[modX][y - 1].hasWall : true;
-					}
-				} else {
-					wallAbove = (y - 1 != 5);
-				}
-
-				int brightness = (isBoardTile || (x >= -30 && x <= 42 && (y == 4 || y == 6))) ? 255 : 40;
-
-				if (wallAbove && wallDarkTexture.isAllocated()) {
-					ofSetColor(brightness);
-					wallDarkTexture.draw(tx, ty, drawW, drawH);
-				} else if (wallTexture.isAllocated()) {
-					ofSetColor(brightness);
-					wallTexture.draw(tx, ty, drawW, drawH);
-				} else {
-					ofSetColor(wallAbove ? brightness / 2 : brightness);
-					ofDrawRectangle(tx, ty, drawW, drawH);
-				}
-			} else {
-				unsigned int seed = (modX * 73856093) ^ (y * 19349663);
-				if (!floorTextures.empty()) {
-					int texIndex = (int)((seed * 2654435761u) % floorTextures.size());
-					ofSetColor(230);
-					floorTextures[texIndex].draw(tx, ty, drawW, drawH);
-				} else {
-					ofSetColor(80);
-					ofDrawRectangle(tx, ty, drawW, drawH);
-				}
-			}
-
-			ofColor gridColor(0, 0, 0, 70);
-			gridMesh.addColor(gridColor);
-			gridMesh.addVertex(glm::vec3(tx, ty, 0));
-			gridMesh.addColor(gridColor);
-			gridMesh.addVertex(glm::vec3(nextTx, ty, 0));
-			gridMesh.addColor(gridColor);
-			gridMesh.addVertex(glm::vec3(tx, ty, 0));
-			gridMesh.addColor(gridColor);
-			gridMesh.addVertex(glm::vec3(tx, nextTy, 0));
-		}
-	}
-
-	ofSetLineWidth(1.0f);
-	gridMesh.draw();
-
-	// 3. Draw Target Highlight
-	if (!mainMenuCirclePath.empty()) {
-		glm::vec2 finalTarget = mainMenuCirclePath.back();
-		float ttx = panOffset + finalTarget.x * menuTileSize;
-		float tty = menuStartY + finalTarget.y * menuTileSize;
-		ofSetColor(0, 255, 255, 60);
-		ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
-		ofNoFill();
-		ofSetLineWidth(3.0f);
-		ofSetColor(0, 255, 255, 200);
-		ofDrawRectangle(ttx, tty, menuTileSize, menuTileSize);
-		ofFill();
-	}
-
-	float circleX = panOffset + mainMenuCirclePos.x * menuTileSize + menuTileSize * 0.5f;
-	float circleY = menuStartY + mainMenuCirclePos.y * menuTileSize + menuTileSize * 0.5f;
-	float radius = menuTileSize * 0.35f;
-
-	// 4. Draw the glowing circle
-	ofSetColor(0, 200, 255, 100);
-	ofDrawCircle(circleX, circleY, radius * 1.2f);
-	ofSetColor(50, 220, 255, 255);
-	ofDrawCircle(circleX, circleY, radius);
+	ofDisableDepthTest();
 	ofSetColor(255, 255, 255, 255);
-	ofNoFill();
-	ofSetLineWidth(3.0f);
-	ofDrawCircle(circleX, circleY, radius * 0.6f * (1.0f + 0.15f * sin(ofGetElapsedTimef() * 4.0f)));
-	ofFill();
+
+	// 1. Calculate Book Dimensions (Perfect Integer Scaling for crisp pixel art)
+	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
+	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
+
+	// Force integer scaling (1.0, 2.0, 3.0, 4.0, etc.) so pixel art never distorts or blurs
+	float scaleMultiplier = std::floor((ofGetHeight() * 0.85f) / singleFrameH);
+	if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
+
+	float targetW = singleFrameW * scaleMultiplier;
+	float targetH = singleFrameH * scaleMultiplier;
+
+	float bookX = std::round((ofGetWidth() - targetW) * 0.5f);
+	float bookY = std::round((ofGetHeight() - targetH) * 0.5f);
+
+	// 2. Render Animated Book Frame
+	if (s_bookState == BOOK_OPENING) {
+		s_animOpen.draw(bookX, bookY, targetW, targetH);
+	} else if (s_bookState == BOOK_TURNING_RIGHT) {
+		s_animTurnRight.draw(bookX, bookY, targetW, targetH);
+	} else if (s_bookState == BOOK_TURNING_LEFT) {
+		s_animTurnLeft.draw(bookX, bookY, targetW, targetH);
+	} else {
+		// When idle, hold the final open frame of the open book
+		s_animOpen.currentFrame = s_animOpen.totalFrames - 1;
+		s_animOpen.draw(bookX, bookY, targetW, targetH);
+	}
+
+	// 3. Render Bookmarks & Hitboxes
+	if (s_bookmarksImg.isAllocated()) {
+
+		// Sync bookmark frame with book frame
+		// The book opening has 12 frames (0 to 11). The bookmarks have 11 frames (0 to 10).
+		// This makes them slide out perfectly in sync as the book opens!
+		int bFrame = 10; // Frame 10 is fully extended
+		if (s_bookState == BOOK_OPENING) {
+			bFrame = std::min(10, s_animOpen.currentFrame);
+		}
+
+		// The sheet has 11 columns, 5 rows
+		float bFrameW = s_bookmarksImg.getWidth() / 11.0f;
+		float bFrameH = s_bookmarksImg.getHeight() / 5.0f;
+
+		// Scale the bookmarks by the EXACT same integer multiplier as the book
+		float bmDestW = bFrameW * scaleMultiplier;
+		float bmDestH = bFrameH * scaleMultiplier;
+
+		// --- NEW EASIER ALIGNMENT ---
+		// These offsets are based on the original 256x192 pixel art size.
+		// If they don't line up perfectly, just change these 3 numbers!
+		float nativeX = 188.0f; // The X pixel coordinate of the right page edge
+		float nativeY = 22.0f; // The Y pixel coordinate for the top bookmark
+		float nativeGap = 28.0f; // How many pixels from the top of one bookmark to the next
+
+		float bmX = bookX + (nativeX * scaleMultiplier);
+		float bmStartY = bookY + (nativeY * scaleMultiplier);
+		float bmGap = nativeGap * scaleMultiplier;
+
+		ofRectangle tabs[5];
+		std::string names[] = { "VS", "SOLO", "RULES", "SETTINGS", "QUIT" };
+
+		for (int i = 0; i < 5; ++i) {
+			float srcX = bFrame * bFrameW;
+			float srcY = i * bFrameH;
+
+			float drawY = bmStartY + (i * bmGap);
+
+			// Draw the pixel-perfect bookmark
+			s_bookmarksImg.drawSubsection(bmX, drawY, bmDestW, bmDestH, srcX, srcY, bFrameW, bFrameH);
+
+			// Set the hitbox to perfectly match the drawn image
+			tabs[i].set(bmX, drawY, bmDestW, bmDestH);
+		}
+
+		// Assign hitboxes to our global variables so clicks work
+		s_bookmarkVersus = tabs[0];
+		s_bookmarkSolo = tabs[1];
+		s_bookmarkRules = tabs[2];
+		s_bookmarkSettings = tabs[3];
+		s_bookmarkQuit = tabs[4];
+
+		// Hover highlights & clicks
+		if (s_bookState == BOOK_IDLE_OPEN) {
+			for (int i = 0; i < 5; ++i) {
+				bool hov = tabs[i].inside(ofGetMouseX(), ofGetMouseY());
+				if (hov) {
+					g_hoveredButtonId = "bookmark_" + names[i];
+
+					// Subtle white highlight to indicate it's a clickable button
+					ofPushStyle();
+					ofEnableBlendMode(OF_BLENDMODE_ADD);
+					ofSetColor(255, 255, 255, 60);
+					ofDrawRectRounded(tabs[i], 4);
+					ofDisableBlendMode();
+					safePopStyle();
+				}
+			}
+		}
+	}
 }
 
 void ofApp::drawMainMenu() {
@@ -19765,6 +19823,30 @@ void ofApp::mousePressed(int x, int y, int button) {
 		bool clickedUI = false;
 
 		if (button == OF_MOUSE_BUTTON_LEFT) {
+			// --- CLICKING BOOKMARKS TO TURN PAGES ---
+			if (s_bookState == BOOK_IDLE_OPEN) {
+				if (s_bookmarkVersus.inside(x, y) && currentState != STATE_MULTIPLAYER_MENU) {
+					navigateToMenu(-1, STATE_MULTIPLAYER_MENU);
+					return;
+				}
+				if (s_bookmarkSolo.inside(x, y) && currentState != STATE_SINGLEPLAYER_MENU) {
+					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
+					return;
+				}
+				if (s_bookmarkRules.inside(x, y) && currentState != STATE_ENCYCLOPEDIA) {
+					navigateToMenu(2, STATE_ENCYCLOPEDIA);
+					return;
+				}
+				if (s_bookmarkSettings.inside(x, y) && currentState != STATE_SETTINGS) {
+					stateBeforeSettings = currentState;
+					currentState = STATE_SETTINGS;
+					return;
+				}
+				if (s_bookmarkQuit.inside(x, y)) {
+					ofExit();
+					return;
+				}
+			}
 			if (currentState == STATE_MAIN_MENU) {
 				if (mainMenuSingleplayerButton.inside(x, y)) {
 					clickedUI = true;
