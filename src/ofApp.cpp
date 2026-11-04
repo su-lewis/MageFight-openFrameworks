@@ -6939,9 +6939,9 @@ void ofApp::update() {
 		return;
 	}
 
-	// --- WINDOWS ALT-TAB BUG FIX ---
+// --- WINDOWS ALT-TAB BUG FIX ---
+#ifdef _WIN32
 	// Windows GLFW often traps the game in an un-alt-tabbable "Topmost" state on boot.
-	// Toggling fullscreen OFF and ON after the window is fully mapped completely fixes it.
 	static bool s_bootFullscreenToggle = false;
 	if (!s_bootFullscreenToggle && ofGetFrameNum() > 5) {
 		s_bootFullscreenToggle = true;
@@ -6950,6 +6950,7 @@ void ofApp::update() {
 			ofSetFullscreen(true);
 		}
 	}
+#endif
 
 	// --- DELAYED CARD REBUILD (Fixes Settings Menu Lag) ---
 	if (g_cardsNeedTranslationRebuild && ofGetElapsedTimef() - g_languageChangedTime > 0.5f) {
@@ -9622,21 +9623,27 @@ void ofApp::draw2DMenuBackground() {
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
 
-	// Scale to fit ~95% of screen height (steps 1440p from 6x up to 7x -> +16.7% bigger with ZERO quality loss!)
-	float scaleMultiplier = std::floor((ofGetHeight() * 0.95f) / singleFrameH);
+	// Bumping by +1 additional integer step as requested
+	float scaleMultiplier = std::floor((ofGetHeight() * 0.95f) / singleFrameH) + 1.0f;
 	if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
 
-	// Ensure the book AND the protruding bookmarks never clip off the right edge on narrow screens
-	float totalWidthNeeded = (235.0f + 32.0f) * scaleMultiplier;
-	if (totalWidthNeeded > ofGetWidth() * 0.96f) {
-		scaleMultiplier = std::floor((ofGetWidth() * 0.96f) / (235.0f + 32.0f));
-		if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
-	}
-
+	// Dimensions of the book
 	float targetW = singleFrameW * scaleMultiplier;
 	float targetH = singleFrameH * scaleMultiplier;
 
-	float bookX = std::round((ofGetWidth() - targetW) * 0.5f);
+	// Your calibrated bookmark offsets
+	static float s_bookmarkNativeX = 235.0f;
+	static float s_bookmarkNativeY = 100.0f;
+	const float srcColW = 32.0f;
+	const float srcTotalH = 144.0f;
+	const float srcRowH = 24.0f;
+
+	// Total horizontal span of the combined assembly (Book + protruding Bookmarks)
+	float totalAssemblyNativeW = std::max(singleFrameW, s_bookmarkNativeX + srcColW);
+	float totalAssemblyW = totalAssemblyNativeW * scaleMultiplier;
+
+	// Center the COMBINED (Book + Bookmarks) assembly horizontally on screen
+	float bookX = std::round((ofGetWidth() - totalAssemblyW) * 0.5f);
 	float bookY = std::round((ofGetHeight() - targetH) * 0.5f);
 
 	// 2. Render Animated Book
@@ -9647,11 +9654,12 @@ void ofApp::draw2DMenuBackground() {
 	} else if (s_bookState == BOOK_TURNING_LEFT) {
 		s_animTurnLeft.draw(bookX, bookY, targetW, targetH);
 	} else {
+		// When idle, hold the final open frame
 		s_animOpen.currentFrame = s_animOpen.totalFrames - 1;
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	}
 
-	// 3. Render Bookmarks (Scales in lockstep with the book)
+	// 3. Render Bookmarks (Locked to the book and scaled together)
 	if (s_bookmarksImg.isAllocated()) {
 		s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
@@ -9661,10 +9669,6 @@ void ofApp::draw2DMenuBackground() {
 			bFrame = std::min(4, s_animOpen.currentFrame);
 		}
 
-		const float srcColW = 32.0f;
-		const float srcTotalH = 144.0f;
-		const float srcRowH = 24.0f;
-
 		float srcX = bFrame * srcColW;
 		float srcY = 0.0f;
 
@@ -9672,18 +9676,14 @@ void ofApp::draw2DMenuBackground() {
 		float dstH = srcTotalH * scaleMultiplier;
 		float rowH = srcRowH * scaleMultiplier;
 
-		// Your calibrated coordinates
-		static float s_bookmarkNativeX = 235.0f;
-		static float s_bookmarkNativeY = 100.0f;
-
 		float dstX = std::round(bookX + (s_bookmarkNativeX * scaleMultiplier));
 		float dstY = std::round(bookY + (s_bookmarkNativeY * scaleMultiplier));
 
-		// Hitboxes scale simultaneously
+		// Hitboxes match each bookmark's drawn region
 		s_bookmarkVersus.set(dstX, dstY + (0 * rowH), dstW, rowH);
 		s_bookmarkSolo.set(dstX, dstY + (1 * rowH), dstW, rowH);
 		s_bookmarkRules.set(dstX, dstY + (2 * rowH), dstW, rowH);
-		s_bookmarkSettings.set(dstX, dstY + (4 * rowH), dstW, rowH);
+		s_bookmarkSettings.set(dstX, dstY + (4 * rowH), dstW, rowH); // Row 4 (skips Row 3 gap)
 		s_bookmarkQuit.set(dstX, dstY + (5 * rowH), dstW, rowH);
 
 		int mx = ofGetMouseX();
@@ -9713,6 +9713,7 @@ void ofApp::draw2DMenuBackground() {
 			}
 		}
 
+		// Draw the sprite directly
 		ofSetColor(anyHovered ? ofColor(255, 255, 255) : ofColor(235, 235, 235));
 		s_bookmarksImg.drawSubsection(dstX, dstY, dstW, dstH, srcX, srcY, srcColW, srcTotalH);
 		ofSetColor(255, 255, 255, 255);
@@ -9932,9 +9933,16 @@ void ofApp::drawSettingsMenu() {
 		drawSettingRow(_L("UI_SETTING_LANG", "Language"), g_availableLanguageNames[g_currentLanguageIndex], settingsLangLeftButton, settingsLangRightButton, settingY);
 		settingY += rowSpacing;
 
-		// 2. Resolution
-		string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
-		drawSettingRow(_L("UI_SETTING_RES", "Resolution"), resText, settingsResLeftButton, settingsResRightButton, settingY);
+		// 2. Resolution (Locked to Native in Fullscreen/Borderless, selectable in Windowed)
+		bool resDisabled = (g_windowModeState != 0);
+		string resText;
+		if (resDisabled) {
+			resText = ofToString(ofGetScreenWidth()) + " x " + ofToString(ofGetScreenHeight()) + " (Native)";
+		} else {
+			glm::vec2 res = availableResolutions[std::clamp(currentResolutionIndex, 0, (int)availableResolutions.size() - 1)];
+			resText = ofToString((int)res.x) + " x " + ofToString((int)res.y);
+		}
+		drawSettingRow(_L("UI_SETTING_RES", "Resolution"), resText, settingsResLeftButton, settingsResRightButton, settingY, resDisabled);
 		settingY += rowSpacing;
 
 		// 3. VSync Tick Box Row
@@ -9944,7 +9952,6 @@ void ofApp::drawSettingsMenu() {
 		bool vsyncHov = settingsVSyncBox.inside(ofGetMouseX(), ofGetMouseY());
 		if (vsyncHov) g_hoveredButtonId = "set_vsync";
 
-		// Draw VSync row box
 		ofSetColor(vsyncHov ? ofColor(45, 48, 60) : ofColor(28, 30, 38));
 		ofDrawRectRounded(settingsVSyncBox, 6.0f * uiScale);
 		ofNoFill();
@@ -9953,7 +9960,6 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectRounded(settingsVSyncBox, 6.0f * uiScale);
 		ofFill();
 
-		// Checkbox square inside pill
 		float boxSize = 24.0f * uiScale;
 		float checkX = settingsVSyncBox.x + 16.0f * uiScale;
 		float checkY = settingsVSyncBox.y + (vsyncBoxH - boxSize) * 0.5f;
@@ -9967,19 +9973,16 @@ void ofApp::drawSettingsMenu() {
 		ofDrawRectRounded(checkRect, 4.0f * uiScale);
 		ofFill();
 
-		// Draw emerald green checkmark when active
 		if (settingsUseVSync) {
 			ofSetColor(50, 220, 90);
 			ofDrawRectRounded(checkRect.x + 3.0f * uiScale, checkRect.y + 3.0f * uiScale, checkRect.width - 6.0f * uiScale, checkRect.height - 6.0f * uiScale, 2.0f * uiScale);
 
-			// White check icon
 			ofSetColor(255);
 			ofSetLineWidth(2.5f * uiScale);
 			ofDrawLine(checkRect.x + 6.0f * uiScale, checkRect.y + 12.0f * uiScale, checkRect.x + 10.0f * uiScale, checkRect.y + 17.0f * uiScale);
 			ofDrawLine(checkRect.x + 10.0f * uiScale, checkRect.y + 17.0f * uiScale, checkRect.x + 18.0f * uiScale, checkRect.y + 7.0f * uiScale);
 		}
 
-		// Text label next to checkmark
 		string vsyncLabel = settingsUseVSync ? "Vertical Sync: ON" : "Vertical Sync: OFF";
 		ofColor vsyncCol = settingsUseVSync ? ofColor::white : ofColor(180, 185, 195);
 		drawPixelTextBaseline(uiFont, vsyncLabel, checkX + boxSize + 14.0f * uiScale, settingsVSyncBox.getCenter().y + 6.0f * uiScale, 1.0f * uiScale, vsyncCol, 1, ofColor::black);
@@ -9988,9 +9991,9 @@ void ofApp::drawSettingsMenu() {
 
 		// 4. Framerate Limit (Greyed out when VSync is ON)
 		int monitorHz = 60;
-		GLFWmonitor * primary = glfwGetPrimaryMonitor();
-		if (primary) {
-			const GLFWvidmode * mode = glfwGetVideoMode(primary);
+		GLFWmonitor * prim = glfwGetPrimaryMonitor();
+		if (prim) {
+			const GLFWvidmode * mode = glfwGetVideoMode(prim);
 			if (mode && mode->refreshRate > 0) monitorHz = mode->refreshRate;
 		}
 
@@ -10004,7 +10007,7 @@ void ofApp::drawSettingsMenu() {
 		drawSettingRow("Framerate Limit", frameText, settingsFpsLeftBtn, settingsFpsRightBtn, settingY, settingsUseVSync);
 		settingY += rowSpacing;
 
-		// 5. Window Mode
+		// 5. Window Mode Button
 		string fsText = "Windowed";
 		if (g_windowModeState == 1)
 			fsText = "Fullscreen";
@@ -10851,32 +10854,36 @@ void ofApp::applySettings() {
 		return;
 	}
 
-	int monitorHz = 60;
+	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 	GLFWmonitor * primary = glfwGetPrimaryMonitor();
+
+	int monitorX = 0, monitorY = 0;
+	int monitorW = ofGetScreenWidth();
+	int monitorH = ofGetScreenHeight();
+	int monitorHz = 60;
+
 	if (primary) {
+		glfwGetMonitorPos(primary, &monitorX, &monitorY);
 		const GLFWvidmode * mode = glfwGetVideoMode(primary);
-		if (mode && mode->refreshRate > 0) {
-			monitorHz = mode->refreshRate;
+		if (mode) {
+			monitorW = mode->width;
+			monitorH = mode->height;
+			if (mode->refreshRate > 0) monitorHz = mode->refreshRate;
 		}
 	}
 
 	// --- FRAMERATE & VSYNC LOGIC ---
 	if (settingsUseVSync) {
-		// VSync ON -> Lock to hardware monitor Hz
 		ofSetVerticalSync(true);
 		ofSetFrameRate(monitorHz);
 	} else {
-		// VSync OFF -> Obey the custom framerate limit preset
 		ofSetVerticalSync(false);
 		int targetFPS = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
 		ofSetFrameRate(targetFPS);
 	}
 
-	glm::vec2 res = availableResolutions[currentResolutionIndex];
-	GLFWwindow * win = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-
-	int finalW = std::max(800, (int)res.x);
-	int finalH = std::max(600, (int)res.y);
+	int finalW = monitorW;
+	int finalH = monitorH;
 
 	if (win) {
 		glfwSetWindowAttrib(win, GLFW_FLOATING, GLFW_FALSE);
@@ -10884,32 +10891,45 @@ void ofApp::applySettings() {
 		glfwSetWindowAttrib(win, GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
 	}
 
-	// Window Mode
-	if (g_windowModeState == 1 || g_windowModeState == 2) {
-		finalW = std::max(800, ofGetScreenWidth());
-		finalH = std::max(600, ofGetScreenHeight());
-
-		if (g_windowModeState == 1) {
-			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
-			ofSetFullscreen(true);
-		} else {
-			if (ofGetWindowMode() == OF_FULLSCREEN) {
-				ofSetFullscreen(false);
-			}
-			if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
-			ofSetWindowShape(finalW, finalH);
-			ofSetWindowPosition(0, 0);
-		}
+	if (g_windowModeState == 1) {
+		// --- 1. TRUE FULLSCREEN ---
+		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
+		ofSetFullscreen(true);
 		isFullscreen = true;
-	} else {
+
+	} else if (g_windowModeState == 2) {
+		// --- 2. BORDERLESS FULLSCREEN ---
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
 			ofSetFullscreen(false);
 		}
-		if (win) glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
-		ofSetWindowShape(finalW, finalH);
+		if (win) {
+			glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_FALSE);
+			glfwSetWindowMonitor(win, NULL, monitorX, monitorY, monitorW, monitorH, 0);
+			glfwSetWindowPos(win, monitorX, monitorY);
+			glfwSetWindowSize(win, monitorW, monitorH);
+		}
+		isFullscreen = true;
 
-		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-			ofSetWindowPosition((ofGetScreenWidth() - finalW) / 2, (ofGetScreenHeight() - finalH) / 2);
+	} else {
+		// --- 3. STANDARD WINDOWED ---
+		if (ofGetWindowMode() == OF_FULLSCREEN) {
+			ofSetFullscreen(false);
+		}
+
+		glm::vec2 res = availableResolutions[std::clamp(currentResolutionIndex, 0, (int)availableResolutions.size() - 1)];
+
+		// Prevent window from overflowing the monitor by leaving room for title bars
+		finalW = std::clamp((int)res.x, 800, monitorW - 60);
+		finalH = std::clamp((int)res.y, 600, monitorH - 90);
+
+		int targetX = monitorX + std::max(0, (monitorW - finalW) / 2);
+		int targetY = monitorY + std::max(30, (monitorH - finalH) / 2);
+
+		if (win) {
+			glfwSetWindowAttrib(win, GLFW_DECORATED, GLFW_TRUE);
+			glfwSetWindowMonitor(win, NULL, targetX, targetY, finalW, finalH, 0);
+			glfwSetWindowSize(win, finalW, finalH);
+			glfwSetWindowPos(win, targetX, targetY);
 		}
 		isFullscreen = false;
 	}
@@ -20304,7 +20324,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
-			// Toggle VSync
 			if (settingsVSyncBox.inside(x, y)) {
 				settingsUseVSync = !settingsUseVSync;
 				applySettings();
@@ -20331,20 +20350,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			if (settingsResLeftButton.inside(x, y)) {
-				currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
-				applySettings();
-				saveSettings();
-				return;
-			}
-			if (settingsResRightButton.inside(x, y)) {
-				currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
-				applySettings();
-				saveSettings();
-				return;
+			// Only allow resolution changes in Windowed mode
+			if (g_windowModeState == 0) {
+				if (settingsResLeftButton.inside(x, y)) {
+					currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
+					applySettings();
+					saveSettings();
+					return;
+				}
+				if (settingsResRightButton.inside(x, y)) {
+					currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
+					applySettings();
+					saveSettings();
+					return;
+				}
 			}
 
-			// Framerate buttons ONLY respond when VSync is OFF
 			if (!settingsUseVSync) {
 				if (settingsFpsLeftBtn.inside(x, y)) {
 					s_currentFpsIndex = (s_currentFpsIndex - 1 + (int)s_fpsPresets.size()) % (int)s_fpsPresets.size();
@@ -23884,56 +23905,29 @@ void ofApp::mouseExited(int x, int y) { }
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 void ofApp::windowResized(int w, int h) {
+	if (w <= 0 || h <= 0) return;
 
+	// 1. Update UI layout and framebuffers (NEVER call ofSetWindowPosition in here!)
 	recalculateUI(w, h);
-	// In windowed mode, recenter the window after resize to ensure proper centering
-	if (!isFullscreen) {
-		int screenW = ofGetScreenWidth();
-		int screenH = ofGetScreenHeight();
-		int winW = ofGetWidth();
-		int winH = ofGetHeight();
-
-		// CRITICAL FIX: Wayland crashes if apps try to move their own windows!
-		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-			ofSetWindowPosition((screenW - winW) / 2, (screenH - winH) / 2);
-		}
-	}
 	allocateWorldFbo(w, h);
 
-	// Always center window in windowed mode after resize
-	if (ofGetWindowMode() != OF_FULLSCREEN) {
-		int screenW = ofGetScreenWidth();
-		int screenH = ofGetScreenHeight();
-
-		if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-			ofSetWindowPosition((screenW - w) / 2, (screenH - h) / 2);
-		}
-	}
-
-	// --- FIX: Snap UI elements immediately to prevent "flying in" visual glitches ---
-
-	// 1. Snap End Turn Button
-	float scale = getUIScaleFromHeight(h);
+	// 2. Snap End Turn Button immediately so it doesn't fly across the screen on resize
+	float scale = getUIScaleFromHeight((float)h);
 	float scale1080 = (float)h / 1080.0f;
-	float btnWidth = 260 * scale; // CHANGED: Increased from 250
+	float btnWidth = 260.0f * scale;
 
-	// Dynamically sit below the new card history + timer height
 	float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
-
 	float glowMargin = 6.0f * scale + 2.0f * scale;
 	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
-	float hiddenY = -100 * scale;
+	float hiddenY = -120.0f * scale;
 
 	bool showEndTurnButton = false;
-	if (currentPlayerIndex >= 0 && !players.empty()) {
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		int pid = players[currentPlayerIndex].playerID;
 		int oid = players[currentPlayerIndex].ownerID;
-		// Show end turn button when it's the current player's turn
 		if (isMultiplayer) {
-			// Multiplayer: only show when it's my turn
 			if (pid == myLocalPlayerID || oid == myLocalPlayerID) showEndTurnButton = true;
 		} else {
-			// Single player: always show (any player can end their turn)
 			showEndTurnButton = true;
 		}
 	}
@@ -23943,50 +23937,27 @@ void ofApp::windowResized(int w, int h) {
 	} else {
 		endTurnButtonTargetPos.set(w / 2.0f - btnWidth / 2.0f, hiddenY);
 	}
-	// Force current to target
 	endTurnButtonCurrentPos = endTurnButtonTargetPos;
 
-	// 2. Snap Cards in Hand - Hearthstone Style
-	if (!players.empty() && currentPlayerIndex >= 0) {
+	// 3. Snap Cards in Hand immediately so they don't rubber-band across the screen
+	if (!players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		Player & currentPlayer = players[currentPlayerIndex];
 
-		// Hearthstone layout: bottom of screen, slightly cut off
 		size_t numCards = currentPlayer.hand.size();
 		if (numCards > 0) {
-			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale; // Scaled card width
-			float handAreaWidth = w * 0.85f; // Use most of screen width
-			float handRestY = h - 20.0f; // Near bottom, partially visible
-
-			// Dynamic spacing: fewer cards = more space, more cards = closer
-			float spacing = 0.0f;
-			if (numCards == 1) {
-				spacing = 0.0f; // One card centered
-			} else if (numCards <= 10) {
-				// Scale spacing inversely with card count
-				float totalWidth = numCards * handBaseCardWidth;
-				if (totalWidth < handAreaWidth) {
-					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
-					spacing = std::min(spacing, 120.0f); // Max spacing
-				} else {
-					spacing = 10.0f; // Min spacing when cramped
-				}
-			} else {
-				spacing = 10.0f; // Very cramped
-			}
-
-			// Calculate total width and center
-			float totalHandWidth = numCards * handBaseCardWidth + (numCards - 1) * spacing;
-			float startX = (w - totalHandWidth) / 2.0f;
-
-			// Position each card
+			HandLayout handLayout = computeHandLayout(numCards, (float)w, (float)h);
 			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handRestY);
+				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
+				float cardCenterY = handLayout.restY;
+				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 				currentPlayer.hand[i].currentPos = currentPlayer.hand[i].targetPos;
+				currentPlayer.hand[i].currentScale = 1.0f;
+				currentPlayer.hand[i].targetScale = 1.0f;
 			}
 		}
 	}
 }
+
 void ofApp::gotMessage(ofMessage msg) { }
 void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
