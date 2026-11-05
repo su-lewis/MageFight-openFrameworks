@@ -9796,7 +9796,7 @@ void ofApp::draw2DMenuBackground() {
 			const char * id;
 		};
 
-		const float stepRightNative = 1.3f;
+		const float stepRightNative = 1.26f;
 
 		BookmarkTabDef tabs[5] = {
 			{ 0, 0, 0.0f, 0.0f, s_bookmarkVersus, "bookmark_VS" },
