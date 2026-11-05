@@ -122,10 +122,12 @@ struct BookAnimation {
 };
 
 enum BookMenuState {
-	BOOK_OPENING,
-	BOOK_IDLE_OPEN,
+	BOOK_CLOSED, // New: Book resting closed
+	BOOK_OPENING, // Playing opening animation
+	BOOK_IDLE_OPEN, // Fully open, bookmarks active
 	BOOK_TURNING_RIGHT,
-	BOOK_TURNING_LEFT
+	BOOK_TURNING_LEFT,
+	BOOK_CLOSING // New: Playing closing animation (reverse Open)
 };
 
 static BookMenuState s_bookState = BOOK_OPENING;
@@ -140,6 +142,32 @@ static ofRectangle s_bookmarkSolo;
 static ofRectangle s_bookmarkRules;
 static ofRectangle s_bookmarkSettings;
 static ofRectangle s_bookmarkQuit;
+
+static float s_bookmarkDstX = 0.0f;
+static float s_bookmarkDstY = 0.0f;
+static float s_bookmarkScaleMultiplier = 1.0f;
+
+static bool isBookmarkHovered(int row, int mx, int my) {
+	if (!s_bookmarksImg.isAllocated() || s_bookState != BOOK_IDLE_OPEN || s_bookmarkScaleMultiplier <= 0.0f) return false;
+	const float srcColW = 32.0f;
+	const float srcTotalH = 144.0f;
+	const float srcRowH = 24.0f;
+
+	// Target strictly the final 4th sprite (0-indexed column 3)
+	int finalFrame = std::max(0, (int)(s_bookmarksImg.getWidth() / srcColW) - 1);
+
+	float localX = (mx - s_bookmarkDstX) / s_bookmarkScaleMultiplier;
+	float localY = (my - s_bookmarkDstY) / s_bookmarkScaleMultiplier;
+	if (localX < 0.0f || localX >= srcColW || localY < 0.0f || localY >= srcTotalH) return false;
+	int r = (int)(localY / srcRowH);
+	if (r != row) return false;
+
+	int imgX = (int)(finalFrame * srcColW + localX);
+	int imgY = (int)localY;
+	if (imgX < 0 || imgX >= s_bookmarksImg.getWidth() || imgY < 0 || imgY >= s_bookmarksImg.getHeight()) return false;
+
+	return s_bookmarksImg.getColor(imgX, imgY).a > 60;
+}
 
 // --- VFX SHADERS & PARTICLES ---
 static ofShader s_foilShader;
@@ -1106,10 +1134,11 @@ static float g_templateWidth = 1056.0f;
 static float g_templateHeight = 1448.0f;
 static ofImage g_cardTextSpriteSheet;
 static float g_uniformAPCostScale = 1.0f;
+static float g_uniformBottomTextScale = 1.55f;
 
 // New Cost Coords: Top-Left (64, 48), Bottom-Right (191, 207) -> w = 127, h = 159 (Center: 127.5, 127.5)
 static ofRectangle g_costRect(64, 48, 127, 159);
-static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
+static ofRectangle gCardOpaqueBoundsNormalized(0.042f, 0.033f, 0.916f, 0.950f);
 
 // g_cardLayout initialized with template coordinate space (1056 x 1448)
 static CardTemplateLayout g_cardLayout = []() {
@@ -1122,9 +1151,9 @@ static CardTemplateLayout g_cardLayout = []() {
 	// New Targeting Type Area: Top-Left (288, 1328), Bottom-Right (799, 1423) -> w = 511, h = 95
 	l.targetingRect = ofRectangle(288, 1328, 511, 95);
 
-	// Pushed to the absolute left and right extremes!
-	l.summonAPRect = ofRectangle(288, 1332, 212, 87);
-	l.summonHPRect = ofRectangle(580, 1332, 219, 87);
+	// AP moved further left (center 320) and HP moved further right (center 736) for 416px separation
+	l.summonAPRect = ofRectangle(200, 1328, 240, 95);
+	l.summonHPRect = ofRectangle(616, 1328, 240, 95);
 
 	// Cost Gem Area: Top-Left (64, 48), Bottom-Right (191, 207) -> Center is (127.5, 127.5)
 	l.costRect = ofRectangle(64, 48, 127, 159);
@@ -1540,6 +1569,73 @@ static void drawRichEffectText(const ofTrueTypeFont & font, const std::string & 
 
 	TEXT_PASS_END()
 }
+
+// Forward declaration so computeUniformBottomTextScale can parse markdown if needed
+static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::unordered_map<std::string, CardTemplateRecord> & out);
+
+static float computeUniformBottomTextScale(const ofTrueTypeFont & font, const CardTemplateLayout & layout) {
+	if (!font.isLoaded()) return 1.55f;
+
+	if (g_cardTemplateRecords.empty()) {
+		std::string mdPath = ofToDataPath("UI/cards.md", true);
+		if (ofFile(mdPath).exists()) {
+			parseCardTemplateMarkdown(mdPath, g_cardTemplateRecords);
+		}
+	}
+
+	float fitTargetW = layout.targetingRect.width - 36.0f;
+	float fitTargetH = layout.targetingRect.height - 20.0f;
+
+	float fitApW = layout.summonAPRect.width - 24.0f;
+	float fitApH = layout.summonAPRect.height - 18.0f;
+
+	float fitHpW = layout.summonHPRect.width - 24.0f;
+	float fitHpH = layout.summonHPRect.height - 18.0f;
+
+	float minScale = 2.4f;
+
+	for (const auto & kv : g_cardTemplateRecords) {
+		const auto & rec = kv.second;
+
+		// 1. Check targeting string across all cards
+		if (!rec.targeting.empty()) {
+			ofRectangle b = font.getStringBoundingBox(rec.targeting, 0, 0);
+			if (b.width > 0 && b.height > 0) {
+				float sX = fitTargetW / b.width;
+				float sY = fitTargetH / b.height;
+				minScale = std::min(minScale, std::min(sX, sY));
+			}
+		}
+
+		// 2. Check AP & HP strings
+		bool hasAP = !rec.summonAP.empty();
+		bool hasHP = !rec.summonHP.empty();
+
+		if (hasAP && hasHP) {
+			ofRectangle bAP = font.getStringBoundingBox(rec.summonAP, 0, 0);
+			if (bAP.width > 0 && bAP.height > 0) {
+				float s = std::min(fitApW / bAP.width, fitApH / bAP.height);
+				minScale = std::min(minScale, s);
+			}
+
+			ofRectangle bHP = font.getStringBoundingBox(rec.summonHP, 0, 0);
+			if (bHP.width > 0 && bHP.height > 0) {
+				float s = std::min(fitHpW / bHP.width, fitHpH / bHP.height);
+				minScale = std::min(minScale, s);
+			}
+		} else if (hasAP || hasHP) {
+			std::string singleText = hasAP ? rec.summonAP : rec.summonHP;
+			ofRectangle bSingle = font.getStringBoundingBox(singleText, 0, 0);
+			if (bSingle.width > 0 && bSingle.height > 0) {
+				float s = std::min(fitTargetW / bSingle.width, fitTargetH / bSingle.height);
+				minScale = std::min(minScale, s);
+			}
+		}
+	}
+
+	return std::clamp(minScale, 0.5f, 2.2f);
+}
+
 static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, const ofTrueTypeFont & titleFont, const Card & card, float drawX, float drawY, float w, float h, const Player * owner) {
 	ofPushStyle();
 	ofSetColor(255, 255, 255, 255);
@@ -1772,28 +1868,18 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 		}
 
 		// -------------------------------------------------------------
-		// 5. Targeting Area Text (Auto-scaled to fit 288, 1328 to 799, 1423)
+		// 5. Targeting Area Text (Uses uniform bottom text scale)
 		// -------------------------------------------------------------
 		if (!cardTargeting.empty()) {
 			ofRectangle targetRectShifted = g_cardLayout.targetingRect;
 			targetRectShifted.x += textShiftX;
 			targetRectShifted.y += textShiftY;
 
-			ofRectangle tBounds = titleFont.getStringBoundingBox(cardTargeting, 0, 0);
-			float tFitW = targetRectShifted.width - 36.0f;
-			float tFitH = targetRectShifted.height - 20.0f;
-			float targetScale = 2.0f;
-			if (tBounds.width > 0 && tBounds.height > 0) {
-				float sX = tFitW / tBounds.width;
-				float sY = tFitH / tBounds.height;
-				targetScale = std::min(2.2f, std::min(sX, sY));
-			}
-
-			drawCenteredTextScaledOutlined(titleFont, cardTargeting, targetRectShifted, targetScale, nameColor, nameOutline, 2);
+			drawCenteredTextScaledOutlined(titleFont, cardTargeting, targetRectShifted, g_uniformBottomTextScale, nameColor, nameOutline, 2);
 		}
 
 		// -------------------------------------------------------------
-		// 6. AP / HP Text: Spaced far apart and bold
+		// 6. AP / HP Text: Spaced far apart using identical uniform scale
 		// -------------------------------------------------------------
 		bool hasAP = !summonAP.empty();
 		bool hasHP = !summonHP.empty();
@@ -1806,27 +1892,8 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			hpRect.x += textShiftX;
 			hpRect.y += textShiftY;
 
-			ofRectangle bAP = titleFont.getStringBoundingBox(summonAP, 0, 0);
-			float apFitW = apRect.width - 16.0f;
-			float apFitH = apRect.height - 12.0f;
-			float apScale = 2.6f;
-			if (bAP.width > 0 && bAP.height > 0) {
-				float sX = apFitW / bAP.width;
-				float sY = apFitH / bAP.height;
-				apScale = std::min(2.8f, std::min(sX, sY));
-			}
-			drawCenteredTextScaledOutlined(titleFont, summonAP, apRect, apScale, nameColor, nameOutline, 2);
-
-			ofRectangle bHP = titleFont.getStringBoundingBox(summonHP, 0, 0);
-			float hpFitW = hpRect.width - 16.0f;
-			float hpFitH = hpRect.height - 12.0f;
-			float hpScale = 2.6f;
-			if (bHP.width > 0 && bHP.height > 0) {
-				float sX = hpFitW / bHP.width;
-				float sY = hpFitH / bHP.height;
-				hpScale = std::min(2.8f, std::min(sX, sY));
-			}
-			drawCenteredTextScaledOutlined(titleFont, summonHP, hpRect, hpScale, nameColor, nameOutline, 2);
+			drawCenteredTextScaledOutlined(titleFont, summonAP, apRect, g_uniformBottomTextScale, nameColor, nameOutline, 2);
+			drawCenteredTextScaledOutlined(titleFont, summonHP, hpRect, g_uniformBottomTextScale, nameColor, nameOutline, 2);
 
 		} else if (hasAP || hasHP) {
 			std::string singleText = hasAP ? summonAP : summonHP;
@@ -1834,16 +1901,7 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			singleRect.x += textShiftX;
 			singleRect.y += textShiftY;
 
-			ofRectangle bSingle = titleFont.getStringBoundingBox(singleText, 0, 0);
-			float fitW = singleRect.width - 32.0f;
-			float fitH = singleRect.height - 16.0f;
-			float singleScale = 2.6f;
-			if (bSingle.width > 0 && bSingle.height > 0) {
-				float sX = fitW / bSingle.width;
-				float sY = fitH / bSingle.height;
-				singleScale = std::min(2.8f, std::min(sX, sY));
-			}
-			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, singleScale, nameColor, nameOutline, 2);
+			drawCenteredTextScaledOutlined(titleFont, singleText, singleRect, g_uniformBottomTextScale, nameColor, nameOutline, 2);
 		}
 
 		// 7. Card Effect Description Text
@@ -2265,10 +2323,8 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 	}
 
 	if (!leftEdge.empty() && !rightEdge.empty()) {
-		// FIX: Decimate the outline points to prevent massive FPS lag when usable cards glow!
-		// A 1500px high template creates 3000 vertices. Drawn 7 times for a glow = 21,000 vertices per card!
-		// By stepping every ~40 pixels, we reduce the vertex count by 97% while keeping the shape perfectly smooth.
-		int step = std::max(1, gCardAlphaMaskHeight / 40);
+		// 120 samples per side creates a smooth 16px contour around all curves, gems, and banners
+		int step = std::max(1, gCardAlphaMaskHeight / 120);
 
 		gCardEdgeOutlineNormalized.reserve((leftEdge.size() / step) + (rightEdge.size() / step) + 4);
 
@@ -2294,70 +2350,82 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 static inline bool startsWith(const std::string & s, const std::string & prefix) {
 	return s.rfind(prefix, 0) == 0;
 }
-static void drawCardEdgeOutline(float x, float y, float w, float h, float expandPx = 0.0f) {
-	if (w <= 0.0f || h <= 0.0f) return;
+static void drawCardEdgeOutline(float x, float y, float w, float h, float thicknessPx = 16.0f) {
+	if (w <= 0.0f || h <= 0.0f || g_isSecondPass) return;
 
-	float macroPx = w / 66.0f;
-	float blockyExpand = std::round(expandPx / macroPx) * macroPx;
-	if (blockyExpand < macroPx && expandPx > 0.0f) blockyExpand = macroPx;
-
-	float cx = x + w * 0.5f;
-	float cy = y + h * 0.5f;
-
-	float cardBodyW = w * 0.88f;
-	float cardBodyH = h * 0.88f;
-	float ox = cx - cardBodyW * 0.5f;
-	float oy = cy - cardBodyH * 0.5f;
-	float cCut = 2.0f * macroPx;
-
-	float gemX = x + (64.0f / 1056.0f) * w;
-	float gemY = y + (48.0f / 1448.0f) * h;
-	float gemW = (127.0f / 1056.0f) * w;
-	float gemH = (159.0f / 1448.0f) * h;
-	float gCut = 3.0f * macroPx;
+	float t = (thicknessPx > 0.0f) ? thicknessPx : 16.0f;
+	ofColor curColor = ofGetStyle().color;
 
 	ofPushStyle();
-	ofNoFill();
-	ofSetLineWidth(std::max(1.5f, macroPx * 2.0f));
-	ofSetColor(255, 215, 0, 255); // Solid yellow contour fallback
+	ofFill();
+	ofSetColor(curColor);
 
-	// Outer card body boundary
-	ofDrawRectRounded(ox - blockyExpand, oy - blockyExpand, cardBodyW + 2.0f * blockyExpand, cardBodyH + 2.0f * blockyExpand, cCut + blockyExpand);
-	// AP gem boundary
-	ofDrawRectRounded(gemX - blockyExpand, gemY - blockyExpand, gemW + 2.0f * blockyExpand, gemH + 2.0f * blockyExpand, gCut + blockyExpand);
+	if (!gCardEdgeOutlineNormalized.empty()) {
+		// Build 16px solid geometric mesh along the exact non-transparent pixel boundary of the card
+		glm::vec2 cardCenter(x + w * 0.5f, y + h * 0.5f);
+		size_t n = gCardEdgeOutlineNormalized.size();
+
+		ofMesh outlineMesh;
+		outlineMesh.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+
+		for (size_t i = 0; i <= n; ++i) {
+			size_t currIdx = i % n;
+			size_t prevIdx = (currIdx + n - 1) % n;
+			size_t nextIdx = (currIdx + 1) % n;
+
+			glm::vec2 p0(x + gCardEdgeOutlineNormalized[prevIdx].x * w, y + gCardEdgeOutlineNormalized[prevIdx].y * h);
+			glm::vec2 p1(x + gCardEdgeOutlineNormalized[currIdx].x * w, y + gCardEdgeOutlineNormalized[currIdx].y * h);
+			glm::vec2 p2(x + gCardEdgeOutlineNormalized[nextIdx].x * w, y + gCardEdgeOutlineNormalized[nextIdx].y * h);
+
+			glm::vec2 tangent = p2 - p0;
+			float len = glm::length(tangent);
+			glm::vec2 normal(0.0f, 0.0f);
+			if (len > 0.001f) {
+				tangent /= len;
+				normal = glm::vec2(tangent.y, -tangent.x);
+			}
+
+			// Ensure normal points outward from the card
+			if (glm::dot(normal, p1 - cardCenter) < 0.0f) {
+				normal = -normal;
+			}
+
+			glm::vec2 vInner = p1 - normal * 1.5f; // Tucked slightly under card edge
+			glm::vec2 vOuter = p1 + normal * t; // Extends 16px outward equally everywhere
+
+			outlineMesh.addVertex(glm::vec3(vInner.x, vInner.y, 0.0f));
+			outlineMesh.addVertex(glm::vec3(vOuter.x, vOuter.y, 0.0f));
+		}
+		outlineMesh.draw();
+	} else {
+		// Fallback: 16px geometric outline based on opaque card dimensions
+		ofRectangle opaque = getOpaqueCardBounds(x, y, w, h);
+		float ox = opaque.x, oy = opaque.y, ow = opaque.width, oh = opaque.height;
+		float r = std::max(4.0f, ow * 0.035f);
+
+		ofMesh fallbackMesh;
+		fallbackMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+
+		// Outer shell
+		ofSetColor(curColor);
+		ofDrawRectRounded(ox - t, oy - t, ow + 2.0f * t, oh + 2.0f * t, r + t);
+	}
 
 	ofPopStyle();
 }
 
 static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor color, int layers = 4) {
+	if (g_isSecondPass) return;
 	ofPushStyle();
-	float macroPx = w / 66.0f;
-
-	for (int i = 3; i >= 1; --i) {
-		float expand = (float)i * macroPx * 1.5f;
-		float alphaFactor = (i == 3) ? 0.3f : ((i == 2) ? 0.6f : 0.9f);
-		ofSetColor(color.r, color.g, color.b, (int)(color.a * alphaFactor));
-		drawCardEdgeOutline(drawX, drawY, w, h, expand);
-	}
-
-	ofSetColor(color.r, color.g, color.b, 255);
-	drawCardEdgeOutline(drawX, drawY, w, h, 0.0f);
+	ofSetColor(color);
+	drawCardEdgeOutline(drawX, drawY, w, h, 16.0f);
 	ofPopStyle();
 }
 
-static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx, float gapPx = 1.0f) {
-	float sx = x;
-	float sy = y;
-	float sw = w;
-	float sh = h;
-	if (std::fabs(x - std::round(x)) < 0.001f && std::fabs(y - std::round(y)) < 0.001f && std::fabs(w - std::round(w)) < 0.001f && std::fabs(h - std::round(h)) < 0.001f) {
-		sx = std::round(x);
-		sy = std::round(y);
-		sw = std::max(1.0f, std::round(w));
-		sh = std::max(1.0f, std::round(h));
-	}
-	float expand = std::max(0.0f, gapPx + std::max(0.0f, lineWidthPx) * 0.5f);
-	drawCardEdgeOutline(sx, sy, sw, sh, expand);
+static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx = 16.0f, float gapPx = 0.0f) {
+	if (g_isSecondPass) return;
+	float t = (lineWidthPx > 0.0f) ? lineWidthPx : 16.0f;
+	drawCardEdgeOutline(x, y, w, h, t);
 }
 
 static float quantizePixelTextScale(float scale) {
@@ -2450,43 +2518,82 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const st
 
 	TEXT_PASS_BEGIN()
 
-	auto getBounds = [&](const std::string & t) {
-		auto it = g_stringBoundsCache.find(t);
-		if (it != g_stringBoundsCache.end()) return it->second;
-		ofRectangle bounds = font.getStringBoundingBox(t, 0, 0);
-		g_stringBoundsCache[t] = bounds;
-		return bounds;
-	};
+	if (text.find('\n') == std::string::npos) {
+		auto getBounds = [&](const std::string & t) {
+			auto it = g_stringBoundsCache.find(t);
+			if (it != g_stringBoundsCache.end()) return it->second;
+			ofRectangle bounds = font.getStringBoundingBox(t, 0, 0);
+			g_stringBoundsCache[t] = bounds;
+			return bounds;
+		};
 
-	float drawScale = scale;
-	ofRectangle b = getBounds(text);
+		float drawScale = scale;
+		ofRectangle b = getBounds(text);
 
-	float centerX = rect.x + rect.width * 0.5f;
-	float centerY = rect.y + rect.height * 0.5f;
-	float textCenterX = (b.x + b.width * 0.5f) * drawScale;
-	float textCenterY = (b.y + b.height * 0.5f) * drawScale;
-	float txSnap = std::round(centerX - textCenterX);
-	float tySnap = std::round(centerY - textCenterY);
+		float centerX = rect.x + rect.width * 0.5f;
+		float centerY = rect.y + rect.height * 0.5f;
+		float textCenterX = (b.x + b.width * 0.5f) * drawScale;
+		float textCenterY = (b.y + b.height * 0.5f) * drawScale;
+		float txSnap = std::round(centerX - textCenterX);
+		float tySnap = std::round(centerY - textCenterY);
 
-	const int r = std::max(0, outlinePx);
-	if (r > 0) {
-		int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
-		for (auto & off : offsets) {
-			ofSetColor(outlineColor);
+		const int r = std::max(0, outlinePx);
+		if (r > 0) {
+			int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
+			for (auto & off : offsets) {
+				ofSetColor(outlineColor);
+				ofPushMatrix();
+				ofTranslate(txSnap + (float)(off[0] * r) * drawScale, tySnap + (float)(off[1] * r) * drawScale);
+				ofScale(drawScale, drawScale);
+				font.drawString(text, 0, 0);
+				ofPopMatrix();
+			}
+		}
+
+		ofSetColor(fillColor);
+		ofPushMatrix();
+		ofTranslate(txSnap, tySnap);
+		ofScale(drawScale, drawScale);
+		font.drawString(text, 0, 0);
+		ofPopMatrix();
+	} else {
+		std::vector<std::string> lines;
+		std::stringstream ss(text);
+		std::string l;
+		while (std::getline(ss, l, '\n')) {
+			lines.push_back(l);
+		}
+		float lineHeight = font.getLineHeight() * scale * 0.88f;
+		float totalH = (float)lines.size() * lineHeight;
+		float startY = rect.y + (rect.height - totalH) * 0.5f + (font.getAscenderHeight() * scale);
+
+		for (size_t li = 0; li < lines.size(); ++li) {
+			const std::string & line = lines[li];
+			ofRectangle b = font.getStringBoundingBox(line, 0, 0);
+			float tx = std::round(rect.x + (rect.width - b.width * scale) * 0.5f);
+			float ty = std::round(startY + li * lineHeight);
+
+			const int r = std::max(0, outlinePx);
+			if (r > 0) {
+				int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
+				for (auto & off : offsets) {
+					ofSetColor(outlineColor);
+					ofPushMatrix();
+					ofTranslate(tx + (float)(off[0] * r) * scale, ty + (float)(off[1] * r) * scale);
+					ofScale(scale, scale);
+					font.drawString(line, 0, 0);
+					ofPopMatrix();
+				}
+			}
+
+			ofSetColor(fillColor);
 			ofPushMatrix();
-			ofTranslate(txSnap + (float)(off[0] * r) * drawScale, tySnap + (float)(off[1] * r) * drawScale);
-			ofScale(drawScale, drawScale);
-			font.drawString(text, 0, 0);
+			ofTranslate(tx, ty);
+			ofScale(scale, scale);
+			font.drawString(line, 0, 0);
 			ofPopMatrix();
 		}
 	}
-
-	ofSetColor(fillColor);
-	ofPushMatrix();
-	ofTranslate(txSnap, tySnap);
-	ofScale(drawScale, drawScale);
-	font.drawString(text, 0, 0);
-	ofPopMatrix();
 
 	TEXT_PASS_END()
 }
@@ -3002,6 +3109,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	g_uniformEffectScale = uniformEffectScale;
 	g_effectLineSpacing = layout.effectLineSpacing;
 	g_cardLayout = layout; // Stored here after layout is initialized
+	g_uniformBottomTextScale = computeUniformBottomTextScale(renderTitleFont, layout);
 
 	// Master Fist uses the global rect at runtime. Since it's an attack, it has the expanded box!
 	g_effectTextRect = layout.effectRect;
@@ -3381,6 +3489,11 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				savedSourceHash = 0;
 			}
 		}
+	}
+
+	// Always build the pixel-accurate contour outline from the template image for 16px card selection outlines
+	if (templateImage.isAllocated()) {
+		rebuildCardAlphaMaskAndOutline(templateImage, 15);
 	}
 
 	bool cacheUpToDate = ofFile(spritePath).exists() && ofFile(textPath).exists() && (savedSourceHash == currentSourceHash) && (savedSourceHash != 0);
@@ -9345,14 +9458,32 @@ std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 
 	return path;
 }
 
+static int getBookmarkIndexForState(GameState state) {
+	switch (state) {
+	case STATE_MULTIPLAYER_MENU:
+		return 0; // Versus
+	case STATE_SINGLEPLAYER_MENU:
+		return 1; // Solo
+	case STATE_ENCYCLOPEDIA:
+		return 2; // Rules
+	case STATE_SETTINGS:
+		return 3; // Settings
+	default:
+		return -1; // Front cover / Main Menu
+	}
+}
+
 void ofApp::navigateToMenu(int screenIndex, GameState newState) {
 	if (s_bookState == BOOK_TURNING_RIGHT || s_bookState == BOOK_TURNING_LEFT) return;
+
+	int currentIdx = getBookmarkIndexForState(currentState);
+	int targetIdx = getBookmarkIndexForState(newState);
 
 	pendingMenuState = newState;
 	isWaitingForMenuTransition = true;
 
-	// Pick flip direction
-	if (newState == STATE_MAIN_MENU) {
+	// Going down the bookmark list (higher index) turns page LEFT; going up turns page RIGHT
+	if (targetIdx > currentIdx) {
 		s_animTurnLeft.play();
 		s_bookState = BOOK_TURNING_LEFT;
 	} else {
@@ -9635,58 +9766,78 @@ void ofApp::draw2DMenuBackground() {
 		s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
-		int bFrame = 4;
+		// Determine the 4th sprite column (0-indexed frame 3) for the fully open state
+		int numFrames = (s_bookmarksImg.getWidth() > 0) ? (int)(s_bookmarksImg.getWidth() / srcColW) : 4;
+		int bFrame = std::min(3, numFrames - 1);
 		if (s_bookState == BOOK_OPENING) {
-			bFrame = std::min(4, s_animOpen.currentFrame);
+			bFrame = std::min(bFrame, (int)std::floor((float)s_animOpen.currentFrame * (float)bFrame / 11.0f));
 		}
 
-		float srcX = bFrame * srcColW;
-		float srcY = 0.0f;
-
+		float srcX = (float)bFrame * srcColW;
 		float dstW = srcColW * scaleMultiplier;
-		float dstH = srcTotalH * scaleMultiplier;
 		float rowH = srcRowH * scaleMultiplier;
 
 		float dstX = std::round(bookX + (s_bookmarkNativeX * scaleMultiplier));
 		float dstY = std::round(bookY + (s_bookmarkNativeY * scaleMultiplier));
 
-		// Hitboxes match each bookmark's drawn region
-		s_bookmarkVersus.set(dstX, dstY + (0 * rowH), dstW, rowH);
-		s_bookmarkSolo.set(dstX, dstY + (1 * rowH), dstW, rowH);
-		s_bookmarkRules.set(dstX, dstY + (2 * rowH), dstW, rowH);
-		s_bookmarkSettings.set(dstX, dstY + (4 * rowH), dstW, rowH); // Row 4 (skips Row 3 gap)
-		s_bookmarkQuit.set(dstX, dstY + (5 * rowH), dstW, rowH);
+		s_bookmarkDstX = dstX;
+		s_bookmarkDstY = dstY;
+		s_bookmarkScaleMultiplier = scaleMultiplier;
+
+		// Structure defining the 5 bookmarks:
+		// Settings (row 4) starts at srcY=94 (-2px) and Quit (row 5) starts at srcY=118 (-2px)
+		// Each subsequent bookmark is staggered by a very subtle sub-pixel amount (0.2 native px)
+		struct BookmarkTabDef {
+			int tabIndex;
+			int row;
+			float srcY;
+			float yNudgeNative;
+			ofRectangle & rect;
+			const char * id;
+		};
+
+		const float stepRightNative = 1.3f;
+
+		BookmarkTabDef tabs[5] = {
+			{ 0, 0, 0.0f, 0.0f, s_bookmarkVersus, "bookmark_VS" },
+			{ 1, 1, 24.0f, 0.0f, s_bookmarkSolo, "bookmark_SOLO" },
+			{ 2, 2, 48.0f, 0.0f, s_bookmarkRules, "bookmark_RULES" },
+			{ 3, 4, 94.0f, -2.0f, s_bookmarkSettings, "bookmark_SETTINGS" },
+			{ 4, 5, 118.0f, -2.0f, s_bookmarkQuit, "bookmark_QUIT" }
+		};
+
+		// Set hitboxes: starts at +15 native px (page edge) so book page clicks never register
+		for (int i = 0; i < 5; ++i) {
+			float xStagger = (float)i * stepRightNative * scaleMultiplier;
+			float tabHitX = dstX + xStagger + (15.0f * scaleMultiplier);
+			float tabHitW = (srcColW - 15.0f) * scaleMultiplier;
+			float tabHitY = dstY + (float)tabs[i].row * rowH + (tabs[i].yNudgeNative * scaleMultiplier);
+			tabs[i].rect.set(tabHitX, tabHitY, tabHitW, rowH);
+		}
 
 		int mx = ofGetMouseX();
 		int my = ofGetMouseY();
-		bool anyHovered = false;
 
+		int hoveredTabIndex = -1;
 		if (s_bookState == BOOK_IDLE_OPEN) {
-			if (s_bookmarkVersus.inside(mx, my)) {
-				g_hoveredButtonId = "bookmark_VS";
-				anyHovered = true;
-			}
-			if (s_bookmarkSolo.inside(mx, my)) {
-				g_hoveredButtonId = "bookmark_SOLO";
-				anyHovered = true;
-			}
-			if (s_bookmarkRules.inside(mx, my)) {
-				g_hoveredButtonId = "bookmark_RULES";
-				anyHovered = true;
-			}
-			if (s_bookmarkSettings.inside(mx, my)) {
-				g_hoveredButtonId = "bookmark_SETTINGS";
-				anyHovered = true;
-			}
-			if (s_bookmarkQuit.inside(mx, my)) {
-				g_hoveredButtonId = "bookmark_QUIT";
-				anyHovered = true;
+			for (int i = 0; i < 5; ++i) {
+				if (tabs[i].rect.inside(mx, my)) {
+					hoveredTabIndex = i;
+					g_hoveredButtonId = tabs[i].id;
+					break;
+				}
 			}
 		}
 
-		// Draw the sprite directly
-		ofSetColor(anyHovered ? ofColor(255, 255, 255) : ofColor(235, 235, 235));
-		s_bookmarksImg.drawSubsection(dstX, dstY, dstW, dstH, srcX, srcY, srcColW, srcTotalH);
+		// Draw each bookmark with its stagger offset; stationary (no movement on hover), only tint changes
+		for (int i = 0; i < 5; ++i) {
+			bool thisHovered = (hoveredTabIndex == i);
+			ofSetColor(thisHovered ? ofColor(255, 255, 255, 255) : ofColor(215, 215, 215, 255));
+			float xStagger = (float)i * stepRightNative * scaleMultiplier;
+			float tabDrawX = dstX + xStagger;
+			float tabDrawY = dstY + (float)tabs[i].row * rowH + (tabs[i].yNudgeNative * scaleMultiplier);
+			s_bookmarksImg.drawSubsection(tabDrawX, tabDrawY, dstW, rowH, srcX, tabs[i].srcY, srcColW, srcRowH);
+		}
 		ofSetColor(255, 255, 255, 255);
 	}
 }
@@ -10000,31 +10151,6 @@ void ofApp::drawSettingsMenu() {
 		drawPixelTextCentered(uiFont, fsText, settingsFullscreenButton.getCenter().x, settingsFullscreenButton.getCenter().y, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
 	}
 
-	// GAME tab: gameplay settings
-	if (currentSettingsTab == SETTINGS_TAB_GAME) {
-		float settingY = contentY + 20.0f * uiScale;
-
-		// --- In-World Unit Health Bars Setting ---
-		std::string hpModeNames[] = { "Always", "On Hover", "Off" };
-		std::string hpModeText = hpModeNames[std::clamp(settingsInWorldHPMode, 0, 2)];
-		settingsInWorldHPBtn.set(centerX - (controlWidth / 2), settingY + 20.0f * uiScale, controlWidth, 50.0f * uiScale);
-		bool isHpHovered = settingsInWorldHPBtn.inside(ofGetMouseX(), ofGetMouseY());
-		if (isHpHovered) g_hoveredButtonId = "set_inworld_hp";
-
-		ofSetColor(ofColor(35));
-		ofDrawRectangle(settingsInWorldHPBtn);
-		ofNoFill();
-		ofSetLineWidth(2.0f);
-		ofSetColor(isHpHovered ? ofColor(255, 215, 0) : ofColor(100, 100, 120));
-		ofDrawRectangle(settingsInWorldHPBtn);
-		ofFill();
-
-		ofSetColor(ofColor::white);
-		ofRectangle hpLabelBox = getCachedBounds("In-World Unit HP");
-		SafeDrawText(uiFont, "In-World Unit HP", centerX - hpLabelBox.getWidth() / 2, settingY);
-		ofRectangle hpValBox = getCachedBounds(hpModeText);
-		SafeDrawText(uiFont, hpModeText, settingsInWorldHPBtn.x + (settingsInWorldHPBtn.width - hpValBox.width) / 2, settingsInWorldHPBtn.y + 32.0f * uiScale);
-	}
 	// GAME tab: clean setting rows with titles rendered strictly above the buttons
 	if (currentSettingsTab == SETTINGS_TAB_GAME) {
 		float settingY = contentY + 20.0f * uiScale;
@@ -10122,7 +10248,7 @@ void ofApp::drawSettingsMenu() {
 		drawAudioSliderWithArrows(settingsAudioSfxSlider, settingsAudioSfxLeftBtn, settingsAudioSfxRightBtn, sliderY, settingsSfxVolume, sfxLabel, 3);
 	}
 
-	// CONTROLS tab: spacious scrollable list with clean clearance above the Back button
+	// CONTROLS tab: spacious scrollable list with clean clearance above the panel bottom
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
 		float listY = contentY + 16.0f * uiScale;
 		float itemH = 40.0f * uiScale;
@@ -10147,8 +10273,8 @@ void ofApp::drawSettingsMenu() {
 			{ "C", "Open Card Spawner (Singleplayer)" }
 		};
 
-		// 24px clearance above the Back button so content never touches it
-		float contentBottom = settingsBackButton.y - 24.0f * uiScale;
+		// Bound against the bottom edge of panelRect so content is fully visible
+		float contentBottom = panelRect.getBottom() - 24.0f * uiScale;
 		float contentHeight = std::max(0.0f, contentBottom - listY);
 
 		float totalContentHeight = (float)controls.size() * rowStep;
@@ -18688,12 +18814,16 @@ void ofApp::mouseMoved(int x, int y) {
 	int newHoverGridY = -1;
 	int newHoverCardIndex = -1;
 
-	// Hearthstone-style hover scale for card animations
-	const float hoverScale = kHandHoverScale;
-
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
 	isShowingTooltip = false; // Reset tooltip state every frame
+
+	// Change mouse cursor to pointer hand when hovering over any bookmark
+	if (s_bookState == BOOK_IDLE_OPEN) {
+		if (s_bookmarkVersus.inside(x, y) || s_bookmarkSolo.inside(x, y) || s_bookmarkRules.inside(x, y) || s_bookmarkSettings.inside(x, y) || s_bookmarkQuit.inside(x, y)) {
+			currentCursor = CURSOR_CLICK;
+		}
+	}
 
 	// 2. Check for "Clickable" things (Buttons)
 	bool overPauseMenuButton = false;
@@ -19018,8 +19148,8 @@ cursor_check_done:;
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
-			// Hearthstone-style: smooth scaling on hover with hoverScale variable
-			float targetScaleVal = ((cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) ? 1.0f : (isLocallyHovered ? hoverScale : 1.0f));
+			// Use global constant kHandHoverScale directly
+			float targetScaleVal = ((cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) ? 1.0f : (isLocallyHovered ? kHandHoverScale : 1.0f));
 			if ((int)i == draggedCardIndex) targetScaleVal = 1.0f;
 			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
@@ -19920,41 +20050,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 			if (currentState == STATE_MAIN_MENU) {
-				if (mainMenuSingleplayerButton.inside(x, y)) {
-					clickedUI = true;
-					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
-				} else if (mainMenuCustomisationButton.inside(x, y)) {
-					clickedUI = true;
-					currentState = STATE_CUSTOMISATION;
-				} else if (mainMenuEncyclopediaButton.inside(x, y)) {
-					clickedUI = true;
-					currentState = STATE_ENCYCLOPEDIA;
-				} else if (mainMenuOnlineButton.inside(x, y)) {
-					clickedUI = true;
-					if (steamManager.isConnected() && SteamUserStats()) {
-						int32_t expiryTime = 0;
-						SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "ban_expiry_time", &expiryTime);
-						if ((int32_t)std::time(nullptr) < expiryTime) {
-							queueFloatingTextVisual(glm::vec3(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f, 0), "You are banned.", ofColor::red);
-							playHandFeedbackSfx(0.78f, 0.10f);
-							return;
-						}
-					}
-					isVsAI = false;
-					isAIvsAI = false;
-					if (steamManager.isConnected()) {
-						steamManager.refreshLobbies();
-						steamManager.fetchLeaderboard();
-					}
-					navigateToMenu(-1, STATE_MULTIPLAYER_MENU);
-				} else if (mainMenuSettingsButton.inside(x, y)) {
-					clickedUI = true;
-					stateBeforeSettings = STATE_MAIN_MENU;
-					currentState = STATE_SETTINGS;
-				} else if (mainMenuQuitButton.inside(x, y)) {
-					ofExit();
-					return;
-				}
+				// The main menu uses the bookmarks exclusively; legacy hidden buttons on the page are disabled
 			} else if (currentState == STATE_MULTIPLAYER_MENU) {
 
 				if (g_inLobby) {
@@ -23115,7 +23211,10 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		float contentY = tabsY + tabH + 30.0f * uiScale;
 		float listY = contentY + 16.0f * uiScale;
 
-		float contentBottom = settingsBackButton.y - 24.0f * uiScale;
+		// Calculate the settings panel bottom directly so it doesn't depend on panelRect
+		float panelH = ofGetHeight() * 0.85f;
+		float panelY = ofGetHeight() * 0.075f;
+		float contentBottom = (panelY + panelH) - 24.0f * uiScale;
 		float contentHeight = std::max(0.0f, contentBottom - listY);
 
 		float itemH = 40.0f * uiScale;
@@ -42712,6 +42811,9 @@ void ofApp::loadCardData(const std::string & filePath) {
 	if (ofFile(mdPath).exists()) {
 		parseCardTemplateMarkdown(mdPath, g_cardTemplateRecords);
 	}
+	if (titleFont.isLoaded()) {
+		g_uniformBottomTextScale = computeUniformBottomTextScale(titleFont, g_cardLayout);
+	}
 
 	if (!headless) {
 		const std::string textAtlasPath = "UI/card_text_generated.png";
@@ -44727,13 +44829,12 @@ void ofApp::drawDraftScreen() {
 			if (scale > 0.08f) {
 				if (isSelected) {
 					ofPushStyle();
-					ofFill();
-					for (int g = 6; g >= 1; --g) {
-						ofSetColor(255, 255, 0, 90 - (g * 14));
-						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 2.0f);
+					for (int g = 4; g >= 1; --g) {
+						ofSetColor(255, 215, 0, 70 + (g * 35));
+						drawCardOutlineOutside(drawX, drawY, w, h, 3.0f, g * 3.0f);
 					}
-					ofSetColor(ofColor::yellow);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 5.0f);
+					ofSetColor(255, 215, 0, 255);
+					drawCardOutlineOutside(drawX, drawY, w, h, 4.0f, 1.0f);
 					safePopStyle();
 				}
 
@@ -44743,13 +44844,12 @@ void ofApp::drawDraftScreen() {
 
 				if (isLocallyHovered || isOpponentHovered) {
 					ofPushStyle();
-					ofFill();
-					for (int g = 5; g >= 1; --g) {
-						ofSetColor(255, 255, 255, 60 - (g * 10));
-						drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, g * 2.0f + 1.0f);
+					for (int g = 3; g >= 1; --g) {
+						ofSetColor(255, 255, 255, 80 + (g * 40));
+						drawCardOutlineOutside(drawX, drawY, w, h, 3.0f, g * 2.5f);
 					}
-					ofSetColor(ofColor::white);
-					drawCardOutlineOutside(drawX, drawY, w, h, 0.0f, 4.0f);
+					ofSetColor(255, 255, 255, 255);
+					drawCardOutlineOutside(drawX, drawY, w, h, 3.5f, 1.0f);
 					safePopStyle();
 				}
 			}

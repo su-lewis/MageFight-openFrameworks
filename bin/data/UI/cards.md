@@ -261,10 +261,10 @@
 ## 34. Magic Bolt
 - **Damage type:** Magic / Electric AOE
 - **AP Cost:** 6
-- **Targeting:** 2d20 ft, 1d20 ft AOE
+- **Targeting:** 2d20 ft
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an **AOE** from the tile hit. Can target through walls (**AOE** is blocked).
+- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an 1d20 ft **AOE** from the tile hit. Can target through walls (**AOE** is blocked).
 ---
 
 ## 35. Flail
@@ -491,7 +491,7 @@
 - **Picture:** 
 - **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent, you gain +1 **Luck** and can reroll AP once if at 0. 
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
-- **AP:** 2 : 1
+- **AP:** Coin
 - **HP:** 1
 ---
 
