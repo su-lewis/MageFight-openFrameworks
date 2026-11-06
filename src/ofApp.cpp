@@ -249,29 +249,39 @@ static float s_bookmarkDstX = 0.0f;
 static float s_bookmarkDstY = 0.0f;
 static float s_bookmarkScaleMultiplier = 1.0f;
 
-static bool isBookmarkHovered(int row, int mx, int my) {
+// Tracks the current frame (0.0f to 7.0f) for each of the 5 bookmarks
+static float s_bookmarkAnimFrame[5] = { 3.0f, 3.0f, 3.0f, 3.0f, 3.0f };
+
+static bool isBookmarkHovered(int tabIndex, int mx, int my) {
 	if (!s_bookmarksImg.isAllocated() || s_bookState != BOOK_IDLE_OPEN || s_bookmarkScaleMultiplier <= 0.0f) return false;
+	if (tabIndex < 0 || tabIndex >= 5) return false;
 
-	// Dynamically fetch the width of 1 frame so it never chops pixels
-	float srcColW = s_bookmarksImg.getWidth() / 4.0f;
-	const float srcTotalH = 144.0f;
-	const float srcRowH = 24.0f;
+	const float srcColW = (float)s_bookmarksImg.getWidth() / 8.0f;
+	const float srcRowH = (float)s_bookmarksImg.getHeight() / 6.0f;
 
-	int finalFrame = 3; // The fully open bookmarks are on frame index 3
+	// Clean whole-integer stagger (1 native book pixel per tab)
+	const int stepRightNative = 1;
+	int xStagger = tabIndex * stepRightNative * (int)s_bookmarkScaleMultiplier;
 
-	float localX = (mx - s_bookmarkDstX) / s_bookmarkScaleMultiplier;
-	float localY = (my - s_bookmarkDstY) / s_bookmarkScaleMultiplier;
-	if (localX < 0.0f || localX >= srcColW || localY < 0.0f || localY >= srcTotalH) return false;
-	int r = (int)(localY / srcRowH);
-	if (r != row) return false;
+	int rows[5] = { 0, 1, 2, 4, 5 };
+	int yNudges[5] = { 0, 0, 0, -2, -2 };
 
-	int imgX = (int)(finalFrame * srcColW + localX);
-	int imgY = (int)localY;
+	float tabDrawX = s_bookmarkDstX + (float)xStagger;
+	float tabDrawY = s_bookmarkDstY + ((float)rows[tabIndex] * srcRowH * s_bookmarkScaleMultiplier) + ((float)yNudges[tabIndex] * s_bookmarkScaleMultiplier);
+
+	float localX = (mx - tabDrawX) / s_bookmarkScaleMultiplier;
+	float localY = (my - tabDrawY) / s_bookmarkScaleMultiplier;
+
+	if (localX < 0.0f || localX >= srcColW || localY < 0.0f || localY >= srcRowH) return false;
+
+	int curCol = std::clamp((int)std::round(s_bookmarkAnimFrame[tabIndex]), 0, 7);
+	int imgX = (int)(curCol * srcColW + localX);
+	int imgY = (int)((float)rows[tabIndex] * srcRowH + localY);
+
 	if (imgX < 0 || imgX >= s_bookmarksImg.getWidth() || imgY < 0 || imgY >= s_bookmarksImg.getHeight()) return false;
 
-	return s_bookmarksImg.getColor(imgX, imgY).a > 60;
+	return s_bookmarksImg.getColor(imgX, imgY).a > 25;
 }
-
 // --- VFX SHADERS & PARTICLES ---
 static ofShader s_foilShader;
 static ofShader s_burnShader;
@@ -6174,8 +6184,8 @@ void ofApp::setup() {
 		// --- LOAD MAGIC BOOK ANIMATIONS ---
 		// Changed speed from 0.055f to 0.11f to double the duration of each frame!
 		s_animOpen.setup("UI/Book/Open_book.png", 4, 3, 12, 0.11f, false);
-		s_animTurnRight.setup("UI/Book/Turning_pages_right.png", 4, 4, 15, 0.07f, false);
-		s_animTurnLeft.setup("UI/Book/Turning_pages_left.png", 4, 4, 15, 0.07f, false);
+		s_animTurnRight.setup("UI/Book/Turning_pages_right.png", 4, 4, 15, 0.038f, false); // ~0.57s turn (was 0.07f / 1.05s)
+		s_animTurnLeft.setup("UI/Book/Turning_pages_left.png", 4, 4, 15, 0.038f, false); // ~0.57s turn (was 0.07f / 1.05s)
 
 		if (s_bookmarksImg.load("UI/Book/Open_book_bookmarks2.png")) {
 			s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -7241,39 +7251,6 @@ void ofApp::update() {
 	// Fallback to catch un-minimize events where the OS drops the resize callback
 	if (ofGetWidth() > 0 && ofGetHeight() > 0 && (ofGetWidth() != lastWindowWidth || ofGetHeight() != lastWindowHeight)) {
 		recalculateUI(ofGetWidth(), ofGetHeight());
-	}
-
-	// --- SPELLBOOK PAGE TURN & ANIMATION UPDATE ---
-	if (currentState == STATE_MAIN_MENU || currentState == STATE_MULTIPLAYER_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SETTINGS || currentState == STATE_ENCYCLOPEDIA || currentState == STATE_CUSTOMISATION) {
-		float dt = std::min((float)ofGetLastFrameTime(), 0.1f);
-
-		if (s_bookState == BOOK_OPENING) {
-			s_animOpen.update(dt);
-			if (s_animOpen.isFinished) {
-				s_bookState = BOOK_IDLE_OPEN;
-			}
-		} else if (s_bookState == BOOK_TURNING_RIGHT) {
-			s_animTurnRight.update(dt);
-			// At frame 7 (the peak midpoint of the 15 frames), swap the menu screen
-			if (s_animTurnRight.currentFrame == 7 && isWaitingForMenuTransition) {
-				currentState = pendingMenuState;
-				isWaitingForMenuTransition = false;
-			}
-			if (s_animTurnRight.isFinished) {
-				s_bookState = BOOK_IDLE_OPEN;
-			}
-		} else if (s_bookState == BOOK_TURNING_LEFT) {
-			s_animTurnLeft.update(dt);
-			if (s_animTurnLeft.currentFrame == 7 && isWaitingForMenuTransition) {
-				currentState = pendingMenuState;
-				isWaitingForMenuTransition = false;
-			}
-			if (s_animTurnLeft.isFinished) {
-				s_bookState = BOOK_IDLE_OPEN;
-			}
-		}
-
-		updateMenuRects();
 	}
 
 	steamManager.update();
@@ -9637,9 +9614,7 @@ void ofApp::navigateToMenu(int screenIndex, GameState newState) {
 		s_bookState = BOOK_TURNING_RIGHT;
 	}
 
-	if (s_sfxHoverButton.isLoaded()) {
-		s_sfxHoverButton.play();
-	}
+	// s_sfxHoverButton.play() removed here
 }
 
 void ofApp::updateMenuRects() {
@@ -9855,11 +9830,19 @@ void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
 	ofFill();
 }
 
+// ==============================================================================
+// --- STANDARDIZED BOOK TYPOGRAPHY (The ONLY 3 text sizes used in the Grimoire) ---
+static const float kBookHeaderScale = 1.50f; // Page titles (~36px)
+static const float kBookSubheaderScale = 1.00f; // Section headers, buttons & bookmarks (24px)
+static const float kBookBodyScale = 0.70f; // Rules text & descriptions (~17px)
+// ==============================================================================
+
 void ofApp::draw2DMenuBackground() {
 	if (g_isSecondPass) return;
 
 	ofDisableLighting();
 	ofDisableDepthTest();
+
 	ofSetColor(255, 255, 255, 255);
 
 	// 0. Fullscreen Pixel-Art Background
@@ -9883,27 +9866,25 @@ void ofApp::draw2DMenuBackground() {
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
 
-	// Increased integer scale by +1 (e.g. 5x -> 6x on 1080p: 1536x1152)
 	float baseScale = std::floor((ofGetHeight() * 0.90f) / singleFrameH);
 	float scaleMultiplier = std::max(1.0f, baseScale + 1.0f);
 
 	float targetW = singleFrameW * scaleMultiplier;
 	float targetH = singleFrameH * scaleMultiplier;
 
-	static float s_bookmarkNativeX = 235.0f;
-	static float s_bookmarkNativeY = 100.0f;
-	const float srcColW = 32.0f;
-	const float srcTotalH = 144.0f;
-	const float srcRowH = 24.0f;
+	// CLEAN INTEGER OFFSETS:
+	// Set to 240 so the tabs tuck neatly into the blue binding without covering the beige page
+	static int s_bookmarkNativeX = 240;
+	static int s_bookmarkNativeY = 96;
 
-	float totalAssemblyNativeW = std::max(singleFrameW, s_bookmarkNativeX + srcColW);
+	const float srcColW = (float)s_bookmarksImg.getWidth() / 8.0f;
+	const float srcRowH = (float)s_bookmarksImg.getHeight() / 6.0f;
+
+	float totalAssemblyNativeW = std::max(singleFrameW, (float)s_bookmarkNativeX + srcColW);
 	float totalAssemblyW = totalAssemblyNativeW * scaleMultiplier;
 	float bookX = std::round((ofGetWidth() - totalAssemblyW) * 0.5f);
-
-	// Vertically center the book
 	float bookY = std::round(((float)ofGetHeight() - targetH) * 0.5f);
 
-	// Cache book position so pages lock onto it exactly
 	s_bookDrawX = bookX;
 	s_bookDrawY = bookY;
 	s_bookDrawW = targetW;
@@ -9911,7 +9892,7 @@ void ofApp::draw2DMenuBackground() {
 
 	// 2. Render Animated Book
 	if (s_bookState == BOOK_CLOSED) {
-		s_animOpen.currentFrame = 0; // Frame 0 is the closed book
+		s_animOpen.currentFrame = 0;
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	} else if (s_bookState == BOOK_OPENING) {
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
@@ -9924,27 +9905,23 @@ void ofApp::draw2DMenuBackground() {
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	}
 
-	// 3. Render Bookmarks (Locked to the book and scaled together)
-	if (s_bookmarksImg.isAllocated()) {
+	// 3. Render Bookmarks
+	// DELAYED APPEARANCE: Hidden until opening has reached at least the 4th frame (index >= 3)
+	bool showBookmarks = (s_bookState != BOOK_CLOSED) && !(s_bookState == BOOK_OPENING && s_animOpen.currentFrame < 3);
+
+	if (s_bookmarksImg.isAllocated() && showBookmarks) {
+		ofPushStyle();
+		ofDisableDepthTest();
+		safeEnableAlphaBlending();
+
 		s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
-		// Determine the sprite column frame
-		int numFrames = (s_bookmarksImg.getWidth() > 0) ? (int)(s_bookmarksImg.getWidth() / srcColW) : 4;
-		int bFrame = std::min(3, numFrames - 1);
+		float dstW = std::round(srcColW * scaleMultiplier);
+		float rowH = std::round(srcRowH * scaleMultiplier);
 
-		if (s_bookState == BOOK_CLOSED) {
-			bFrame = 0; // Use the most "closed/tucked in" frame for the bookmarks
-		} else if (s_bookState == BOOK_OPENING) {
-			bFrame = std::min(bFrame, (int)std::floor((float)s_animOpen.currentFrame * (float)bFrame / 11.0f));
-		}
-
-		float srcX = (float)bFrame * srcColW;
-		float dstW = srcColW * scaleMultiplier;
-		float rowH = srcRowH * scaleMultiplier;
-
-		float dstX = std::round(bookX + (s_bookmarkNativeX * scaleMultiplier));
-		float dstY = std::round(bookY + (s_bookmarkNativeY * scaleMultiplier));
+		float dstX = std::round(bookX + ((float)s_bookmarkNativeX * scaleMultiplier));
+		float dstY = std::round(bookY + ((float)s_bookmarkNativeY * scaleMultiplier));
 
 		s_bookmarkDstX = dstX;
 		s_bookmarkDstY = dstY;
@@ -9954,54 +9931,91 @@ void ofApp::draw2DMenuBackground() {
 			int tabIndex;
 			int row;
 			float srcY;
-			float yNudgeNative;
+			int yNudgeNative;
 			ofRectangle & rect;
-			const char * id;
+			std::string label;
 		};
 
-		const float stepRightNative = 1.26f;
+		// 1 clean native pixel step per tab
+		const int stepRightNative = 1;
 
 		BookmarkTabDef tabs[5] = {
-			{ 0, 0, 0.0f, 0.0f, s_bookmarkVersus, "bookmark_VS" },
-			{ 1, 1, 24.0f, 0.0f, s_bookmarkSolo, "bookmark_SOLO" },
-			{ 2, 2, 48.0f, 0.0f, s_bookmarkRules, "bookmark_RULES" },
-			{ 3, 4, 94.0f, -2.0f, s_bookmarkSettings, "bookmark_SETTINGS" },
-			{ 4, 5, 118.0f, -2.0f, s_bookmarkQuit, "bookmark_MAIN" }
+			{ 0, 0, 0.0f * srcRowH, 0, s_bookmarkVersus, "Online" },
+			{ 1, 1, 1.0f * srcRowH, 0, s_bookmarkSolo, "Solo" },
+			{ 2, 2, 2.0f * srcRowH, 0, s_bookmarkRules, "Guide" },
+			{ 3, 4, 4.0f * srcRowH, -2, s_bookmarkSettings, "Options" },
+			{ 4, 5, 5.0f * srcRowH, -2, s_bookmarkQuit, "Menu" }
 		};
 
-		// Set hitboxes
+		// Hitboxes
 		for (int i = 0; i < 5; ++i) {
-			float xStagger = (float)i * stepRightNative * scaleMultiplier;
-			float tabHitX = dstX + xStagger + (15.0f * scaleMultiplier);
-			float tabHitW = (srcColW - 15.0f) * scaleMultiplier;
-			float tabHitY = dstY + (float)tabs[i].row * rowH + (tabs[i].yNudgeNative * scaleMultiplier);
+			int xStagger = i * stepRightNative * (int)scaleMultiplier;
+			float tabHitX = dstX + (float)xStagger;
+			float tabHitW = dstW;
+			float tabHitY = dstY + ((float)tabs[i].row * rowH) + ((float)tabs[i].yNudgeNative * scaleMultiplier);
 			tabs[i].rect.set(tabHitX, tabHitY, tabHitW, rowH);
 		}
 
 		int mx = ofGetMouseX();
 		int my = ofGetMouseY();
 
-		int hoveredTabIndex = -1;
-		if (s_bookState == BOOK_IDLE_OPEN || s_bookState == BOOK_CLOSED) {
+		bool tabHovered[5] = { false, false, false, false, false };
+		if (s_bookState == BOOK_IDLE_OPEN) {
 			for (int i = 0; i < 5; ++i) {
-				if (tabs[i].rect.inside(mx, my)) {
-					hoveredTabIndex = i;
-					g_hoveredButtonId = tabs[i].id;
-					break;
+				bool isHov = (s_bookmarkAnimFrame[i] > 3.2f) ? tabs[i].rect.inside(mx, my) : isBookmarkHovered(i, mx, my);
+				if (isHov) {
+					tabHovered[i] = true;
+				}
+			}
+		}
+
+		float dt = ofGetLastFrameTime();
+		if (dt > 0.1f) dt = 0.016f;
+		const float hoverSpeed = 24.0f;
+
+		// Frames 3..11 map smoothly across columns 0..3
+		for (int i = 0; i < 5; ++i) {
+			if (s_bookState == BOOK_OPENING) {
+				float openProgress = std::clamp((float)(s_animOpen.currentFrame - 3) / 8.0f, 0.0f, 1.0f);
+				s_bookmarkAnimFrame[i] = openProgress * 3.0f;
+			} else if (s_bookState == BOOK_IDLE_OPEN) {
+				if (tabHovered[i]) {
+					s_bookmarkAnimFrame[i] = std::min(7.0f, s_bookmarkAnimFrame[i] + hoverSpeed * dt);
+				} else {
+					s_bookmarkAnimFrame[i] = std::max(3.0f, s_bookmarkAnimFrame[i] - hoverSpeed * dt);
 				}
 			}
 		}
 
 		// Draw each bookmark
 		for (int i = 0; i < 5; ++i) {
-			bool thisHovered = (hoveredTabIndex == i);
-			ofSetColor(thisHovered ? ofColor(255, 255, 255, 255) : ofColor(215, 215, 215, 255));
-			float xStagger = (float)i * stepRightNative * scaleMultiplier;
-			float tabDrawX = dstX + xStagger;
-			float tabDrawY = dstY + (float)tabs[i].row * rowH + (tabs[i].yNudgeNative * scaleMultiplier);
+			bool thisHovered = tabHovered[i];
+			ofSetColor(thisHovered ? ofColor(255, 255, 255, 255) : ofColor(220, 220, 220, 255));
+
+			int xStagger = i * stepRightNative * (int)scaleMultiplier;
+			float tabDrawX = std::round(dstX + (float)xStagger);
+			float tabDrawY = std::round(dstY + ((float)tabs[i].row * rowH) + ((float)tabs[i].yNudgeNative * scaleMultiplier));
+
+			int curCol = std::clamp((int)std::round(s_bookmarkAnimFrame[i]), 0, 7);
+			float srcX = (float)curCol * srcColW;
+
 			s_bookmarksImg.drawSubsection(tabDrawX, tabDrawY, dstW, rowH, srcX, tabs[i].srcY, srcColW, srcRowH);
+
+			// TEXT OVERLAY AT COLUMN 7:
+			// Dead-centered on the physical ribbon body using standardized Subheader size
+			if (curCol == 7 && s_bookState == BOOK_IDLE_OPEN) {
+				// Midpoint of the tab's visible colored body:
+				// ~13 native pixels right from tabDrawX, and ~10 native pixels down
+				float tabCenterX = tabDrawX + (13.0f * scaleMultiplier);
+				float tabCenterY = tabDrawY + (10.0f * scaleMultiplier);
+
+				// Exactly matches card cost: white fill with a 2px black outline
+				drawPixelTextCentered(uiFont, tabs[i].label, tabCenterX, tabCenterY, kBookSubheaderScale, ofColor::white, 2, ofColor::black);
+			}
 		}
+
 		ofSetColor(255, 255, 255, 255);
+		safePopStyle();
 	}
 }
 
@@ -18657,8 +18671,11 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// Change mouse cursor to pointer hand when hovering over any bookmark
 	if (s_bookState == BOOK_IDLE_OPEN) {
-		if (s_bookmarkVersus.inside(x, y) || s_bookmarkSolo.inside(x, y) || s_bookmarkRules.inside(x, y) || s_bookmarkSettings.inside(x, y) || s_bookmarkQuit.inside(x, y)) {
-			currentCursor = CURSOR_CLICK;
+		for (int i = 0; i < 5; ++i) {
+			if (isBookmarkHovered(i, x, y)) {
+				currentCursor = CURSOR_CLICK;
+				break;
+			}
 		}
 	}
 
@@ -19829,25 +19846,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			// --- CLICKING BOOKMARKS TO TURN PAGES ---
 			if (s_bookState == BOOK_IDLE_OPEN) {
-				if (s_bookmarkVersus.inside(x, y) && currentState != STATE_MULTIPLAYER_MENU) {
+				if ((isBookmarkHovered(0, x, y) || s_bookmarkVersus.inside(x, y)) && currentState != STATE_MULTIPLAYER_MENU) {
 					navigateToMenu(-1, STATE_MULTIPLAYER_MENU);
 					return;
 				}
-				if (s_bookmarkSolo.inside(x, y) && currentState != STATE_SINGLEPLAYER_MENU) {
+				if ((isBookmarkHovered(1, x, y) || s_bookmarkSolo.inside(x, y)) && currentState != STATE_SINGLEPLAYER_MENU) {
 					navigateToMenu(1, STATE_SINGLEPLAYER_MENU);
 					return;
 				}
-				if (s_bookmarkRules.inside(x, y) && currentState != STATE_ENCYCLOPEDIA) {
+				if ((isBookmarkHovered(2, x, y) || s_bookmarkRules.inside(x, y)) && currentState != STATE_ENCYCLOPEDIA) {
 					navigateToMenu(2, STATE_ENCYCLOPEDIA);
 					return;
 				}
-				if (s_bookmarkSettings.inside(x, y) && currentState != STATE_SETTINGS) {
+				if ((isBookmarkHovered(3, x, y) || s_bookmarkSettings.inside(x, y)) && currentState != STATE_SETTINGS) {
 					stateBeforeSettings = currentState;
-					currentState = STATE_SETTINGS;
+					navigateToMenu(-2, STATE_SETTINGS); // Triggers page turn animation
 					return;
 				}
-				// Bottom bookmark navigates back to Main Menu instead of quitting
-				if (s_bookmarkQuit.inside(x, y) && currentState != STATE_MAIN_MENU) {
+				if ((isBookmarkHovered(4, x, y) || s_bookmarkQuit.inside(x, y)) && currentState != STATE_MAIN_MENU) {
 					navigateToMenu(0, STATE_MAIN_MENU);
 					return;
 				}
@@ -19867,7 +19883,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				} else if (mainMenuSettingsButton.inside(x, y)) {
 					clickedUI = true;
 					stateBeforeSettings = STATE_MAIN_MENU;
-					currentState = STATE_SETTINGS;
+					navigateToMenu(-2, STATE_SETTINGS); // Triggers page turn animation
 				} else if (mainMenuQuitButton.inside(x, y)) {
 					clickedUI = true;
 					ofExit();
@@ -20193,12 +20209,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			} else if (currentState == STATE_CUSTOMISATION) {
 				if (customisationBtnBack.inside(x, y)) {
 					clickedUI = true;
-					currentState = STATE_MAIN_MENU;
+					navigateToMenu(0, STATE_MAIN_MENU);
 				}
 			} else if (currentState == STATE_SETTINGS) {
 				if (settingsBackButton.inside(x, y)) {
 					clickedUI = true;
-					currentState = stateBeforeSettings;
+					navigateToMenu(0, stateBeforeSettings); // Turns page back to previous menu
 				}
 			}
 
