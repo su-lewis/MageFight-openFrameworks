@@ -251,12 +251,13 @@ static float s_bookmarkScaleMultiplier = 1.0f;
 
 static bool isBookmarkHovered(int row, int mx, int my) {
 	if (!s_bookmarksImg.isAllocated() || s_bookState != BOOK_IDLE_OPEN || s_bookmarkScaleMultiplier <= 0.0f) return false;
-	const float srcColW = 32.0f;
+
+	// Dynamically fetch the width of 1 frame so it never chops pixels
+	float srcColW = s_bookmarksImg.getWidth() / 4.0f;
 	const float srcTotalH = 144.0f;
 	const float srcRowH = 24.0f;
 
-	// Target strictly the final 4th sprite (0-indexed column 3)
-	int finalFrame = std::max(0, (int)(s_bookmarksImg.getWidth() / srcColW) - 1);
+	int finalFrame = 3; // The fully open bookmarks are on frame index 3
 
 	float localX = (mx - s_bookmarkDstX) / s_bookmarkScaleMultiplier;
 	float localY = (my - s_bookmarkDstY) / s_bookmarkScaleMultiplier;
@@ -6171,9 +6172,10 @@ void ofApp::setup() {
 		loadSettings();
 
 		// --- LOAD MAGIC BOOK ANIMATIONS ---
-		s_animOpen.setup("UI/Book/Open_book.png", 4, 3, 12, 0.055f, false);
-		s_animTurnRight.setup("UI/Book/Turning_pages_right.png", 4, 4, 15, 0.045f, false);
-		s_animTurnLeft.setup("UI/Book/Turning_pages_left.png", 4, 4, 15, 0.045f, false);
+		// Changed speed from 0.055f to 0.11f to double the duration of each frame!
+		s_animOpen.setup("UI/Book/Open_book.png", 4, 3, 12, 0.11f, false);
+		s_animTurnRight.setup("UI/Book/Turning_pages_right.png", 4, 4, 15, 0.07f, false);
+		s_animTurnLeft.setup("UI/Book/Turning_pages_left.png", 4, 4, 15, 0.07f, false);
 
 		if (s_bookmarksImg.load("UI/Book/Open_book_bookmarks2.png")) {
 			s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -9922,15 +9924,18 @@ void ofApp::draw2DMenuBackground() {
 		s_animOpen.draw(bookX, bookY, targetW, targetH);
 	}
 
-	// 3. Render Bookmarks (only show when opening or open)
-	if (s_bookmarksImg.isAllocated() && s_bookState != BOOK_CLOSED) {
+	// 3. Render Bookmarks (Locked to the book and scaled together)
+	if (s_bookmarksImg.isAllocated()) {
 		s_bookmarksImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		s_bookmarksImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
-		// Determine the 4th sprite column (0-indexed frame 3) for the fully open state
+		// Determine the sprite column frame
 		int numFrames = (s_bookmarksImg.getWidth() > 0) ? (int)(s_bookmarksImg.getWidth() / srcColW) : 4;
 		int bFrame = std::min(3, numFrames - 1);
-		if (s_bookState == BOOK_OPENING) {
+
+		if (s_bookState == BOOK_CLOSED) {
+			bFrame = 0; // Use the most "closed/tucked in" frame for the bookmarks
+		} else if (s_bookState == BOOK_OPENING) {
 			bFrame = std::min(bFrame, (int)std::floor((float)s_animOpen.currentFrame * (float)bFrame / 11.0f));
 		}
 
@@ -9945,9 +9950,6 @@ void ofApp::draw2DMenuBackground() {
 		s_bookmarkDstY = dstY;
 		s_bookmarkScaleMultiplier = scaleMultiplier;
 
-		// Structure defining the 5 bookmarks:
-		// Settings (row 4) starts at srcY=94 (-2px) and Quit (row 5) starts at srcY=118 (-2px)
-		// Each subsequent bookmark is staggered by a very subtle sub-pixel amount (0.2 native px)
 		struct BookmarkTabDef {
 			int tabIndex;
 			int row;
@@ -9967,7 +9969,7 @@ void ofApp::draw2DMenuBackground() {
 			{ 4, 5, 118.0f, -2.0f, s_bookmarkQuit, "bookmark_MAIN" }
 		};
 
-		// Set hitboxes: starts at +15 native px (page edge) so book page clicks never register
+		// Set hitboxes
 		for (int i = 0; i < 5; ++i) {
 			float xStagger = (float)i * stepRightNative * scaleMultiplier;
 			float tabHitX = dstX + xStagger + (15.0f * scaleMultiplier);
@@ -9980,7 +9982,7 @@ void ofApp::draw2DMenuBackground() {
 		int my = ofGetMouseY();
 
 		int hoveredTabIndex = -1;
-		if (s_bookState == BOOK_IDLE_OPEN) {
+		if (s_bookState == BOOK_IDLE_OPEN || s_bookState == BOOK_CLOSED) {
 			for (int i = 0; i < 5; ++i) {
 				if (tabs[i].rect.inside(mx, my)) {
 					hoveredTabIndex = i;
@@ -9990,7 +9992,7 @@ void ofApp::draw2DMenuBackground() {
 			}
 		}
 
-		// Draw each bookmark with its stagger offset; stationary (no movement on hover), only tint changes
+		// Draw each bookmark
 		for (int i = 0; i < 5; ++i) {
 			bool thisHovered = (hoveredTabIndex == i);
 			ofSetColor(thisHovered ? ofColor(255, 255, 255, 255) : ofColor(215, 215, 215, 255));
@@ -10068,10 +10070,10 @@ void ofApp::drawMainMenu() {
 	const char * welcomeText = "Welcome to MageFight.\n\n"
 							   "Select a mode from the page or click the bookmark tabs along the right edge of the grimoire.\n\n"
 							   "Draft your deck, manage Action Points, roll the dice, and vanquish rival mages in tactical arena duels.";
-	auto lines = wrapTextScaled(uiFont, welcomeText, rightW, 0.95f);
+	auto lines = wrapTextScaled(uiFont, welcomeText, rightW - 16.0f, 0.70f);
 	for (const auto & l : lines) {
-		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.95f, ink);
-		rY += 26.0f;
+		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
+		rY += 20.0f;
 	}
 }
 //--------------------------------------------------------------
@@ -10272,10 +10274,10 @@ void ofApp::drawSingleplayerMenu() {
 
 	const char * tips = "Test new spells and tactics against the dungeon AI.\n\n"
 						"Learn card combinations like Flurry of Fists and Necromancer's Blessing before entering online ranked duels.";
-	auto lines = wrapTextScaled(uiFont, tips, rightW, 0.95f);
+	auto lines = wrapTextScaled(uiFont, tips, rightW - 16.0f, 0.70f);
 	for (const auto & l : lines) {
-		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.95f, ink);
-		rY += 32.0f;
+		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
+		rY += 20.0f;
 	}
 }
 
@@ -43454,11 +43456,11 @@ void ofApp::drawEncyclopediaState() {
 	int my = ofGetMouseY();
 
 	// =========================================================================
-	// 1. DEDICATED TOP-QUARTER NAVIGATION BAR (LARGER FONT & DEDICATED SPACE)
+	// 1. DEDICATED TOP-QUARTER NAVIGATION BAR
 	// =========================================================================
-	float navAreaX = pa.leftPage.x + 6.0f;
+	float navAreaX = pa.leftPage.x + 8.0f;
 	float navAreaY = pa.leftPage.y + 6.0f;
-	float navAreaW = pa.leftPage.width - 12.0f;
+	float navAreaW = pa.leftPage.width - 16.0f;
 	float navAreaH = pa.leftPage.height * 0.23f; // Top ~23% of the left page
 
 	float gap = 4.0f;
@@ -43487,8 +43489,7 @@ void ofApp::drawEncyclopediaState() {
 			ofDrawRectRounded(r, 6.0f);
 		}
 
-		// Bigger, easily legible font (scale 1.10f)
-		drawPixelTextBaseline(uiFont, (active ? "> " : "  ") + text, r.x + 8.0f, r.y + (r.height * 0.72f), 1.10f, ink);
+		drawPixelTextBaseline(uiFont, (active ? "> " : "  ") + text, r.x + 8.0f, r.y + (r.height * 0.72f), 1.0f, ink);
 	};
 
 	drawSubTabItem(s_bookSubTabHowToPlay, "How to play", 0);
@@ -43503,27 +43504,27 @@ void ofApp::drawEncyclopediaState() {
 	ofDrawLine(navAreaX, dividerY, navAreaX + navAreaW, dividerY);
 
 	// The actual text body starts cleanly below the divider!
-	float contentStartY = dividerY + 22.0f;
+	float contentStartY = dividerY + 16.0f;
 	float rightHeaderY = pa.rightPage.y + 24.0f;
 
 	// =========================================================================
 	// SUB-TAB 0: HOW TO PLAY
 	// =========================================================================
 	if (s_bookRulesTab == 0) {
-		float textScale = 0.90f;
-		float leftX = pa.leftPage.x + 6.0f;
-		float maxW_Left = pa.leftPage.width - 12.0f;
+		float textScale = 0.70f; // Minimum readable font size
+		float leftX = pa.leftPage.x + 8.0f;
+		float maxW_Left = pa.leftPage.width - 24.0f; // Extra generous padding for wrapping!
 		float curY = contentStartY;
 
 		auto drawSection = [&](const std::string & head, const std::string & body, float startX, float & yPos, float maxW) {
-			drawPixelTextBaseline(uiFont, head, startX, yPos, 1.15f, ink);
-			yPos += 24.0f;
+			drawPixelTextBaseline(uiFont, head, startX, yPos, 0.95f, ink);
+			yPos += 18.0f;
 			auto lines = wrapTextScaled(uiFont, body, maxW, textScale);
 			for (const auto & l : lines) {
 				drawPixelTextBaseline(uiFont, l, startX, yPos, textScale, ink);
-				yPos += 22.0f;
+				yPos += 16.0f;
 			}
-			yPos += 14.0f;
+			yPos += 12.0f;
 		};
 
 		drawSection("1. Initiative & Drafting",
@@ -43538,11 +43539,11 @@ void ofApp::drawEncyclopediaState() {
 		float maxW_Right = pa.rightPage.width - 24.0f;
 		float rY = rightHeaderY;
 
-		drawPixelTextBaseline(uiFont, "HOW TO PLAY", rightX, rY, 1.4f, ink);
+		drawPixelTextBaseline(uiFont, "HOW TO PLAY", rightX, rY, 1.25f, ink);
 		rY += 8.0f;
 		ofSetColor(ink);
 		ofDrawLine(rightX, rY, rightX + 160.0f, rY);
-		rY += 32.0f;
+		rY += 28.0f;
 
 		drawSection("3. Actions & Movement",
 			"Click your unit on the board to reveal green paths (1 AP per tile). Drag cards upward into the arena, then click target tile.",
@@ -43556,16 +43557,16 @@ void ofApp::drawEncyclopediaState() {
 		// SUB-TAB 1: EFFECTS & KEYWORDS
 		// =========================================================================
 	} else if (s_bookRulesTab == 1) {
-		float textScale = 0.82f;
-		float leftX = pa.leftPage.x + 6.0f;
-		float maxW_Left = pa.leftPage.width - 12.0f;
+		float textScale = 0.70f;
+		float leftX = pa.leftPage.x + 8.0f;
+		float maxW_Left = pa.leftPage.width - 24.0f;
 		float lY = contentStartY;
 
-		drawPixelTextBaseline(uiFont, "STATUS EFFECTS", leftX, lY, 1.15f, ink);
+		drawPixelTextBaseline(uiFont, "STATUS EFFECTS", leftX, lY, 1.05f, ink);
 		lY += 6.0f;
 		ofSetColor(ink);
 		ofDrawLine(leftX, lY, leftX + 130.0f, lY);
-		lY += 24.0f;
+		lY += 20.0f;
 
 		struct StatusDef {
 			const char * name;
@@ -43583,12 +43584,12 @@ void ofApp::drawEncyclopediaState() {
 		};
 
 		for (const auto & st : statuses) {
-			drawPixelTextBaseline(uiFont, st.name, leftX, lY, 0.95f, ink);
-			lY += 18.0f;
+			drawPixelTextBaseline(uiFont, st.name, leftX, lY, 0.85f, ink);
+			lY += 16.0f;
 			auto lines = wrapTextScaled(uiFont, st.desc, maxW_Left, textScale);
 			for (const auto & l : lines) {
 				drawPixelTextBaseline(uiFont, l, leftX, lY, textScale, ink);
-				lY += 18.0f;
+				lY += 16.0f;
 			}
 			lY += 6.0f;
 		}
@@ -43597,11 +43598,11 @@ void ofApp::drawEncyclopediaState() {
 		float maxW_Right = pa.rightPage.width - 24.0f;
 		float rY = rightHeaderY;
 
-		drawPixelTextBaseline(uiFont, "KEYWORDS", rightX, rY, 1.4f, ink);
+		drawPixelTextBaseline(uiFont, "KEYWORDS", rightX, rY, 1.25f, ink);
 		rY += 6.0f;
 		ofSetColor(ink);
 		ofDrawLine(rightX, rY, rightX + 110.0f, rY);
-		rY += 26.0f;
+		rY += 22.0f;
 
 		struct KeywordDef {
 			const char * name;
@@ -43620,12 +43621,12 @@ void ofApp::drawEncyclopediaState() {
 		};
 
 		for (const auto & kw : keywords) {
-			drawPixelTextBaseline(uiFont, kw.name, rightX, rY, 0.95f, ink);
-			rY += 18.0f;
+			drawPixelTextBaseline(uiFont, kw.name, rightX, rY, 0.85f, ink);
+			rY += 16.0f;
 			auto lines = wrapTextScaled(uiFont, kw.desc, maxW_Right, textScale);
 			for (const auto & l : lines) {
 				drawPixelTextBaseline(uiFont, l, rightX, rY, textScale, ink);
-				rY += 18.0f;
+				rY += 16.0f;
 			}
 			rY += 6.0f;
 		}
@@ -43718,22 +43719,22 @@ void ofApp::drawEncyclopediaState() {
 				ofSetColor(255);
 			}
 
-			float ty = boxY + 24.0f;
-			drawPixelTextBaseline(uiFont, m.name, textX, ty, 1.15f, ink);
-			ty += 24.0f;
-
-			std::string statsStr = "AP: " + m.ap + "  |  HP: " + m.hp;
-			drawPixelTextBaseline(uiFont, statsStr, textX, ty, 0.90f, ink);
-			ty += 22.0f;
-
-			std::string deckStr = "Deck: " + m.deck;
-			drawPixelTextBaseline(uiFont, deckStr, textX, ty, 0.80f, ink);
+			float ty = boxY + 20.0f;
+			drawPixelTextBaseline(uiFont, m.name, textX, ty, 0.95f, ink);
 			ty += 20.0f;
 
-			auto lines = wrapTextScaled(uiFont, m.traits, textW, 0.80f);
+			std::string statsStr = "AP: " + m.ap + "  |  HP: " + m.hp;
+			drawPixelTextBaseline(uiFont, statsStr, textX, ty, 0.70f, ink);
+			ty += 16.0f;
+
+			std::string deckStr = "Deck: " + m.deck;
+			drawPixelTextBaseline(uiFont, deckStr, textX, ty, 0.70f, ink);
+			ty += 16.0f;
+
+			auto lines = wrapTextScaled(uiFont, m.traits, textW, 0.70f);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, textX, ty, 0.80f, ink);
-				ty += 18.0f;
+				drawPixelTextBaseline(uiFont, l, textX, ty, 0.70f, ink);
+				ty += 14.0f;
 			}
 		};
 
@@ -43773,10 +43774,10 @@ void ofApp::drawEncyclopediaState() {
 										   "- Take turns before wizards.\n\n"
 										   "- Own separate decks.\n\n"
 										   "- Summoning sickness: Newly summoned minions wait until your next turn.";
-			auto lines = wrapTextScaled(uiFont, minionRulesText, noteW, 0.80f);
+			auto lines = wrapTextScaled(uiFont, minionRulesText, noteW, 0.70f);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, noteX, noteY, 0.80f, ink);
-				noteY += 20.0f;
+				drawPixelTextBaseline(uiFont, l, noteX, noteY, 0.70f, ink);
+				noteY += 16.0f;
 			}
 
 			// Right Page: Skeleton & Golem
@@ -43834,8 +43835,8 @@ void ofApp::drawEncyclopediaState() {
 	} else if (s_bookRulesTab == 3) {
 		loadCardBackgroundImg();
 
-		float lineH = 20.0f;
-		float nameScale = 0.82f;
+		float lineH = 18.0f;
+		float nameScale = 0.70f;
 		int newHoveredCardIdx = -1;
 
 		auto drawCardListHeader = [&](const std::string & title, ofColor col, float & yPos, float xPos) {
@@ -43870,7 +43871,7 @@ void ofApp::drawEncyclopediaState() {
 				float cX = class1StartX + col * (colW_Left + 14.0f);
 				float cY = curY_Left + row * lineH;
 
-				ofRectangle itemR(cX, cY - 16.0f, colW_Left, lineH);
+				ofRectangle itemR(cX, cY - 14.0f, colW_Left, lineH);
 				bool hov = itemR.inside(mx, my);
 				if (hov) {
 					newHoveredCardIdx = (int)i;
@@ -43898,7 +43899,7 @@ void ofApp::drawEncyclopediaState() {
 				float cX = rightX + col * (colW_Right + 14.0f);
 				float cY = curY_Right + row * lineH;
 
-				ofRectangle itemR(cX, cY - 16.0f, colW_Right, lineH);
+				ofRectangle itemR(cX, cY - 14.0f, colW_Right, lineH);
 				bool hov = itemR.inside(mx, my);
 				if (hov) {
 					newHoveredCardIdx = 100 + (int)i;
@@ -43950,11 +43951,11 @@ void ofApp::drawEncyclopediaState() {
 			float rightW = pa.rightPage.width - 24.0f;
 			float rY = rightHeaderY;
 
-			drawPixelTextBaseline(uiFont, "CLASS 3 ARCANA", rightX, rY, 1.4f, ofColor(180, 140, 30));
+			drawPixelTextBaseline(uiFont, "CLASS 3 ARCANA", rightX, rY, 1.25f, ofColor(180, 140, 30));
 			rY += 8.0f;
 			ofSetColor(180, 140, 30);
 			ofDrawLine(rightX, rY, rightX + 160.0f, rY);
-			rY += 32.0f;
+			rY += 28.0f;
 
 			const char * c3Tips = "Class 3 cards represent the pinnacle of dungeon magic.\n\n"
 								  "How to Obtain:\n"
@@ -43963,10 +43964,10 @@ void ofApp::drawEncyclopediaState() {
 								  "- Reach high Max Health threshold via Constitution Boon.\n"
 								  "- Roll 20 on non-physical defence with Blocking Boon.\n\n"
 								  "Hover over any card in the list to inspect its artwork, cost, and effects.";
-			auto lines = wrapTextScaled(uiFont, c3Tips, rightW, 0.90f);
+			auto lines = wrapTextScaled(uiFont, c3Tips, rightW, 0.70f);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, rightX, rY, 0.90f, ink);
-				rY += 24.0f;
+				drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
+				rY += 18.0f;
 			}
 		}
 
