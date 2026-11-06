@@ -17636,7 +17636,21 @@ void ofApp::drawGame() {
 			safePopStyle();
 		}
 
-		// P0 Discard (LOCAL player's discard)
+		// Draw hover glow FIRST (underneath the card)
+		if (hoverP0Discard) {
+			if (!localPlayer->discardPile.empty()) {
+				drawCardGlowAura(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height, ofColor(255, 255, 255, 240));
+			} else {
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(255, 255, 255, 200);
+				ofSetLineWidth(4 * scale);
+				ofDrawRectangle(p0_discardRect);
+				safePopStyle();
+			}
+		}
+
+		// P0 Discard: Draw card face SECOND (on top of the glow)
 		if (!localPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
 			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, localPlayer->discardPile.back(), p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height, localPlayer);
@@ -17645,28 +17659,27 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p0_discardRect, 10 * scale);
 		}
 
-		// Draw hover glow for discard
-		if (hoverP0Discard) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(255, 255, 255, 200); // White glow
-			ofSetLineWidth(4 * scale);
-			// If discard has cards, use card edge outline; otherwise use box
-			if (!localPlayer->discardPile.empty()) {
-				drawCardEdgeOutline(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height, 0.0f);
-			} else {
-				ofDrawRectangle(p0_discardRect);
-			}
-			safePopStyle();
-		}
-
 		// 3. Draw Player 1 (Right) UI - opponent mirrored on right side
 		// Opponent: mirror the layout and place health bar immediately to the left of their deck
 		float p1_healthX = p1_deckRect.getLeft() - gap - healthBarWidth - healthBarInwardNudge;
 		float p1_healthY = ofGetHeight() - healthBarHeight - deckBottomGap;
 		drawHealthBar(*opponentPlayer, p1_healthX, p1_healthY, ofColor::red);
 
-		// P1 Discard -- show opponent's top card face
+		// Draw hover glow FIRST (underneath the card)
+		if (hoverP1Discard) {
+			if (!opponentPlayer->discardPile.empty()) {
+				drawCardGlowAura(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, ofColor(255, 255, 255, 240));
+			} else {
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(255, 255, 255, 200);
+				ofSetLineWidth(4 * scale);
+				ofDrawRectangle(p1_discardRect);
+				safePopStyle();
+			}
+		}
+
+		// P1 Discard: Draw card face SECOND (on top of the glow)
 		if (!opponentPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
 			bool showFace = true;
