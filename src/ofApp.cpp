@@ -138,6 +138,83 @@ static ofImage s_bookmarksImg; // <--- Changed back to ofImage
 static ofImage s_mainMenuBg;
 static bool s_mainMenuBgLoaded = false;
 
+// 115x160 Card Backing Frame & Book UI Tracking
+static ofImage s_cardBackgroundImg;
+static bool s_cardBackgroundLoaded = false;
+
+static void loadCardBackgroundImg() {
+	if (s_cardBackgroundLoaded && s_cardBackgroundImg.isAllocated()) return;
+	std::vector<std::string> paths = {
+		"UI/Book/CardBackground.png",
+		"UI/Book/CardBackground.PNG",
+		"data/UI/Book/CardBackground.png",
+		"bin/data/UI/Book/CardBackground.png"
+	};
+	for (const auto & p : paths) {
+		if (ofFile(p).exists() && s_cardBackgroundImg.load(p)) {
+			s_cardBackgroundImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			s_cardBackgroundImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			ofLogNotice("BookUI") << "Loaded CardBackground.png (" << s_cardBackgroundImg.getWidth() << "x" << s_cardBackgroundImg.getHeight() << ")";
+			s_cardBackgroundLoaded = true;
+			return;
+		}
+	}
+	ofLogWarning("BookUI") << "Missing UI/Book/CardBackground.png";
+}
+
+// Rules & Cards Sub-Tabs: 0 = How to Play, 1 = Effects & Keywords, 2 = Minions, 3 = Cards
+static int s_bookRulesTab = 0;
+static int s_bookMinionPage = 0;
+static const int s_bookMinionTotalPages = 3;
+static int s_bookHoveredCardIndex = -1;
+static ofRectangle s_bookTurnLeftCorner;
+static ofRectangle s_bookTurnRightCorner;
+static ofRectangle s_bookSubTabHowToPlay;
+static ofRectangle s_bookSubTabEffects;
+static ofRectangle s_bookSubTabMinions;
+static ofRectangle s_bookSubTabCards;
+
+// Cached coordinates of the book on screen (must be declared above getBookPageArea)
+static float s_bookDrawX = 0.0f;
+static float s_bookDrawY = 0.0f;
+static float s_bookDrawW = 0.0f;
+static float s_bookDrawH = 0.0f;
+
+struct BookPageArea {
+	ofRectangle leftPage;
+	ofRectangle rightPage;
+	float scale = 1.0f;
+};
+
+static BookPageArea getBookPageArea(float bookX = 0.0f, float bookY = 0.0f, float bookW = 0.0f, float bookH = 0.0f, float scaleMultiplier = 1.0f) {
+	BookPageArea b;
+
+	float bw = (bookW > 0.0f) ? bookW : s_bookDrawW;
+	float bh = (bookH > 0.0f) ? bookH : s_bookDrawH;
+	float bx = (bookW > 0.0f) ? bookX : s_bookDrawX;
+	float by = (bookH > 0.0f) ? bookY : s_bookDrawY;
+
+	b.scale = (bh > 0.0f) ? (bh / 192.0f) : scaleMultiplier;
+
+	// Lock onto the open book's parchment pages
+	float pageTop = by + (bh * 0.28f); // Pushed down to align with the actual drawn pages
+	float pageH = bh * 0.60f;
+
+	b.leftPage.set(
+		bx + (bw * 0.11f), // Shifted inward
+		pageTop,
+		bw * 0.36f,
+		pageH);
+
+	b.rightPage.set(
+		bx + (bw * 0.53f),
+		pageTop,
+		bw * 0.36f,
+		pageH);
+
+	return b;
+}
+
 static void loadMainMenuBg() {
 	if (s_mainMenuBgLoaded && s_mainMenuBg.isAllocated()) return;
 	std::vector<std::string> paths = {
@@ -2476,9 +2553,7 @@ static void buildCardGlowTexture() {
 				float d = dist[idx];
 				if (d <= glowRadiusGrid) {
 					float t = d / glowRadiusGrid; // 0.0 at visible edge, 1.0 at outer fringe
-					float alpha = std::pow(1.0f - t, 1.3f) * 255.0f;
-					// Stepped quantizing for pixel-art aesthetic
-					alpha = std::round(alpha / 16.0f) * 16.0f;
+					float alpha = std::pow(1.0f - t, 1.35f) * 255.0f;
 					glowPix.setColor(x, y, ofColor(255, 255, 255, (unsigned char)std::clamp(alpha, 0.0f, 255.0f)));
 				} else {
 					glowPix.setColor(x, y, ofColor(255, 255, 255, 0));
@@ -5871,6 +5946,7 @@ void ofApp::setup() {
 	// FIX: Skip ALL graphical, model, and audio loading in headless mode to save massive memory!
 	if (!headless) {
 		loadMainMenuBg();
+		loadCardBackgroundImg();
 		cardBackImage.load("UI/card_back.png");
 		// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
 		if (cardBackImage.isAllocated()) {
@@ -8237,14 +8313,16 @@ void ofApp::draw() {
 			break;
 
 		case STATE_SETTINGS:
-			if (stateBeforeSettings != STATE_MAIN_MENU) {
+			if (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_MULTIPLAYER_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_ENCYCLOPEDIA || stateBeforeSettings == STATE_CUSTOMISATION) {
+				draw2DMenuBackground();
+				drawSettings = true;
+			} else {
 				drawGame();
 				if (stateBeforeSettings == STATE_INITIATIVE_ROLL || pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
 				if (stateBeforeSettings == STATE_DRAFTING || pausedFromState == STATE_DRAFTING) drawDraftScreen();
 				if (stateBeforeSettings == STATE_PAUSED) drawPause = true;
 
 				ofPushStyle();
-				// FIX: Safely dim the background game text while in the settings menu
 				if (g_isSecondPass) {
 					glEnable(GL_BLEND);
 					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -8253,14 +8331,10 @@ void ofApp::draw() {
 				}
 				ofSetColor(0, 0, 0, 170);
 				ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-				if (g_isSecondPass) glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); // Restore
+				if (g_isSecondPass) glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
 				safePopStyle();
-			} else {
-				// We reached settings from the Main Menu, draw the unified 2D backdrop!
-				draw2DMenuBackground();
-				drawMainMenu(); // Draw the buttons off-screen
+				drawSettings = true;
 			}
-			drawSettings = true;
 			break;
 
 		case STATE_MAIN_MENU:
@@ -9827,7 +9901,7 @@ void ofApp::draw2DMenuBackground() {
 	ofDisableDepthTest();
 	ofSetColor(255, 255, 255, 255);
 
-	// 0. Render Fullscreen Pixel-Art Background (640x360 scaled perfectly to any resolution)
+	// 0. Fullscreen Pixel-Art Background
 	if (!s_mainMenuBg.isAllocated()) {
 		loadMainMenuBg();
 	}
@@ -9848,31 +9922,31 @@ void ofApp::draw2DMenuBackground() {
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
 
-	// Bumping by +1 integer step as you requested for the larger size!
-	float scaleMultiplier = std::floor((ofGetHeight() * 0.95f) / singleFrameH) + 1.0f;
+	float scaleMultiplier = std::floor((ofGetHeight() * 0.90f) / singleFrameH);
 	if (scaleMultiplier < 1.0f) scaleMultiplier = 1.0f;
 
-	// Dimensions of the book
 	float targetW = singleFrameW * scaleMultiplier;
 	float targetH = singleFrameH * scaleMultiplier;
 
-	// Your calibrated bookmark offsets
 	static float s_bookmarkNativeX = 235.0f;
 	static float s_bookmarkNativeY = 100.0f;
 	const float srcColW = 32.0f;
 	const float srcTotalH = 144.0f;
 	const float srcRowH = 24.0f;
 
-	// Total horizontal span of the combined assembly (Book + protruding Bookmarks)
 	float totalAssemblyNativeW = std::max(singleFrameW, s_bookmarkNativeX + srcColW);
 	float totalAssemblyW = totalAssemblyNativeW * scaleMultiplier;
-
-	// Center the COMBINED (Book + Bookmarks) assembly horizontally on screen
 	float bookX = std::round((ofGetWidth() - totalAssemblyW) * 0.5f);
 
-	// Position book near the bottom, leaving only a few pixels of margin
-	float bottomMargin = 0.0f; // Gap in pixels from the bottom of the screen
+	// Anchor bottom of book 8px from bottom of screen
+	float bottomMargin = 8.0f;
 	float bookY = std::round((float)ofGetHeight() - targetH - bottomMargin);
+
+	// Cache book position so pages lock onto it exactly
+	s_bookDrawX = bookX;
+	s_bookDrawY = bookY;
+	s_bookDrawW = targetW;
+	s_bookDrawH = targetH;
 
 	// 2. Render Animated Book
 	if (s_bookState == BOOK_OPENING) {
@@ -9969,560 +10043,219 @@ void ofApp::draw2DMenuBackground() {
 }
 
 void ofApp::drawMainMenu() {
-	float uiScale = std::clamp(g_settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
-
-	// Restore panning offset so the menu slides naturally!
-	float mX = baseMenuStartX - currentMenuPanX;
-	float centerX = mX + (BOARD_WIDTH * menuTileSize) / 2.0f;
-
-	int numRows = 5; // Online, Singleplayer, Rules, Settings, Quit
-	float btnW = 400.0f * uiScale;
-	float btnH = 76.0f * uiScale;
-	float btnGap = 20.0f * uiScale;
-	float titleAreaH = 110.0f * uiScale;
-	float bottomPad = 40.0f * uiScale;
-	float totalBtnH = (numRows * btnH) + ((numRows - 1) * btnGap);
-	float panelH = titleAreaH + totalBtnH + bottomPad;
-	float panelW = 480.0f * uiScale;
-	float panelY = (ofGetHeight() - panelH) / 2.0f;
-
-	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
-
-	ofSetColor(25, 25, 32, 250);
-	ofFill();
-	ofDrawRectRounded(panelRect, 16.0f * uiScale);
-	ofNoFill();
-	ofSetLineWidth(3.0f * uiScale);
-	ofSetColor(80, 80, 100, 255);
-	ofDrawRectRounded(panelRect, 16.0f * uiScale);
-	ofFill();
-
-	drawPixelTextCentered(titleFont, _L("UI_TITLE", "MAGE FIGHT"), centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
-
-	float curY = panelY + titleAreaH;
-	float btnX = centerX - btnW / 2.0f;
-
-	auto drawBtn = [&](ofRectangle & r, const std::string & txt, bool isDanger = false) {
-		r.set(btnX, curY, btnW, btnH);
-		bool isHovered = r.inside(ofGetMouseX(), ofGetMouseY());
-		if (isHovered) g_hoveredButtonId = "mm_" + txt;
-
-		ofColor bgCol = isHovered ? (isDanger ? ofColor(120, 50, 50) : ofColor(60, 65, 80)) : (isDanger ? ofColor(70, 35, 35) : ofColor(35, 38, 48));
-		ofSetColor(bgCol);
-		ofFill();
-		ofDrawRectRounded(r, 10.0f * uiScale);
-		ofNoFill();
-		ofSetLineWidth(2.0f * uiScale);
-		ofSetColor(isHovered ? (isDanger ? ofColor(255, 100, 100) : ofColor(255, 215, 0)) : (isDanger ? ofColor(150, 60, 60) : ofColor(100, 100, 120)));
-		ofDrawRectRounded(r, 10.0f * uiScale);
-		ofFill();
-
-		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.2f * uiScale, ofColor::white, 2, ofColor::black);
-		curY += btnH + btnGap;
-	};
-
-	drawBtn(mainMenuOnlineButton, _L("UI_BTN_ONLINE", "Online Versus"));
-	drawBtn(mainMenuSingleplayerButton, _L("UI_BTN_SOLO", "Singleplayer"));
-	drawBtn(mainMenuEncyclopediaButton, _L("UI_BTN_RULES", "Rules & Cards"));
-	drawBtn(mainMenuSettingsButton, _L("UI_BTN_SETTINGS", "Settings"));
-	drawBtn(mainMenuQuitButton, _L("UI_BTN_QUIT", "Quit"), true);
-
-	// Hide unused buttons off-screen
+	// The book pages stay clean and empty on the main menu.
+	// Bookmarks handle menu navigation.
+	mainMenuOnlineButton.set(-1000, -1000, 0, 0);
+	mainMenuSingleplayerButton.set(-1000, -1000, 0, 0);
+	mainMenuEncyclopediaButton.set(-1000, -1000, 0, 0);
+	mainMenuSettingsButton.set(-1000, -1000, 0, 0);
+	mainMenuQuitButton.set(-1000, -1000, 0, 0);
 	mainMenuCustomisationButton.set(-1000, -1000, 0, 0);
 }
 
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
-	// OPTIMIZATION (Part 2.5): Cache font measurements to stop massive FPS drops in the settings menu!
-	static std::unordered_map<std::string, ofRectangle> textBoundsCache;
-	auto getCachedBounds = [&](const std::string & text) -> ofRectangle {
-		auto it = textBoundsCache.find(text);
-		if (it != textBoundsCache.end()) return it->second;
-		ofRectangle bounds = uiFont.getStringBoundingBox(text, 0, 0);
-		textBoundsCache[text] = bounds;
-		return bounds;
+	bool isMenuContext = (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_MULTIPLAYER_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_ENCYCLOPEDIA || stateBeforeSettings == STATE_CUSTOMISATION);
+	// If accessed in-game (paused), keep the dark gameplay overlay
+	if (!isMenuContext) {
+		float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
+		float centerX = ofGetWidth() / 2.0f;
+		float panelW = 900.0f * uiScale;
+		float panelH = ofGetHeight() * 0.85f;
+		float panelY = ofGetHeight() * 0.075f;
+		ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+		drawMenuPlaquePanel(panelRect);
+		drawPixelTextCentered(titleFont, "SETTINGS", centerX, panelY + 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+		settingsBackButton.set(panelRect.x, 20 * uiScale, 160 * uiScale, 60 * uiScale);
+		drawMenuPlaqueButton(settingsBackButton, "Back", settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()));
+		return;
+	}
+
+	if (s_bookState != BOOK_IDLE_OPEN) return;
+
+	BookPageArea pa = getBookPageArea();
+	ofColor ink(25, 22, 20); // 100% black ink
+	int mx = ofGetMouseX();
+	int my = ofGetMouseY();
+
+	// Title in top quarter of the left page
+	float titleX = pa.leftPage.getCenter().x;
+	float titleY = pa.leftPage.y + 45.0f;
+	drawPixelTextCentered(uiFont, "SETTINGS", titleX, titleY, 1.6f, ink);
+	ofSetColor(ink);
+	ofDrawLine(titleX - 110.0f, titleY + 12.0f, titleX + 110.0f, titleY + 12.0f);
+
+	// LEFT PAGE: Video & Audio
+	float curY = titleY + 55.0f;
+	float leftX = pa.leftPage.x + 8.0f;
+	float rowW = pa.leftPage.width - 16.0f;
+	float btnH = 44.0f;
+	float arrowW = 40.0f;
+
+	auto drawBookHeader = [&](const std::string & head) {
+		drawPixelTextBaseline(uiFont, head, leftX, curY, 1.1f, ink);
+		curY += 8.0f;
+		ofSetColor(ink);
+		ofDrawLine(leftX, curY, leftX + 80.0f, curY);
+		curY += 32.0f;
 	};
 
-	// Same overlay logic as Encyclopedia
-	if (stateBeforeSettings == STATE_MAIN_MENU) {
-		draw2DMenuBackground();
-		drawMainMenu();
-		ofSetColor(0, 0, 0, 240); // Darker overlay blocks out the board entirely
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-	}
+	drawBookHeader("VIDEO");
 
-	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
-	float setX = ofGetWidth() / 2.0f;
-	float centerX = setX;
+	// Language selector
+	settingsLangLeftButton.set(leftX, curY, arrowW, btnH);
+	settingsLangRightButton.set(leftX + rowW - arrowW, curY, arrowW, btnH);
+	drawPixelTextCentered(uiFont, "<", settingsLangLeftButton.getCenter().x, settingsLangLeftButton.getCenter().y, 1.1f, ink);
+	drawPixelTextCentered(uiFont, ">", settingsLangRightButton.getCenter().x, settingsLangRightButton.getCenter().y, 1.1f, ink);
+	drawPixelTextCentered(uiFont, g_availableLanguageNames[g_currentLanguageIndex], leftX + (rowW * 0.5f), curY + btnH * 0.5f, 0.95f, ink);
+	curY += (btnH + 16.0f);
 
-	// If accessed from gameplay/pause, center it immediately on screen
-	if (stateBeforeSettings != STATE_MAIN_MENU) {
-		centerX = ofGetWidth() / 2.0f;
-	}
+	// Display mode
+	std::string winModeStr = (g_windowModeState == 1) ? "Fullscreen" : ((g_windowModeState == 2) ? "Borderless" : "Windowed");
+	settingsFullscreenButton.set(leftX, curY, rowW, btnH);
+	bool fsHov = settingsFullscreenButton.inside(mx, my);
+	ofSetColor(fsHov ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsFullscreenButton, 6.0f);
+	drawPixelTextCentered(uiFont, "Display: " + winModeStr, settingsFullscreenButton.getCenter().x, settingsFullscreenButton.getCenter().y, 0.95f, ink);
+	curY += (btnH + 16.0f);
 
-	float panelW = 900.0f * uiScale;
-	float panelH = ofGetHeight() * 0.85f;
-	float panelY = ofGetHeight() * 0.075f;
-	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+	// VSync
+	settingsVSyncBox.set(leftX, curY, rowW, btnH);
+	bool vsHov = settingsVSyncBox.inside(mx, my);
+	ofSetColor(vsHov ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsVSyncBox, 6.0f);
+	drawPixelTextCentered(uiFont, std::string("VSync: ") + (settingsUseVSync ? "ON" : "OFF"), settingsVSyncBox.getCenter().x, settingsVSyncBox.getCenter().y, 0.95f, ink);
+	curY += (btnH + 32.0f);
 
-	drawMenuPlaquePanel(panelRect);
+	drawBookHeader("AUDIO");
 
-	drawPixelTextCentered(titleFont, "SETTINGS", centerX, panelY + 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+	auto drawBookAudioRow = [&](ofRectangle & leftB, ofRectangle & rightB, const std::string & label, float val) {
+		leftB.set(leftX, curY, arrowW, btnH);
+		rightB.set(leftX + rowW - arrowW, curY, arrowW, btnH);
+		drawPixelTextCentered(uiFont, "<", leftB.getCenter().x, leftB.getCenter().y, 1.1f, ink);
+		drawPixelTextCentered(uiFont, ">", rightB.getCenter().x, rightB.getCenter().y, 1.1f, ink);
 
-	// --- Settings UI Positions & Tabs ---
-	float tabsY = ofGetHeight() * 0.22f;
-	int totalTabs = 4; // Video, Audio, Game, Controls
-	float tabW = 180.0f * uiScale;
-	float tabH = 48.0f * uiScale;
-	float tabSpacing = 12.0f * uiScale;
-
-	// Calculate start X so tabs are centered
-	float tabsTotalWidth = totalTabs * tabW + (totalTabs - 1) * tabSpacing;
-	float startX = centerX - tabsTotalWidth / 2.0f;
-
-	// Tab rects (ordered)
-	settingsTabVideoRect.set(startX, tabsY, tabW, tabH);
-	settingsTabAudioRect.set(startX + (tabW + tabSpacing) * 1, tabsY, tabW, tabH);
-	settingsTabGameRect.set(startX + (tabW + tabSpacing) * 2, tabsY, tabW, tabH);
-	settingsTabControlsRect.set(startX + (tabW + tabSpacing) * 3, tabsY, tabW, tabH);
-
-	// Draw tabs
-	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
-		bool hovered = r.inside(ofGetMouseX(), ofGetMouseY());
-		if (hovered) g_hoveredButtonId = "set_tab_" + label;
-
-		ofSetColor(active ? ofColor(80, 100, 140) : (hovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
-		ofDrawRectRounded(r, 8);
-		ofSetColor(active ? ofColor::white : ofColor(200));
-		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, active ? ofColor::white : ofColor(200));
+		std::string txt = label + ": " + std::to_string((int)std::round(val * 100.0f)) + "%";
+		drawPixelTextCentered(uiFont, txt, leftX + (rowW * 0.5f), curY + btnH * 0.5f, 0.95f, ink);
+		curY += (btnH + 16.0f);
 	};
 
-	drawTab(settingsTabVideoRect, "Video", currentSettingsTab == SETTINGS_TAB_VIDEO);
-	drawTab(settingsTabAudioRect, "Audio", currentSettingsTab == SETTINGS_TAB_AUDIO);
-	drawTab(settingsTabGameRect, "Game", currentSettingsTab == SETTINGS_TAB_GAME);
-	drawTab(settingsTabControlsRect, "Controls", currentSettingsTab == SETTINGS_TAB_CONTROLS);
+	drawBookAudioRow(settingsAudioMasterLeftBtn, settingsAudioMasterRightBtn, "Master", settingsMasterVolume);
+	drawBookAudioRow(settingsAudioVolumeLeftBtn, settingsAudioVolumeRightBtn, "Music", settingsMenuVolume);
+	drawBookAudioRow(settingsAudioSfxLeftBtn, settingsAudioSfxRightBtn, "Effects", settingsSfxVolume);
 
-	// Content area start
-	float contentY = tabsY + tabH + 30.0f * uiScale;
+	// RIGHT PAGE: Game & Controls
+	float rX = pa.rightPage.x + 12.0f;
+	float rW = pa.rightPage.width - 24.0f;
+	float rY = pa.rightPage.y + 45.0f;
 
-	// --- Settings UI Shared Variables ---
-	float settingSpacing = 100.0f * uiScale;
-	float controlWidth = 250.0f * uiScale;
+	drawPixelTextBaseline(uiFont, "GAME", rX, rY, 1.1f, ink);
+	rY += 8.0f;
+	ofSetColor(ink);
+	ofDrawLine(rX, rY, rX + 80.0f, rY);
+	rY += 32.0f;
 
-	// Clean setting row layout with support for disabled / greyed-out state
-	auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos, bool disabled = false) {
-		float boxH = 46.0f * uiScale;
-		float boxY = yPos + 22.0f * uiScale; // Positioned cleanly below label
-		float arrowW = 40.0f * uiScale;
+	// In-World HP Mode
+	settingsInWorldHPLeftBtn.set(rX, rY, arrowW, btnH);
+	settingsInWorldHPRightBtn.set(rX + rW - arrowW, rY, arrowW, btnH);
+	drawPixelTextCentered(uiFont, "<", settingsInWorldHPLeftBtn.getCenter().x, settingsInWorldHPLeftBtn.getCenter().y, 1.1f, ink);
+	drawPixelTextCentered(uiFont, ">", settingsInWorldHPRightBtn.getCenter().x, settingsInWorldHPRightBtn.getCenter().y, 1.1f, ink);
+	const char * hpModes[] = { "HP: Always", "HP: Hover", "HP: Off" };
+	drawPixelTextCentered(uiFont, hpModes[std::clamp(settingsInWorldHPMode, 0, 2)], rX + (rW * 0.5f), rY + btnH * 0.5f, 0.95f, ink);
+	rY += (btnH + 16.0f);
 
-		leftBtn.set(centerX - (controlWidth / 2) - arrowW - 8.0f * uiScale, boxY, arrowW, boxH);
-		rightBtn.set(centerX + (controlWidth / 2) + 8.0f * uiScale, boxY, arrowW, boxH);
+	// UI Scale
+	settingsUIScaleLeftBtn.set(rX, rY, arrowW, btnH);
+	settingsUIScaleRightBtn.set(rX + rW - arrowW, rY, arrowW, btnH);
+	drawPixelTextCentered(uiFont, "<", settingsUIScaleLeftBtn.getCenter().x, settingsUIScaleLeftBtn.getCenter().y, 1.1f, ink);
+	drawPixelTextCentered(uiFont, ">", settingsUIScaleRightBtn.getCenter().x, settingsUIScaleRightBtn.getCenter().y, 1.1f, ink);
+	std::string scaleTxt = "UI Scale: " + std::to_string((int)std::round(settingsUIScale * 100.0f)) + "%";
+	drawPixelTextCentered(uiFont, scaleTxt, rX + (rW * 0.5f), rY + btnH * 0.5f, 0.95f, ink);
+	rY += (btnH + 32.0f);
 
-		if (!disabled) {
-			if (leftBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_L_" + label;
-			if (rightBtn.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "set_R_" + label;
-		}
+	// Controls Reference
+	drawPixelTextBaseline(uiFont, "CONTROLS", rX, rY, 1.1f, ink);
+	rY += 8.0f;
+	ofSetColor(ink);
+	ofDrawLine(rX, rY, rX + 80.0f, rY);
+	rY += 32.0f;
 
-		// 1. Title Label
-		ofColor labelCol = disabled ? ofColor(120, 125, 135) : ofColor::white;
-		drawPixelTextCentered(uiFont, label, centerX, yPos + 6.0f * uiScale, 1.0f * uiScale, labelCol, 1, ofColor::black);
-
-		// 2. Left / Right Buttons
-		bool leftHov = !disabled && leftBtn.inside(ofGetMouseX(), ofGetMouseY());
-		bool rightHov = !disabled && rightBtn.inside(ofGetMouseX(), ofGetMouseY());
-
-		ofColor btnBg = disabled ? ofColor(22, 24, 28) : (leftHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
-		ofColor btnBorder = disabled ? ofColor(48, 50, 58) : ofColor(100, 105, 120);
-		ofColor arrowCol = disabled ? ofColor(75, 80, 90) : ofColor::white;
-
-		ofSetColor(btnBg);
-		ofDrawRectRounded(leftBtn, 6.0f * uiScale);
-		ofSetColor(btnBorder);
-		ofNoFill();
-		ofSetLineWidth(1.5f * uiScale);
-		ofDrawRectRounded(leftBtn, 6.0f * uiScale);
-		ofFill();
-
-		ofColor rightBg = disabled ? ofColor(22, 24, 28) : (rightHov ? ofColor(65, 70, 85) : ofColor(38, 40, 50));
-		ofSetColor(rightBg);
-		ofDrawRectRounded(rightBtn, 6.0f * uiScale);
-		ofSetColor(btnBorder);
-		ofNoFill();
-		ofSetLineWidth(1.5f * uiScale);
-		ofDrawRectRounded(rightBtn, 6.0f * uiScale);
-		ofFill();
-
-		drawPixelTextCentered(uiFont, "<", leftBtn.getCenter().x, leftBtn.getCenter().y, 1.0f * uiScale, arrowCol);
-		drawPixelTextCentered(uiFont, ">", rightBtn.getCenter().x, rightBtn.getCenter().y, 1.0f * uiScale, arrowCol);
-
-		// 3. Center Value Box
-		ofRectangle bgRect(centerX - (controlWidth / 2), boxY, controlWidth, boxH);
-		ofColor boxBg = disabled ? ofColor(18, 20, 24) : ofColor(28, 30, 38);
-		ofColor boxBorder = disabled ? ofColor(45, 48, 55) : ofColor(70, 75, 90);
-		ofColor valCol = disabled ? ofColor(135, 140, 150) : ofColor::white;
-
-		ofSetColor(boxBg);
-		ofDrawRectRounded(bgRect, 6.0f * uiScale);
-		ofNoFill();
-		ofSetLineWidth(1.5f * uiScale);
-		ofSetColor(boxBorder);
-		ofDrawRectRounded(bgRect, 6.0f * uiScale);
-		ofFill();
-
-		drawPixelTextCentered(uiFont, value, bgRect.getCenter().x, bgRect.getCenter().y, 1.0f * uiScale, valCol, 1, ofColor::black);
+	std::vector<std::pair<std::string, std::string>> keys = {
+		{ "Left Click", "Select / play cards" },
+		{ "Enter", "Chat window" },
+		{ "Esc", "Pause Menu" },
+		{ "E", "End Turn" },
+		{ "F", "Draw Card" },
+		{ "Wheel", "Zoom / Scroll" },
+		{ "Mid Mouse", "Pan 3D Camera" },
+		{ "Right Click", "Cancel action" }
 	};
 
-	// VIDEO TAB
-	if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
-		float settingY = contentY;
-		float rowSpacing = 82.0f * uiScale;
-
-		// 1. Language
-		drawSettingRow(_L("UI_SETTING_LANG", "Language"), g_availableLanguageNames[g_currentLanguageIndex], settingsLangLeftButton, settingsLangRightButton, settingY);
-		settingY += rowSpacing;
-
-		// 2. Resolution (Locked to Native in Fullscreen/Borderless, selectable in Windowed)
-		bool resDisabled = (g_windowModeState != 0);
-		string resText;
-		if (resDisabled) {
-			resText = ofToString(ofGetScreenWidth()) + " x " + ofToString(ofGetScreenHeight()) + " (Native)";
-		} else {
-			glm::vec2 res = availableResolutions[std::clamp(currentResolutionIndex, 0, (int)availableResolutions.size() - 1)];
-			resText = ofToString((int)res.x) + " x " + ofToString((int)res.y);
-		}
-		drawSettingRow(_L("UI_SETTING_RES", "Resolution"), resText, settingsResLeftButton, settingsResRightButton, settingY, resDisabled);
-		settingY += rowSpacing;
-
-		// 3. VSync Tick Box Row
-		float vsyncBoxH = 46.0f * uiScale;
-		float vsyncBoxY = settingY + 22.0f * uiScale;
-		settingsVSyncBox.set(centerX - (controlWidth / 2), vsyncBoxY, controlWidth, vsyncBoxH);
-		bool vsyncHov = settingsVSyncBox.inside(ofGetMouseX(), ofGetMouseY());
-		if (vsyncHov) g_hoveredButtonId = "set_vsync";
-
-		ofSetColor(vsyncHov ? ofColor(45, 48, 60) : ofColor(28, 30, 38));
-		ofDrawRectRounded(settingsVSyncBox, 6.0f * uiScale);
-		ofNoFill();
-		ofSetLineWidth(1.5f * uiScale);
-		ofSetColor(vsyncHov ? ofColor(255, 215, 0, 200) : ofColor(70, 75, 90));
-		ofDrawRectRounded(settingsVSyncBox, 6.0f * uiScale);
-		ofFill();
-
-		float boxSize = 24.0f * uiScale;
-		float checkX = settingsVSyncBox.x + 16.0f * uiScale;
-		float checkY = settingsVSyncBox.y + (vsyncBoxH - boxSize) * 0.5f;
-		ofRectangle checkRect(checkX, checkY, boxSize, boxSize);
-
-		ofSetColor(18, 20, 24);
-		ofDrawRectRounded(checkRect, 4.0f * uiScale);
-		ofNoFill();
-		ofSetLineWidth(1.5f * uiScale);
-		ofSetColor(settingsUseVSync ? ofColor(50, 220, 90) : ofColor(100, 105, 120));
-		ofDrawRectRounded(checkRect, 4.0f * uiScale);
-		ofFill();
-
-		if (settingsUseVSync) {
-			ofSetColor(50, 220, 90);
-			ofDrawRectRounded(checkRect.x + 3.0f * uiScale, checkRect.y + 3.0f * uiScale, checkRect.width - 6.0f * uiScale, checkRect.height - 6.0f * uiScale, 2.0f * uiScale);
-
-			ofSetColor(255);
-			ofSetLineWidth(2.5f * uiScale);
-			ofDrawLine(checkRect.x + 6.0f * uiScale, checkRect.y + 12.0f * uiScale, checkRect.x + 10.0f * uiScale, checkRect.y + 17.0f * uiScale);
-			ofDrawLine(checkRect.x + 10.0f * uiScale, checkRect.y + 17.0f * uiScale, checkRect.x + 18.0f * uiScale, checkRect.y + 7.0f * uiScale);
-		}
-
-		string vsyncLabel = settingsUseVSync ? "Vertical Sync: ON" : "Vertical Sync: OFF";
-		ofColor vsyncCol = settingsUseVSync ? ofColor::white : ofColor(180, 185, 195);
-		drawPixelTextBaseline(uiFont, vsyncLabel, checkX + boxSize + 14.0f * uiScale, settingsVSyncBox.getCenter().y + 6.0f * uiScale, 1.0f * uiScale, vsyncCol, 1, ofColor::black);
-
-		settingY += rowSpacing;
-
-		// 4. Framerate Limit (Greyed out when VSync is ON)
-		int monitorHz = 60;
-		GLFWmonitor * prim = glfwGetPrimaryMonitor();
-		if (prim) {
-			const GLFWvidmode * mode = glfwGetVideoMode(prim);
-			if (mode && mode->refreshRate > 0) monitorHz = mode->refreshRate;
-		}
-
-		int currentPresetFPS = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
-		std::string frameText;
-		if (settingsUseVSync) {
-			frameText = ofToString(monitorHz) + " Hz (Auto VSync)";
-		} else {
-			frameText = (currentPresetFPS == 0) ? "Unlimited" : (ofToString(currentPresetFPS) + " FPS");
-		}
-		drawSettingRow("Framerate Limit", frameText, settingsFpsLeftBtn, settingsFpsRightBtn, settingY, settingsUseVSync);
-		settingY += rowSpacing;
-
-		// 5. Window Mode Button
-		string fsText = "Windowed";
-		if (g_windowModeState == 1)
-			fsText = "Fullscreen";
-		else if (g_windowModeState == 2)
-			fsText = "Borderless";
-
-		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY + 22.0f * uiScale, controlWidth, 46.0f * uiScale);
-		bool fsHov = settingsFullscreenButton.inside(ofGetMouseX(), ofGetMouseY());
-		if (fsHov) g_hoveredButtonId = "set_fs";
-
-		ofSetColor(fsHov ? ofColor(45, 48, 60) : ofColor(28, 30, 38));
-		ofDrawRectRounded(settingsFullscreenButton, 6.0f * uiScale);
-		ofNoFill();
-		ofSetLineWidth(1.5f * uiScale);
-		ofSetColor(fsHov ? ofColor(255, 215, 0, 200) : ofColor(70, 75, 90));
-		ofDrawRectRounded(settingsFullscreenButton, 6.0f * uiScale);
-		ofFill();
-
-		drawPixelTextCentered(uiFont, fsText, settingsFullscreenButton.getCenter().x, settingsFullscreenButton.getCenter().y, 1.0f * uiScale, ofColor::white, 1, ofColor::black);
+	for (const auto & kp : keys) {
+		drawPixelTextBaseline(uiFont, kp.first + ":", rX, rY, 0.85f, ink);
+		drawPixelTextBaseline(uiFont, kp.second, rX + 110.0f, rY, 0.80f, ink);
+		rY += 26.0f;
 	}
-
-	// GAME tab: clean setting rows with titles rendered strictly above the buttons
-	if (currentSettingsTab == SETTINGS_TAB_GAME) {
-		float settingY = contentY + 20.0f * uiScale;
-		float rowSpacing = 110.0f * uiScale;
-
-		// Row 1: In-World Unit HP
-		std::string hpModeNames[] = { "Always", "On Hover", "Off" };
-		std::string hpModeText = hpModeNames[std::clamp(settingsInWorldHPMode, 0, 2)];
-		drawSettingRow("In-World Unit HP", hpModeText, settingsInWorldHPLeftBtn, settingsInWorldHPRightBtn, settingY);
-
-		// Row 2: UI Scale
-		settingY += rowSpacing;
-		std::string uiScaleText = ofToString((int)std::round(settingsUIScale * 100.0f)) + "%";
-		drawSettingRow("UI Scale", uiScaleText, settingsUIScaleLeftBtn, settingsUIScaleRightBtn, settingY);
-	}
-	// AUDIO tab: sliders equipped with < and > arrow buttons to increment/decrement by 1%
-	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-		float sliderW = 320.0f * uiScale;
-		float sliderH = 28.0f * uiScale;
-		float arrowW = 36.0f * uiScale;
-		float arrowGap = 10.0f * uiScale;
-		float audioSpacing = 110.0f * uiScale;
-		float sliderY = contentY + 40.0f * uiScale;
-
-		auto drawAudioSliderWithArrows = [&](ofRectangle & sliderRect, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos, float value, const string & label, int sliderID) {
-			sliderRect.set(centerX - sliderW / 2, yPos, sliderW, sliderH);
-			leftBtn.set(sliderRect.x - arrowW - arrowGap, yPos, arrowW, sliderH);
-			rightBtn.set(sliderRect.getRight() + arrowGap, yPos, arrowW, sliderH);
-
-			// Label
-			ofSetColor(ofColor::white);
-			ofRectangle lb = getCachedBounds(label);
-			SafeDrawText(uiFont, label, centerX - lb.width / 2, sliderRect.y - 14.0f * uiScale);
-
-			// Left Arrow (<)
-			bool leftHover = leftBtn.inside(ofGetMouseX(), ofGetMouseY());
-			if (leftHover) g_hoveredButtonId = "audio_minus_" + label;
-			ofSetColor(leftHover ? ofColor(65, 70, 85) : ofColor(40, 42, 50));
-			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
-			ofSetColor(ofColor(120));
-			ofNoFill();
-			ofSetLineWidth(1.5f * uiScale);
-			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
-			ofFill();
-			ofSetColor(ofColor::white);
-			ofRectangle lt = getCachedBounds("<");
-			SafeDrawText(uiFont, "<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
-
-			// Right Arrow (>)
-			bool rightHover = rightBtn.inside(ofGetMouseX(), ofGetMouseY());
-			if (rightHover) g_hoveredButtonId = "audio_plus_" + label;
-			ofSetColor(rightHover ? ofColor(65, 70, 85) : ofColor(40, 42, 50));
-			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
-			ofSetColor(ofColor(120));
-			ofNoFill();
-			ofSetLineWidth(1.5f * uiScale);
-			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
-			ofFill();
-			ofSetColor(ofColor::white);
-			ofRectangle rt = getCachedBounds(">");
-			SafeDrawText(uiFont, ">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
-
-			// Background track
-			ofSetColor(ofColor(35));
-			ofDrawRectRounded(sliderRect, 6.0f * uiScale);
-
-			// Fill
-			float fillW = sliderRect.width * std::clamp(value, 0.0f, 1.0f);
-			ofSetColor(ofColor::white);
-			ofDrawRectRounded(sliderRect.x, sliderRect.y, fillW, sliderRect.height, 6.0f * uiScale);
-
-			// Handle
-			float handleX = sliderRect.x + fillW;
-			ofSetColor(ofColor::white);
-			ofDrawCircle(handleX, sliderRect.getCenter().y, 14.0f * uiScale);
-
-			if (s_activeSettingsSlider == sliderID) {
-				ofNoFill();
-				ofSetLineWidth(2.0f * uiScale);
-				ofSetColor(255, 215, 0, 220);
-				ofDrawRectRounded(sliderRect.x - 3 * uiScale, sliderRect.y - 3 * uiScale, sliderRect.width + 6 * uiScale, sliderRect.height + 6 * uiScale, 8.0f * uiScale);
-				ofFill();
-			}
-		};
-
-		string masterLabel = "Master Volume: " + ofToString((int)std::round(settingsMasterVolume * 100)) + "%";
-		drawAudioSliderWithArrows(settingsAudioMasterSlider, settingsAudioMasterLeftBtn, settingsAudioMasterRightBtn, sliderY, settingsMasterVolume, masterLabel, 1);
-
-		sliderY += audioSpacing;
-		string menuLabel = "Music Volume: " + ofToString((int)std::round(settingsMenuVolume * 100)) + "%";
-		drawAudioSliderWithArrows(settingsAudioVolumeSlider, settingsAudioVolumeLeftBtn, settingsAudioVolumeRightBtn, sliderY, settingsMenuVolume, menuLabel, 2);
-
-		sliderY += audioSpacing;
-		string sfxLabel = "Game SFX Volume: " + ofToString((int)std::round(settingsSfxVolume * 100)) + "%";
-		drawAudioSliderWithArrows(settingsAudioSfxSlider, settingsAudioSfxLeftBtn, settingsAudioSfxRightBtn, sliderY, settingsSfxVolume, sfxLabel, 3);
-	}
-
-	// CONTROLS tab: spacious scrollable list with clean clearance above the panel bottom
-	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-		float listY = contentY + 16.0f * uiScale;
-		float itemH = 40.0f * uiScale;
-		float itemGap = 6.0f * uiScale;
-		float rowStep = itemH + itemGap;
-		float itemW = 760.0f * uiScale;
-		float startX = centerX - itemW / 2.0f;
-
-		std::vector<std::pair<std::string, std::string>> controls = {
-			{ "Left Click", "Select unit, tile, or card in hand" },
-			{ "Left Drag", "Drag cards to play / survey targeting" },
-			{ "Enter", "Open / Close chat window" },
-			{ "Esc", "Open / Close Pause Menu" },
-			{ "E", "End Turn" },
-			{ "F", "Quick Draw (draw cards from your deck)" },
-			{ "Mouse Wheel", "Zoom in / out on arena (or scroll menus)" },
-			{ "Middle Mouse + Drag", "Pan camera around board" },
-			{ "Right Click", "Cancel card drag / cancel targeting" },
-			{ "Tab", "Switch Chat Tab (Chat / Log / Debug)" },
-			{ "T", "Toggle Top-down View" },
-			{ "P", "Cycle Pixel / C64 / Off shaders" },
-			{ "C", "Open Card Spawner (Singleplayer)" }
-		};
-
-		// Bound against the bottom edge of panelRect so content is fully visible
-		float contentBottom = panelRect.getBottom() - 24.0f * uiScale;
-		float contentHeight = std::max(0.0f, contentBottom - listY);
-
-		float totalContentHeight = (float)controls.size() * rowStep;
-		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
-		settingsControlsScrollOffset = std::clamp(settingsControlsScrollOffset, 0, (int)maxScroll);
-
-		// Scissor clipping ensures rows are never drawn outside the content area
-		ofPushStyle();
-		glEnable(GL_SCISSOR_TEST);
-		float sfX = (float)ofGetViewportWidth() / (float)ofGetWidth();
-		float sfY = (float)ofGetViewportHeight() / (float)ofGetHeight();
-
-		int scX = (int)((startX - 4.0f * uiScale) * sfX);
-		int scW = (int)((itemW + 20.0f * uiScale) * sfX);
-		int scY = g_isFboPass ? (int)(listY * sfY) : (int)((ofGetHeight() - contentBottom) * sfY);
-		int scH = (int)(contentHeight * sfY);
-		glScissor(scX, scY, scW, scH);
-
-		for (size_t i = 0; i < controls.size(); ++i) {
-			float drawY = listY + i * rowStep - settingsControlsScrollOffset;
-			if (drawY + itemH < listY || drawY > contentBottom) continue;
-
-			ofRectangle itemRect(startX, drawY, itemW, itemH);
-
-			// Row background & subtle outline
-			ofSetColor(28, 30, 38, 240);
-			ofDrawRectRounded(itemRect, 6.0f * uiScale);
-			ofNoFill();
-			ofSetLineWidth(1.5f * uiScale);
-			ofSetColor(55, 60, 75, 200);
-			ofDrawRectRounded(itemRect, 6.0f * uiScale);
-			ofFill();
-
-			// Key Binding Label on the left (Gold)
-			drawPixelTextBaseline(uiFont, controls[i].first, itemRect.x + 16.0f * uiScale, itemRect.getCenter().y + 7.0f * uiScale, 0.95f * uiScale, ofColor::gold, 2, ofColor::black);
-
-			// Description text on the right (Clean white)
-			drawPixelTextBaseline(uiFont, controls[i].second, itemRect.x + 230.0f * uiScale, itemRect.getCenter().y + 7.0f * uiScale, 0.90f * uiScale, ofColor(225, 230, 245));
-		}
-
-		glDisable(GL_SCISSOR_TEST);
-		safePopStyle();
-
-		// Draw Scrollbar track and thumb on the right
-		if (maxScroll > 0.0f) {
-			float trackX = startX + itemW + 8.0f * uiScale;
-			float trackW = 6.0f * uiScale;
-			ofSetColor(35, 38, 48, 180);
-			ofDrawRectRounded(trackX, listY, trackW, contentHeight, 3.0f * uiScale);
-
-			float thumbH = std::max(28.0f * uiScale, contentHeight * (contentHeight / totalContentHeight));
-			float thumbY = listY + ((float)settingsControlsScrollOffset / maxScroll) * (contentHeight - thumbH);
-			ofSetColor(120, 130, 155, 240);
-			ofDrawRectRounded(trackX, thumbY, trackW, thumbH, 3.0f * uiScale);
-		}
-	}
-	// --- Draw Back Button (Standard Top-Left) ---
-	settingsBackButton.set(panelRect.x, 20 * uiScale, 160 * uiScale, 60 * uiScale);
-	bool backHovered = settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()) || settingsHoveredIndex == 0;
-	drawMenuPlaqueButton(settingsBackButton, "Back", backHovered);
 }
+
 void ofApp::drawSingleplayerMenu() {
-	float uiScale = std::clamp(g_settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
+	if (s_bookState != BOOK_IDLE_OPEN) return;
 
-	// Restore panning offset! Screen 1 = 30 tiles right of the main menu
-	float sX = baseMenuStartX - currentMenuPanX + (30 * menuTileSize);
-	float centerX = sX + (BOARD_WIDTH * menuTileSize) / 2.0f;
+	BookPageArea pa = getBookPageArea();
+	ofColor ink(25, 22, 20);
+	int mx = ofGetMouseX();
+	int my = ofGetMouseY();
 
-	int numRows = 3; // New Game, Local PvP, Back
-	float btnW = 400.0f * uiScale;
-	float btnH = 76.0f * uiScale;
-	float btnGap = 20.0f * uiScale;
-	float titleAreaH = 110.0f * uiScale;
-	float bottomPad = 40.0f * uiScale;
-	float totalBtnH = (numRows * btnH) + ((numRows - 1) * btnGap);
-	float panelH = titleAreaH + totalBtnH + bottomPad;
-	float panelW = 480.0f * uiScale;
-	float panelY = (ofGetHeight() - panelH) / 2.0f;
+	float titleX = pa.leftPage.getCenter().x;
+	float titleY = pa.leftPage.y + 45.0f;
+	drawPixelTextCentered(uiFont, "SOLO DUEL", titleX, titleY, 1.6f, ink);
+	ofSetColor(ink);
+	ofDrawLine(titleX - 110.0f, titleY + 12.0f, titleX + 110.0f, titleY + 12.0f);
 
-	ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
+	float leftX = pa.leftPage.x + 16.0f;
+	float leftW = pa.leftPage.width - 32.0f;
+	float btnH = 65.0f;
+	float curY = titleY + 80.0f;
 
-	ofSetColor(25, 25, 32, 250);
-	ofFill();
-	ofDrawRectRounded(panelRect, 16.0f * uiScale);
-	ofNoFill();
-	ofSetLineWidth(3.0f * uiScale);
-	ofSetColor(80, 80, 100, 255);
-	ofDrawRectRounded(panelRect, 16.0f * uiScale);
-	ofFill();
+	singleplayerNewGameButton.set(leftX, curY, leftW, btnH);
+	curY += (btnH + 24.0f);
+	mainMenuLocalPvPButton.set(leftX, curY, leftW, btnH);
 
-	drawPixelTextCentered(titleFont, _L("UI_SOLO_TITLE", "SINGLEPLAYER"), centerX, panelY + 55.0f * uiScale, 1.4f * uiScale, ofColor::gold, 2, ofColor::black);
+	auto drawBookButton = [&](ofRectangle & r, const std::string & label) {
+		bool hov = r.inside(mx, my);
+		if (hov) g_hoveredButtonId = "sp_btn_" + label;
 
-	float curY = panelY + titleAreaH;
-	float btnX = centerX - btnW / 2.0f;
-
-	auto drawBtn = [&](ofRectangle & r, const std::string & txt) {
-		r.set(btnX, curY, btnW, btnH);
-		bool isHovered = r.inside(ofGetMouseX(), ofGetMouseY());
-		if (isHovered) g_hoveredButtonId = "sp_" + txt;
-
-		ofColor bgCol = isHovered ? ofColor(60, 65, 80) : ofColor(35, 38, 48);
-		ofSetColor(bgCol);
-		ofFill();
-		ofDrawRectRounded(r, 10.0f * uiScale);
+		ofSetColor(hov ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
+		ofDrawRectRounded(r, 6.0f);
 		ofNoFill();
-		ofSetLineWidth(2.0f * uiScale);
-		ofSetColor(isHovered ? ofColor(255, 215, 0) : ofColor(100, 100, 120));
-		ofDrawRectRounded(r, 10.0f * uiScale);
+		ofSetLineWidth(2.5f);
+		ofSetColor(ink);
+		ofDrawRectRounded(r, 6.0f);
 		ofFill();
 
-		drawPixelTextCentered(uiFont, txt, r.getCenter().x, r.getCenter().y, 1.2f * uiScale, ofColor::white, 2, ofColor::black);
-		curY += btnH + btnGap;
+		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.1f, ink);
 	};
 
-	drawBtn(singleplayerNewGameButton, _L("UI_BTN_NEW_VS_AI", "New vs AI"));
-	drawBtn(mainMenuLocalPvPButton, _L("UI_BTN_LOCAL_PVP", "Local PvP"));
-	drawBtn(singleplayerBackButton, _L("UI_BTN_BACK", "Back"));
+	drawBookButton(singleplayerNewGameButton, "Battle AI");
+	drawBookButton(mainMenuLocalPvPButton, "Pass & Play (Local)");
 
-	// Hide obsolete save/load buttons off screen
-	singleplayerContinueButton.set(-1000, -1000, 0, 0);
-	singleplayerLoadButton.set(-1000, -1000, 0, 0);
-	singleplayerReplayButton.set(-1000, -1000, 0, 0);
+	float rightX = pa.rightPage.x + 16.0f;
+	float rightW = pa.rightPage.width - 32.0f;
+	float rY = pa.rightPage.y + 45.0f;
+
+	drawPixelTextBaseline(uiFont, "PRACTICE ARENA", rightX, rY, 1.4f, ink);
+	rY += 8.0f;
+	ofSetColor(ink);
+	ofDrawLine(rightX, rY, rightX + 140.0f, rY);
+	rY += 36.0f;
+
+	const char * tips = "Test new spells and tactics against the dungeon AI.\n\n"
+						"Learn card combinations like Flurry of Fists and Necromancer's Blessing before entering online ranked duels.";
+	auto lines = wrapTextScaled(uiFont, tips, rightW, 0.95f);
+	for (const auto & l : lines) {
+		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.95f, ink);
+		rY += 32.0f;
+	}
 }
 
 void ofApp::drawCustomisationState() {
@@ -10919,153 +10652,96 @@ void ofApp::drawMultiplayerMenu() {
 		return;
 	}
 
-	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
-	float oX = baseMenuStartX - currentMenuPanX - (30 * menuTileSize);
-	float centerX = oX + (BOARD_WIDTH * menuTileSize) / 2.0f;
+	if (s_bookState != BOOK_IDLE_OPEN) return;
 
-	float titleY = std::max(ofGetHeight() * 0.10f, menuStartY - menuTileSize * 0.5f);
-	drawPixelTextCentered(titleFont, _L("UI_ONLINE_TITLE", "ONLINE VERSUS"), centerX, titleY, 1.5f, ofColor::gold, 4, ofColor::black);
+	BookPageArea pa = getBookPageArea();
+	ofColor ink(25, 22, 20);
+	int mx = ofGetMouseX();
+	int my = ofGetMouseY();
 
-	bool isOnline = steamManager.isConnected();
+	float titleX = pa.leftPage.getCenter().x;
+	float titleY = pa.leftPage.y + 45.0f;
+	drawPixelTextCentered(uiFont, "ONLINE VERSUS", titleX, titleY, 1.6f, ink);
+	ofSetColor(ink);
+	ofDrawLine(titleX - 120.0f, titleY + 12.0f, titleX + 120.0f, titleY + 12.0f);
 
-	// --- LOBBIES PANEL (Left) ---
-	drawMenuPlaquePanel(mpLobbiesPanelRect);
+	// Left Page: Player Badge & Matches
+	float leftX = pa.leftPage.x + 12.0f;
+	float leftW = pa.leftPage.width - 24.0f;
+	float curY = titleY + 55.0f;
 
-	if (!isOnline) {
-		// Greyed-out overlay when Steam is offline
-		ofPushStyle();
-		ofSetColor(20, 20, 25, 200);
-		ofDrawRectRounded(mpLobbiesPanelRect.x + 4, mpLobbiesPanelRect.y + 4, mpLobbiesPanelRect.width - 8, mpLobbiesPanelRect.height - 8, 8);
-		drawPixelTextCentered(uiFont, "Steam Offline", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y - 12.0f * uiScale, 1.1f * uiScale, ofColor(180, 180, 180));
-		drawPixelTextCentered(uiFont, "Online lobbies unavailable", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y + 16.0f * uiScale, 0.85f * uiScale, ofColor(130, 130, 130));
-		safePopStyle();
-		mpLobbyButtons.clear();
+	int curLvl = steamManager.getLocalLevel();
+	int curElo = steamManager.getLocalElo();
+	auto rank = getMageRank(curElo > 0 ? curElo : 1000);
+
+	std::string profileTxt = "Lv." + std::to_string(curLvl) + " " + rank.first + " (" + std::to_string(curElo > 0 ? curElo : 1000) + " ELO)";
+	drawPixelTextBaseline(uiFont, profileTxt, leftX, curY, 0.95f, ink);
+	curY += 40.0f;
+
+	float btnH = 48.0f;
+	float halfW = (leftW - 16.0f) * 0.5f;
+	mpHostButton.set(leftX, curY, halfW, btnH);
+	mpRefreshButton.set(leftX + halfW + 16.0f, curY, halfW, btnH);
+
+	bool hovHost = mpHostButton.inside(mx, my);
+	bool hovRef = mpRefreshButton.inside(mx, my);
+
+	ofSetColor(hovHost ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
+	ofDrawRectRounded(mpHostButton, 6.0f);
+	drawPixelTextCentered(uiFont, "Host", mpHostButton.getCenter().x, mpHostButton.getCenter().y, 1.0f, ink);
+
+	ofSetColor(hovRef ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
+	ofDrawRectRounded(mpRefreshButton, 6.0f);
+	drawPixelTextCentered(uiFont, "Refresh", mpRefreshButton.getCenter().x, mpRefreshButton.getCenter().y, 1.0f, ink);
+	curY += (btnH + 40.0f);
+
+	drawPixelTextBaseline(uiFont, "Open Matches", leftX, curY, 1.2f, ink);
+	curY += 28.0f;
+
+	auto lobbies = steamManager.getLobbyList();
+	mpLobbyButtons.clear();
+	if (lobbies.empty()) {
+		drawPixelTextBaseline(uiFont, "No matches found. Host one above!", leftX, curY, 0.85f, ofColor(70, 65, 60));
 	} else {
-		glEnable(GL_SCISSOR_TEST);
-		int scY = g_isFboPass ? (mpLobbiesPanelRect.y + 4) : (ofGetHeight() - (mpLobbiesPanelRect.getBottom() - 4));
-		glScissor(mpLobbiesPanelRect.x + 4, scY, mpLobbiesPanelRect.width - 8, mpLobbiesPanelRect.height - 8);
+		for (size_t i = 0; i < lobbies.size() && i < 6; ++i) {
+			ofRectangle lRect(leftX, curY, leftW, 44.0f);
+			mpLobbyButtons.push_back(lRect);
+			bool hov = lRect.inside(mx, my);
+			if (hov) g_hoveredButtonId = "mp_lobby_" + std::to_string(i);
 
-		auto lobbies = steamManager.getLobbyList();
-		mpLobbyButtons.clear();
+			ofSetColor(hov ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
+			ofDrawRectRounded(lRect, 6.0f);
 
-		if (lobbies.empty()) {
-			drawPixelTextCentered(uiFont, "No open matches found.", mpLobbiesPanelRect.getCenter().x, mpLobbiesPanelRect.getCenter().y, 1.0f, ofColor(150));
-		} else {
-			float currentY = mpLobbiesPanelRect.y + 10 - g_mpLobbyScroll;
-			float itemH = 60.0f * uiScale;
-			for (size_t i = 0; i < lobbies.size(); ++i) {
-				ofRectangle lRect(mpLobbiesPanelRect.x + 10, currentY, mpLobbiesPanelRect.width - 20, itemH);
-
-				if (lRect.getBottom() > mpLobbiesPanelRect.y && lRect.getTop() < mpLobbiesPanelRect.getBottom()) {
-					mpLobbyButtons.push_back(lRect);
-					bool isHovered = lRect.inside(ofGetMouseX(), ofGetMouseY());
-					if (isHovered) g_hoveredButtonId = "mp_lobby_" + ofToString(i);
-
-					bool inProgress = (lobbies[i].numPlayers >= 4);
-					std::string lobbyText = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
-					lobbyText += inProgress ? " [SPECTATE]" : " [JOIN]";
-
-					drawMenuPlaqueButton(lRect, lobbyText, isHovered);
-				} else {
-					mpLobbyButtons.push_back(ofRectangle(0, 0, 0, 0));
-				}
-
-				currentY += itemH + 10.0f * uiScale;
-			}
+			std::string lTxt = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
+			drawPixelTextCentered(uiFont, lTxt, lRect.getCenter().x, lRect.getCenter().y, 0.95f, ink);
+			curY += 52.0f;
 		}
-		glDisable(GL_SCISSOR_TEST);
 	}
 
-	// --- LEADERBOARD PANEL (Right) ---
-	drawMenuPlaquePanel(mpLeaderboardPanelRect);
+	// Right Page: Leaderboard
+	float rightX = pa.rightPage.x + 12.0f;
+	float rightW = pa.rightPage.width - 24.0f;
+	float rY = pa.rightPage.y + 45.0f;
 
-	if (!isOnline) {
-		ofPushStyle();
-		ofSetColor(20, 20, 25, 200);
-		ofDrawRectRounded(mpLeaderboardPanelRect.x + 4, mpLeaderboardPanelRect.y + 4, mpLeaderboardPanelRect.width - 8, mpLeaderboardPanelRect.height - 8, 8);
-		drawPixelTextCentered(uiFont, "Steam Offline", mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f * uiScale, ofColor(150, 150, 150));
-		safePopStyle();
+	drawPixelTextBaseline(uiFont, "GLOBAL LEADERBOARD", rightX, rY, 1.4f, ink);
+	rY += 8.0f;
+	ofSetColor(ink);
+	ofDrawLine(rightX, rY, rightX + 160.0f, rY);
+	rY += 36.0f;
+
+	auto leaderboard = steamManager.getLeaderboardEntries();
+	if (leaderboard.empty()) {
+		drawPixelTextBaseline(uiFont, "Loading rankings...", rightX, rY, 0.85f, ofColor(70, 65, 60));
 	} else {
-		glEnable(GL_SCISSOR_TEST);
-		int lbScY = g_isFboPass ? (mpLeaderboardPanelRect.y + 4) : (ofGetHeight() - (mpLeaderboardPanelRect.getBottom() - 4));
-		glScissor(mpLeaderboardPanelRect.x + 4, lbScY, mpLeaderboardPanelRect.width - 8, mpLeaderboardPanelRect.height - 8);
+		for (size_t i = 0; i < leaderboard.size() && i < 10; ++i) {
+			const auto & entry = leaderboard[i];
+			std::string rankStr = "#" + std::to_string(entry.rank) + " " + entry.name;
+			std::string scoreStr = std::to_string(entry.score);
 
-		auto leaderboard = steamManager.getLeaderboardEntries();
-		if (leaderboard.empty()) {
-			float elapsedSinceRefresh = ofGetElapsedTimef() - g_lastLeaderboardRefreshTime;
-			std::string statusMsg = (elapsedSinceRefresh < 3.0f) ? "Loading rankings..." : "No ranked entries found";
-			drawPixelTextCentered(uiFont, statusMsg, mpLeaderboardPanelRect.getCenter().x, mpLeaderboardPanelRect.getCenter().y, 1.0f, ofColor(150));
-		} else {
-			float lbY = mpLeaderboardPanelRect.y + 10 - g_mpLeaderboardScroll;
-			float itemH = 50.0f * uiScale;
-			for (const auto & entry : leaderboard) {
-				ofRectangle lbRect(mpLeaderboardPanelRect.x + 10, lbY, mpLeaderboardPanelRect.width - 20, itemH);
-				if (lbRect.getBottom() > mpLeaderboardPanelRect.y && lbRect.getTop() < mpLeaderboardPanelRect.getBottom()) {
-
-					ofSetColor(30, 30, 35, 255);
-					ofDrawRectRounded(lbRect, 8);
-					ofNoFill();
-					ofSetLineWidth(2.0f);
-					ofSetColor(100, 100, 100);
-					ofDrawRectRounded(lbRect, 8);
-					ofFill();
-
-					drawPixelTextCentered(uiFont, "#" + std::to_string(entry.rank), lbRect.x + 30 * uiScale, lbRect.getCenter().y, 1.0f, ofColor::gold);
-
-					auto rank = getMageRank(entry.score);
-
-					float nameX = lbRect.x + 80 * uiScale;
-					drawPixelTextBaseline(uiFont, entry.name, nameX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
-
-					std::string scoreStr = std::to_string(entry.score);
-					ofRectangle sb = uiFont.getStringBoundingBox(scoreStr, 0, 0);
-					float scoreX = lbRect.getRight() - sb.width - 20;
-
-					drawPixelTextBaseline(uiFont, scoreStr, scoreX, lbRect.getCenter().y + 8 * uiScale, 1.0f, ofColor::white);
-
-					std::string rankStr = "[" + rank.first + "]";
-					ofRectangle rb = uiFont.getStringBoundingBox(rankStr, 0, 0);
-					drawPixelTextBaseline(uiFont, rankStr, scoreX - rb.width - 15 * uiScale, lbRect.getCenter().y + 8 * uiScale, 1.0f, rank.second);
-				}
-				lbY += itemH + 5.0f * uiScale;
-			}
+			drawPixelTextBaseline(uiFont, rankStr, rightX, rY, 0.95f, ink);
+			drawPixelTextBaseline(uiFont, scoreStr, rightX + rightW - 65.0f, rY, 0.95f, ink);
+			rY += 30.0f;
 		}
-		glDisable(GL_SCISSOR_TEST);
-	}
-
-	// Action Buttons
-	float btnW = 260 * uiScale;
-	float btnH = 60 * uiScale;
-	float panelX = centerX - (ofGetWidth() * 0.9f) / 2.0f;
-	mpRefreshButton.set(panelX, ofGetHeight() - 80 * uiScale, btnW, btnH);
-	mpHostButton.set(panelX + (ofGetWidth() * 0.9f) - btnW, ofGetHeight() - 80 * uiScale, btnW, btnH);
-
-	drawMenuPlaqueButton(mpRefreshButton, _L("UI_ONLINE_REFRESH", "Refresh List"), mpRefreshButton.inside(ofGetMouseX(), ofGetMouseY()), !isOnline);
-	drawMenuPlaqueButton(mpHostButton, _L("UI_ONLINE_HOST", "Host Match"), mpHostButton.inside(ofGetMouseX(), ofGetMouseY()));
-
-	// Standard Top-Left Back Button
-	mpBackButton.set(panelX, 20 * uiScale, 160 * uiScale, 60 * uiScale);
-	drawMenuPlaqueButton(mpBackButton, _L("UI_BTN_BACK", "Back"), mpBackButton.inside(ofGetMouseX(), ofGetMouseY()));
-
-	if (g_isConnectingToLobby) {
-		ofSetColor(0, 0, 0, 220);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-		std::string title = "Connecting to Match...";
-		std::string sub = "Please wait...";
-
-		drawPixelTextCentered(titleFont, title, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f - 20.0f, 1.5f, ofColor::white);
-		drawPixelTextCentered(uiFont, sub, ofGetWidth() / 2.0f, ofGetHeight() / 2.0f + 30.0f, 1.0f, ofColor::lightGray);
-
-		ofRectangle cancelBtn(ofGetWidth() / 2.0f - 100.0f, ofGetHeight() / 2.0f + 80.0f, 200.0f, 50.0f);
-		if (cancelBtn.inside(ofGetMouseX(), ofGetMouseY())) {
-			ofSetColor(ofColor::lightGray);
-			g_hoveredButtonId = "mp_cancel";
-		} else {
-			ofSetColor(ofColor::white);
-		}
-		ofDrawRectRounded(cancelBtn, 8);
-		drawPixelTextCentered(uiFont, "Cancel", cancelBtn.getCenter().x, cancelBtn.getCenter().y, 1.0f, ofColor::black);
 	}
 }
 
@@ -19688,52 +19364,9 @@ cursor_check_done:;
 		break;
 	}
 	case STATE_ENCYCLOPEDIA: {
-		encyclopediaMainHoveredIndex = -1;
-
-		if (encyclopediaMainTab == 2) {
-			float uiScale = std::max(0.75f, std::min(ofGetWidth() / 1920.0f, getUIScaleFromHeight(ofGetHeight())));
-			float panelWidth = ofGetWidth() * 0.9f;
-			float contentY = 230 * uiScale;
-			float contentBottom = ofGetHeight() - 30 * uiScale;
-
-			const int cols = 10;
-			const float padX = 8.0f * uiScale;
-			const float padY = 10.0f * uiScale;
-			const float nameBand = 24.0f * uiScale;
-
-			float cardW = std::max(12.0f, (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols);
-			float cardH = cardW * 1.4f;
-			float rowStep = cardH + padY + nameBand;
-			float gridWidth = cols * cardW + (cols - 1) * padX;
-			float startX = (ofGetWidth() - gridWidth) / 2.0f;
-
-			int row = 0, col = 0;
-			for (size_t i = 0; i < allCards.size(); i++) {
-				float drawX = startX + col * (cardW + padX);
-				float drawY = contentY + row * rowStep - encyclopediaMainScroll;
-
-				if (drawY + cardH > contentY && drawY < contentBottom) {
-					ofRectangle cardRect(drawX, drawY, cardW, cardH);
-					if (cardRect.inside(x, y)) {
-						encyclopediaMainHoveredIndex = i;
-						break;
-					}
-				}
-				col++;
-				if (col >= cols) {
-					col = 0;
-					row++;
-				}
-			}
-		}
-
-		if (encyclopediaMainHoveredIndex != -1) {
-			if (!encyclopediaMainHoverScaled && ofGetElapsedTimef() - encyclopediaMainHoverStartTime > 0.3f) {
-				encyclopediaMainHoverScaled = true;
-			}
-		} else {
-			encyclopediaMainHoverStartTime = ofGetElapsedTimef();
-			encyclopediaMainHoverScaled = false;
+		// When not hovering a card name in Cards sub-tab, hide preview
+		if (s_bookRulesTab != 3) {
+			s_bookHoveredCardIndex = -1;
 		}
 		break;
 	}
@@ -20445,21 +20078,46 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 			} else if (currentState == STATE_ENCYCLOPEDIA) {
-				if (encyBtnBack.inside(x, y)) {
+				// Sub-menu item clicks
+				if (s_bookSubTabHowToPlay.inside(x, y)) {
+					s_bookRulesTab = 0;
 					clickedUI = true;
-					currentState = STATE_MAIN_MENU;
-				} else if (encyTabRules.inside(x, y)) {
+					return;
+				}
+				if (s_bookSubTabEffects.inside(x, y)) {
+					s_bookRulesTab = 1;
 					clickedUI = true;
-					encyclopediaMainTab = 0;
-					encyclopediaMainScroll = 0.0f;
-				} else if (encyTabMinions.inside(x, y)) {
+					return;
+				}
+				if (s_bookSubTabMinions.inside(x, y)) {
+					s_bookRulesTab = 2;
 					clickedUI = true;
-					encyclopediaMainTab = 1;
-					encyclopediaMainScroll = 0.0f;
-				} else if (encyTabCards.inside(x, y)) {
+					return;
+				}
+				if (s_bookSubTabCards.inside(x, y)) {
+					s_bookRulesTab = 3;
 					clickedUI = true;
-					encyclopediaMainTab = 2;
-					encyclopediaMainScroll = 0.0f;
+					return;
+				}
+
+				// Minion section page-turning corners
+				if (s_bookRulesTab == 2) {
+					if (s_bookMinionPage < s_bookMinionTotalPages - 1 && s_bookTurnRightCorner.inside(x, y)) {
+						s_bookMinionPage++;
+						s_animTurnLeft.play();
+						s_bookState = BOOK_TURNING_LEFT;
+						if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
+						clickedUI = true;
+						return;
+					}
+					if (s_bookMinionPage > 0 && s_bookTurnLeftCorner.inside(x, y)) {
+						s_bookMinionPage--;
+						s_animTurnRight.play();
+						s_bookState = BOOK_TURNING_RIGHT;
+						if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
+						clickedUI = true;
+						return;
+					}
 				}
 			} else if (currentState == STATE_CUSTOMISATION) {
 				if (customisationBtnBack.inside(x, y)) {
@@ -38143,7 +37801,14 @@ void ofApp::applyPixelArtSettings() {
 		s_mainMenuBg.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 		s_mainMenuBg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	}
-
+	if (s_cardBackgroundImg.isAllocated()) {
+		s_cardBackgroundImg.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+		s_cardBackgroundImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
+	if (s_cardGlowTexture.isAllocated()) {
+		s_cardGlowTexture.setTextureMinMagFilter(minFilter, magFilter);
+		s_cardGlowTexture.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 	// Optionally adjust material settings to reduce specular for pixel-art
 	modelMaterial.setShininess(2.0f);
 	diceMaterial.setShininess(2.0f);
@@ -43757,297 +43422,211 @@ void ofApp::cancelMagicHand() {
 }
 
 void ofApp::drawEncyclopediaState() {
+	if (s_bookState != BOOK_IDLE_OPEN) return;
+
+	BookPageArea pa = getBookPageArea();
+	ofColor ink(25, 22, 20); // All text in solid black ink
 	int mx = ofGetMouseX();
 	int my = ofGetMouseY();
 
-	draw2DMenuBackground();
-	drawMainMenu();
+	// 1. Column sub-menu down top-left margin (Moved further left to avoid text clipping)
+	float menuX = pa.leftPage.x - 45.0f;
+	float menuY = pa.leftPage.y + 10.0f;
+	float menuW = 180.0f;
+	float menuH = 38.0f;
+	float menuGap = 8.0f;
 
-	ofSetColor(0, 0, 0, 240);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	s_bookSubTabHowToPlay.set(menuX, menuY, menuW, menuH);
+	s_bookSubTabEffects.set(menuX, menuY + (menuH + menuGap), menuW, menuH);
+	s_bookSubTabMinions.set(menuX, menuY + (menuH + menuGap) * 2, menuW, menuH);
+	s_bookSubTabCards.set(menuX, menuY + (menuH + menuGap) * 3, menuW, menuH);
 
-	float uiScale = std::clamp(settingsUIScale * std::min((float)ofGetWidth() / 1920.0f, (float)ofGetHeight() / 1080.0f), 0.65f, 1.75f);
-	float cx = ofGetWidth() / 2.0f;
+	auto drawSubTabItem = [&](const ofRectangle & r, const std::string & text, int tabIdx) {
+		bool active = (s_bookRulesTab == tabIdx);
+		bool hov = r.inside(mx, my);
+		if (hov) g_hoveredButtonId = "subtab_" + std::to_string(tabIdx);
 
-	drawPixelTextCentered(titleFont, _L("UI_ENCY_TITLE", "RULES & CARDS"), cx, 50 * uiScale, 1.2f * uiScale, ofColor::gold, 4, ofColor::black);
+		ofSetColor(active ? ofColor(40, 30, 25, 40) : (hov ? ofColor(40, 30, 25, 20) : ofColor(0, 0, 0, 0)));
+		ofDrawRectRounded(r, 3.0f);
 
-	auto drawTab = [&](ofRectangle r, string label, int index) {
-		bool active = (encyclopediaMainTab == index);
-		// --- OPTIMIZED CACHED MOUSE CALL ---
-		bool hovered = r.inside(mx, my);
-		if (hovered) g_hoveredButtonId = "ency_tab_" + ofToString(index);
-		ofSetColor(active ? ofColor(80, 100, 140) : (hovered ? ofColor(60, 70, 90) : ofColor(40, 40, 50)));
-		ofDrawRectRounded(r, 8);
-		ofSetColor(active ? ofColor::white : ofColor(200));
-		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.0f * uiScale, active ? ofColor::white : ofColor(200));
+		drawPixelTextBaseline(uiFont, (active ? "> " : "") + text, r.x + 8.0f, r.y + 26.0f, 0.95f, ink);
 	};
 
-	drawTab(encyTabRules, _L("UI_ENCY_RULES", "HOW TO PLAY"), 0);
-	drawTab(encyTabMinions, _L("UI_ENCY_MINIONS", "MINIONS"), 1);
-	drawTab(encyTabCards, _L("UI_ENCY_CARDS", "ALL CARDS"), 2);
+	drawSubTabItem(s_bookSubTabHowToPlay, "How to play", 0);
+	drawSubTabItem(s_bookSubTabEffects, "Effects & keywords", 1);
+	drawSubTabItem(s_bookSubTabMinions, "Minions", 2);
+	drawSubTabItem(s_bookSubTabCards, "Cards", 3);
 
-	// --- OPTIMIZED CACHED MOUSE CALL ---
-	bool backHover = encyBtnBack.inside(mx, my);
-	drawMenuPlaqueButton(encyBtnBack, "Back", backHover);
+	// 2. Title in top quarter of the left page
+	float titleX = pa.leftPage.x + pa.leftPage.width * 0.62f;
+	float titleY = pa.leftPage.y + 50.0f;
 
-	float contentY = 230 * uiScale;
-	float contentBottom = ofGetHeight() - 30 * uiScale;
+	std::string pageTitle = "";
+	if (s_bookRulesTab == 0)
+		pageTitle = "HOW TO PLAY";
+	else if (s_bookRulesTab == 1)
+		pageTitle = "EFFECTS & KEYWORDS";
+	else if (s_bookRulesTab == 2)
+		pageTitle = "MINIONS";
+	else if (s_bookRulesTab == 3)
+		pageTitle = "CARDS";
 
-	float panelWidth = ofGetWidth() * 0.9f;
-	ofRectangle panelRect(cx - panelWidth / 2.0f, contentY - 20 * uiScale, panelWidth, contentBottom - contentY + 40 * uiScale);
-	drawMenuPlaquePanel(panelRect);
+	drawPixelTextCentered(uiFont, pageTitle, titleX, titleY, 1.6f, ink);
+	ofSetColor(ink);
+	ofDrawLine(titleX - 110.0f, titleY + 12.0f, titleX + 110.0f, titleY + 12.0f);
 
-	if (encyclopediaMainTab == 0) {
-		float colW = (panelWidth - 60.0f * uiScale) * 0.5f;
-		float leftColX = cx - (panelWidth * 0.5f) + 20.0f * uiScale;
-		float rightColX = leftColX + colW + 20.0f * uiScale;
-		float visibleH = contentBottom - contentY;
+	float contentStartY = pa.leftPage.y + 130.0f;
 
-		{
-			ofRectangle leftBox(leftColX, contentY, colW, visibleH);
-			ofSetColor(22, 24, 32, 235);
-			ofDrawRectRounded(leftBox, 10 * uiScale);
-			ofNoFill();
-			ofSetLineWidth(2.0f);
-			ofSetColor(65, 70, 90);
-			ofDrawRectRounded(leftBox, 10 * uiScale);
-			ofFill();
+	// -------------------------------------------------------------
+	// SUB-TAB 0: HOW TO PLAY
+	// -------------------------------------------------------------
+	if (s_bookRulesTab == 0) {
+		float textScale = 0.95f;
+		float maxW_Left = pa.leftPage.width - 12.0f;
+		float curY = contentStartY;
 
-			float curY = leftBox.y + 36 * uiScale;
-			drawPixelTextCentered(titleFont, "HOW TO PLAY", leftBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
-			float mainTitleW = titleFont.getStringBoundingBox("HOW TO PLAY", 0, 0).width * 1.1f * uiScale;
-			ofSetColor(ofColor::gold);
-			ofDrawRectangle(leftBox.getCenter().x - mainTitleW * 0.5f, curY + 8 * uiScale, mainTitleW, 2.5f * uiScale);
+		auto drawSection = [&](const std::string & head, const std::string & body, float startX, float & yPos, float maxW) {
+			drawPixelTextBaseline(uiFont, head, startX, yPos, 1.15f, ink);
+			yPos += 30.0f;
+			auto lines = wrapTextScaled(uiFont, body, maxW, textScale);
+			for (const auto & l : lines) {
+				drawPixelTextBaseline(uiFont, l, startX, yPos, textScale, ink);
+				yPos += 26.0f;
+			}
+			yPos += 14.0f;
+		};
 
-			curY += 50 * uiScale;
+		// Left page: 1 and 2
+		drawSection("1. Initiative & Drafting",
+			"All wizards roll initiative at the start. The highest roll drafts first and takes turn 1. "
+			"Pick 2 Class 1 cards (2 copies each), then pick 1 Class 2 card.",
+			pa.leftPage.x + 6.0f, curY, maxW_Left);
 
-			auto drawGuideBlock = [&](const std::string & heading, const std::vector<std::string> & bullets, ofColor headCol = ofColor(100, 215, 255)) {
-				drawPixelTextBaseline(titleFont, heading, leftBox.x + 18 * uiScale, curY, 0.85f * uiScale, headCol, 2, ofColor::black);
-				float hWidth = titleFont.getStringBoundingBox(heading, 0, 0).width * 0.85f * uiScale;
-				ofSetColor(headCol);
-				ofDrawRectangle(leftBox.x + 18 * uiScale, curY + 4 * uiScale, hWidth, 2.0f * uiScale);
+		drawSection("2. Turn Structure & AP",
+			"Roll Action Point dice at turn start (wizards roll 1d6; minions roll species dice). "
+			"Drawing is optional (click your deck) for 2 cards (Demons draw 3).",
+			pa.leftPage.x + 6.0f, curY, maxW_Left);
 
-				curY += 28 * uiScale;
-				float textDrawScale = 0.95f * uiScale;
-				float wrapMaxW = leftBox.width - 36 * uiScale;
-				float lineStep = std::max(22.0f * uiScale, uiFont.getLineHeight() * quantizePixelTextScale(textDrawScale) * 0.92f);
+		// Right page: 3 and 4, Damage & Defense Types
+		float rightX = pa.rightPage.x + 12.0f;
+		float maxW_Right = pa.rightPage.width - 24.0f;
+		float rY = pa.rightPage.y + 45.0f;
 
-				for (const auto & b : bullets) {
-					auto lines = wrapTextScaled(uiFont, b, wrapMaxW, textDrawScale);
-					for (const auto & l : lines) {
-						drawPixelTextBaseline(uiFont, l, leftBox.x + 18 * uiScale, curY, textDrawScale, ofColor(220, 225, 240));
-						curY += lineStep;
-					}
-					curY += 6 * uiScale;
-				}
-				curY += 16 * uiScale;
-			};
+		drawSection("3. Actions & Movement",
+			"Click your unit on the board to reveal green paths (1 AP per tile). "
+			"Drag cards upward into the arena, then click target tile.",
+			rightX, rY, maxW_Right);
 
-			drawGuideBlock("1. Initiative & Drafting", { "- Start of Match: All wizards roll initiative. The highest roll drafts first and takes the first turn.", "- Initial Draft: Pick 2 Class 1 cards (get 2 copies each), then pick 1 Class 2 card.", "- All wizards draft in turn order before the battle commences." });
-			drawGuideBlock("2. Turn Structure & AP", { "- AP Roll: Roll Action Point dice at turn start (wizards roll 1d6; minions roll species dice).", "- Drawing Cards: Drawing is optional on your turn (click your deck). Standard draw gives 2 cards (Demons draw 3)." });
-			drawGuideBlock("3. Actions & Movement", { "- Movement: Click your wizard/minion on the board to reveal green paths (costs 1 AP per tile).", "- Playing Cards: Drag cards upward out of your hand into the arena, then click target tile/unit." });
-			drawGuideBlock("4. Floating Keys & Victory", { "- Keys: Moving onto keys grants instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3.", "- Victory: Be the last wizard standing! Defeat enemy wizards by reducing their HP to 0 or through card Exhaustion." });
+		drawSection("4. Floating Keys & Victory",
+			"Step onto keys for instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3. "
+			"Win by reducing all enemy wizards to 0 HP or through card Exhaustion.",
+			rightX, rY, maxW_Right);
+
+		drawPixelTextBaseline(uiFont, "Damage Types", rightX, rY, 1.15f, ink);
+		rY += 30.0f;
+		const char * dmgs[] = {
+			"Phys: Absorbed by Block, Fortify, Ward.",
+			"Pierce: Line attack; deals 2x vs Wolves.",
+			"Magic: Bypasses Block; hits Barrier.",
+			"Elec: Bypasses Block; can Paralyze.",
+			"Fire: Health dmg inflicts Burning.",
+			"Holy: 2x vs Undead, Demons, Ghosts, Vampires.",
+			"Poison: Bypasses Block; lingers each turn."
+		};
+		for (const char * d : dmgs) {
+			drawPixelTextBaseline(uiFont, d, rightX, rY, 0.85f, ink);
+			rY += 24.0f;
 		}
 
-		{
-			ofRectangle rightBox(rightColX, contentY, colW, visibleH);
-			ofSetColor(22, 24, 32, 235);
-			ofDrawRectRounded(rightBox, 10 * uiScale);
-			ofNoFill();
-			ofSetLineWidth(2.0f);
-			ofSetColor(65, 70, 90);
-			ofDrawRectRounded(rightBox, 10 * uiScale);
-			ofFill();
-
-			struct RefEntry {
-				std::string name;
-				ofColor nameColor;
-				ofColor outlineColor;
-				std::string description;
-			};
-
-			struct RefSection {
-				std::string title;
-				ofColor titleColor;
-				std::vector<RefEntry> entries;
-			};
-
-			std::vector<RefSection> sections = {
-				{ "DEFENSE TYPES", ofColor(255, 215, 0), { { "Block", ofColor::gray, ofColor::black, "Absorbs incoming Physical damage. Expires at turn end (unless Tortoise)." }, { "Fortification", ofColor(50, 50, 50), ofColor(200, 200, 200), "Absorbs Physical and Piercing damage." }, { "Barrier", ofColor::hotPink, ofColor::black, "Absorbs Non-Physical damage (Magic, Fire, Electric, Holy, Poison)." }, { "Holy Block", ofColor::yellow, ofColor::black, "Absorbs incoming Holy damage." }, { "Ward", ofColor::black, ofColor(255, 255, 255), "Absorbs all incoming damage types." } } },
-				{ "DAMAGE TYPES", ofColor(255, 80, 80), { { "Physical", ofColor(220, 20, 60), ofColor::black, "Standard attacks; absorbed by Block, Fortification, and Ward." }, { "Piercing", ofColor(192, 192, 192), ofColor::black, "Pierces in a line; subsequent targets take half damage. Deals 2x damage vs Wolves." }, { "Magic", ofColor(148, 0, 211), ofColor::black, "Bypasses physical Block; absorbed by Barrier and Ward." }, { "Electric", ofColor(30, 80, 220), ofColor::black, "Bypasses physical Block; often applies Paralysis or generates bonus AP." }, { "Fire", ofColor(255, 120, 0), ofColor::black, "Bypasses physical Block; damaging Health inflicts lingering Burning." }, { "Holy", ofColor(255, 215, 0), ofColor::black, "Radiant damage; deals 2x damage to Undead (Skeletons), Demons, Hellhounds, Ghosts, and Vampires." }, { "Poison", ofColor(50, 205, 50), ofColor::black, "Bypasses physical Block; inflicts lingering toxic damage." } } },
-				{ "STATUS EFFECTS", ofColor(255, 140, 40), { { "Burning", ofColor(255, 120, 0), ofColor::black, "Takes 1d6 Fire damage at turn start. Rolls of 1 or 2 extinguish the fire." }, { "Poisoned", ofColor(50, 205, 50), ofColor::black, "Takes 1d6 Poison damage at turn start (damage reduces by 1 each turn until cured)." }, { "Paralyzed", ofColor(255, 255, 0), ofColor::black, "Must flip a coin on turn start: Heads allows acting (2 Heads cures), Tails skips turn." }, { "Sleeping", ofColor(0, 255, 255), ofColor::black, "Skips turn until timer expires or upon taking damage." }, { "Regeneration", ofColor(220, 20, 60), ofColor::black, "Heals +1 HP at the start of each turn." }, { "Ghost Form", ofColor(150, 150, 255), ofColor::black, "Phased through walls and units. Immune to Physical and Piercing. Takes 2x Holy damage." }, { "Tortoise Form", ofColor::darkGreen, ofColor::white, "Defense never expires. Spikes adjacent enemies for 3 damage when gaining HP or Defense." }, { "Strengthen Elements", ofColor(255, 120, 0), ofColor::black, "For 3 turns: whenever you play an Electric or Fire card, add a copy to your hand." } } },
-				{ "KEYWORDS & MECHANICS", ofColor(255, 215, 0), { { "Luck", ofColor::darkGreen, ofColor::white, "Adds a flat numerical bonus to nearly every dice roll (attacks, heals, AP, ranges, initiative)." }, { "Hand-Related", ofColor(255, 140, 40), ofColor::black, "Cards utilizing physical hands (Punch, Bash, Drain Punch, Master Fist, Flurry of Fists, Giant Magic Hand, Double Handed, Hand Block). Empowered by Flurry of Fists." }, { "Flurry of Fists", ofColor::orange, ofColor::black, "Doubles the damage and effect of all Hand-related attacks." }, { "Cleave", ofColor(200, 200, 210), ofColor::black, "Hits 3 adjacent tiles in a sweeping arc." }, { "Linear Pierce", ofColor(192, 192, 192), ofColor::black, "Attacks in a straight 2-tile line; second target takes half damage." }, { "Choose One", ofColor::cyan, ofColor::black, "Offers two distinct tactical options upon casting." }, { "Destroy", ofColor::magenta, ofColor::black, "Permanently removes target cards from decks or annihilates walls." }, { "Execute", ofColor::red, ofColor::black, "Instantly destroys the target unit regardless of remaining Health." }, { "Restore", ofColor::green, ofColor::black, "Heals lost Health up to maximum capacity." }, { "Exhaustion", ofColor(148, 0, 211), ofColor::black, "If a unit has zero cards across deck, hand, discard, and played piles, they perish." } } }
-			};
-
-			float textDrawScale = 0.95f * uiScale;
-			float wrapMaxW = rightBox.width - 36 * uiScale;
-			float lineStep = std::max(22.0f * uiScale, uiFont.getLineHeight() * quantizePixelTextScale(textDrawScale) * 0.92f);
-
-			float totalRefH = 30.0f * uiScale;
-			for (const auto & sec : sections) {
-				totalRefH += 38.0f * uiScale;
-				for (const auto & itm : sec.entries) {
-					totalRefH += 28.0f * uiScale;
-					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
-					totalRefH += (float)lines.size() * lineStep + (16.0f * uiScale);
-				}
-				totalRefH += 34.0f * uiScale;
-			}
-
-			float maxRefScroll = std::max(0.0f, totalRefH - (visibleH - 20 * uiScale) + 60.0f * uiScale);
-			encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxRefScroll);
-
-			ofPushStyle();
-			glEnable(GL_SCISSOR_TEST);
-			int scX = (int)rightColX;
-			int scW = (int)colW;
-			int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
-			glScissor(scX, scY, scW, (int)visibleH);
-
-			float curY = rightBox.y + 34 * uiScale - encyclopediaMainScroll;
-
-			for (size_t si = 0; si < sections.size(); ++si) {
-				const auto & sec = sections[si];
-
-				drawPixelTextBaseline(titleFont, sec.title, rightBox.x + 18 * uiScale, curY, 0.90f * uiScale, sec.titleColor, 2, ofColor::black);
-				float secTitleW = titleFont.getStringBoundingBox(sec.title, 0, 0).width * 0.90f * uiScale;
-				ofSetColor(sec.titleColor);
-				ofDrawRectangle(rightBox.x + 18 * uiScale, curY + 4 * uiScale, secTitleW, 2.0f * uiScale);
-				curY += 38 * uiScale;
-
-				for (const auto & itm : sec.entries) {
-					drawPixelTextBaseline(titleFont, itm.name, rightBox.x + 18 * uiScale, curY, 0.85f * uiScale, itm.nameColor, 2, itm.outlineColor);
-					float subTitleW = titleFont.getStringBoundingBox(itm.name, 0, 0).width * 0.85f * uiScale;
-					ofSetColor(itm.nameColor);
-					ofDrawRectangle(rightBox.x + 18 * uiScale, curY + 3 * uiScale, subTitleW, 1.5f * uiScale);
-					curY += 28 * uiScale;
-
-					auto lines = wrapTextScaled(uiFont, itm.description, wrapMaxW, textDrawScale);
-					for (const auto & l : lines) {
-						drawPixelTextBaseline(uiFont, l, rightBox.x + 22 * uiScale, curY, textDrawScale, ofColor(215, 220, 235));
-						curY += lineStep;
-					}
-					curY += 16 * uiScale;
-				}
-
-				curY += 34 * uiScale;
-			}
-
-			glDisable(GL_SCISSOR_TEST);
-			safePopStyle();
-
-			if (maxRefScroll > 0.0f) {
-				float barH = std::max(28.0f * uiScale, visibleH * (visibleH / totalRefH));
-				float barY = contentY + (encyclopediaMainScroll / maxRefScroll) * (visibleH - barH);
-				ofSetColor(100, 100, 130, 220);
-				ofDrawRectRounded(rightColX + colW - 6 * uiScale, barY, 6 * uiScale, barH, 3 * uiScale);
-			}
+		rY += 12.0f;
+		drawPixelTextBaseline(uiFont, "Defense Types", rightX, rY, 1.15f, ink);
+		rY += 30.0f;
+		const char * defs[] = {
+			"Block: Absorbs Phys; expires at turn end.",
+			"Fortify: Absorbs Phys & Piercing.",
+			"Barrier: Absorbs Non-Physical damage.",
+			"Holy Block: Absorbs incoming Holy damage.",
+			"Ward: Absorbs all incoming damage types."
+		};
+		for (const char * d : defs) {
+			drawPixelTextBaseline(uiFont, d, rightX, rY, 0.85f, ink);
+			rY += 24.0f;
 		}
 
-	} else if (encyclopediaMainTab == 1) {
+		// -------------------------------------------------------------
+		// SUB-TAB 1: EFFECTS & KEYWORDS
+		// -------------------------------------------------------------
+	} else if (s_bookRulesTab == 1) {
+		float textScale = 0.85f;
+		float leftX = pa.leftPage.x + 6.0f;
+		float maxW_Left = pa.leftPage.width - 12.0f;
+		float lY = contentStartY;
+
+		struct StatusDef {
+			const char * name;
+			const char * desc;
+		};
+		StatusDef statuses[] = {
+			{ "Burning", "Takes 1d6 Fire damage at start. 1 or 2 extinguishes." },
+			{ "Poisoned", "Takes 1d6 Poison damage at start (reduces by 1/turn)." },
+			{ "Paralyzed", "Coinflip at start: Heads acts (2 cures), Tails skips." },
+			{ "Sleeping", "Skips turn until timer expires or taking damage." },
+			{ "Regeneration", "Heals +1 HP at the start of each turn." },
+			{ "Ghost Form", "Phase through walls & units. Immune to Phys/Pierce. 2x Holy." },
+			{ "Tortoise Form", "Defense never expires. Spikes adjacent units on heal/def." },
+			{ "Strengthen Elem", "Copies played Fire and Electric cards to hand (3 turns)." }
+		};
+
+		for (const auto & st : statuses) {
+			drawPixelTextBaseline(uiFont, st.name, leftX, lY, 1.05f, ink);
+			lY += 26.0f;
+			auto lines = wrapTextScaled(uiFont, st.desc, maxW_Left, textScale);
+			for (const auto & l : lines) {
+				drawPixelTextBaseline(uiFont, l, leftX, lY, textScale, ink);
+				lY += 24.0f;
+			}
+			lY += 10.0f;
+		}
+
+		float rightX = pa.rightPage.x + 12.0f;
+		float maxW_Right = pa.rightPage.width - 24.0f;
+		float rY = pa.rightPage.y + 50.0f;
+
+		struct KeywordDef {
+			const char * name;
+			const char * desc;
+		};
+		KeywordDef keywords[] = {
+			{ "Luck", "Flat bonus to all rolls (attacks, heals, AP, range, initiative)." },
+			{ "Hand-Related", "Attacks using fists. Damage doubled by Flurry of Fists." },
+			{ "Cleave", "Sweeping attack hitting 3 adjacent orthogonal tiles." },
+			{ "Linear Pierce", "Straight 2-tile line attack; second target takes half." },
+			{ "Choose One", "Offers two distinct tactical options on cast." },
+			{ "Destroy", "Permanently obliterates target cards from decks or breaks walls." },
+			{ "Execute", "Instantly slays target unit regardless of remaining Health." },
+			{ "Restore", "Heals lost Health back up to full maximum capacity." },
+			{ "Exhaustion", "Units with 0 cards across deck, hand, and discard perish." }
+		};
+
+		for (const auto & kw : keywords) {
+			drawPixelTextBaseline(uiFont, kw.name, rightX, rY, 1.05f, ink);
+			rY += 26.0f;
+			auto lines = wrapTextScaled(uiFont, kw.desc, maxW_Right, textScale);
+			for (const auto & l : lines) {
+				drawPixelTextBaseline(uiFont, l, rightX, rY, textScale, ink);
+				rY += 24.0f;
+			}
+			rY += 10.0f;
+		}
+
+		// -------------------------------------------------------------
+		// SUB-TAB 2: MINIONS (MULTI-PAGE)
+		// -------------------------------------------------------------
+	} else if (s_bookRulesTab == 2) {
 		ensureModelsLoaded();
+		loadCardBackgroundImg();
 
-		float leftColumnW = panelWidth * 0.35f;
-		float leftColumnX = cx - (panelWidth * 0.5f) + 20 * uiScale;
-		float rightColumnW = panelWidth * 0.61f;
-		float rightColumnX = leftColumnX + leftColumnW + 24 * uiScale;
-
-		{
-			float totalLeftHeight = contentBottom - contentY;
-			float cardDisplayW = std::min(leftColumnW - 20.0f * uiScale, 375.0f * uiScale);
-			float cardDisplayH = cardDisplayW * 1.388f;
-
-			if (cardDisplayH > totalLeftHeight * 0.56f) {
-				cardDisplayH = totalLeftHeight * 0.56f;
-				cardDisplayW = cardDisplayH / 1.388f;
-			}
-
-			float cardDisplayX = leftColumnX + (leftColumnW - cardDisplayW) * 0.5f;
-			float cardDisplayY = contentY + 2 * uiScale;
-
-			const Card * sampleCard = nullptr;
-			for (const auto & c : allCards) {
-				if (c.type == CARD_RAISE_DEAD) {
-					sampleCard = &c;
-					break;
-				}
-			}
-			if (!sampleCard && !allCards.empty()) sampleCard = &allCards[0];
-
-			if (sampleCard) {
-				ofSetColor(255);
-				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, *sampleCard, cardDisplayX, cardDisplayY, cardDisplayW, cardDisplayH, nullptr);
-
-				float apTargetX = cardDisplayX + cardDisplayW * 0.44f;
-				float apTargetY = cardDisplayY + cardDisplayH - 3 * uiScale;
-				float hpTargetX = cardDisplayX + cardDisplayW * 0.56f;
-				float hpTargetY = cardDisplayY + cardDisplayH - 3 * uiScale;
-
-				float arrowBaseY = cardDisplayY + cardDisplayH + 24 * uiScale;
-				float apBaseX = cardDisplayX + cardDisplayW * 0.22f;
-				float hpBaseX = cardDisplayX + cardDisplayW * 0.78f;
-
-				auto drawArrow = [](float startX, float startY, float endX, float endY, ofColor col, const std::string & label, ofTrueTypeFont & font, float scale) {
-					ofPushStyle();
-					ofSetColor(col);
-					ofSetLineWidth(3.0f * scale);
-					ofDrawLine(startX, startY, endX, endY);
-
-					glm::vec2 dir = glm::normalize(glm::vec2(endX - startX, endY - startY));
-					glm::vec2 perp(-dir.y, dir.x);
-					float headSize = 9.0f * scale;
-					ofDrawTriangle(endX, endY,
-						endX - dir.x * headSize + perp.x * (headSize * 0.6f), endY - dir.y * headSize + perp.y * (headSize * 0.6f),
-						endX - dir.x * headSize - perp.x * (headSize * 0.6f), endY - dir.y * headSize - perp.y * (headSize * 0.6f));
-
-					drawPixelTextCentered(font, label, startX, startY + 16 * scale, 0.95f * scale, col, 2, ofColor::black);
-					safePopStyle();
-				};
-
-				drawArrow(apBaseX, arrowBaseY, apTargetX, apTargetY, ofColor(50, 220, 50), "AP ROLL", uiFont, uiScale);
-				drawArrow(hpBaseX, arrowBaseY, hpTargetX, hpTargetY, ofColor(240, 60, 60), "HEALTH (HP)", uiFont, uiScale);
-			}
-
-			float annotY = cardDisplayY + cardDisplayH + 54 * uiScale;
-			float annotH = contentBottom - annotY;
-			ofRectangle annotBox(leftColumnX, annotY, leftColumnW, annotH);
-
-			ofSetColor(20, 22, 28, 235);
-			ofDrawRectRounded(annotBox, 10 * uiScale);
-			ofNoFill();
-			ofSetLineWidth(2.0f);
-			ofSetColor(70, 75, 95);
-			ofDrawRectRounded(annotBox, 10 * uiScale);
-			ofFill();
-
-			float curY = annotBox.y + 32 * uiScale;
-			drawPixelTextCentered(titleFont, "MINION RULES", annotBox.getCenter().x, curY, 1.1f * uiScale, ofColor::gold, 2, ofColor::black);
-			float rTitleW = titleFont.getStringBoundingBox("MINION RULES", 0, 0).width * 1.1f * uiScale;
-			ofSetColor(ofColor::gold);
-			ofDrawRectangle(annotBox.getCenter().x - rTitleW * 0.5f, curY + 6 * uiScale, rTitleW, 2.5f * uiScale);
-
-			curY += 46 * uiScale;
-
-			std::vector<std::string> rulesParagraphs = {
-				"- Minions take their turns before your wizard.",
-				"- They have their own decks, discard piles, rolls and status effects, they can also optionally draw on their turn.",
-				"- If just summoned, they cannot take their turn until your wizard character has taken theirs."
-			};
-
-			float wrapMaxW = annotBox.width - 36 * uiScale;
-			float textDrawScale = 1.0f * uiScale;
-
-			for (const auto & para : rulesParagraphs) {
-				auto lines = wrapTextScaled(uiFont, para, wrapMaxW, textDrawScale);
-				for (const auto & l : lines) {
-					drawPixelTextBaseline(uiFont, l, annotBox.x + 18 * uiScale, curY, textDrawScale, ofColor(220, 225, 240));
-					curY += (uiFont.getLineHeight() * textDrawScale * 0.95f) + (6 * uiScale);
-				}
-				curY += 12 * uiScale;
-			}
-		}
-
-		struct MinionEntryData {
+		struct MinionBookEntry {
 			std::string name;
 			std::string ap;
 			std::string hp;
@@ -44055,101 +43634,66 @@ void ofApp::drawEncyclopediaState() {
 			std::string traits;
 			ofxAssimpModelLoader * model;
 			ofTexture * customTex;
-			float modelScaleAdjustment;
-			float modelYOffset;
 		};
 
-		std::vector<MinionEntryData> minionList = {
-			{ "SKELETON", "1d6", "1d6", "Punch (x2), Hand Block (x2)", "Has Regeneration (+1 HP/turn). Weak to Holy (2x). Steals graveyard cards.", &skeletonModel, nullptr, 1.0f, 0.0f },
-			{ "GOLEM", "1d6", "1d10 (Adapts)", "Bash (x3), Hand Block (x2) + Spells", "Adapts element & HP to previous spell: Rock (1d20), Fire (1d10), Electric (1d6).", &golemModel, &golemTexRock, 0.95f, 0.0f },
-			{ "WOLF", "1d10", "4", "Slash (x3), Call for Wolves (x1)", "Weak to Piercing (2x). Call for Wolves flips a coin to spawn a 2nd Wolf.", &wolfModel, nullptr, 1.0f, 0.0f },
-			{ "HELLHOUND", "2d6", "2d6", "Slash (x2), Flame Hit (x2), Fireball (x2), Dark Shield (x3)", "Weak to Holy (2x). Generates Dark Shield stacks for summoner's AP.", &hellhoundModel, nullptr, 1.0f, 0.0f },
-			{ "DEMON", "4d4", "3d10", "Death (x2), Flail (x2), Fireball (x2), Summon Hellhound, Dark Shield (x3)", "Draws 3 cards/turn. Weak to Holy (2x). When slain, killer drafts a Class 3 card!", &demonModel, nullptr, 0.90f, 0.0f },
-			{ "KOBOLD", "1d4", "1", "Punch (x1), Hand Block (x2), Call for Kobolds (x1)", "Pack swarm tactics: Spawns up to 1d4 Kobolds. Empowers Kobold King.", &koboldModel, nullptr, 1.05f, 0.0f },
-			{ "KOBOLD KING", "1d6", "1 + (Living Kobolds)", "Slash (x2), Stab (x2), Full Restore (x2), Call for Kobolds", "Max HP dynamically scales with the number of allied Kobolds alive on board.", &koboldKingModel, nullptr, 1.05f, 0.0f },
-			{ "ASSISTANT", "Coin (1-2)", "1", "Lesser Heal (x1), Hand Block (x4)", "Clover Aura (+1 Luck to summoner). Can reroll summoner's AP once per turn at 0 AP.", &assistantModel, nullptr, 1.0f, 0.0f },
-			{ "FAERIE", "1d4", "5", "Dispel (x2), Lesser Heal (x2), Magic Blast (x1)", "Has Deck & Regen. Automatically resurrects adjacent fallen allies (1d4 HP roll).", &faerieModel, nullptr, 1.05f, 0.0f },
-			{ "WALL", "1d4", "5", "Fortify (x2), Ward (x2), Summon Wall (x1)", "Solid obstruction unit: Blocks enemy movement and non-piercing attacks.", &wallUnitModel, nullptr, 0.95f, 0.0f }
+		std::vector<MinionBookEntry> allMinions = {
+			{ "SKELETON", "1d6", "1d6", "Punch (x2), Hand Block (x2)", "Has Regeneration (+1 HP/turn). Weak to Holy (2x). Steals graveyard cards.", &skeletonModel, nullptr },
+			{ "GOLEM", "1d6", "1d10 (Adapts)", "Bash (x3), Hand Block (x2)", "Adapts element & HP to previous spell: Rock (1d20), Fire (1d10), Electric (1d6).", &golemModel, &golemTexRock },
+			{ "WOLF", "1d10", "4", "Slash (x3), Call for Wolves (x1)", "Weak to Piercing (2x). Call for Wolves flips a coin to spawn a 2nd Wolf.", &wolfModel, nullptr },
+			{ "HELLHOUND", "2d6", "2d6", "Slash (x2), Flame Hit (x2), Fireball (x2), Dark Shield (x3)", "Weak to Holy (2x). Generates Dark Shield stacks for summoner's AP.", &hellhoundModel, nullptr },
+			{ "DEMON", "4d4", "3d10", "Death (x2), Flail (x2), Fireball (x2), Summon Hellhound, Dark Shield (x3)", "Draws 3 cards/turn. Weak to Holy (2x). When slain, killer drafts Class 3!", &demonModel, nullptr },
+			{ "KOBOLD", "1d4", "1", "Punch (x1), Hand Block (x2), Call for Kobolds (x1)", "Pack swarm tactics: Spawns up to 1d4 Kobolds. Empowers Kobold King.", &koboldModel, nullptr },
+			{ "KOBOLD KING", "1d6", "1 + (Living Kobolds)", "Slash (x2), Stab (x2), Full Restore (x2)", "Max HP dynamically scales with the number of allied Kobolds alive on board.", &koboldKingModel, nullptr },
+			{ "ASSISTANT", "Coin (1-2)", "1", "Lesser Heal (x1), Hand Block (x4)", "Clover Aura (+1 Luck). Can reroll summoner's AP once per turn at 0 AP.", &assistantModel, nullptr },
+			{ "FAERIE", "1d4", "5", "Dispel (x2), Lesser Heal (x2), Magic Blast (x1)", "Regenerates. Automatically resurrects adjacent fallen allies (1d4 HP roll).", &faerieModel, nullptr },
+			{ "WALL", "1d4", "5", "Fortify (x2), Ward (x2), Summon Wall (x1)", "Solid obstruction unit: Blocks enemy movement and non-piercing attacks.", &wallUnitModel, nullptr }
 		};
 
-		float itemH = 175.0f * uiScale;
-		float itemGap = 12.0f * uiScale;
-		float totalContentH = (float)minionList.size() * (itemH + itemGap);
-		float visibleH = contentBottom - contentY;
-
-		float maxScroll = std::max(0.0f, totalContentH - visibleH + 80.0f * uiScale);
-		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
-
-		ofPushStyle();
-		glEnable(GL_SCISSOR_TEST);
-		int scX = (int)rightColumnX;
-		int scW = (int)rightColumnW;
-		int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
-		glScissor(scX, scY, scW, (int)visibleH);
-
-		for (size_t mi = 0; mi < minionList.size(); ++mi) {
-			float itemY = contentY + mi * (itemH + itemGap) - encyclopediaMainScroll;
-			if (itemY + itemH < contentY || itemY > contentBottom + 80 * uiScale) continue;
-
-			ofRectangle itemRect(rightColumnX, itemY, rightColumnW - 12 * uiScale, itemH);
-
-			ofSetColor(26, 28, 36, 240);
-			ofDrawRectRounded(itemRect, 10 * uiScale);
+		auto drawMinionBlock = [&](const MinionBookEntry & m, float boxX, float boxY, float boxW, float boxH, float textX, float textW) {
+			ofSetColor(22, 20, 18, 40);
+			ofDrawRectRounded(boxX, boxY, boxW, boxH, 4.0f);
 			ofNoFill();
 			ofSetLineWidth(2.0f);
-			ofSetColor(65, 70, 90);
-			ofDrawRectRounded(itemRect, 10 * uiScale);
+			ofSetColor(ink);
+			ofDrawRectRounded(boxX, boxY, boxW, boxH, 4.0f);
 			ofFill();
 
-			float modelBoxSize = itemH - 16 * uiScale;
-			float modelBoxX = itemRect.x + 8 * uiScale;
-			float modelBoxY = itemRect.y + 8 * uiScale;
-
-			ofSetColor(18, 18, 24, 255);
-			ofDrawRectRounded(modelBoxX, modelBoxY, modelBoxSize, modelBoxSize, 8 * uiScale);
-
-			if (minionList[mi].model && minionList[mi].model->getMeshCount() > 0) {
+			if (m.model && m.model->getMeshCount() > 0) {
 				ofEnableDepthTest();
 				glClear(GL_DEPTH_BUFFER_BIT);
 				ofDisableLighting();
 
 				ofPushMatrix();
-				float floorLevelY = modelBoxY + modelBoxSize - (2.0f * uiScale) + (minionList[mi].modelYOffset * uiScale);
-				ofTranslate(modelBoxX + modelBoxSize * 0.5f, floorLevelY);
-
-				float mScale = (modelBoxSize / 512.0f) * 90.0f * 0.02f * minionList[mi].modelScaleAdjustment;
+				ofTranslate(boxX + boxW * 0.5f, boxY + boxH * 0.85f);
+				float mScale = (boxW / 512.0f) * 90.0f * 0.02f;
 				ofScale(mScale, mScale, mScale);
 				ofRotateZDeg(180);
 				ofRotateXDeg(15);
-				ofRotateYDeg(180 + ofGetElapsedTimef() * -30);
+				ofRotateYDeg(180 + ofGetElapsedTimef() * -25);
 				ofRotateZDeg(180);
 
 				glDisable(GL_CULL_FACE);
 				glEnable(GL_NORMALIZE);
 
-				ofxAssimpModelLoader * mdl = minionList[mi].model;
-
+				ofxAssimpModelLoader * mdl = m.model;
 				ofPushMatrix();
 				ofMultMatrix(mdl->getModelMatrix());
 				for (unsigned int meshIdx = 0; meshIdx < mdl->getMeshCount(); ++meshIdx) {
 					ofPushMatrix();
 					ofMultMatrix(mdl->getMeshHelper(meshIdx).matrix);
-
 					bool hasTex = false;
-					if (minionList[mi].customTex && minionList[mi].customTex->isAllocated()) {
-						minionList[mi].customTex->bind();
+					if (m.customTex && m.customTex->isAllocated()) {
+						m.customTex->bind();
 						hasTex = true;
 					} else if (mdl->getMeshHelper(meshIdx).hasTexture()) {
 						mdl->getMeshHelper(meshIdx).getTextureRef().bind();
 						hasTex = true;
 					}
-
 					ofSetColor(255);
 					mdl->getMeshHelper(meshIdx).cachedMesh.drawFaces();
-
 					if (hasTex) {
-						if (minionList[mi].customTex)
-							minionList[mi].customTex->unbind();
+						if (m.customTex)
+							m.customTex->unbind();
 						else
 							mdl->getMeshHelper(meshIdx).getTextureRef().unbind();
 					}
@@ -44159,138 +43703,264 @@ void ofApp::drawEncyclopediaState() {
 
 				glDisable(GL_NORMALIZE);
 				ofPopMatrix();
-
 				ofDisableDepthTest();
 				ofSetColor(255);
 			}
 
-			float textLeft = modelBoxX + modelBoxSize + 16 * uiScale;
-			float textMaxW = itemRect.getRight() - textLeft - 12 * uiScale;
-			float lineY = itemRect.y + 46 * uiScale;
+			float ty = boxY + 28.0f;
+			drawPixelTextBaseline(uiFont, m.name, textX, ty, 1.15f, ink);
+			ty += 30.0f;
 
-			drawPixelTextBaseline(titleFont, minionList[mi].name, textLeft, lineY, 0.85f * uiScale, ofColor::gold, 2, ofColor::black);
-			lineY += 28 * uiScale;
+			std::string statsStr = "AP: " + m.ap + "  |  HP: " + m.hp;
+			drawPixelTextBaseline(uiFont, statsStr, textX, ty, 0.90f, ink);
+			ty += 26.0f;
 
-			std::string apText = "AP: " + minionList[mi].ap;
-			std::string pipeText = "  |  ";
-			std::string hpText = "HP: " + minionList[mi].hp;
-			float statsScale = 0.92f * uiScale;
-			float curStatX = textLeft;
+			std::string deckStr = "Deck: " + m.deck;
+			drawPixelTextBaseline(uiFont, deckStr, textX, ty, 0.85f, ink);
+			ty += 26.0f;
 
-			drawPixelTextBaseline(uiFont, apText, curStatX, lineY, statsScale, ofColor(120, 255, 120));
-			curStatX += uiFont.getStringBoundingBox(apText, 0, 0).width * statsScale;
-
-			drawPixelTextBaseline(uiFont, pipeText, curStatX, lineY, statsScale, ofColor(0, 0, 0), 1, ofColor(160, 165, 180));
-			curStatX += uiFont.getStringBoundingBox(pipeText, 0, 0).width * statsScale;
-
-			drawPixelTextBaseline(uiFont, hpText, curStatX, lineY, statsScale, ofColor(255, 90, 90));
-			lineY += 24 * uiScale;
-
-			std::string deckLine = "Deck: " + minionList[mi].deck;
-			drawPixelTextBaseline(uiFont, deckLine, textLeft, lineY, 0.82f * uiScale, ofColor(180, 220, 255));
-			lineY += 24 * uiScale;
-
-			auto traitLines = wrapTextScaled(uiFont, minionList[mi].traits, textMaxW, 0.80f * uiScale);
-			for (const auto & tl : traitLines) {
-				drawPixelTextBaseline(uiFont, tl, textLeft, lineY, 0.80f * uiScale, ofColor(220, 220, 230));
-				lineY += 21 * uiScale;
+			auto lines = wrapTextScaled(uiFont, m.traits, textW, 0.85f);
+			for (const auto & l : lines) {
+				drawPixelTextBaseline(uiFont, l, textX, ty, 0.85f, ink);
+				ty += 24.0f;
 			}
-		}
+		};
 
-		glDisable(GL_SCISSOR_TEST);
-		safePopStyle();
+		// 2 Minions per page spread (so 4 on screen at a time) fits perfectly with larger text
+		if (s_bookMinionPage == 0) {
+			// Page 0 Left: Raise Dead card on CardBackground.png with callout arrows
+			float bgW = 115.0f * 2.0f;
+			float bgH = 160.0f * 2.0f;
+			float bgX = pa.leftPage.x + (pa.leftPage.width - bgW) * 0.5f;
+			float bgY = contentStartY;
 
-		if (maxScroll > 0.0f) {
-			float scrollBarH = std::max(28.0f * uiScale, visibleH * (visibleH / totalContentH));
-			float scrollBarY = contentY + (encyclopediaMainScroll / maxScroll) * (visibleH - scrollBarH);
-			ofSetColor(100, 100, 130, 220);
-			ofDrawRectRounded(rightColumnX + rightColumnW - 6 * uiScale, scrollBarY, 6 * uiScale, scrollBarH, 3 * uiScale);
-		}
+			if (s_cardBackgroundImg.isAllocated()) {
+				ofSetColor(255);
+				s_cardBackgroundImg.draw(bgX, bgY, bgW, bgH);
+			}
 
-	} else if (encyclopediaMainTab == 2) {
-		const int cols = 10;
-		const float padX = 8.0f * uiScale;
-		const float padY = 10.0f * uiScale;
-		const float nameBand = 24.0f * uiScale;
-
-		float cardW = std::max(12.0f, (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols);
-		float cardH = cardW * 1.4f;
-		float rowStep = cardH + padY + nameBand;
-		float gridWidth = cols * cardW + (cols - 1) * padX;
-
-		float startX = cx - gridWidth / 2.0f;
-
-		int totalRows = (allCards.size() + cols - 1) / cols;
-		float totalContentHeight = (float)totalRows * rowStep;
-		float contentH = contentBottom - contentY;
-
-		float maxScroll = std::max(0.0f, totalContentHeight - contentH + 90.0f * uiScale);
-		encyclopediaMainScroll = std::clamp(encyclopediaMainScroll, 0.0f, maxScroll);
-
-		ofPushStyle();
-		glEnable(GL_SCISSOR_TEST);
-
-		int scY = g_isFboPass ? (int)contentY : (int)(ofGetHeight() - contentBottom);
-		glScissor((int)startX, scY, (int)gridWidth, (int)contentH);
-
-		int hoveredDrawIndex = -1;
-		float hDrawX = 0, hDrawY = 0;
-		Card hCard;
-
-		int row = 0, col = 0;
-		for (size_t i = 0; i < allCards.size(); i++) {
-			bool isHovered = (encyclopediaMainHoverScaled && (int)i == encyclopediaMainHoveredIndex);
-
-			float drawX = startX + col * (cardW + padX);
-			float drawY = contentY + row * rowStep - encyclopediaMainScroll;
-
-			if (isHovered) {
-				hoveredDrawIndex = i;
-				hDrawX = drawX;
-				hDrawY = drawY;
-				hCard = allCards[i];
-			} else {
-				if (drawY + cardH + nameBand > contentY && drawY < contentBottom + 90 * uiScale) {
-					ofSetColor(255);
-					drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, allCards[i], drawX, drawY, cardW, cardH, nullptr);
-
-					string shortName = allCards[i].name;
-					if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
-
-					drawPixelTextCentered(uiFont, shortName, drawX + cardW * 0.5f, drawY + cardH + 18.0f * uiScale, 1.0f * uiScale, ofColor(255, 255, 230), 2, ofColor(150, 100, 0));
+			const Card * raiseCard = nullptr;
+			for (const auto & c : allCards) {
+				if (c.type == CARD_RAISE_DEAD) {
+					raiseCard = &c;
+					break;
 				}
 			}
-			col++;
-			if (col >= cols) {
-				col = 0;
-				row++;
+			if (raiseCard) {
+				float cW = bgW * (105.0f / 115.0f);
+				float cH = bgH * (150.0f / 160.0f);
+				float cX = bgX + (bgW - cW) * 0.5f;
+				float cY = bgY + (bgH - cH) * 0.5f;
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, *raiseCard, cX, cY, cW, cH, nullptr);
+
+				float apX = cX + cW * 0.38f;
+				float apY = cY + cH - 4.0f;
+				float hpX = cX + cW * 0.62f;
+				float hpY = cY + cH - 4.0f;
+				float labelY = cY + cH + 40.0f;
+
+				ofPushStyle();
+				ofSetLineWidth(3.0f);
+				ofSetColor(40, 160, 40);
+				ofDrawLine(cX + 8.0f, labelY, apX, apY);
+				drawPixelTextCentered(uiFont, "AP ROLL", cX + 8.0f, labelY + 20.0f, 0.85f, ink);
+
+				ofSetColor(180, 40, 30);
+				ofDrawLine(cX + cW - 8.0f, labelY, hpX, hpY);
+				drawPixelTextCentered(uiFont, "HP HEALTH", cX + cW - 8.0f, labelY + 20.0f, 0.85f, ink);
+				safePopStyle();
+			}
+
+			float noteY = bgY + bgH + 85.0f;
+			const char * minionRulesText = "- Minions take their turns before your wizard.\n"
+										   "- They have their own decks, discard piles, and can optionally draw.\n"
+										   "- If just summoned, they wait until your wizard finishes their turn.";
+			auto lines = wrapTextScaled(uiFont, minionRulesText, pa.leftPage.width - 12.0f, 0.85f);
+			for (const auto & l : lines) {
+				drawPixelTextBaseline(uiFont, l, pa.leftPage.x + 6.0f, noteY, 0.85f, ink);
+				noteY += 24.0f;
+			}
+
+			// Page 0 Right: Skeleton (0) and Golem (1)
+			float blockW = 160.0f;
+			float blockH = 180.0f;
+			drawMinionBlock(allMinions[0], pa.rightPage.x + 12.0f, contentStartY, blockW, blockH,
+				pa.rightPage.x + blockW + 24.0f, pa.rightPage.width - blockW - 36.0f);
+			if (1 < (int)allMinions.size()) {
+				drawMinionBlock(allMinions[1], pa.rightPage.x + 12.0f, contentStartY + blockH + 30.0f, blockW, blockH,
+					pa.rightPage.x + blockW + 24.0f, pa.rightPage.width - blockW - 36.0f);
+			}
+		} else {
+			// s_bookMinionPage = 1 -> Minions 2,3 (Left) & 4,5 (Right)
+			// s_bookMinionPage = 2 -> Minions 6,7 (Left) & 8,9 (Right)
+			int baseIdx = 2 + (s_bookMinionPage - 1) * 4;
+			float blockW = 160.0f;
+			float blockH = 180.0f;
+			float curY = contentStartY;
+
+			if (baseIdx < (int)allMinions.size()) {
+				drawMinionBlock(allMinions[baseIdx], pa.leftPage.x + 8.0f, curY, blockW, blockH,
+					pa.leftPage.x + blockW + 20.0f, pa.leftPage.width - blockW - 28.0f);
+			}
+			if (baseIdx + 1 < (int)allMinions.size()) {
+				drawMinionBlock(allMinions[baseIdx + 1], pa.leftPage.x + 8.0f, curY + blockH + 30.0f, blockW, blockH,
+					pa.leftPage.x + blockW + 20.0f, pa.leftPage.width - blockW - 28.0f);
+			}
+
+			if (baseIdx + 2 < (int)allMinions.size()) {
+				drawMinionBlock(allMinions[baseIdx + 2], pa.rightPage.x + 12.0f, curY, blockW, blockH,
+					pa.rightPage.x + blockW + 24.0f, pa.rightPage.width - blockW - 36.0f);
+			}
+			if (baseIdx + 3 < (int)allMinions.size()) {
+				drawMinionBlock(allMinions[baseIdx + 3], pa.rightPage.x + 12.0f, curY + blockH + 30.0f, blockW, blockH,
+					pa.rightPage.x + blockW + 24.0f, pa.rightPage.width - blockW - 36.0f);
 			}
 		}
 
-		glDisable(GL_SCISSOR_TEST);
-		safePopStyle();
+		// Page Turn Corners
+		float cornerW = 120.0f;
+		float cornerH = 40.0f;
+		s_bookTurnRightCorner.set(pa.rightPage.getRight() - cornerW - 10.0f, pa.rightPage.getBottom() - cornerH - 10.0f, cornerW, cornerH);
+		s_bookTurnLeftCorner.set(pa.leftPage.x + 10.0f, pa.leftPage.getBottom() - cornerH - 10.0f, cornerW, cornerH);
 
-		if (hoveredDrawIndex != -1) {
-			float scaleUp = 2.5f;
-			float thisCardW = cardW * scaleUp;
-			float thisCardH = cardH * scaleUp;
-			float finalX = hDrawX - (thisCardW - cardW) / 2.0f;
-			float finalY = hDrawY - (thisCardH - cardH) / 2.0f;
+		if (s_bookMinionPage > 0) {
+			bool hov = s_bookTurnLeftCorner.inside(mx, my);
+			if (hov) g_hoveredButtonId = "minion_prev_page";
+			drawPixelTextCentered(uiFont, "< Prev", s_bookTurnLeftCorner.getCenter().x, s_bookTurnLeftCorner.getCenter().y, 1.0f, hov ? ofColor(120, 80, 40) : ink);
+		}
+		if (s_bookMinionPage < s_bookMinionTotalPages - 1) {
+			bool hov = s_bookTurnRightCorner.inside(mx, my);
+			if (hov) g_hoveredButtonId = "minion_next_page";
+			drawPixelTextCentered(uiFont, "Next >", s_bookTurnRightCorner.getCenter().x, s_bookTurnRightCorner.getCenter().y, 1.0f, hov ? ofColor(120, 80, 40) : ink);
+		}
 
-			if (finalY < 10) finalY = 10;
-			if (finalY + thisCardH > ofGetHeight() - 10) finalY = ofGetHeight() - thisCardH - 10;
+		// -------------------------------------------------------------
+		// SUB-TAB 3: CARDS (CLASSES 1, 2, 3 + HOVER PREVIEW)
+		// -------------------------------------------------------------
+	} else if (s_bookRulesTab == 3) {
+		loadCardBackgroundImg();
 
-			ofPushStyle();
-			ofSetColor(255, 255, 100, 210);
-			ofSetLineWidth(6.0f);
-			drawCardOutlineOutside(finalX, finalY, thisCardW, thisCardH, 6.0f, 2.0f);
+		float leftX = pa.leftPage.x + 8.0f;
+		float rightX = pa.rightPage.x + 12.0f;
+		float curY_Left = contentStartY;
+		float curY_Right = pa.rightPage.y + 40.0f;
+		float nameScale = 0.90f;
+		float lineH = 28.0f; // Gives enough height for the larger text font
 
-			ofSetColor(255);
-			drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, hCard, finalX, finalY, thisCardW, thisCardH, nullptr);
+		int newHoveredCardIdx = -1;
 
-			string fullName = hCard.name;
-			drawPixelTextCentered(titleFont, fullName, finalX + thisCardW * 0.5f, finalY + thisCardH + 30.0f * uiScale, 1.2f * uiScale, ofColor::white, 3, ofColor(200, 120, 0));
-			safePopStyle();
+		auto drawCardListHeader = [&](const std::string & title, ofColor col, float & yPos, float xPos) {
+			drawPixelTextBaseline(uiFont, title, xPos, yPos, 1.20f, col);
+			yPos += 8.0f;
+			ofSetColor(col);
+			ofDrawRectangle(xPos, yPos, 120.0f, 4.0f);
+			yPos += 30.0f;
+		};
+
+		// --- LEFT PAGE: Class 1 (Two Columns) ---
+		drawCardListHeader("Class 1", ofColor(165, 90, 40), curY_Left, leftX);
+
+		int half1 = (class1Cards.size() + 1) / 2;
+		float colW_Left = (pa.leftPage.width - 16.0f) / 2.0f;
+		for (size_t i = 0; i < class1Cards.size(); ++i) {
+			std::string line = std::to_string(i + 1) + ". " + class1Cards[i].name;
+
+			int col = i / half1;
+			int row = i % half1;
+			float cX = leftX + col * colW_Left;
+			float cY = curY_Left + row * lineH;
+
+			ofRectangle itemR(cX, cY - 20.0f, colW_Left - 10.0f, lineH);
+
+			bool hov = itemR.inside(mx, my);
+			if (hov) {
+				newHoveredCardIdx = (int)i;
+				g_hoveredButtonId = "card_c1_" + std::to_string(i);
+			}
+
+			drawPixelTextBaseline(uiFont, line, cX + (hov ? 8.0f : 0.0f), cY, nameScale, hov ? ofColor(140, 70, 30) : ink);
+		}
+		curY_Left += half1 * lineH;
+
+		// --- RIGHT PAGE TOP: Class 2 (Two Columns) ---
+		drawCardListHeader("Class 2", ofColor(115, 120, 130), curY_Right, rightX);
+
+		int half2 = (class2Cards.size() + 1) / 2;
+		float colW_Right = (pa.rightPage.width - 24.0f) / 2.0f;
+		for (size_t i = 0; i < class2Cards.size(); ++i) {
+			std::string line = std::to_string(i + 1) + ". " + class2Cards[i].name;
+
+			int col = i / half2;
+			int row = i % half2;
+			float cX = rightX + col * colW_Right;
+			float cY = curY_Right + row * lineH;
+
+			ofRectangle itemR(cX, cY - 20.0f, colW_Right - 10.0f, lineH);
+
+			bool hov = itemR.inside(mx, my);
+			if (hov) {
+				newHoveredCardIdx = 100 + (int)i;
+				g_hoveredButtonId = "card_c2_" + std::to_string(i);
+			}
+
+			drawPixelTextBaseline(uiFont, line, cX + (hov ? 8.0f : 0.0f), cY, nameScale, hov ? ofColor(90, 95, 105) : ink);
+		}
+		curY_Right += half2 * lineH + 30.0f; // Gap between Class 2 and Class 3
+
+		// --- RIGHT PAGE BOTTOM: Class 3 (Two Columns) ---
+		drawCardListHeader("Class 3", ofColor(180, 140, 30), curY_Right, rightX);
+
+		int half3 = (class3Cards.size() + 1) / 2;
+		for (size_t i = 0; i < class3Cards.size(); ++i) {
+			std::string line = std::to_string(i + 1) + ". " + class3Cards[i].name;
+
+			int col = i / half3;
+			int row = i % half3;
+			float cX = rightX + col * colW_Right;
+			float cY = curY_Right + row * lineH;
+
+			ofRectangle itemR(cX, cY - 20.0f, colW_Right - 10.0f, lineH);
+
+			bool hov = itemR.inside(mx, my);
+			if (hov) {
+				newHoveredCardIdx = 200 + (int)i;
+				g_hoveredButtonId = "card_c3_" + std::to_string(i);
+			}
+
+			drawPixelTextBaseline(uiFont, line, cX + (hov ? 8.0f : 0.0f), cY, nameScale, hov ? ofColor(140, 110, 25) : ink);
+		}
+
+		s_bookHoveredCardIndex = newHoveredCardIdx;
+
+		// Hover Preview: Card appears on CardBackground.png
+		if (s_bookHoveredCardIndex != -1) {
+			const Card * hoverCard = nullptr;
+			if (s_bookHoveredCardIndex >= 200 && (s_bookHoveredCardIndex - 200) < (int)class3Cards.size()) {
+				hoverCard = &class3Cards[s_bookHoveredCardIndex - 200];
+			} else if (s_bookHoveredCardIndex >= 100 && (s_bookHoveredCardIndex - 100) < (int)class2Cards.size()) {
+				hoverCard = &class2Cards[s_bookHoveredCardIndex - 100];
+			} else if (s_bookHoveredCardIndex >= 0 && s_bookHoveredCardIndex < (int)class1Cards.size()) {
+				hoverCard = &class1Cards[s_bookHoveredCardIndex];
+			}
+
+			if (hoverCard) {
+				float bgW = 115.0f * 2.25f;
+				float bgH = 160.0f * 2.25f;
+				float bgX = (ofGetWidth() - bgW) * 0.5f;
+				float bgY = (ofGetHeight() - bgH) * 0.5f;
+
+				if (s_cardBackgroundImg.isAllocated()) {
+					ofSetColor(255);
+					s_cardBackgroundImg.draw(bgX, bgY, bgW, bgH);
+				}
+
+				float cW = bgW * (105.0f / 115.0f);
+				float cH = bgH * (150.0f / 160.0f);
+				float cX = bgX + (bgW - cW) * 0.5f;
+				float cY = bgY + (bgH - cH) * 0.5f;
+
+				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, *hoverCard, cX, cY, cW, cH, nullptr);
+			}
 		}
 	}
 }

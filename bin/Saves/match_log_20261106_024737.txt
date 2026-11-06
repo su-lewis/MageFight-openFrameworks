@@ -1,0 +1,111 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-11-06 02:47:37
+End Reason: Victory
+Seed: 3291390383
+Turns: 17
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[02:41:26] --- MATCH STARTED ---
+[02:41:51] Turn 1: Player 1's turn
+[02:41:57] Player 1 moved to (1,5)
+[02:42:03] Player 1 moved to (2,5)
+[02:42:04] Turn 1: Player 2's turn
+[02:42:08] Player 2 played Earthquake targeting (12,0)
+[02:42:18] Turn 2: Player 1's turn
+[02:42:22] Player 1 moved to (0,4)
+[02:42:24] Player 1 moved to (0,3)
+[02:42:25] Turn 2: Player 2's turn
+[02:42:28] Player 2 moved to (12,4)
+[02:42:32] Turn 3: Player 1's turn
+[02:42:37] Player 1 played Teleport targeting (0,3)
+[02:42:39] Turn 3: Player 2's turn
+[02:42:42] Player 2 moved to (11,5)
+[02:42:45] Player 2 moved to (8,5)
+[02:42:45] Turn 4: Player 1's turn
+[02:42:49] Player 1 moved to (4,4)
+[02:42:52] Player 1 moved to (5,2)
+[02:42:53] Turn 4: Player 2's turn
+[02:42:56] Player 2 moved to (6,7)
+[02:42:59] Player 2 moved to (6,6)
+[02:43:00] Turn 5: Player 1's turn
+[02:43:03] Player 1 moved to (7,3)
+[02:43:04] Turn 5: Player 2's turn
+[02:43:07] Player 2 moved to (8,4)
+[02:43:11] Player 2 moved to (8,5)
+[02:43:11] Turn 6: Player 1's turn
+[02:43:16] Player 1 played Teleport targeting (7,3)
+[02:43:20] Turn 6: Player 2's turn
+[02:43:27] Player 2 moved to (6,6)
+[02:43:30] Player 2 moved to (6,7)
+[02:43:30] Turn 7: Player 1's turn
+[02:43:33] Turn 7: Player 2's turn
+[02:43:38] Player 2 played Earthquake targeting (6,7)
+[02:43:46] Turn 8: Player 1's turn
+[02:43:49] Player 1 played Form of Tortoise targeting (6,4)
+[02:43:49] Turn 8: Player 2's turn
+[02:43:52] Player 2 moved to (4,8)
+[02:43:56] Player 2 moved to (6,8)
+[02:44:05] Turn 9: Player 1's turn
+[02:44:27] Turn 9: Player 2's turn
+[02:44:31] Player 2 moved to (8,8)
+[02:44:34] Player 2 moved to (12,8)
+[02:44:37] Player 2 moved to (12,7)
+[02:44:38] Turn 10: Player 1's turn
+[02:44:46] Turn 10: Player 2's turn
+[02:44:49] Player 2 moved to (11,3)
+[02:44:53] Player 2 moved to (10,3)
+[02:44:53] Turn 11: Player 1's turn
+[02:44:56] Turn 11: Player 2's turn
+[02:44:59] Player 2 played Earthquake targeting (10,3)
+[02:45:10] Player 2 moved to (11,3)
+[02:45:10] Turn 12: Player 1's turn
+[02:45:14] Player 1 played Teleport targeting (6,4)
+[02:45:18] Player 1 moved to (5,1)
+[02:45:19] Turn 12: Player 2's turn
+[02:45:26] Player 2 played Consume Health Potion targeting (11,3)
+[02:45:26] Turn 13: Player 1's turn
+[02:45:32] Player 1 moved to (4,0)
+[02:45:33] Turn 13: Player 2's turn
+[02:45:39] Player 2 moved to (7,2)
+[02:45:41] Turn 14: Player 1's turn
+[02:45:43] Player 1 played Hasten targeting (4,0)
+[02:45:44] Player 1 moved to (2,0)
+[02:45:45] Turn 14: Player 2's turn
+[02:45:49] Player 2 moved to (8,0)
+[02:45:52] Player 2 moved to (7,0)
+[02:45:52] Turn 15: Player 1's turn
+[02:46:16] Player 1 moved to (6,0)
+[02:46:19] Player 1 played Amnesia targeting (7,0)
+[02:46:27] Player 1 played Drain Punch targeting (7,0)
+[02:46:30] Turn 15: Player 2's turn
+[02:46:35] Player 2 played Rock Crush targeting (6,0)
+[02:46:37] Player 2 played Stab targeting (6,0)
+[02:46:49] Turn 16: Player 1's turn
+[02:46:53] Player 1 played Fireball targeting (7,0)
+[02:46:57] Player 1 played Hasten targeting (6,0)
+[02:46:58] Player 1 moved to (4,0)
+[02:46:59] Turn 16: Player 2's turn
+[02:47:29] Player 2 moved to (5,0)
+[02:47:30] Player 2 played Stab targeting (4,0)
+[02:47:32] Turn 17: Player 1's turn
+[02:47:35] Player 1 moved to (2,0)
+[02:47:36] Turn 17: Player 2's turn
+[02:47:37] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 2
+  Cards Played: 16
+  Minions Spawned: 0
+  Total Healing: 10
+Player 1 Stats:
+  Max Dmg/Turn: 5
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
