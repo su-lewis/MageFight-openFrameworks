@@ -135,6 +135,28 @@ static BookAnimation s_animOpen;
 static BookAnimation s_animTurnRight;
 static BookAnimation s_animTurnLeft;
 static ofImage s_bookmarksImg; // <--- Changed back to ofImage
+static ofImage s_mainMenuBg;
+static bool s_mainMenuBgLoaded = false;
+
+static void loadMainMenuBg() {
+	if (s_mainMenuBgLoaded && s_mainMenuBg.isAllocated()) return;
+	std::vector<std::string> paths = {
+		"UI/MainMenu.png",
+		"UI/MainMenu.PNG",
+		"data/UI/MainMenu.png",
+		"bin/data/UI/MainMenu.png"
+	};
+	for (const auto & p : paths) {
+		if (ofFile(p).exists() && s_mainMenuBg.load(p)) {
+			s_mainMenuBg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			s_mainMenuBg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			ofLogNotice("UI") << "Loaded MainMenu pixel art background from: " << p << " (" << s_mainMenuBg.getWidth() << "x" << s_mainMenuBg.getHeight() << ")";
+			s_mainMenuBgLoaded = true;
+			return;
+		}
+	}
+	ofLogWarning("UI") << "Could not find UI/MainMenu.png";
+}
 
 // Clickable Bookmark Hitboxes (Invisible)
 static ofRectangle s_bookmarkVersus;
@@ -1788,8 +1810,8 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			costScale = std::min(5.8f, std::min(sX, sY)); // Allowed to scale up massively
 		}
 
-		// Outline thickness explicitly locked to 1
-		drawCenteredTextScaledOutlined(titleFont, costStr, costCircleGemRect, costScale, costColor, costOutline, 1);
+		// Outline thickness set to 2 (1px thicker solid black outline)
+		drawCenteredTextScaledOutlined(titleFont, costStr, costCircleGemRect, costScale, costColor, costOutline, 2);
 
 		// -------------------------------------------------------------
 		// 2. Fetch Card Template Text Records
@@ -2350,82 +2372,168 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 static inline bool startsWith(const std::string & s, const std::string & prefix) {
 	return s.rfind(prefix, 0) == 0;
 }
-static void drawCardEdgeOutline(float x, float y, float w, float h, float thicknessPx = 16.0f) {
-	if (w <= 0.0f || h <= 0.0f || g_isSecondPass) return;
+static ofTexture s_cardGlowTexture;
 
-	float t = (thicknessPx > 0.0f) ? thicknessPx : 16.0f;
-	ofColor curColor = ofGetStyle().color;
+static void buildCardGlowTexture() {
+	if (s_cardGlowTexture.isAllocated()) return;
 
-	ofPushStyle();
-	ofFill();
-	ofSetColor(curColor);
-
-	if (!gCardEdgeOutlineNormalized.empty()) {
-		// Build 16px solid geometric mesh along the exact non-transparent pixel boundary of the card
-		glm::vec2 cardCenter(x + w * 0.5f, y + h * 0.5f);
-		size_t n = gCardEdgeOutlineNormalized.size();
-
-		ofMesh outlineMesh;
-		outlineMesh.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
-
-		for (size_t i = 0; i <= n; ++i) {
-			size_t currIdx = i % n;
-			size_t prevIdx = (currIdx + n - 1) % n;
-			size_t nextIdx = (currIdx + 1) % n;
-
-			glm::vec2 p0(x + gCardEdgeOutlineNormalized[prevIdx].x * w, y + gCardEdgeOutlineNormalized[prevIdx].y * h);
-			glm::vec2 p1(x + gCardEdgeOutlineNormalized[currIdx].x * w, y + gCardEdgeOutlineNormalized[currIdx].y * h);
-			glm::vec2 p2(x + gCardEdgeOutlineNormalized[nextIdx].x * w, y + gCardEdgeOutlineNormalized[nextIdx].y * h);
-
-			glm::vec2 tangent = p2 - p0;
-			float len = glm::length(tangent);
-			glm::vec2 normal(0.0f, 0.0f);
-			if (len > 0.001f) {
-				tangent /= len;
-				normal = glm::vec2(tangent.y, -tangent.x);
-			}
-
-			// Ensure normal points outward from the card
-			if (glm::dot(normal, p1 - cardCenter) < 0.0f) {
-				normal = -normal;
-			}
-
-			glm::vec2 vInner = p1 - normal * 1.5f; // Tucked slightly under card edge
-			glm::vec2 vOuter = p1 + normal * t; // Extends 16px outward equally everywhere
-
-			outlineMesh.addVertex(glm::vec3(vInner.x, vInner.y, 0.0f));
-			outlineMesh.addVertex(glm::vec3(vOuter.x, vOuter.y, 0.0f));
+	ofImage tpl;
+	std::string path = findCardTemplatePath();
+	if (!tpl.load(path)) {
+		std::vector<std::string> fallbacks = {
+			"UI/CardTemplateBronze.PNG", "UI/CardTemplateBronze.png",
+			"UI/Card Template.PNG", "UI/Card Template.png",
+			"data/UI/CardTemplateBronze.PNG", "bin/data/UI/CardTemplateBronze.PNG"
+		};
+		for (const auto & fb : fallbacks) {
+			if (tpl.load(fb)) break;
 		}
-		outlineMesh.draw();
-	} else {
-		// Fallback: 16px geometric outline based on opaque card dimensions
-		ofRectangle opaque = getOpaqueCardBounds(x, y, w, h);
-		float ox = opaque.x, oy = opaque.y, ow = opaque.width, oh = opaque.height;
-		float r = std::max(4.0f, ow * 0.035f);
+	}
+	if (!tpl.isAllocated()) return;
 
-		ofMesh fallbackMesh;
-		fallbackMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	float tplW = (g_templateWidth > 0.0f) ? g_templateWidth : (float)tpl.getWidth();
+	float tplH = (g_templateHeight > 0.0f) ? g_templateHeight : (float)tpl.getHeight();
 
-		// Outer shell
-		ofSetColor(curColor);
-		ofDrawRectRounded(ox - t, oy - t, ow + 2.0f * t, oh + 2.0f * t, r + t);
+	// Downsample to 1/4 resolution for instant 1ms distance transform and crisp pixel-art stepping
+	int gridW = std::max(80, (int)std::round(tplW / 4.0f));
+	int gridH = std::max(80, (int)std::round(tplH / 4.0f));
+
+	// Margin of 16 grid pixels (64 template pixels) ensures 15px glow never clips
+	const int pad = 16;
+	int totalW = gridW + pad * 2;
+	int totalH = gridH + pad * 2;
+
+	std::vector<bool> isSolid(totalW * totalH, false);
+	std::vector<float> dist(totalW * totalH, 9999.0f);
+
+	const ofPixels & pix = tpl.getPixels();
+
+	for (int gy = 0; gy < gridH; ++gy) {
+		int ty = std::clamp((int)((gy / (float)gridH) * tpl.getHeight()), 0, (int)tpl.getHeight() - 1);
+		for (int gx = 0; gx < gridW; ++gx) {
+			int tx = std::clamp((int)((gx / (float)gridW) * tpl.getWidth()), 0, (int)tpl.getWidth() - 1);
+			int idx = (gy + pad) * totalW + (gx + pad);
+
+			float origX = (float)tx * (tplW / tpl.getWidth());
+			float origY = (float)ty * (tplH / tpl.getHeight());
+
+			// Interior regions are solid card pixels
+			bool insideCard = g_cardLayout.pictureRect.inside(origX, origY)
+				|| g_cardLayout.costRect.inside(origX, origY)
+				|| g_cardLayout.nameRect.inside(origX, origY)
+				|| g_cardLayout.targetingRect.inside(origX, origY)
+				|| g_cardLayout.summonAPRect.inside(origX, origY)
+				|| g_cardLayout.summonHPRect.inside(origX, origY);
+
+			// Frame pixels with alpha > 25 are solid card pixels (transparent pixels are completely ignored)
+			if (!insideCard && pix.getColor(tx, ty).a > 25) {
+				insideCard = true;
+			}
+
+			if (insideCard) {
+				isSolid[idx] = true;
+				dist[idx] = 0.0f;
+			}
+		}
 	}
 
-	ofPopStyle();
+	// 2-pass Chamfer distance transform (calculates exact Euclidean distance from all non-transparent pixels)
+	for (int y = 0; y < totalH; ++y) {
+		for (int x = 0; x < totalW; ++x) {
+			int idx = y * totalW + x;
+			if (dist[idx] > 0.0f) {
+				if (x > 0) dist[idx] = std::min(dist[idx], dist[idx - 1] + 1.0f);
+				if (y > 0) dist[idx] = std::min(dist[idx], dist[idx - totalW] + 1.0f);
+				if (x > 0 && y > 0) dist[idx] = std::min(dist[idx], dist[idx - totalW - 1] + 1.414f);
+				if (x < totalW - 1 && y > 0) dist[idx] = std::min(dist[idx], dist[idx - totalW + 1] + 1.414f);
+			}
+		}
+	}
+
+	for (int y = totalH - 1; y >= 0; --y) {
+		for (int x = totalW - 1; x >= 0; --x) {
+			int idx = y * totalW + x;
+			if (dist[idx] > 0.0f) {
+				if (x < totalW - 1) dist[idx] = std::min(dist[idx], dist[idx + 1] + 1.0f);
+				if (y < totalH - 1) dist[idx] = std::min(dist[idx], dist[idx + totalW] + 1.0f);
+				if (x < totalW - 1 && y < totalH - 1) dist[idx] = std::min(dist[idx], dist[idx + totalW + 1] + 1.414f);
+				if (x > 0 && y < totalH - 1) dist[idx] = std::min(dist[idx], dist[idx + totalW - 1] + 1.414f);
+			}
+		}
+	}
+
+	// Tripled radius: 10 grid pixels ≈ 15-18 screen pixels
+	const float glowRadiusGrid = 10.0f;
+	ofPixels glowPix;
+	glowPix.allocate(totalW, totalH, OF_PIXELS_RGBA);
+
+	for (int y = 0; y < totalH; ++y) {
+		for (int x = 0; x < totalW; ++x) {
+			int idx = y * totalW + x;
+			if (isSolid[idx]) {
+				glowPix.setColor(x, y, ofColor(255, 255, 255, 255));
+			} else {
+				float d = dist[idx];
+				if (d <= glowRadiusGrid) {
+					float t = d / glowRadiusGrid; // 0.0 at visible edge, 1.0 at outer fringe
+					float alpha = std::pow(1.0f - t, 1.3f) * 255.0f;
+					// Stepped quantizing for pixel-art aesthetic
+					alpha = std::round(alpha / 16.0f) * 16.0f;
+					glowPix.setColor(x, y, ofColor(255, 255, 255, (unsigned char)std::clamp(alpha, 0.0f, 255.0f)));
+				} else {
+					glowPix.setColor(x, y, ofColor(255, 255, 255, 0));
+				}
+			}
+		}
+	}
+
+	s_cardGlowTexture.allocate(glowPix);
+	s_cardGlowTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	s_cardGlowTexture.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	ofLogNotice("Cards") << "Generated 15px pixel silhouette glow texture (" << totalW << "x" << totalH << ")";
+}
+
+static void drawCardPixelGlow(float drawX, float drawY, float w, float h, ofColor color, float maxDist = 15.0f) {
+	if (w <= 0.0f || h <= 0.0f || g_isSecondPass) return;
+	if (!s_cardGlowTexture.isAllocated()) {
+		buildCardGlowTexture();
+	}
+	if (!s_cardGlowTexture.isAllocated()) return;
+
+	float tplW = (g_templateWidth > 0.0f) ? g_templateWidth : 1056.0f;
+	float tplH = (g_templateHeight > 0.0f) ? g_templateHeight : 1448.0f;
+
+	// The glow texture has 16 grid pixels (64 template pixels) of padding on all 4 sides
+	float extraX = (64.0f / tplW) * w;
+	float extraY = (64.0f / tplH) * h;
+
+	float gx = drawX - extraX;
+	float gy = drawY - extraY;
+	float gw = w + 2.0f * extraX;
+	float gh = h + 2.0f * extraY;
+
+	ofPushStyle();
+	safeEnableAlphaBlending();
+	ofSetColor(color.r, color.g, color.b, color.a);
+	s_cardGlowTexture.draw(gx, gy, gw, gh);
+	safePopStyle();
+}
+
+static void drawCardEdgeOutline(float x, float y, float w, float h, float thicknessPx = 15.0f) {
+	if (g_isSecondPass) return;
+	ofColor curColor = ofGetStyle().color;
+	drawCardPixelGlow(x, y, w, h, curColor, 15.0f);
 }
 
 static void drawCardGlowAura(float drawX, float drawY, float w, float h, ofColor color, int layers = 4) {
 	if (g_isSecondPass) return;
-	ofPushStyle();
-	ofSetColor(color);
-	drawCardEdgeOutline(drawX, drawY, w, h, 16.0f);
-	ofPopStyle();
+	drawCardPixelGlow(drawX, drawY, w, h, color, 15.0f);
 }
 
-static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx = 16.0f, float gapPx = 0.0f) {
+static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx = 15.0f, float gapPx = 0.0f) {
 	if (g_isSecondPass) return;
-	float t = (lineWidthPx > 0.0f) ? lineWidthPx : 16.0f;
-	drawCardEdgeOutline(x, y, w, h, t);
+	ofColor curColor = ofGetStyle().color;
+	drawCardPixelGlow(x, y, w, h, curColor, 15.0f);
 }
 
 static float quantizePixelTextScale(float scale) {
@@ -2540,13 +2648,15 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const st
 		const int r = std::max(0, outlinePx);
 		if (r > 0) {
 			int offsets[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } };
-			for (auto & off : offsets) {
-				ofSetColor(outlineColor);
-				ofPushMatrix();
-				ofTranslate(txSnap + (float)(off[0] * r) * drawScale, tySnap + (float)(off[1] * r) * drawScale);
-				ofScale(drawScale, drawScale);
-				font.drawString(text, 0, 0);
-				ofPopMatrix();
+			for (int step = 1; step <= r; ++step) {
+				for (auto & off : offsets) {
+					ofSetColor(outlineColor);
+					ofPushMatrix();
+					ofTranslate(txSnap + (float)(off[0] * step) * drawScale, tySnap + (float)(off[1] * step) * drawScale);
+					ofScale(drawScale, drawScale);
+					font.drawString(text, 0, 0);
+					ofPopMatrix();
+				}
 			}
 		}
 
@@ -5760,6 +5870,7 @@ void ofApp::setup() {
 
 	// FIX: Skip ALL graphical, model, and audio loading in headless mode to save massive memory!
 	if (!headless) {
+		loadMainMenuBg();
 		cardBackImage.load("UI/card_back.png");
 		// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
 		if (cardBackImage.isAllocated()) {
@@ -9716,6 +9827,23 @@ void ofApp::draw2DMenuBackground() {
 	ofDisableDepthTest();
 	ofSetColor(255, 255, 255, 255);
 
+	// 0. Render Fullscreen Pixel-Art Background (640x360 scaled perfectly to any resolution)
+	if (!s_mainMenuBg.isAllocated()) {
+		loadMainMenuBg();
+	}
+	if (s_mainMenuBg.isAllocated()) {
+		float bgW = s_mainMenuBg.getWidth();
+		float bgH = s_mainMenuBg.getHeight();
+		if (bgW > 0.0f && bgH > 0.0f) {
+			float scale = std::max((float)ofGetWidth() / bgW, (float)ofGetHeight() / bgH);
+			float drawW = std::round(bgW * scale);
+			float drawH = std::round(bgH * scale);
+			float drawX = std::round(((float)ofGetWidth() - drawW) * 0.5f);
+			float drawY = std::round(((float)ofGetHeight() - drawH) * 0.5f);
+			s_mainMenuBg.draw(drawX, drawY, drawW, drawH);
+		}
+	}
+
 	// 1. Calculate Book Dimensions
 	float singleFrameW = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getWidth() / 4.0f) : 256.0f;
 	float singleFrameH = s_animOpen.sheet.isAllocated() ? (s_animOpen.sheet.getHeight() / 3.0f) : 192.0f;
@@ -9742,11 +9870,9 @@ void ofApp::draw2DMenuBackground() {
 	// Center the COMBINED (Book + Bookmarks) assembly horizontally on screen
 	float bookX = std::round((ofGetWidth() - totalAssemblyW) * 0.5f);
 
-	// --- VERTICAL CENTERING FIX ---
-	// Increased from 14.0f to 24.0f to pull the book further up the screen!
-	// (Change this number if you want to keep tweaking it up or down)
-	float nativeRaiseAmount = 24.0f;
-	float bookY = std::round((ofGetHeight() - targetH) * 0.5f) - (nativeRaiseAmount * scaleMultiplier);
+	// Position book near the bottom, leaving only a few pixels of margin
+	float bottomMargin = 0.0f; // Gap in pixels from the bottom of the screen
+	float bookY = std::round((float)ofGetHeight() - targetH - bottomMargin);
 
 	// 2. Render Animated Book
 	if (s_bookState == BOOK_OPENING) {
@@ -38000,6 +38126,10 @@ void ofApp::applyPixelArtSettings() {
 
 	if (shadowTexture.isAllocated()) shadowTexture.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 	if (fireTexture.isAllocated()) fireTexture.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+	if (s_mainMenuBg.isAllocated()) {
+		s_mainMenuBg.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+		s_mainMenuBg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 
 	// Optionally adjust material settings to reduce specular for pixel-art
 	modelMaterial.setShininess(2.0f);
@@ -38024,6 +38154,7 @@ void ofApp::applyPixelArtSettings() {
 		if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().generateMipmap();
 		if (g_cardTextSpriteSheet.isAllocated()) g_cardTextSpriteSheet.getTexture().generateMipmap();
 		if (cardBackImage.isAllocated()) cardBackImage.getTexture().generateMipmap();
+		if (s_mainMenuBg.isAllocated()) s_mainMenuBg.getTexture().generateMipmap();
 	}
 }
 //--------------------------------------------------------------
@@ -44828,14 +44959,7 @@ void ofApp::drawDraftScreen() {
 
 			if (scale > 0.08f) {
 				if (isSelected) {
-					ofPushStyle();
-					for (int g = 4; g >= 1; --g) {
-						ofSetColor(255, 215, 0, 70 + (g * 35));
-						drawCardOutlineOutside(drawX, drawY, w, h, 3.0f, g * 3.0f);
-					}
-					ofSetColor(255, 215, 0, 255);
-					drawCardOutlineOutside(drawX, drawY, w, h, 4.0f, 1.0f);
-					safePopStyle();
+					drawCardGlowAura(drawX, drawY, w, h, ofColor(255, 215, 0, 255));
 				}
 
 				// --- OPTIMIZED CACHED MOUSE CALL ---
@@ -44843,14 +44967,7 @@ void ofApp::drawDraftScreen() {
 				bool isOpponentHovered = (!isLocalDraftingPlayer(draftPlayerIndex) && static_cast<int>(opponentHoverType) == 5 && opponentHoverCardIndex == (int)i);
 
 				if (isLocallyHovered || isOpponentHovered) {
-					ofPushStyle();
-					for (int g = 3; g >= 1; --g) {
-						ofSetColor(255, 255, 255, 80 + (g * 40));
-						drawCardOutlineOutside(drawX, drawY, w, h, 3.0f, g * 2.5f);
-					}
-					ofSetColor(255, 255, 255, 255);
-					drawCardOutlineOutside(drawX, drawY, w, h, 3.5f, 1.0f);
-					safePopStyle();
+					drawCardGlowAura(drawX, drawY, w, h, ofColor(255, 255, 255, 240));
 				}
 			}
 
