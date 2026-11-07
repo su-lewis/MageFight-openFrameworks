@@ -152,7 +152,6 @@ static void loadCardBackgroundImg() {
 	};
 	for (const auto & p : paths) {
 		if (ofFile(p).exists() && s_cardBackgroundImg.load(p)) {
-			s_cardBackgroundImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			s_cardBackgroundImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 			ofLogNotice("BookUI") << "Loaded CardBackground.png (" << s_cardBackgroundImg.getWidth() << "x" << s_cardBackgroundImg.getHeight() << ")";
 			s_cardBackgroundLoaded = true;
@@ -182,11 +181,27 @@ static ofImage s_armourWardTileImg;
 static bool s_healthSpritesLoaded = false;
 
 static void loadHealthSprites() {
-	if (s_healthSpritesLoaded) return;
-	auto loadNearest = [](ofImage & img, const std::string & relPath) {
+	if (s_healthSpritesLoaded && s_healthTotalImg.isAllocated()) return;
+	auto loadNearest = [](ofImage & img, const std::string & relPath, bool keyBlackToAlpha = false) {
 		std::vector<std::string> paths = { relPath, "data/" + relPath, "bin/data/" + relPath };
 		for (const auto & p : paths) {
 			if (ofFile(p).exists() && img.load(p)) {
+				img.setImageType(OF_IMAGE_COLOR_ALPHA);
+
+				// Strip out any black background pixels around the heart
+				if (keyBlackToAlpha) {
+					ofPixels & pix = img.getPixels();
+					for (int y = 0; y < pix.getHeight(); ++y) {
+						for (int x = 0; x < pix.getWidth(); ++x) {
+							ofColor c = pix.getColor(x, y);
+							if (c.r < 12 && c.g < 12 && c.b < 12) {
+								pix.setColor(x, y, ofColor(0, 0, 0, 0));
+							}
+						}
+					}
+					img.update();
+				}
+
 				img.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 				img.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 				return;
@@ -195,7 +210,7 @@ static void loadHealthSprites() {
 		ofLogWarning("UI") << "Missing health sprite: " << relPath;
 	};
 
-	loadNearest(s_healthTotalImg, "UI/Health_total.png");
+	loadNearest(s_healthTotalImg, "UI/Health_total.png", true);
 	loadNearest(s_healthFullStartImg, "UI/Health_full_start.png");
 	loadNearest(s_healthFullTileImg, "UI/Health_full_tile.png");
 	loadNearest(s_healthEmptyStartImg, "UI/Health_empty_start.png");
@@ -9608,6 +9623,10 @@ void ofApp::draw() {
 			worldPostShader.setUniform1f("uMaxBlur", 2.0f);
 			g_uiPostFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			worldPostShader.end();
+
+			// Composite the crisp Text & Health UI on top of the blurred screen
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+			g_textFbo.draw(0, 0, ofGetWidth(), ofGetHeight());
 		}
 	}
 
@@ -12823,7 +12842,6 @@ void ofApp::prepareGameVisualState() {
 								selectedDraftIndices.clear();
 								currentState = STATE_DRAFTING;
 
-								// Only pause and grant a decision window if an OPPONENT was forced onto a key off-turn (e.g. via Earthquake/Push)
 								int activeOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
 									? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID)
 									: -1;
@@ -12841,7 +12859,6 @@ void ofApp::prepareGameVisualState() {
 									opponentDecisionDurationFrames = 45 * turnTimerFramesPerSecond;
 									opponentDecisionPlayerIndex = draft.targetIndex;
 								} else {
-									// Own turn: regular turn timer continues running normally
 									opponentDecisionTimerActive = false;
 									opponentDecisionStartFrame = 0;
 									opponentDecisionPlayerIndex = -1;
@@ -12860,19 +12877,14 @@ void ofApp::prepareGameVisualState() {
 						}
 					}
 
-					// If an in-game draft was triggered, freeze on this tile until the draft is finished
-					if (currentState == STATE_DRAFTING && isInGameDraft) {
-						animationSegmentStartTime = ofGetElapsedTimef();
-						playerVisualPos = targetPos;
-					} else {
-						currentPathIndex++;
-						animationSegmentStartTime = ofGetElapsedTimef();
-						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
-							isPlayerAnimating = false;
-							animatingPlayerIndex = -1;
-							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-								playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
-							}
+					// Unconditionally advance the path index so they don't re-walk this step!
+					currentPathIndex++;
+					animationSegmentStartTime = ofGetElapsedTimef();
+					if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
+						isPlayerAnimating = false;
+						animatingPlayerIndex = -1;
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+							playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 						}
 					}
 				}
@@ -15723,7 +15735,6 @@ void ofApp::drawGame() {
 				float bob = sin(ofGetElapsedTimef() * 6.0f) * (TILE_SIZE * 0.05f);
 
 				// Translate to just above the highest status effect icon
-				// Increased the base offset to ensure it floats clearly above all units
 				ofTranslate(pos.x, currentOverheadY + 2.0f + bob, pos.z);
 				currentOverheadY += 1.0f;
 
@@ -15736,13 +15747,13 @@ void ofApp::drawGame() {
 				ofDisableLighting(); // CRITICAL: Prevent scene lighting from turning the unlit 2D shape black!
 				glDisable(GL_CULL_FACE); // CRITICAL: Prevent the triangle from being culled
 
-				// Scale the chevron relative to the board tile size
-				float w = TILE_SIZE * 0.30f;
-				float h = TILE_SIZE * 0.22f;
-				float inset = TILE_SIZE * 0.035f;
+				// Scaled up the chevron relative to the board tile size
+				float w = TILE_SIZE * 0.45f;
+				float h = TILE_SIZE * 0.35f;
+				float inset = TILE_SIZE * 0.045f;
 
-				// Draw Black Outline Triangle (Outer)
-				ofSetColor(0, 0, 0, 255);
+				// Draw White Outline Triangle (Outer)
+				ofSetColor(255, 255, 255, 255);
 				ofDrawTriangle(-w / 2, h / 2, w / 2, h / 2, 0, -h / 2);
 
 				// Draw Inner Pure Gold Triangle
@@ -17312,16 +17323,18 @@ void ofApp::drawGame() {
 	const float armourOverlap = 2.0f;
 	const float armourStep = armourTileNativeW - armourOverlap; // 7 px
 
-	// Visual integer scaling: maintains crisp nearest-neighbor pixels
-	float barPixelScale = std::max(1.0f, std::round(scale * 1.85f));
+	// Scaled up cleanly: 2.0x minimum (integer scale prevents blurry pixels)
+	float barPixelScale = std::max(2.0f, std::round(scale * 2.0f));
 
-	// Max width of 1 full row (Heart 36px + gap 4px + Start 11px + 19 Tiles @ 9px step = 222px native)
-	float healthBarWidth = 222.0f * barPixelScale;
-	float healthBarHeight = heartNativeH * barPixelScale; // Single declaration
+	// Adjusted max width to account for the negative overlap so opponent's bar stays anchored properly
+	float healthBarWidth = 214.0f * barPixelScale;
+	float healthBarHeight = heartNativeH * barPixelScale;
 
 	auto drawHealthBar = [&](Player & player, float x, float y, ofColor healthColor) {
 		bool isOpponent = (player.playerID != myLocalPlayerID);
 		int totalArmor = player.block + player.fortification + player.barrier + player.holyBlock + player.ward;
+		int mx = ofGetMouseX();
+		int my = ofGetMouseY();
 
 		// --- FORMS (Tortoise & Ghost) ---
 		float currentFormsY = y - (formBarHeight + formSpacing);
@@ -17344,11 +17357,15 @@ void ofApp::drawGame() {
 			currentFormsY -= (formBarHeight + formSpacing);
 		}
 
-		ofPushStyle();
-		ofSetColor(255);
-
-		auto drawSpriteOriented = [&](const ofImage & img, float drawX, float drawY, float w, float h, bool flipX) {
+		// Renders crisp and completely excludes the sprites from post-processing shaders (Pass 1)
+		auto drawHealthSprite = [&](const ofImage & img, float drawX, float drawY, float w, float h, bool flipX) {
 			if (!img.isAllocated()) return;
+			if (g_isFboPass && !g_renderText) return; // Completely skips the post-processing FBO pass!
+
+			TEXT_PASS_BEGIN()
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			ofSetColor(255);
 			if (!flipX) {
 				img.draw(std::round(drawX), std::round(drawY), std::round(w), std::round(h));
 			} else {
@@ -17358,31 +17375,45 @@ void ofApp::drawGame() {
 				img.draw(0, 0, std::round(w), std::round(h));
 				ofPopMatrix();
 			}
+			TEXT_PASS_END()
 		};
 
 		float heartW = heartNativeW * barPixelScale;
 		float heartH = heartNativeH * barPixelScale;
-		float heartX = isOpponent ? (x + healthBarWidth - heartW) : x;
+
+		// Anchor Player 0 next to P0 deck; anchor Opponent strictly to the left of P1 deck
+		float heartX = 0.0f;
+		if (!isOpponent) {
+			heartX = p0_deckRect.getRight() + (16.0f * scale);
+		} else {
+			heartX = p1_deckRect.getLeft() - (16.0f * scale) - heartW;
+		}
 		float heartY = y + std::max(0.0f, (healthBarHeight - heartH) * 0.5f);
 
 		// 1. Draw Heart Icon
-		drawSpriteOriented(s_healthTotalImg, heartX, heartY, heartW, heartH, isOpponent);
+		drawHealthSprite(s_healthTotalImg, heartX, heartY, heartW, heartH, isOpponent);
 
-		// 2. Draw Text on Heart
+		// 2. Draw Centered Health Text on Heart (Optical center of heart is ~0.44f, slightly larger font)
 		std::string hpStr = ofToString(player.health) + "/" + ofToString(player.maxHealth);
-		float textScale = std::clamp(barPixelScale * 0.28f, 0.65f, 1.15f);
-		drawPixelTextCentered(titleFont, hpStr, heartX + (heartW * 0.5f), heartY + (heartH * 0.52f), textScale, ofColor::white, 2, ofColor::black);
+		ofRectangle hpBounds = uiFont.getStringBoundingBox(hpStr, 0, 0);
+		float maxTextW = heartW * 0.82f;
+		float textScale = (hpBounds.width > 0.0f) ? std::min(1.10f, maxTextW / hpBounds.width) : 0.95f;
+		drawPixelTextCentered(uiFont, hpStr, heartX + (heartW * 0.5f), heartY + (heartH * 0.44f), textScale, ofColor::white, 2, ofColor::black);
 
-		// Gap between Heart and Segment 1
-		float barGap = 4.0f * barPixelScale;
+		// Overlap between Heart and Segment 1 (Negative value pulls the bar into the heart)
+		float barGap = -4.0f * barPixelScale;
 		float segOriginX = isOpponent ? (heartX - barGap) : (heartX + heartW + barGap);
 
 		float row1HealthY = heartY + (heartH * 0.5f) - (healthNativeH * barPixelScale * 0.5f);
-		float row2HealthY = row1HealthY + (healthNativeH * barPixelScale) + (2.0f * barPixelScale);
+		// Row 2 is now flush/touching against Row 1
+		float row2HealthY = row1HealthY + (healthNativeH * barPixelScale);
 
-		// 3. Draw Health Segments (max 20 per line)
+		// 3. Draw Health Segments (max 20 per row)
 		int totalMaxHp = std::max(1, player.maxHealth);
 		int currentHp = std::clamp(player.health, 0, totalMaxHp);
+
+		float minSegX = segOriginX;
+		float maxSegX = segOriginX;
 
 		for (int hpIdx = 1; hpIdx <= totalMaxHp; ++hpIdx) {
 			int row = (hpIdx - 1) / 20;
@@ -17394,9 +17425,18 @@ void ofApp::drawGame() {
 
 			float pieceW = (isStartPiece ? healthStartNativeW : healthTileNativeW) * barPixelScale;
 			float pieceH = healthNativeH * barPixelScale;
-			float advanceX = (col == 0) ? 0.0f : ((healthStartNativeW - healthOverlap) + (col - 1) * healthStep) * barPixelScale;
 
-			float drawX = isOpponent ? (segOriginX - advanceX - pieceW) : (segOriginX + advanceX);
+			float drawX = 0.0f;
+			if (!isOpponent) {
+				float advanceX = (col == 0) ? 0.0f : ((healthStartNativeW - healthOverlap) + (col - 1) * healthStep) * barPixelScale;
+				drawX = segOriginX + advanceX;
+			} else {
+				float advanceX = (col == 0) ? 0.0f : (col * healthStep * barPixelScale);
+				drawX = segOriginX - (healthStartNativeW * barPixelScale) - advanceX;
+			}
+
+			minSegX = std::min(minSegX, drawX);
+			maxSegX = std::max(maxSegX, drawX + pieceW);
 
 			const ofImage * imgToDraw = nullptr;
 			if (isStartPiece) {
@@ -17405,35 +17445,41 @@ void ofApp::drawGame() {
 				imgToDraw = isFull ? &s_healthFullTileImg : &s_healthEmptyTileImg;
 			}
 
-			if (imgToDraw && imgToDraw->isAllocated()) {
-				drawSpriteOriented(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+			if (imgToDraw) {
+				drawHealthSprite(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
 			}
 		}
 
-		// 4. Draw Armour Bar (Stacked above Health)
+		// Tooltip tracking for hovering over armour segments
+		std::string hoveredArmorTooltip = "";
+
+		// 4. Draw Armour Bar (Stacked directly above Health)
 		if (totalArmor > 0) {
 			float armourY = row1HealthY - (armourNativeH * barPixelScale) - (3.0f * barPixelScale);
 
 			struct ArmorPip {
 				const ofImage * startImg;
 				const ofImage * tileImg;
+				std::string typeName;
+				int totalAmount;
+				std::string blocksDesc;
 			};
 
 			std::vector<ArmorPip> armorSequence;
 			armorSequence.reserve(totalArmor);
 
-			auto appendArmorType = [&](int count, const ofImage & startImg, const ofImage & tileImg) {
+			auto appendArmorType = [&](int count, const ofImage & startImg, const ofImage & tileImg, const std::string & name, const std::string & desc) {
 				for (int k = 0; k < count; ++k) {
-					armorSequence.push_back({ &startImg, &tileImg });
+					armorSequence.push_back({ &startImg, &tileImg, name, count, desc });
 				}
 			};
 
-			// Front to back damage absorption order: Block -> Holy Block -> Barrier -> Fortification -> Ward
-			appendArmorType(player.block, s_armourBlockStartImg, s_armourBlockTileImg);
-			appendArmorType(player.holyBlock, s_armourHolyStartImg, s_armourHolyTileImg);
-			appendArmorType(player.barrier, s_armourBarrierStartImg, s_armourBarrierTileImg);
-			appendArmorType(player.fortification, s_armourFortStartImg, s_armourFortTileImg);
-			appendArmorType(player.ward, s_armourWardStartImg, s_armourWardTileImg);
+			// Damage absorption priority order
+			appendArmorType(player.block, s_armourBlockStartImg, s_armourBlockTileImg, "Block", "Absorbs Physical damage");
+			appendArmorType(player.holyBlock, s_armourHolyStartImg, s_armourHolyTileImg, "Holy Block", "Absorbs Holy damage");
+			appendArmorType(player.barrier, s_armourBarrierStartImg, s_armourBarrierTileImg, "Barrier", "Absorbs all Non-Physical damage");
+			appendArmorType(player.fortification, s_armourFortStartImg, s_armourFortTileImg, "Fortification", "Absorbs Physical & Piercing damage");
+			appendArmorType(player.ward, s_armourWardStartImg, s_armourWardTileImg, "Ward", "Absorbs all damage types");
 
 			int totalPips = (int)armorSequence.size();
 			for (int aIdx = 0; aIdx < totalPips; ++aIdx) {
@@ -17445,18 +17491,46 @@ void ofApp::drawGame() {
 
 				float pieceW = (isStartPiece ? armourStartNativeW : armourTileNativeW) * barPixelScale;
 				float pieceH = armourNativeH * barPixelScale;
-				float advanceX = (col == 0) ? 0.0f : ((armourStartNativeW - armourOverlap) + (col - 1) * armourStep) * barPixelScale;
 
-				float drawX = isOpponent ? (segOriginX - advanceX - pieceW) : (segOriginX + advanceX);
+				float drawX = 0.0f;
+				if (!isOpponent) {
+					float advanceX = (col == 0) ? 0.0f : ((armourStartNativeW - armourOverlap) + (col - 1) * armourStep) * barPixelScale;
+					drawX = segOriginX + advanceX;
+				} else {
+					float advanceX = (col == 0) ? 0.0f : (col * armourStep * barPixelScale);
+					drawX = segOriginX - (armourStartNativeW * barPixelScale) - advanceX;
+				}
+
+				// Check mouse hover over this specific armour segment
+				ofRectangle pipRect(drawX, rowY, pieceW, pieceH);
+				if (pipRect.inside(mx, my)) {
+					hoveredArmorTooltip = ofToString(armorSequence[aIdx].totalAmount) + " " + armorSequence[aIdx].typeName + "\n" + armorSequence[aIdx].blocksDesc;
+				}
+
 				const ofImage * imgToDraw = isStartPiece ? armorSequence[aIdx].startImg : armorSequence[aIdx].tileImg;
-
-				if (imgToDraw && imgToDraw->isAllocated()) {
-					drawSpriteOriented(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+				if (imgToDraw) {
+					drawHealthSprite(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
 				}
 			}
 		}
 
-		ofPopStyle();
+		// Tooltip handling: Armour segments take priority, then Health bar / Heart
+		if (!hoveredArmorTooltip.empty()) {
+			isShowingTooltip = true;
+			tooltipPos = glm::vec2(mx, my);
+			tooltipText = hoveredArmorTooltip;
+		} else {
+			// Bounds for the whole health bar including the heart
+			float barLeft = std::min(heartX, minSegX);
+			float barRight = std::max(heartX + heartW, maxSegX);
+			ofRectangle wholeBarRect(barLeft, heartY, barRight - barLeft, heartH);
+
+			if (wholeBarRect.inside(mx, my)) {
+				isShowingTooltip = true;
+				tooltipPos = glm::vec2(mx, my);
+				tooltipText = ofToString(player.health) + " / " + ofToString(player.maxHealth) + " Health";
+			}
+		}
 	};
 
 	// --- 1. MOVEMENT PATH AP COST BADGE (CIRCULAR WITH -X NUMBER) ---
@@ -18017,19 +18091,6 @@ void ofApp::drawGame() {
 			ofDrawRectangle(hoverRect);
 			safePopStyle();
 		}
-		if (hoverP1Discard) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(255, 255, 255, 200);
-			ofSetLineWidth(4 * scale);
-			// If discard has cards, use card edge outline; otherwise use box
-			if (!opponentPlayer->discardPile.empty()) {
-				drawCardEdgeOutline(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, 0.0f);
-			} else {
-				ofDrawRectangle(p1_discardRect);
-			}
-			safePopStyle();
-		}
 
 		// Draw active shuffle animations (deck reshuffle visual)
 		for (const auto & s : activeShuffleAnimations) {
@@ -18172,8 +18233,8 @@ void ofApp::drawGame() {
 		float p0_statusXStart = p0_healthX + 5 * scale;
 		int p0_formsAbove = (localPlayer->inTortoiseForm ? 1 : 0) + (localPlayer->inGhostForm ? 1 : 0);
 		float p0_totalFormsHeight = p0_formsAbove * (formBarHeight + formSpacing);
-		float p0_staticArmourCeiling = (healthNativeH * barPixelScale) + (armourNativeH * barPixelScale) + (14.0f * barPixelScale);
-		float p0_statusY = p0_healthY - p0_staticArmourCeiling - p0_totalFormsHeight;
+		float staticArmourCeiling = (healthNativeH * barPixelScale) + (armourNativeH * barPixelScale) + (14.0f * barPixelScale);
+		float p0_statusY = p0_healthY - staticArmourCeiling - p0_totalFormsHeight;
 		float smallFontScale = quantizePixelTextScale(fontScale * 0.8f);
 
 		auto drawStatusLine = [&](const std::string & text, ofColor color, const std::string & tooltip, float x, float & y) {
@@ -18301,10 +18362,10 @@ void ofApp::drawGame() {
 		}
 
 		// --- DRAW P1 STATUSES (TOP - Opponent in Multiplayer) ---
-		float p1_statusXStart = p1_healthX + 5 * scale;
+		float p1_statusXStart = p1_deckRect.getLeft() - healthBarWidth;
 		int p1_formsBelow = (opponentPlayer->inTortoiseForm ? 1 : 0) + (opponentPlayer->inGhostForm ? 1 : 0);
 		float p1_totalFormsHeight = p1_formsBelow * (formBarHeight + formSpacing);
-		float p1_statusY = p1_healthY - p0_staticArmourCeiling - p1_totalFormsHeight;
+		float p1_statusY = p1_healthY - staticArmourCeiling - p1_totalFormsHeight;
 
 		// Draw combined Luck (permanent + passive) for opponent
 		int opponentPlayerIndex = -1;
@@ -18430,10 +18491,10 @@ void ofApp::drawGame() {
 			baseBorder = ofColor(18, 105, 25);
 			textFill = ofColor::white;
 		} else {
-			// DEFAULT: Hearthstone Yellow Background with Black Text
-			baseFill = isHoveringEndTurn ? ofColor(255, 205, 50) : ofColor(235, 180, 40);
-			baseBorder = ofColor(135, 95, 20);
-			textFill = ofColor(18, 18, 18);
+			// DEFAULT: Muted Vintage Brass/Gold
+			baseFill = isHoveringEndTurn ? ofColor(215, 175, 75) : ofColor(190, 150, 60);
+			baseBorder = ofColor(115, 85, 30);
+			textFill = ofColor(22, 22, 22);
 		}
 
 		if (endTurnLocked) {
@@ -50782,6 +50843,8 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 	uint64_t currentHash = (uint64_t)currentAP ^ ((uint64_t)globalTurnCounter << 16) ^ ((uint64_t)playerIndex << 24);
 	for (const auto & unit : players) {
 		currentHash ^= ((uint64_t)unit.playerID) ^ ((uint64_t)unit.x << 8) ^ ((uint64_t)unit.y << 16) ^ ((uint64_t)unit.health << 24);
+		// Include all defensive stats so cards like Blocking Boon instantly detect armour changes!
+		currentHash ^= ((uint64_t)unit.block) ^ ((uint64_t)unit.barrier << 8) ^ ((uint64_t)unit.ward << 16) ^ ((uint64_t)unit.fortification << 24) ^ ((uint64_t)unit.holyBlock << 32);
 	}
 
 	if (s_cacheHash != currentHash) {
