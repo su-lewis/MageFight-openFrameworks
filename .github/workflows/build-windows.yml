@@ -56,9 +56,12 @@ jobs:
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
         cd openFrameworks/scripts/msys2
         
-        # Patch renamed FreeImage and dropped rtaudio packages from pacman dependency list
+        # Patch dependencies list
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*libusb[^[:space:]]*//gI' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*poco[^[:space:]]*//gI' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*tools[^[:space:]]*//gI' install_dependencies.sh
         
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
@@ -130,6 +133,9 @@ jobs:
         
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*libusb[^[:space:]]*//gI' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*poco[^[:space:]]*//gI' install_dependencies.sh
+        sed -i -E 's/[^[:space:]]*tools[^[:space:]]*//gI' install_dependencies.sh
         
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
