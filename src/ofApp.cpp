@@ -162,6 +162,113 @@ static void loadCardBackgroundImg() {
 	ofLogWarning("BookUI") << "Missing UI/Book/CardBackground.png";
 }
 
+// --- MODULAR PIXEL-ART HEALTH & ARMOUR SPRITES ---
+static ofImage s_healthTotalImg;
+static ofImage s_healthFullStartImg;
+static ofImage s_healthFullTileImg;
+static ofImage s_healthEmptyStartImg;
+static ofImage s_healthEmptyTileImg;
+
+static ofImage s_armourBlockStartImg;
+static ofImage s_armourBlockTileImg;
+static ofImage s_armourFortStartImg;
+static ofImage s_armourFortTileImg;
+static ofImage s_armourBarrierStartImg;
+static ofImage s_armourBarrierTileImg;
+static ofImage s_armourHolyStartImg;
+static ofImage s_armourHolyTileImg;
+static ofImage s_armourWardStartImg;
+static ofImage s_armourWardTileImg;
+static bool s_healthSpritesLoaded = false;
+
+static void loadHealthSprites() {
+	if (s_healthSpritesLoaded) return;
+	auto loadNearest = [](ofImage & img, const std::string & relPath) {
+		std::vector<std::string> paths = { relPath, "data/" + relPath, "bin/data/" + relPath };
+		for (const auto & p : paths) {
+			if (ofFile(p).exists() && img.load(p)) {
+				img.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				img.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				return;
+			}
+		}
+		ofLogWarning("UI") << "Missing health sprite: " << relPath;
+	};
+
+	loadNearest(s_healthTotalImg, "UI/Health_total.png");
+	loadNearest(s_healthFullStartImg, "UI/Health_full_start.png");
+	loadNearest(s_healthFullTileImg, "UI/Health_full_tile.png");
+	loadNearest(s_healthEmptyStartImg, "UI/Health_empty_start.png");
+	loadNearest(s_healthEmptyTileImg, "UI/Health_empty_tile.png");
+
+	loadNearest(s_armourBlockStartImg, "UI/Armour_block_start.png");
+	loadNearest(s_armourBlockTileImg, "UI/Armour_block_tile.png");
+	loadNearest(s_armourFortStartImg, "UI/Armour_fortification_start.png");
+	loadNearest(s_armourFortTileImg, "UI/Armour_fortification_tile.png");
+	loadNearest(s_armourBarrierStartImg, "UI/Armour_barrier_start.png");
+	loadNearest(s_armourBarrierTileImg, "UI/Armour_barrier_tile.png");
+	loadNearest(s_armourHolyStartImg, "UI/Armour_holyblock_start.png");
+	loadNearest(s_armourHolyTileImg, "UI/Armour_holyblock_tile.png");
+	loadNearest(s_armourWardStartImg, "UI/Armour_ward_start.png");
+	loadNearest(s_armourWardTileImg, "UI/Armour_ward_tile.png");
+
+	s_healthSpritesLoaded = true;
+	ofLogNotice("UI") << "Loaded modular pixel-art health & armour UI sprites.";
+}
+
+// 113x77 Minion Tile Frame & Square Box Tracking
+static ofImage s_minionBackgroundImg;
+static bool s_minionBackgroundLoaded = false;
+static ofRectangle s_minionSquareNative(10.0f, 10.0f, 36.0f, 36.0f);
+
+static void loadMinionBackgroundImg() {
+	if (s_minionBackgroundLoaded && s_minionBackgroundImg.isAllocated()) return;
+	std::vector<std::string> paths = {
+		"UI/Book/MinionBackground.png",
+		"UI/Book/MinionBackground.PNG",
+		"data/UI/Book/MinionBackground.png",
+		"bin/data/UI/Book/MinionBackground.png"
+	};
+	for (const auto & p : paths) {
+		if (ofFile(p).exists() && s_minionBackgroundImg.load(p)) {
+			s_minionBackgroundImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			s_minionBackgroundImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			ofLogNotice("BookUI") << "Loaded MinionBackground.png (" << s_minionBackgroundImg.getWidth() << "x" << s_minionBackgroundImg.getHeight() << ")";
+			s_minionBackgroundLoaded = true;
+
+			// Auto-detect the inner model square coordinates from the image pixels
+			const ofPixels & pix = s_minionBackgroundImg.getPixels();
+			int imgW = (int)pix.getWidth();
+			int imgH = (int)pix.getHeight();
+			if (imgW >= 50 && imgH >= 50) {
+				int sampleX = imgW * 25 / 113;
+				int sampleY = imgH * 25 / 77;
+				ofColor squareFill = pix.getColor(sampleX, sampleY);
+				int minX = imgW, maxX = 0, minY = imgH, maxY = 0;
+				for (int y = 4; y < imgH * 55 / 77; ++y) {
+					for (int x = 4; x < imgW * 55 / 113; ++x) {
+						ofColor c = pix.getColor(x, y);
+						if (std::abs(c.r - squareFill.r) < 14 && std::abs(c.g - squareFill.g) < 14 && std::abs(c.b - squareFill.b) < 14) {
+							minX = std::min(minX, x);
+							maxX = std::max(maxX, x);
+							minY = std::min(minY, y);
+							maxY = std::max(maxY, y);
+						}
+					}
+				}
+				if (maxX > minX && maxY > minY) {
+					s_minionSquareNative.set((float)minX, (float)minY, (float)(maxX - minX + 1), (float)(maxY - minY + 1));
+					ofLogNotice("BookUI") << "Detected Minion square rect in native pixels: ("
+										  << s_minionSquareNative.x << ", " << s_minionSquareNative.y << ", "
+										  << s_minionSquareNative.width << ", " << s_minionSquareNative.height << ")";
+				}
+			}
+			return;
+		}
+	}
+	ofLogWarning("BookUI") << "Missing UI/Book/MinionBackground.png";
+}
+
 // Rules & Cards Sub-Tabs: 0 = How to Play, 1 = Effects & Keywords, 2 = Minions, 3 = Cards
 static int s_bookRulesTab = 0;
 static int s_bookMinionPage = 0;
@@ -4637,22 +4744,22 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 	int remaining = dmg;
 	switch (type) {
 	case DAMAGE_HOLY:
-		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor(255, 215, 0));
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor::yellow);
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor::hotPink);
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	case DAMAGE_PHYSICAL:
 		absorbFrom(target.block, remaining, 5, " Block", ofColor::gray);
-		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor(55, 55, 65));
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	case DAMAGE_PIERCING:
-		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor(55, 55, 65));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor::hotPink);
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	default:
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor::hotPink);
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	}
@@ -4929,22 +5036,22 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 	int remaining = dmg;
 	switch (type) {
 	case DAMAGE_HOLY:
-		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor(255, 215, 0));
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor::yellow);
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor::hotPink);
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	case DAMAGE_PHYSICAL:
 		absorbFrom(target.block, remaining, 5, " Block", ofColor::gray);
-		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor(55, 55, 65));
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	case DAMAGE_PIERCING:
-		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor(55, 55, 65));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor::hotPink);
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	default:
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor::hotPink);
 		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
 		break;
 	}
@@ -5894,6 +6001,8 @@ void ofApp::setup() {
 	if (!headless) {
 		loadMainMenuBg();
 		loadCardBackgroundImg();
+		loadMinionBackgroundImg();
+		loadHealthSprites();
 		cardBackImage.load("UI/card_back.png");
 		// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
 		if (cardBackImage.isAllocated()) {
@@ -9069,10 +9178,12 @@ void ofApp::draw() {
 								lines.push_back({ "Stats:", "+5 Max HP, Restore 5", ofColor(50, 220, 90) });
 								lines.push_back({ "Spikes:", "3 Dmg on Heal/Def", ofColor::orange });
 							} else if (entry.card.type == CARD_FORM_OF_GHOST) {
-								lines.push_back({ "Transformed:", "Ghost (4 HP)", ofColor(150, 150, 255) });
+								lines.push_back({ "Transformed:", "Ghost (4 HP)", ofColor(220, 220, 220) }); // Light Light Grey
 								lines.push_back({ "Passive:", "Immune Phys/Pierce", ofColor::cyan });
 								lines.push_back({ "Trait:", "Phase through walls", ofColor::magenta });
-							} else if (entry.card.type == CARD_REPLICATE) {
+							}
+
+							else if (entry.card.type == CARD_REPLICATE) {
 								lines.push_back({ "Buff:", "Copies next card to hand", ofColor::cyan });
 							} else if (entry.card.type == CARD_STRENGTHEN_ELEMENTS) {
 								lines.push_back({ "Buff (3 Turns):", "Copies Fire/Elec cards", ofColor::orange });
@@ -9139,9 +9250,9 @@ void ofApp::draw() {
 
 							// Defensive stats
 							if (entry.card.blockAmount > 0) lines.push_back({ "Block:", "+" + ofToString(entry.card.blockAmount), ofColor::gray });
-							if (entry.card.wardAmount > 0) lines.push_back({ "Ward:", "+" + ofToString(entry.card.wardAmount), ofColor(180, 140, 255) });
+							if (entry.card.wardAmount > 0) lines.push_back({ "Ward:", "+" + ofToString(entry.card.wardAmount), ofColor::black });
 							if (entry.card.barrierAmount > 0) lines.push_back({ "Barrier:", "+" + ofToString(entry.card.barrierAmount), ofColor::hotPink });
-							if (entry.card.fortifyAmount > 0) lines.push_back({ "Fortify:", "+" + ofToString(entry.card.fortifyAmount), ofColor::lightGray });
+							if (entry.card.fortifyAmount > 0) lines.push_back({ "Fortify:", "+" + ofToString(entry.card.fortifyAmount), ofColor(55, 55, 65) });
 							if (entry.card.holyBlockAmount > 0) lines.push_back({ "Holy Block:", "+" + ofToString(entry.card.holyBlockAmount), ofColor::yellow });
 
 							// AP gain
@@ -9584,15 +9695,17 @@ std::vector<glm::vec2> ofApp::getInfiniteMazePath(glm::vec2 startPos, glm::vec2 
 static int getBookmarkIndexForState(GameState state) {
 	switch (state) {
 	case STATE_MULTIPLAYER_MENU:
-		return 0; // Versus
+		return 0; // Online
 	case STATE_SINGLEPLAYER_MENU:
 		return 1; // Solo
 	case STATE_ENCYCLOPEDIA:
-		return 2; // Rules
+		return 2; // Guide
 	case STATE_SETTINGS:
-		return 3; // Settings
+		return 3; // Options
+	case STATE_MAIN_MENU:
+		return 4; // Menu
 	default:
-		return -1; // Front cover / Main Menu
+		return -1;
 	}
 }
 
@@ -9736,31 +9849,34 @@ void ofApp::updateMenuRects() {
 	customisationBtnBack.set(cX_center - (ofGetWidth() * 0.45f), 20 * uiScale, 160 * uiScale, 60 * uiScale);
 
 	// --- Screen -2: Settings (Overlay) ---
-	float setX = ofGetWidth() / 2.0f;
-	float setBtnW = 420.0f * uiScale;
-	settingsBackButton.set(setX - setBtnW / 2.0f, ofGetHeight() * 0.8, setBtnW, 72.0f * uiScale);
+	// Only set old panel coordinates if accessed in-game (paused overlay), not on the book!
+	if (currentState != STATE_SETTINGS || stateBeforeSettings == STATE_PAUSED) {
+		float setX = ofGetWidth() / 2.0f;
+		float setBtnW = 420.0f * uiScale;
+		settingsBackButton.set(setX - setBtnW / 2.0f, ofGetHeight() * 0.8, setBtnW, 72.0f * uiScale);
 
-	float setTabsY = ofGetHeight() * 0.22f;
-	float sTabW = 180.0f * uiScale;
-	float sTabSpacing = 12.0f * uiScale;
-	float sTabsTotal = 4 * sTabW + 3 * sTabSpacing;
-	float sTabStartX = setX - sTabsTotal / 2.0f;
-	settingsTabVideoRect.set(sTabStartX, setTabsY, sTabW, 48.0f * uiScale);
-	settingsTabAudioRect.set(sTabStartX + (sTabW + sTabSpacing) * 1, setTabsY, sTabW, 48.0f * uiScale);
-	settingsTabGameRect.set(sTabStartX + (sTabW + sTabSpacing) * 2, setTabsY, sTabW, 48.0f * uiScale);
-	settingsTabControlsRect.set(sTabStartX + (sTabW + sTabSpacing) * 3, setTabsY, sTabW, 48.0f * uiScale);
+		float setTabsY = ofGetHeight() * 0.22f;
+		float sTabW = 180.0f * uiScale;
+		float sTabSpacing = 12.0f * uiScale;
+		float sTabsTotal = 4 * sTabW + 3 * sTabSpacing;
+		float sTabStartX = setX - sTabsTotal / 2.0f;
+		settingsTabVideoRect.set(sTabStartX, setTabsY, sTabW, 48.0f * uiScale);
+		settingsTabAudioRect.set(sTabStartX + (sTabW + sTabSpacing) * 1, setTabsY, sTabW, 48.0f * uiScale);
+		settingsTabGameRect.set(sTabStartX + (sTabW + sTabSpacing) * 2, setTabsY, sTabW, 48.0f * uiScale);
+		settingsTabControlsRect.set(sTabStartX + (sTabW + sTabSpacing) * 3, setTabsY, sTabW, 48.0f * uiScale);
 
-	float sliderW = 380.0f * uiScale;
-	float sliderH = 28.0f * uiScale;
-	float audioSpacing = 110.0f * uiScale;
-	float audioStartY = setTabsY + 48 * uiScale + 65.0f * uiScale;
+		float sliderW = 380.0f * uiScale;
+		float sliderH = 28.0f * uiScale;
+		float audioSpacing = 110.0f * uiScale;
+		float audioStartY = setTabsY + 48 * uiScale + 65.0f * uiScale;
 
-	settingsAudioMasterSlider.set(setX - sliderW / 2, audioStartY, sliderW, sliderH);
-	settingsAudioVolumeSlider.set(setX - sliderW / 2, audioStartY + audioSpacing, sliderW, sliderH);
-	settingsAudioSfxSlider.set(setX - sliderW / 2, audioStartY + audioSpacing * 2, sliderW, sliderH);
-	settingsFramerateSlider.set(setX - 160 * uiScale, setTabsY + 48 * uiScale + 130 * uiScale, 320 * uiScale, 32 * uiScale);
-	settingsFullscreenButton.set(setX - 125 * uiScale, settingsFramerateSlider.y + 100 * uiScale, 250 * uiScale, 50 * uiScale);
-}
+		settingsAudioMasterSlider.set(setX - sliderW / 2, audioStartY, sliderW, sliderH);
+		settingsAudioVolumeSlider.set(setX - sliderW / 2, audioStartY + audioSpacing, sliderW, sliderH);
+		settingsAudioSfxSlider.set(setX - sliderW / 2, audioStartY + audioSpacing * 2, sliderW, sliderH);
+		settingsFramerateSlider.set(setX - 160 * uiScale, setTabsY + 48 * uiScale + 130 * uiScale, 320 * uiScale, 32 * uiScale);
+		settingsFullscreenButton.set(setX - 125 * uiScale, settingsFramerateSlider.y + 100 * uiScale, 250 * uiScale, 50 * uiScale);
+	}
+} // <-- This closing brace was missing!
 
 void ofApp::drawMenuPlaqueButton(const ofRectangle & rect, const std::string & text, bool isHovered, bool isOnline) {
 	bool disabled = (isOnline && !steamManager.isConnected());
@@ -9831,11 +9947,19 @@ void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
 }
 
 // ==============================================================================
-// --- STANDARDIZED BOOK TYPOGRAPHY (The ONLY 3 text sizes used in the Grimoire) ---
-static const float kBookHeaderScale = 1.50f; // Page titles (~36px)
-static const float kBookSubheaderScale = 1.00f; // Section headers, buttons & bookmarks (24px)
-static const float kBookBodyScale = 0.70f; // Rules text & descriptions (~17px)
+// --- STANDARDIZED BOOK TYPOGRAPHY (Proportional: "like Status Effects, but bigger") ---
+static const float kBookHeaderScale = 1.40f; // Page titles & major headers (~34px)
+static const float kBookSubheaderScale = 1.25f; // Section headers, buttons & minion names (~25px)
+static const float kBookBodyScale = 1.00f; // Rules text, descriptions, stats, deck (~19px)
 // ==============================================================================
+
+static void drawBookHeaderCentered(const ofTrueTypeFont & font, const std::string & text, float centerX, float centerY, const ofColor & color) {
+	drawPixelTextCentered(font, text, centerX, centerY, kBookHeaderScale, color);
+}
+
+static void drawBookHeaderBaseline(const ofTrueTypeFont & font, const std::string & text, float x, float y, const ofColor & color) {
+	drawPixelTextBaseline(font, text, x, y, kBookHeaderScale, color);
+}
 
 void ofApp::draw2DMenuBackground() {
 	if (g_isSecondPass) return;
@@ -9872,18 +9996,16 @@ void ofApp::draw2DMenuBackground() {
 	float targetW = singleFrameW * scaleMultiplier;
 	float targetH = singleFrameH * scaleMultiplier;
 
-	// CLEAN INTEGER OFFSETS:
-	// Set to 240 so the tabs tuck neatly into the blue binding without covering the beige page
-	static int s_bookmarkNativeX = 240;
-	static int s_bookmarkNativeY = 96;
+	// Book is centered exactly on the screen
+	float bookX = std::round(((float)ofGetWidth() - targetW) * 0.5f);
+	float bookY = std::round(((float)ofGetHeight() - targetH) * 0.5f);
+
+	// Moved left to 246 (against blue cover binding) and down to 116
+	static int s_bookmarkNativeX = 246;
+	static int s_bookmarkNativeY = 116;
 
 	const float srcColW = (float)s_bookmarksImg.getWidth() / 8.0f;
 	const float srcRowH = (float)s_bookmarksImg.getHeight() / 6.0f;
-
-	float totalAssemblyNativeW = std::max(singleFrameW, (float)s_bookmarkNativeX + srcColW);
-	float totalAssemblyW = totalAssemblyNativeW * scaleMultiplier;
-	float bookX = std::round((ofGetWidth() - totalAssemblyW) * 0.5f);
-	float bookY = std::round(((float)ofGetHeight() - targetH) * 0.5f);
 
 	s_bookDrawX = bookX;
 	s_bookDrawY = bookY;
@@ -9973,13 +10095,20 @@ void ofApp::draw2DMenuBackground() {
 		if (dt > 0.1f) dt = 0.016f;
 		const float hoverSpeed = 24.0f;
 
-		// Frames 3..11 map smoothly across columns 0..3
+		// The active menu's bookmark stays fully extended at frame 7.0 and shows its text
+		int activeBookmark = getBookmarkIndexForState(isWaitingForMenuTransition ? pendingMenuState : currentState);
+
 		for (int i = 0; i < 5; ++i) {
+			bool shouldExtend = (i == activeBookmark) || tabHovered[i];
 			if (s_bookState == BOOK_OPENING) {
 				float openProgress = std::clamp((float)(s_animOpen.currentFrame - 3) / 8.0f, 0.0f, 1.0f);
-				s_bookmarkAnimFrame[i] = openProgress * 3.0f;
-			} else if (s_bookState == BOOK_IDLE_OPEN) {
-				if (tabHovered[i]) {
+				if (i == activeBookmark) {
+					s_bookmarkAnimFrame[i] = 3.0f + openProgress * 4.0f;
+				} else {
+					s_bookmarkAnimFrame[i] = openProgress * 3.0f;
+				}
+			} else if (s_bookState == BOOK_IDLE_OPEN || s_bookState == BOOK_TURNING_LEFT || s_bookState == BOOK_TURNING_RIGHT) {
+				if (shouldExtend) {
 					s_bookmarkAnimFrame[i] = std::min(7.0f, s_bookmarkAnimFrame[i] + hoverSpeed * dt);
 				} else {
 					s_bookmarkAnimFrame[i] = std::max(3.0f, s_bookmarkAnimFrame[i] - hoverSpeed * dt);
@@ -9987,9 +10116,24 @@ void ofApp::draw2DMenuBackground() {
 			}
 		}
 
+		// Helper to find the first solid pixel in a bookmark sprite column
+		auto getBookmarkLeftPixel = [&](int row, int col) -> int {
+			const ofPixels & pix = s_bookmarksImg.getPixels();
+			int colW = pix.getWidth() / 8;
+			int rH = pix.getHeight() / 6;
+			int startX = col * colW;
+			int startY = row * rH;
+			for (int x = 0; x < colW; ++x) {
+				for (int y = 0; y < rH; ++y) {
+					if (pix.getColor(startX + x, startY + y).a > 25) return x;
+				}
+			}
+			return 0;
+		};
+
 		// Draw each bookmark
 		for (int i = 0; i < 5; ++i) {
-			bool thisHovered = tabHovered[i];
+			bool thisHovered = tabHovered[i] || (i == activeBookmark);
 			ofSetColor(thisHovered ? ofColor(255, 255, 255, 255) : ofColor(220, 220, 220, 255));
 
 			int xStagger = i * stepRightNative * (int)scaleMultiplier;
@@ -10001,16 +10145,11 @@ void ofApp::draw2DMenuBackground() {
 
 			s_bookmarksImg.drawSubsection(tabDrawX, tabDrawY, dstW, rowH, srcX, tabs[i].srcY, srcColW, srcRowH);
 
-			// TEXT OVERLAY AT COLUMN 7:
-			// Dead-centered on the physical ribbon body using standardized Subheader size
-			if (curCol == 7 && s_bookState == BOOK_IDLE_OPEN) {
-				// Midpoint of the tab's visible colored body:
-				// ~13 native pixels right from tabDrawX, and ~10 native pixels down
+			// Text overlay on extended tab (scale 0.85f so it fits neatly inside the ribbon)
+			if (s_bookmarkAnimFrame[i] >= 6.2f && (s_bookState == BOOK_IDLE_OPEN || s_bookState == BOOK_TURNING_LEFT || s_bookState == BOOK_TURNING_RIGHT)) {
 				float tabCenterX = tabDrawX + (13.0f * scaleMultiplier);
 				float tabCenterY = tabDrawY + (10.0f * scaleMultiplier);
-
-				// Exactly matches card cost: white fill with a 2px black outline
-				drawPixelTextCentered(uiFont, tabs[i].label, tabCenterX, tabCenterY, kBookSubheaderScale, ofColor::white, 2, ofColor::black);
+				drawPixelTextCentered(uiFont, tabs[i].label, tabCenterX, tabCenterY, 0.85f, ofColor::white, 2, ofColor::black);
 			}
 		}
 
@@ -10102,7 +10241,7 @@ void ofApp::drawSettingsMenu() {
 		float panelY = ofGetHeight() * 0.075f;
 		ofRectangle panelRect(centerX - panelW / 2.0f, panelY, panelW, panelH);
 		drawMenuPlaquePanel(panelRect);
-		drawPixelTextCentered(titleFont, "SETTINGS", centerX, panelY + 60 * uiScale, 1.5f * uiScale, ofColor::gold, 4, ofColor::black);
+		drawBookHeaderCentered(titleFont, "SETTINGS", centerX, panelY + 60 * uiScale, ofColor::gold);
 		settingsBackButton.set(panelRect.x, 20 * uiScale, 160 * uiScale, 60 * uiScale);
 		drawMenuPlaqueButton(settingsBackButton, "Back", settingsBackButton.inside(ofGetMouseX(), ofGetMouseY()));
 		return;
@@ -10111,127 +10250,197 @@ void ofApp::drawSettingsMenu() {
 	if (s_bookState != BOOK_IDLE_OPEN) return;
 
 	BookPageArea pa = getBookPageArea();
-	ofColor ink(25, 22, 20); // 100% black ink
+	ofColor ink(25, 22, 20);
 	int mx = ofGetMouseX();
 	int my = ofGetMouseY();
 
-	// Title in top quarter of the left page
-	float titleX = pa.leftPage.getCenter().x;
-	float titleY = pa.leftPage.y + 35.0f;
-	drawPixelTextCentered(uiFont, "SETTINGS", titleX, titleY, 1.8f, ink);
-	ofSetColor(ink);
-	ofDrawLine(titleX - 110.0f, titleY + 16.0f, titleX + 110.0f, titleY + 16.0f);
-
-	float curY = titleY + 45.0f;
-
+	// =========================================================================
+	// LEFT PAGE: TITLE, VIDEO & AUDIO
+	// =========================================================================
 	float leftX = pa.leftPage.x + 8.0f;
 	float rowW = pa.leftPage.width - 16.0f;
-	float btnH = 44.0f;
-	float arrowW = 40.0f;
+	float lY = pa.leftPage.y + 24.0f;
 
-	auto drawBookHeader = [&](const std::string & head) {
-		drawPixelTextBaseline(uiFont, head, leftX, curY, 1.1f, ink);
-		curY += 8.0f;
+	// Title in 2.00f bold
+	drawBookHeaderBaseline(uiFont, "SETTINGS", leftX, lY, ink);
+	lY += 4.0f;
+	ofSetColor(ink);
+	ofDrawLine(leftX, lY, leftX + 110.0f, lY);
+	lY += 20.0f;
+
+	float btnH = 26.0f;
+	float arrowW = 28.0f;
+
+	auto drawBookSectionHeader = [&](const std::string & head, float & curYPos, float xPos, float lineW) {
+		drawPixelTextBaseline(uiFont, head, xPos, curYPos, kBookSubheaderScale, ink);
+		curYPos += 4.0f;
 		ofSetColor(ink);
-		ofDrawLine(leftX, curY, leftX + 80.0f, curY);
-		curY += 32.0f;
+		ofDrawLine(xPos, curYPos, xPos + lineW, curYPos);
+		curYPos += 18.0f;
 	};
 
-	drawBookHeader("VIDEO");
+	// --- VIDEO SECTION ---
+	drawBookSectionHeader("VIDEO", lY, leftX, 70.0f);
 
-	// Language selector
-	settingsLangLeftButton.set(leftX, curY, arrowW, btnH);
-	settingsLangRightButton.set(leftX + rowW - arrowW, curY, arrowW, btnH);
-	drawPixelTextCentered(uiFont, "<", settingsLangLeftButton.getCenter().x, settingsLangLeftButton.getCenter().y, 1.1f, ink);
-	drawPixelTextCentered(uiFont, ">", settingsLangRightButton.getCenter().x, settingsLangRightButton.getCenter().y, 1.1f, ink);
-	drawPixelTextCentered(uiFont, g_availableLanguageNames[g_currentLanguageIndex], leftX + (rowW * 0.5f), curY + btnH * 0.5f, 0.95f, ink);
-	curY += (btnH + 16.0f);
+	// 1. Language selector
+	settingsLangLeftButton.set(leftX, lY, arrowW, btnH);
+	settingsLangRightButton.set(leftX + rowW - arrowW, lY, arrowW, btnH);
+	bool hovLangL = settingsLangLeftButton.inside(mx, my);
+	bool hovLangR = settingsLangRightButton.inside(mx, my);
 
-	// Display mode
+	ofSetColor(hovLangL ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsLangLeftButton, 3.0f);
+	drawPixelTextCentered(uiFont, "<", settingsLangLeftButton.getCenter().x, settingsLangLeftButton.getCenter().y, kBookSubheaderScale, ink);
+
+	ofSetColor(hovLangR ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsLangRightButton, 3.0f);
+	drawPixelTextCentered(uiFont, ">", settingsLangRightButton.getCenter().x, settingsLangRightButton.getCenter().y, kBookSubheaderScale, ink);
+
+	std::string langLabel = "Language: " + g_availableLanguageNames[g_currentLanguageIndex];
+	drawPixelTextCentered(uiFont, langLabel, leftX + (rowW * 0.5f), lY + btnH * 0.5f, kBookBodyScale, ink);
+	lY += (btnH + 8.0f);
+
+	// 2. Display mode (Fullscreen / Borderless / Windowed)
 	std::string winModeStr = (g_windowModeState == 1) ? "Fullscreen" : ((g_windowModeState == 2) ? "Borderless" : "Windowed");
-	settingsFullscreenButton.set(leftX, curY, rowW, btnH);
+	settingsFullscreenButton.set(leftX, lY, rowW, btnH);
 	bool fsHov = settingsFullscreenButton.inside(mx, my);
 	ofSetColor(fsHov ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
-	ofDrawRectRounded(settingsFullscreenButton, 6.0f);
-	drawPixelTextCentered(uiFont, "Display: " + winModeStr, settingsFullscreenButton.getCenter().x, settingsFullscreenButton.getCenter().y, 0.95f, ink);
-	curY += (btnH + 16.0f);
+	ofDrawRectRounded(settingsFullscreenButton, 4.0f);
+	ofNoFill();
+	ofSetLineWidth(1.0f);
+	ofSetColor(ink, 100);
+	ofDrawRectRounded(settingsFullscreenButton, 4.0f);
+	ofFill();
+	drawPixelTextCentered(uiFont, "Display: " + winModeStr, settingsFullscreenButton.getCenter().x, settingsFullscreenButton.getCenter().y, kBookBodyScale, ink);
+	lY += (btnH + 8.0f);
 
-	// VSync
-	settingsVSyncBox.set(leftX, curY, rowW, btnH);
+	// 3. Framerate Preset selector (when VSync is OFF)
+	if (!settingsUseVSync) {
+		settingsFpsLeftBtn.set(leftX, lY, arrowW, btnH);
+		settingsFpsRightBtn.set(leftX + rowW - arrowW, lY, arrowW, btnH);
+		bool hovFpsL = settingsFpsLeftBtn.inside(mx, my);
+		bool hovFpsR = settingsFpsRightBtn.inside(mx, my);
+
+		ofSetColor(hovFpsL ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+		ofDrawRectRounded(settingsFpsLeftBtn, 3.0f);
+		drawPixelTextCentered(uiFont, "<", settingsFpsLeftBtn.getCenter().x, settingsFpsLeftBtn.getCenter().y, kBookSubheaderScale, ink);
+
+		ofSetColor(hovFpsR ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+		ofDrawRectRounded(settingsFpsRightBtn, 3.0f);
+		drawPixelTextCentered(uiFont, ">", settingsFpsRightBtn.getCenter().x, settingsFpsRightBtn.getCenter().y, kBookSubheaderScale, ink);
+
+		int curFps = s_fpsPresets[std::clamp(s_currentFpsIndex, 0, (int)s_fpsPresets.size() - 1)];
+		std::string fpsTxt = (curFps == 0) ? "Max FPS: Unlimited" : ("Max FPS: " + std::to_string(curFps));
+		drawPixelTextCentered(uiFont, fpsTxt, leftX + (rowW * 0.5f), lY + btnH * 0.5f, kBookBodyScale, ink);
+		lY += (btnH + 8.0f);
+	} else {
+		settingsFpsLeftBtn.set(0, 0, 0, 0);
+		settingsFpsRightBtn.set(0, 0, 0, 0);
+	}
+
+	// 4. VSync toggle
+	settingsVSyncBox.set(leftX, lY, rowW, btnH);
 	bool vsHov = settingsVSyncBox.inside(mx, my);
-	ofSetColor(vsHov ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
-	ofDrawRectRounded(settingsVSyncBox, 6.0f);
-	drawPixelTextCentered(uiFont, std::string("VSync: ") + (settingsUseVSync ? "ON" : "OFF"), settingsVSyncBox.getCenter().x, settingsVSyncBox.getCenter().y, 0.95f, ink);
-	curY += (btnH + 32.0f);
+	ofSetColor(settingsUseVSync ? ofColor(30, 110, 40, 40) : (vsHov ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12)));
+	ofDrawRectRounded(settingsVSyncBox, 4.0f);
+	ofNoFill();
+	ofSetLineWidth(1.0f);
+	ofSetColor(ink, 100);
+	ofDrawRectRounded(settingsVSyncBox, 4.0f);
+	ofFill();
+	drawPixelTextCentered(uiFont, std::string("VSync: ") + (settingsUseVSync ? "ON" : "OFF"), settingsVSyncBox.getCenter().x, settingsVSyncBox.getCenter().y, kBookBodyScale, ink);
+	lY += (btnH + 18.0f);
 
-	drawBookHeader("AUDIO");
+	// --- AUDIO SECTION ---
+	drawBookSectionHeader("AUDIO", lY, leftX, 70.0f);
 
-	auto drawBookAudioRow = [&](ofRectangle & leftB, ofRectangle & rightB, const std::string & label, float val) {
-		leftB.set(leftX, curY, arrowW, btnH);
-		rightB.set(leftX + rowW - arrowW, curY, arrowW, btnH);
-		drawPixelTextCentered(uiFont, "<", leftB.getCenter().x, leftB.getCenter().y, 1.1f, ink);
-		drawPixelTextCentered(uiFont, ">", rightB.getCenter().x, rightB.getCenter().y, 1.1f, ink);
+	auto drawBookAudioStepper = [&](ofRectangle & leftB, ofRectangle & rightB, const std::string & label, float val) {
+		leftB.set(leftX, lY, arrowW, btnH);
+		rightB.set(leftX + rowW - arrowW, lY, arrowW, btnH);
+		bool hovL = leftB.inside(mx, my);
+		bool hovR = rightB.inside(mx, my);
+
+		ofSetColor(hovL ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+		ofDrawRectRounded(leftB, 3.0f);
+		drawPixelTextCentered(uiFont, "<", leftB.getCenter().x, leftB.getCenter().y, kBookSubheaderScale, ink);
+
+		ofSetColor(hovR ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+		ofDrawRectRounded(rightB, 3.0f);
+		drawPixelTextCentered(uiFont, ">", rightB.getCenter().x, rightB.getCenter().y, kBookSubheaderScale, ink);
 
 		std::string txt = label + ": " + std::to_string((int)std::round(val * 100.0f)) + "%";
-		drawPixelTextCentered(uiFont, txt, leftX + (rowW * 0.5f), curY + btnH * 0.5f, 0.95f, ink);
-		curY += (btnH + 16.0f);
+		drawPixelTextCentered(uiFont, txt, leftX + (rowW * 0.5f), lY + btnH * 0.5f, kBookBodyScale, ink);
+		lY += (btnH + 8.0f);
 	};
 
-	drawBookAudioRow(settingsAudioMasterLeftBtn, settingsAudioMasterRightBtn, "Master", settingsMasterVolume);
-	drawBookAudioRow(settingsAudioVolumeLeftBtn, settingsAudioVolumeRightBtn, "Music", settingsMenuVolume);
-	drawBookAudioRow(settingsAudioSfxLeftBtn, settingsAudioSfxRightBtn, "Effects", settingsSfxVolume);
+	drawBookAudioStepper(settingsAudioMasterLeftBtn, settingsAudioMasterRightBtn, "Master", settingsMasterVolume);
+	drawBookAudioStepper(settingsAudioVolumeLeftBtn, settingsAudioVolumeRightBtn, "Music", settingsMenuVolume);
+	drawBookAudioStepper(settingsAudioSfxLeftBtn, settingsAudioSfxRightBtn, "Effects", settingsSfxVolume);
 
-	// RIGHT PAGE: Game & Controls
-	float rX = pa.rightPage.x + 12.0f;
-	float rW = pa.rightPage.width - 24.0f;
-	float rY = pa.rightPage.y + 35.0f;
+	// =========================================================================
+	// RIGHT PAGE: GAMEPLAY & CONTROLS
+	// =========================================================================
+	float rightX = pa.rightPage.x + 8.0f;
+	float rightW = pa.rightPage.width - 16.0f;
+	float rY = pa.rightPage.y + 24.0f;
 
-	drawPixelTextBaseline(uiFont, "GAME", rX, rY, 1.3f, ink);
-	rY += 8.0f;
-	ofSetColor(ink);
-	ofDrawLine(rX, rY, rX + 80.0f, rY);
-	rY += 32.0f;
+	// --- GAMEPLAY SECTION ---
+	drawBookSectionHeader("GAMEPLAY", rY, rightX, 90.0f);
 
-	// In-World HP Mode
-	settingsInWorldHPLeftBtn.set(rX, rY, arrowW, btnH);
-	settingsInWorldHPRightBtn.set(rX + rW - arrowW, rY, arrowW, btnH);
-	drawPixelTextCentered(uiFont, "<", settingsInWorldHPLeftBtn.getCenter().x, settingsInWorldHPLeftBtn.getCenter().y, 1.1f, ink);
-	drawPixelTextCentered(uiFont, ">", settingsInWorldHPRightBtn.getCenter().x, settingsInWorldHPRightBtn.getCenter().y, 1.1f, ink);
-	const char * hpModes[] = { "HP: Always", "HP: Hover", "HP: Off" };
-	drawPixelTextCentered(uiFont, hpModes[std::clamp(settingsInWorldHPMode, 0, 2)], rX + (rW * 0.5f), rY + btnH * 0.5f, 0.95f, ink);
-	rY += (btnH + 16.0f);
+	// 1. In-World HP Mode
+	settingsInWorldHPLeftBtn.set(rightX, rY, arrowW, btnH);
+	settingsInWorldHPRightBtn.set(rightX + rightW - arrowW, rY, arrowW, btnH);
+	bool hovHpL = settingsInWorldHPLeftBtn.inside(mx, my);
+	bool hovHpR = settingsInWorldHPRightBtn.inside(mx, my);
 
-	// UI Scale
-	settingsUIScaleLeftBtn.set(rX, rY, arrowW, btnH);
-	settingsUIScaleRightBtn.set(rX + rW - arrowW, rY, arrowW, btnH);
-	drawPixelTextCentered(uiFont, "<", settingsUIScaleLeftBtn.getCenter().x, settingsUIScaleLeftBtn.getCenter().y, 1.1f, ink);
-	drawPixelTextCentered(uiFont, ">", settingsUIScaleRightBtn.getCenter().x, settingsUIScaleRightBtn.getCenter().y, 1.1f, ink);
+	ofSetColor(hovHpL ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsInWorldHPLeftBtn, 3.0f);
+	drawPixelTextCentered(uiFont, "<", settingsInWorldHPLeftBtn.getCenter().x, settingsInWorldHPLeftBtn.getCenter().y, kBookSubheaderScale, ink);
+
+	ofSetColor(hovHpR ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsInWorldHPRightBtn, 3.0f);
+	drawPixelTextCentered(uiFont, ">", settingsInWorldHPRightBtn.getCenter().x, settingsInWorldHPRightBtn.getCenter().y, kBookSubheaderScale, ink);
+
+	const char * hpModes[] = { "In-World HP: Always", "In-World HP: Hover", "In-World HP: Off" };
+	drawPixelTextCentered(uiFont, hpModes[std::clamp(settingsInWorldHPMode, 0, 2)], rightX + (rightW * 0.5f), rY + btnH * 0.5f, kBookBodyScale, ink);
+	rY += (btnH + 8.0f);
+
+	// 2. UI Scale Stepper
+	settingsUIScaleLeftBtn.set(rightX, rY, arrowW, btnH);
+	settingsUIScaleRightBtn.set(rightX + rightW - arrowW, rY, arrowW, btnH);
+	bool hovScaleL = settingsUIScaleLeftBtn.inside(mx, my);
+	bool hovScaleR = settingsUIScaleRightBtn.inside(mx, my);
+
+	ofSetColor(hovScaleL ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsUIScaleLeftBtn, 3.0f);
+	drawPixelTextCentered(uiFont, "<", settingsUIScaleLeftBtn.getCenter().x, settingsUIScaleLeftBtn.getCenter().y, kBookSubheaderScale, ink);
+
+	ofSetColor(hovScaleR ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 12));
+	ofDrawRectRounded(settingsUIScaleRightBtn, 3.0f);
+	drawPixelTextCentered(uiFont, ">", settingsUIScaleRightBtn.getCenter().x, settingsUIScaleRightBtn.getCenter().y, kBookSubheaderScale, ink);
+
 	std::string scaleTxt = "UI Scale: " + std::to_string((int)std::round(settingsUIScale * 100.0f)) + "%";
-	drawPixelTextCentered(uiFont, scaleTxt, rX + (rW * 0.5f), rY + btnH * 0.5f, 0.95f, ink);
-	rY += (btnH + 32.0f);
+	drawPixelTextCentered(uiFont, scaleTxt, rightX + (rightW * 0.5f), rY + btnH * 0.5f, kBookBodyScale, ink);
+	rY += (btnH + 20.0f);
 
-	// Controls Reference
-	drawPixelTextBaseline(uiFont, "CONTROLS", rX, rY, 1.1f, ink);
-	rY += 8.0f;
-	ofSetColor(ink);
-	ofDrawLine(rX, rY, rX + 80.0f, rY);
-	rY += 32.0f;
+	// --- CONTROLS REFERENCE TABLE ---
+	drawBookSectionHeader("CONTROLS", rY, rightX, 90.0f);
 
 	std::vector<std::pair<std::string, std::string>> keys = {
-		{ "Left Click", "Select / play cards" },
+		{ "Left Click", "Play cards / Move unit" },
 		{ "Enter", "Chat window" },
 		{ "Esc", "Pause Menu" },
 		{ "E", "End Turn" },
-		{ "F", "Draw Card" },
+		{ "F", "Draw Cards" },
 		{ "Wheel", "Zoom / Scroll" },
 		{ "Mid Mouse", "Pan 3D Camera" },
-		{ "Right Click", "Cancel action" }
+		{ "Right Click", "Cancel selection" }
 	};
 
 	for (const auto & kp : keys) {
-		drawPixelTextBaseline(uiFont, kp.first + ":", rX, rY, 0.85f, ink);
-		drawPixelTextBaseline(uiFont, kp.second, rX + 110.0f, rY, 0.80f, ink);
-		rY += 26.0f;
+		drawPixelTextBaseline(uiFont, kp.first + ":", rightX + 4.0f, rY, kBookBodyScale, ink);
+		drawPixelTextBaseline(uiFont, kp.second, rightX + 90.0f, rY, kBookBodyScale, ofColor(70, 65, 60));
+		rY += 19.0f;
 	}
 }
 
@@ -10683,12 +10892,20 @@ void ofApp::drawLobby() {
 	}
 }
 
-void ofApp::drawMultiplayerMenu() {
-	if (g_inLobby) {
-		drawLobby();
-		return;
-	}
+// Static rects for in-book lobby controls on the right page
+static ofRectangle s_bookLobbyModFoW;
+static ofRectangle s_bookLobbyModCustomHp;
+static ofRectangle s_bookLobbyModHpLeft;
+static ofRectangle s_bookLobbyModHpRight;
+static ofRectangle s_bookLobbyAddAI;
+static ofRectangle s_bookLobbyLeaveBtn;
+static ofRectangle s_bookLobbyReadyBtn;
+static ofRectangle s_bookLobbyStartBtn;
+static ofRectangle s_bookLobbyForceStartBtn;
+static ofRectangle s_bookLobbyChatRect;
+static std::vector<ofRectangle> s_bookLobbyPlayerRows;
 
+void ofApp::drawMultiplayerMenu() {
 	if (s_bookState != BOOK_IDLE_OPEN) return;
 
 	BookPageArea pa = getBookPageArea();
@@ -10696,87 +10913,295 @@ void ofApp::drawMultiplayerMenu() {
 	int mx = ofGetMouseX();
 	int my = ofGetMouseY();
 
-	float titleX = pa.leftPage.getCenter().x;
-	float titleY = pa.leftPage.y + 35.0f;
-	drawPixelTextCentered(uiFont, "ONLINE VERSUS", titleX, titleY, 1.8f, ink);
-	ofSetColor(ink);
-	ofDrawLine(titleX - 120.0f, titleY + 16.0f, titleX + 120.0f, titleY + 16.0f);
+	// =========================================================================
+	// LEFT PAGE: PROFILE, HOST/REFRESH & OPEN MATCHES
+	// =========================================================================
+	float leftX = pa.leftPage.x + 8.0f;
+	float leftW = pa.leftPage.width - 16.0f;
+	float lY = pa.leftPage.y + 24.0f;
 
-	float leftX = pa.leftPage.x + 12.0f;
-	float leftW = pa.leftPage.width - 24.0f;
-	float curY = titleY + 45.0f;
+	drawBookHeaderBaseline(uiFont, "ONLINE VERSUS", leftX, lY, ink);
+	lY += 4.0f;
+	ofSetColor(ink);
+	ofDrawLine(leftX, lY, leftX + 130.0f, lY);
+	lY += 22.0f;
 
 	int curLvl = steamManager.getLocalLevel();
 	int curElo = steamManager.getLocalElo();
 	auto rank = getMageRank(curElo > 0 ? curElo : 1000);
-
 	std::string profileTxt = "Lv." + std::to_string(curLvl) + " " + rank.first + " (" + std::to_string(curElo > 0 ? curElo : 1000) + " ELO)";
-	drawPixelTextBaseline(uiFont, profileTxt, leftX, curY, 0.95f, ink);
-	curY += 40.0f;
+	drawPixelTextBaseline(uiFont, profileTxt, leftX, lY, kBookBodyScale, ink);
+	lY += 16.0f;
 
-	float btnH = 48.0f;
-	float halfW = (leftW - 16.0f) * 0.5f;
-	mpHostButton.set(leftX, curY, halfW, btnH);
-	mpRefreshButton.set(leftX + halfW + 16.0f, curY, halfW, btnH);
+	// Host & Refresh Buttons
+	float btnH = 32.0f;
+	float halfW = (leftW - 12.0f) * 0.5f;
+	mpHostButton.set(leftX, lY, halfW, btnH);
+	mpRefreshButton.set(leftX + halfW + 12.0f, lY, halfW, btnH);
 
 	bool hovHost = mpHostButton.inside(mx, my);
 	bool hovRef = mpRefreshButton.inside(mx, my);
+	if (hovHost) g_hoveredButtonId = "mp_host";
+	if (hovRef) g_hoveredButtonId = "mp_refresh";
 
 	ofSetColor(hovHost ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
-	ofDrawRectRounded(mpHostButton, 6.0f);
-	drawPixelTextCentered(uiFont, "Host", mpHostButton.getCenter().x, mpHostButton.getCenter().y, 1.0f, ink);
+	ofDrawRectRounded(mpHostButton, 4.0f);
+	ofNoFill();
+	ofSetLineWidth(1.5f);
+	ofSetColor(ink);
+	ofDrawRectRounded(mpHostButton, 4.0f);
+	ofFill();
+	drawPixelTextCentered(uiFont, g_inLobby ? "In Lobby" : "Host Game", mpHostButton.getCenter().x, mpHostButton.getCenter().y, kBookSubheaderScale, ink);
 
 	ofSetColor(hovRef ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
-	ofDrawRectRounded(mpRefreshButton, 6.0f);
-	drawPixelTextCentered(uiFont, "Refresh", mpRefreshButton.getCenter().x, mpRefreshButton.getCenter().y, 1.0f, ink);
-	curY += (btnH + 40.0f);
+	ofDrawRectRounded(mpRefreshButton, 4.0f);
+	ofNoFill();
+	ofSetLineWidth(1.5f);
+	ofSetColor(ink);
+	ofDrawRectRounded(mpRefreshButton, 4.0f);
+	ofFill();
+	drawPixelTextCentered(uiFont, "Refresh", mpRefreshButton.getCenter().x, mpRefreshButton.getCenter().y, kBookSubheaderScale, ink);
+	lY += (btnH + 20.0f);
 
-	drawPixelTextBaseline(uiFont, "Open Matches", leftX, curY, 1.2f, ink);
-	curY += 28.0f;
+	drawPixelTextBaseline(uiFont, "OPEN MATCHES", leftX, lY, kBookSubheaderScale, ink);
+	lY += 4.0f;
+	ofSetColor(ink);
+	ofDrawLine(leftX, lY, leftX + 100.0f, lY);
+	lY += 18.0f;
 
 	auto lobbies = steamManager.getLobbyList();
 	mpLobbyButtons.clear();
 	if (lobbies.empty()) {
-		drawPixelTextBaseline(uiFont, "No matches found. Host one above!", leftX, curY, 0.85f, ofColor(70, 65, 60));
+		drawPixelTextBaseline(uiFont, "No matches found. Host one above!", leftX, lY, kBookBodyScale, ofColor(70, 65, 60));
 	} else {
-		for (size_t i = 0; i < lobbies.size() && i < 6; ++i) {
-			ofRectangle lRect(leftX, curY, leftW, 44.0f);
+		for (size_t i = 0; i < lobbies.size() && i < 5; ++i) {
+			ofRectangle lRect(leftX, lY, leftW, 26.0f);
 			mpLobbyButtons.push_back(lRect);
 			bool hov = lRect.inside(mx, my);
 			if (hov) g_hoveredButtonId = "mp_lobby_" + std::to_string(i);
 
 			ofSetColor(hov ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
-			ofDrawRectRounded(lRect, 6.0f);
+			ofDrawRectRounded(lRect, 4.0f);
+			ofNoFill();
+			ofSetLineWidth(1.0f);
+			ofSetColor(ink, 120);
+			ofDrawRectRounded(lRect, 4.0f);
+			ofFill();
 
 			std::string lTxt = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
-			drawPixelTextCentered(uiFont, lTxt, lRect.getCenter().x, lRect.getCenter().y, 0.95f, ink);
-			curY += 52.0f;
+			drawPixelTextCentered(uiFont, lTxt, lRect.getCenter().x, lRect.getCenter().y, kBookBodyScale, ink);
+			lY += 30.0f;
 		}
 	}
 
-	// Right Page: Leaderboard
-	float rightX = pa.rightPage.x + 12.0f;
-	float rightW = pa.rightPage.width - 24.0f;
-	float rY = pa.rightPage.y + 35.0f;
+	// =========================================================================
+	// RIGHT PAGE: GAME LOBBY (WHEN HOSTING/JOINED) OR GLOBAL LEADERBOARD
+	// =========================================================================
+	float rightX = pa.rightPage.x + 8.0f;
+	float rightW = pa.rightPage.width - 16.0f;
+	float rY = pa.rightPage.y + 24.0f;
 
-	drawPixelTextBaseline(uiFont, "GLOBAL LEADERBOARD", rightX, rY, 1.4f, ink);
-	rY += 8.0f;
-	ofSetColor(ink);
-	ofDrawLine(rightX, rY, rightX + 180.0f, rY);
-	rY += 34.0f;
+	if (!g_inLobby) {
+		// --- DEFAULT: GLOBAL LEADERBOARD ---
+		drawBookHeaderBaseline(uiFont, "GLOBAL LEADERBOARD", rightX, rY, ink);
+		rY += 4.0f;
+		ofSetColor(ink);
+		ofDrawLine(rightX, rY, rightX + 160.0f, rY);
+		rY += 22.0f;
 
-	auto leaderboard = steamManager.getLeaderboardEntries();
-	if (leaderboard.empty()) {
-		drawPixelTextBaseline(uiFont, "Loading rankings...", rightX, rY, 0.85f, ofColor(70, 65, 60));
+		auto leaderboard = steamManager.getLeaderboardEntries();
+		if (leaderboard.empty()) {
+			drawPixelTextBaseline(uiFont, "Loading rankings...", rightX, rY, kBookBodyScale, ofColor(70, 65, 60));
+		} else {
+			for (size_t i = 0; i < leaderboard.size() && i < 9; ++i) {
+				const auto & entry = leaderboard[i];
+				std::string rankStr = "#" + std::to_string(entry.rank) + " " + entry.name;
+				std::string scoreStr = std::to_string(entry.score);
+
+				drawPixelTextBaseline(uiFont, rankStr, rightX, rY, kBookBodyScale, ink);
+				drawPixelTextBaseline(uiFont, scoreStr, rightX + rightW - 55.0f, rY, kBookBodyScale, ink);
+				rY += 20.0f;
+			}
+		}
 	} else {
-		for (size_t i = 0; i < leaderboard.size() && i < 10; ++i) {
-			const auto & entry = leaderboard[i];
-			std::string rankStr = "#" + std::to_string(entry.rank) + " " + entry.name;
-			std::string scoreStr = std::to_string(entry.score);
+		// --- LOBBY ACTIVE: EMBEDDED INSIDE RIGHT BOOK PAGE ---
+		bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
 
-			drawPixelTextBaseline(uiFont, rankStr, rightX, rY, 0.95f, ink);
-			drawPixelTextBaseline(uiFont, scoreStr, rightX + rightW - 65.0f, rY, 0.95f, ink);
-			rY += 30.0f;
+		drawBookHeaderBaseline(uiFont, "GAME LOBBY", rightX, rY, ink);
+		rY += 4.0f;
+		ofSetColor(ink);
+		ofDrawLine(rightX, rY, rightX + 100.0f, rY);
+		rY += 18.0f;
+
+		// 1. PLAYERS LIST
+		s_bookLobbyPlayerRows.clear();
+		float rowH = 22.0f;
+		for (size_t i = 0; i < g_lobbyPlayers.size(); ++i) {
+			const auto & lp = g_lobbyPlayers[i];
+			ofRectangle rRow(rightX, rY, rightW, rowH);
+			s_bookLobbyPlayerRows.push_back(rRow);
+
+			bool hovRow = rRow.inside(mx, my);
+			bool isMe = ((int)lp.playerID == myLocalPlayerID);
+
+			ofSetColor(hovRow ? ofColor(40, 30, 25, 30) : ofColor(40, 30, 25, 12));
+			ofDrawRectRounded(rRow, 3.0f);
+
+			std::string tag = lp.isBot ? " [AI]" : (lp.playerID == 0 ? " [Host]" : "");
+			std::string nameStr = lp.name + tag;
+			drawPixelTextBaseline(uiFont, nameStr, rightX + 6.0f, rY + 15.0f, kBookBodyScale, isMe ? ofColor(120, 40, 20) : ink);
+
+			std::string statusStr = lp.isReady ? "READY" : "WAITING";
+			if (lp.isBot && isLobbyHost && hovRow) statusStr = "REMOVE";
+			ofColor statusCol = lp.isReady ? ofColor(25, 120, 35) : (lp.isBot && isLobbyHost && hovRow ? ofColor(180, 40, 40) : ofColor(160, 110, 25));
+			drawPixelTextBaseline(uiFont, statusStr, rightX + rightW - 65.0f, rY + 15.0f, kBookBodyScale, statusCol);
+
+			rY += (rowH + 3.0f);
+		}
+
+		// Add AI Bot button
+		if (isLobbyHost && g_lobbyPlayers.size() < 4) {
+			s_bookLobbyAddAI.set(rightX, rY, rightW, 20.0f);
+			bool hovAI = s_bookLobbyAddAI.inside(mx, my);
+			if (hovAI) g_hoveredButtonId = "lobby_add_ai";
+
+			ofSetColor(hovAI ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 15));
+			ofDrawRectRounded(s_bookLobbyAddAI, 3.0f);
+			drawPixelTextCentered(uiFont, "+ Add AI Bot", s_bookLobbyAddAI.getCenter().x, s_bookLobbyAddAI.getCenter().y, kBookBodyScale, ink);
+			rY += 24.0f;
+		} else {
+			s_bookLobbyAddAI.set(0, 0, 0, 0);
+			rY += 6.0f;
+		}
+
+		// 2. MODIFIERS (Above Chat)
+		float modBtnH = 22.0f;
+		float halfModW = (rightW - 8.0f) * 0.5f;
+		s_bookLobbyModFoW.set(rightX, rY, halfModW, modBtnH);
+
+		bool hovFoW = s_bookLobbyModFoW.inside(mx, my);
+		if (hovFoW && isLobbyHost) g_hoveredButtonId = "mod_fow";
+		ofSetColor(g_modifierFogOfWar ? ofColor(30, 110, 40, 50) : (hovFoW ? ofColor(40, 30, 25, 30) : ofColor(40, 30, 25, 12)));
+		ofDrawRectRounded(s_bookLobbyModFoW, 3.0f);
+		ofNoFill();
+		ofSetLineWidth(1.0f);
+		ofSetColor(ink, 140);
+		ofDrawRectRounded(s_bookLobbyModFoW, 3.0f);
+		ofFill();
+		drawPixelTextCentered(uiFont, g_modifierFogOfWar ? "FoW: ON" : "FoW: OFF", s_bookLobbyModFoW.getCenter().x, s_bookLobbyModFoW.getCenter().y, kBookBodyScale, ink);
+
+		// Custom Max HP button & stepper
+		s_bookLobbyModCustomHp.set(rightX + halfModW + 8.0f, rY, halfModW, modBtnH);
+		bool hovHp = s_bookLobbyModCustomHp.inside(mx, my);
+		if (hovHp && isLobbyHost) g_hoveredButtonId = "mod_hp";
+		ofSetColor(g_modifierCustomMaxHP ? ofColor(30, 110, 40, 50) : (hovHp ? ofColor(40, 30, 25, 30) : ofColor(40, 30, 25, 12)));
+		ofDrawRectRounded(s_bookLobbyModCustomHp, 3.0f);
+		ofNoFill();
+		ofSetLineWidth(1.0f);
+		ofSetColor(ink, 140);
+		ofDrawRectRounded(s_bookLobbyModCustomHp, 3.0f);
+		ofFill();
+		std::string hpStr = g_modifierCustomMaxHP ? (std::to_string(g_customStartingMaxHP) + " HP") : "HP: 15";
+		drawPixelTextCentered(uiFont, hpStr, s_bookLobbyModCustomHp.getCenter().x, s_bookLobbyModCustomHp.getCenter().y, kBookBodyScale, ink);
+
+		if (g_modifierCustomMaxHP && isLobbyHost) {
+			s_bookLobbyModHpLeft.set(s_bookLobbyModCustomHp.x + 2.0f, rY + 2.0f, 16.0f, modBtnH - 4.0f);
+			s_bookLobbyModHpRight.set(s_bookLobbyModCustomHp.getRight() - 18.0f, rY + 2.0f, 16.0f, modBtnH - 4.0f);
+			drawPixelTextCentered(uiFont, "<", s_bookLobbyModHpLeft.getCenter().x, s_bookLobbyModHpLeft.getCenter().y, kBookBodyScale, ink);
+			drawPixelTextCentered(uiFont, ">", s_bookLobbyModHpRight.getCenter().x, s_bookLobbyModHpRight.getCenter().y, kBookBodyScale, ink);
+		} else {
+			s_bookLobbyModHpLeft.set(0, 0, 0, 0);
+			s_bookLobbyModHpRight.set(0, 0, 0, 0);
+		}
+		rY += (modBtnH + 12.0f);
+
+		// 3. IN-BOOK CHAT (Above Start Buttons)
+		float chatBoxH = 68.0f;
+		s_bookLobbyChatRect.set(rightX, rY, rightW, chatBoxH);
+
+		ofSetColor(40, 30, 25, 15);
+		ofDrawRectRounded(s_bookLobbyChatRect, 4.0f);
+		ofNoFill();
+		ofSetLineWidth(1.0f);
+		ofSetColor(ink, 100);
+		ofDrawRectRounded(s_bookLobbyChatRect, 4.0f);
+		ofFill();
+
+		// Display last 3 messages inside the chat window
+		float msgY = rY + 14.0f;
+		int msgCount = 0;
+		int startMsgIdx = std::max(0, (int)chatHistory.size() - 3);
+		for (size_t mi = startMsgIdx; mi < chatHistory.size() && msgCount < 3; ++mi) {
+			std::string line = chatHistory[mi].playerName + ": " + chatHistory[mi].message;
+			if (line.size() > 32) line = line.substr(0, 30) + "..";
+			drawPixelTextBaseline(uiFont, line, rightX + 6.0f, msgY, kBookBodyScale, ink);
+			msgY += 15.0f;
+			msgCount++;
+		}
+
+		// Input prompt at bottom of chat box
+		std::string promptLine = isChatOpen ? ("> " + chatInput + "_") : "> Press Enter to chat...";
+		drawPixelTextBaseline(uiFont, promptLine, rightX + 6.0f, rY + chatBoxH - 6.0f, kBookBodyScale, isChatOpen ? ofColor(120, 40, 20) : ofColor(100, 95, 90));
+		rY += (chatBoxH + 12.0f);
+
+		// 4. ACTION BUTTONS AT BOTTOM RIGHT
+		float actionBtnH = 30.0f;
+		float halfActionW = (rightW - 10.0f) * 0.5f;
+
+		s_bookLobbyLeaveBtn.set(rightX, rY, halfActionW, actionBtnH);
+		bool hovLeave = s_bookLobbyLeaveBtn.inside(mx, my);
+		if (hovLeave) g_hoveredButtonId = "lobby_leave";
+
+		ofSetColor(hovLeave ? ofColor(140, 40, 40, 40) : ofColor(40, 30, 25, 20));
+		ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
+		ofNoFill();
+		ofSetLineWidth(1.5f);
+		ofSetColor(ink);
+		ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
+		ofFill();
+		drawPixelTextCentered(uiFont, "Leave", s_bookLobbyLeaveBtn.getCenter().x, s_bookLobbyLeaveBtn.getCenter().y, kBookSubheaderScale, ink);
+
+		if (isLobbyHost) {
+			s_bookLobbyReadyBtn.set(0, 0, 0, 0);
+
+			bool allReady = (g_lobbyPlayers.size() > 1);
+			for (const auto & lp : g_lobbyPlayers) {
+				if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
+			}
+			bool canStart = allReady && (g_lobbyPlayers.size() >= 2);
+
+			s_bookLobbyStartBtn.set(rightX + halfActionW + 10.0f, rY, halfActionW, actionBtnH);
+			bool hovStart = s_bookLobbyStartBtn.inside(mx, my);
+			if (hovStart && canStart) g_hoveredButtonId = "lobby_start";
+
+			ofSetColor(canStart ? (hovStart ? ofColor(30, 120, 40, 60) : ofColor(30, 120, 40, 35)) : ofColor(40, 30, 25, 12));
+			ofDrawRectRounded(s_bookLobbyStartBtn, 4.0f);
+			ofNoFill();
+			ofSetLineWidth(1.5f);
+			ofSetColor(ink, canStart ? 255 : 100);
+			ofDrawRectRounded(s_bookLobbyStartBtn, 4.0f);
+			ofFill();
+			drawPixelTextCentered(uiFont, "Start Game", s_bookLobbyStartBtn.getCenter().x, s_bookLobbyStartBtn.getCenter().y, kBookSubheaderScale, canStart ? ink : ofColor(120, 115, 110));
+		} else {
+			s_bookLobbyStartBtn.set(0, 0, 0, 0);
+
+			bool iAmReady = false;
+			for (const auto & lp : g_lobbyPlayers) {
+				if ((int)lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
+			}
+
+			s_bookLobbyReadyBtn.set(rightX + halfActionW + 10.0f, rY, halfActionW, actionBtnH);
+			bool hovReady = s_bookLobbyReadyBtn.inside(mx, my);
+			if (hovReady) g_hoveredButtonId = "lobby_ready";
+
+			ofSetColor(iAmReady ? ofColor(30, 120, 40, 45) : (hovReady ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 18)));
+			ofDrawRectRounded(s_bookLobbyReadyBtn, 4.0f);
+			ofNoFill();
+			ofSetLineWidth(1.5f);
+			ofSetColor(ink);
+			ofDrawRectRounded(s_bookLobbyReadyBtn, 4.0f);
+			ofFill();
+			drawPixelTextCentered(uiFont, iAmReady ? "Unready" : "Ready", s_bookLobbyReadyBtn.getCenter().x, s_bookLobbyReadyBtn.getCenter().y, kBookSubheaderScale, ink);
 		}
 	}
 }
@@ -13748,6 +14173,29 @@ void ofApp::buildFloorMesh() {
 		}
 	}
 }
+// --- FIRE ANIMATION SYSTEM ---
+struct FireVisualState {
+	bool wasOnFire = false;
+	float stateStartTime = 0.0f;
+	int phase = 0; // 0=None, 1=Starting(1-3), 2=Looping(4-9), 3=Extinguishing(10-14)
+};
+static std::map<int, FireVisualState> s_fireVisuals;
+static std::vector<ofImage> s_fireAnimFrames;
+static bool s_fireAnimLoaded = false;
+
+static void loadFireAnimation() {
+	if (s_fireAnimLoaded) return;
+	for (int i = 1; i <= 14; ++i) {
+		ofImage img;
+		if (img.load("Board/fire_column_medium_" + std::to_string(i) + ".png")) {
+			img.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			s_fireAnimFrames.push_back(img);
+		}
+	}
+	s_fireAnimLoaded = true;
+	ofLogNotice("VFX") << "Loaded " << s_fireAnimFrames.size() << " frames for fire animation.";
+}
+// -----------------------------
 //-----------------------------
 void ofApp::drawGame() {
 	if (currentState == STATE_DESYNC) {
@@ -14233,6 +14681,34 @@ void ofApp::drawGame() {
 		}
 
 		s_spellLight.disable();
+
+		// --- DYNAMIC FIRE LIGHT (Organic 1.5 Hz flame breath) ---
+		static ofLight s_fireLight;
+		static bool s_fireLightInit = false;
+		if (!s_fireLightInit) {
+			s_fireLight.setup();
+			s_fireLight.setPointLight();
+			s_fireLightInit = true;
+		}
+		s_fireLight.disable();
+
+		float nowTime = ofGetElapsedTimef();
+		for (const auto & pl : players) {
+			if (pl.health > 0 && pl.onFire) {
+				glm::vec3 fPos = gridToWorld(pl.x, pl.y);
+				// Slower, smooth organic flame undulation (1.5 Hz noise + gentle sine wave)
+				float slowDrift = ofNoise(nowTime * 1.5f + (float)pl.playerID * 6.0f);
+				float flicker = 0.86f + 0.14f * slowDrift;
+
+				s_fireLight.setPosition(fPos + glm::vec3(0.0f, 1.8f, 0.0f));
+				s_fireLight.setDiffuseColor(ofColor((int)(255 * flicker), (int)(120 * flicker), (int)(25 * flicker)));
+				s_fireLight.setSpecularColor(ofColor((int)(100 * flicker), (int)(45 * flicker), (int)(10 * flicker)));
+				float fireRadius = TILE_SIZE * 3.2f;
+				s_fireLight.setAttenuation(1.0f, 0.035f, 1.6f / (fireRadius * fireRadius));
+				s_fireLight.enable();
+				break;
+			}
+		}
 
 		float now = ofGetElapsedTimef();
 		for (const auto & tr : activeTracers) {
@@ -15064,39 +15540,79 @@ void ofApp::drawGame() {
 				currentOverheadY += 1.2f;
 			}
 
-			// 4. DRAW FIRE
-			if (player.onFire) {
-				spawnVfx(pos + glm::vec3(0, 1.0f, 0), 0, 1); // Spawn Fire Particles
+			// 4. DRAW FIRE (14-Frame Sprite Animation)
+			loadFireAnimation();
+			int uniqueID = player.isMinion ? (1000 + player.summonOrder) : player.playerID;
+			FireVisualState & fvs = s_fireVisuals[uniqueID];
+			float now = ofGetElapsedTimef();
 
-				ofPushMatrix();
+			// State Transitions
+			if (player.onFire && !fvs.wasOnFire) {
+				fvs.wasOnFire = true;
+				fvs.phase = 1; // Start
+				fvs.stateStartTime = now;
+			} else if (!player.onFire && fvs.wasOnFire) {
+				fvs.wasOnFire = false;
+				fvs.phase = 3; // Extinguish
+				fvs.stateStartTime = now;
+			}
 
-				float time = ofGetElapsedTimef();
+			// Render active phase with unified, relaxed speed
+			if (fvs.phase != 0 && !s_fireAnimFrames.empty()) {
+				float elapsed = now - fvs.stateStartTime;
+				int drawIdx = -1;
+				const float fireFps = 6.0f; // Uniform, relaxed animation speed across all phases
 
-				// MOVEMENT: Add a slight wobble to the position
-				float wobbleX = sin(time * 8.0f) * 0.15f;
-				float wobbleZ = cos(time * 7.0f) * 0.15f;
+				if (fvs.phase == 1) { // Starting: Frames 1-3 (idx 0-2)
+					int frame = (int)(elapsed * fireFps);
+					if (frame > 2) {
+						fvs.phase = 2; // Transition to loop
+						fvs.stateStartTime = now;
+						drawIdx = 3;
+					} else {
+						drawIdx = frame;
+					}
+				} else if (fvs.phase == 2) { // Looping: Frames 4-9 (idx 3-8)
+					int frame = (int)(elapsed * fireFps);
+					drawIdx = 3 + (frame % 6);
+				} else if (fvs.phase == 3) { // Extinguishing: Frames 10-14 (idx 9-13)
+					int frame = (int)(elapsed * fireFps);
+					if (frame > 4) {
+						fvs.phase = 0; // Finished
+					} else {
+						drawIdx = 9 + frame;
+					}
+				}
 
-				// Elevate the fire to span from 2ft up to 6ft (center at Y=4)
-				ofTranslate(pos.x + wobbleX, 4.0f, pos.z + wobbleZ);
+				if (drawIdx >= 0 && drawIdx < (int)s_fireAnimFrames.size()) {
+					ofPushMatrix();
 
-				// Billboard perfectly to camera using inverse view rotation!
-				glm::quat camQuat = activeCam.getGlobalOrientation();
-				ofMultMatrix(glm::toMat4(camQuat));
+					float imgW = s_fireAnimFrames[drawIdx].getWidth();
+					float imgH = s_fireAnimFrames[drawIdx].getHeight();
+					float aspect = (imgH > 0.0f) ? (imgW / imgH) : 1.0f;
 
-				// MOVEMENT: Pulse the size rapidly
-				float pulse = 1.0f + sin(time * 16.0f) * 0.08f;
+					float baseH = 12.0f;
+					float baseW = baseH * aspect;
 
-				// Fixed 4ft height (centered at 4, spanning 2 to 6)
-				float spriteSize = 4.0f * pulse;
+					int scaleInt = 1;
+					if (player.isDemon || player.isGolem || player.isWallUnit || player.isMagicWallUnit) {
+						scaleInt = 2;
+					}
 
-				// Faster animation frame swapping
-				int fireFrame = (int)(time * 12) % 4;
+					float w = baseW * (float)scaleInt;
+					float h = baseH * (float)scaleInt;
 
-				ofEnableBlendMode(OF_BLENDMODE_ADD); // Make the fire transparent and glowing!
-				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
-				safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+					ofTranslate(pos.x, pos.y + (h / 2.0f), pos.z + 0.15f);
 
-				ofPopMatrix();
+					glm::vec3 camPos = activeCam.getPosition();
+					float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+					ofRotateYDeg(angle);
+
+					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+					ofSetColor(255);
+					s_fireAnimFrames[drawIdx].draw(-w / 2.0f, -h / 2.0f, w, h);
+					ofPopMatrix();
+				}
 			}
 
 			// 5. DRAW SLEEP (Zs)
@@ -16774,136 +17290,173 @@ void ofApp::drawGame() {
 	// ------------------------------------------
 
 	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
-	float healthBarHeight = 65 * scale;
 
-	// Form bar dimensions and spacing for stacking (shared with status positioning)
+	// Form bar dimensions and spacing for stacking
 	float formBarHeight = 30 * scale;
 	float formSpacing = 5 * scale;
 
+	loadHealthSprites();
+
+	// Pixel art sprite dimensions
+	const float heartNativeW = 36.0f;
+	const float heartNativeH = 33.0f;
+	const float healthStartNativeW = 11.0f;
+	const float healthTileNativeW = 12.0f;
+	const float healthNativeH = 15.0f;
+	const float healthOverlap = 3.0f;
+	const float healthStep = healthTileNativeW - healthOverlap; // 9 px
+
+	const float armourStartNativeW = 10.0f;
+	const float armourTileNativeW = 9.0f;
+	const float armourNativeH = 9.0f;
+	const float armourOverlap = 2.0f;
+	const float armourStep = armourTileNativeW - armourOverlap; // 7 px
+
+	// Visual integer scaling: maintains crisp nearest-neighbor pixels
+	float barPixelScale = std::max(1.0f, std::round(scale * 1.85f));
+
+	// Max width of 1 full row (Heart 36px + gap 4px + Start 11px + 19 Tiles @ 9px step = 222px native)
+	float healthBarWidth = 222.0f * barPixelScale;
+	float healthBarHeight = heartNativeH * barPixelScale; // Single declaration
+
 	auto drawHealthBar = [&](Player & player, float x, float y, ofColor healthColor) {
-		float healthBarWidth = 220 * scale;
-		// Use outer healthBarHeight, formBarHeight, formSpacing for consistent stacking
-		float nextBarY = y;
-		(void)nextBarY;
+		bool isOpponent = (player.playerID != myLocalPlayerID);
+		int totalArmor = player.block + player.fortification + player.barrier + player.holyBlock + player.ward;
 
-		// Determine layout direction
-		bool isTopAligned = y < ofGetHeight() / 2;
-
-		if (isTopAligned) {
-			// Stack forms below the main bar
-			float bottomOfMain = y + healthBarHeight;
-			float nextY = bottomOfMain;
-			if (player.inTortoiseForm) {
-				float formY = nextY + formSpacing;
-				int rem = 5 - player.tortoiseDamageTaken;
-				ofSetColor(20, 40, 20);
-				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				drawMetallicBar(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight, ofColor::darkGreen, 1);
-				string txt = "Tortoise: " + ofToString(rem) + "/5";
-				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-					isShowingTooltip = true;
-					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = "Transform into a Tortoise until you take 5 Health damage. Your **Defence** does not expire. Deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**. ";
-				}
-				nextY = formY + formBarHeight;
-			}
-			if (player.inGhostForm) {
-				float formY = nextY + formSpacing;
-				int rem = 4 - player.ghostDamageTaken;
-				ofSetColor(30, 30, 50);
-				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				drawMetallicBar(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight, ofColor(150, 150, 255), 2);
-				string txt = "Ghost: " + ofToString(rem) + "/4";
-				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-					isShowingTooltip = true;
-					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = "Transform into a Ghost until you take 4 Health damage. **Immune** to Physical and Piercing damage. Gain **Regeneration**. Move freely through walls and units (cannot end turn inside). Takes double Holy damage.";
-				}
-				nextY = formY + formBarHeight;
-			}
-		} else {
-			// Stack forms above the main bar
-			float topOfMain = y;
-			float nextYUp = topOfMain;
-			if (player.inTortoiseForm) {
-				float formY = nextYUp - formSpacing - formBarHeight;
-				int rem = 5 - player.tortoiseDamageTaken;
-				ofSetColor(20, 40, 20);
-				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				drawMetallicBar(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight, ofColor::darkGreen, 1);
-				string txt = _L("FORM_TORTOISE", "Tortoise: ") + ofToString(rem) + "/5";
-				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-					isShowingTooltip = true;
-					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = _L("FORM_TORTOISE_TOOLTIP_SHORT", "Tortoise Form: Buffer HP");
-				}
-				nextYUp = formY;
-			}
-			if (player.inGhostForm) {
-				float formY = nextYUp - formSpacing - formBarHeight;
-				int rem = 4 - player.ghostDamageTaken;
-				ofSetColor(30, 30, 50);
-				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-				drawMetallicBar(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight, ofColor(150, 150, 255), 2);
-				string txt = _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4";
-				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-					isShowingTooltip = true;
-					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = _L("FORM_GHOST_TOOLTIP_SHORT", "Ghost Form: Immune to Physical/Piercing");
-				}
-				nextYUp = formY;
-			}
+		// --- FORMS (Tortoise & Ghost) ---
+		float currentFormsY = y - (formBarHeight + formSpacing);
+		if (player.inTortoiseForm) {
+			int rem = 5 - player.tortoiseDamageTaken;
+			ofSetColor(20, 40, 20);
+			ofDrawRectangle(x, currentFormsY, healthBarWidth, formBarHeight);
+			drawMetallicBar(x, currentFormsY, healthBarWidth * (rem / 5.0f), formBarHeight, ofColor::darkGreen, 1);
+			string txt = _L("FORM_TORTOISE", "Tortoise: ") + ofToString(rem) + "/5";
+			drawStatText(uiFont, txt, x, currentFormsY, healthBarWidth, formBarHeight, ofColor::white);
+			currentFormsY -= (formBarHeight + formSpacing);
+		}
+		if (player.inGhostForm) {
+			int rem = 4 - player.ghostDamageTaken;
+			ofSetColor(30, 30, 50);
+			ofDrawRectangle(x, currentFormsY, healthBarWidth, formBarHeight);
+			drawMetallicBar(x, currentFormsY, healthBarWidth * (rem / 4.0f), formBarHeight, ofColor(220, 220, 220), 2);
+			string txt = _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4";
+			drawStatText(uiFont, txt, x, currentFormsY, healthBarWidth, formBarHeight, ofColor::black);
+			currentFormsY -= (formBarHeight + formSpacing);
 		}
 
-		// --- MAIN COMBINED STATS BAR ---
-		// 1. Calculate Widths
-		float statW = healthBarWidth * 0.15f; // 15% width for shields
-		float usedWidth = 0;
-		if (player.block > 0) usedWidth += statW;
-		if (player.fortification > 0) usedWidth += statW;
-		if (player.barrier > 0) usedWidth += statW;
-		if (player.holyBlock > 0) usedWidth += statW;
-		if (player.ward > 0) usedWidth += statW;
+		ofPushStyle();
+		ofSetColor(255);
 
-		float hpW = healthBarWidth - usedWidth;
-		float currentX = x;
-
-		// 2. Health Segment (text scales proportionally with UI scale setting)
-		ofSetColor(40, 0, 0);
-		ofDrawRectangle(currentX, y, hpW, healthBarHeight);
-		float hpPct = (float)player.health / player.maxHealth;
-		drawMetallicBar(currentX, y, hpW * hpPct, healthBarHeight, healthColor, 2);
-		string hpText = ofToString(player.health) + "/" + ofToString(player.maxHealth);
-		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.2f * scale);
-
-		currentX += hpW;
-
-		// 3. Shield Segments (text scales proportionally with UI scale setting)
-		auto drawSeg = [&](int val, ofColor c, string label, int mClass) {
-			if (val > 0) {
-				drawMetallicBar(currentX, y, statW, healthBarHeight, c, mClass);
-				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white), 1.0f * scale);
-
-				// Tooltip Check
-				if (ofRectangle(currentX, y, statW, healthBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-					isShowingTooltip = true;
-					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-					tooltipText = label;
-				}
-
-				currentX += statW;
+		auto drawSpriteOriented = [&](const ofImage & img, float drawX, float drawY, float w, float h, bool flipX) {
+			if (!img.isAllocated()) return;
+			if (!flipX) {
+				img.draw(std::round(drawX), std::round(drawY), std::round(w), std::round(h));
+			} else {
+				ofPushMatrix();
+				ofTranslate(std::round(drawX + w), std::round(drawY));
+				ofScale(-1.0f, 1.0f);
+				img.draw(0, 0, std::round(w), std::round(h));
+				ofPopMatrix();
 			}
 		};
 
-		drawSeg(player.block, ofColor::gray, _L("STAT_BLOCK", "Block (Physical)"), 2);
-		drawSeg(player.fortification, ofColor(55, 55, 65), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"), 1);
-		drawSeg(player.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"), 2);
-		drawSeg(player.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"), 3);
-		drawSeg(player.ward, ofColor(25, 25, 30), _L("STAT_WARD", "Ward (All Damage)"), 2);
+		float heartW = heartNativeW * barPixelScale;
+		float heartH = heartNativeH * barPixelScale;
+		float heartX = isOpponent ? (x + healthBarWidth - heartW) : x;
+		float heartY = y + std::max(0.0f, (healthBarHeight - heartH) * 0.5f);
+
+		// 1. Draw Heart Icon
+		drawSpriteOriented(s_healthTotalImg, heartX, heartY, heartW, heartH, isOpponent);
+
+		// 2. Draw Text on Heart
+		std::string hpStr = ofToString(player.health) + "/" + ofToString(player.maxHealth);
+		float textScale = std::clamp(barPixelScale * 0.28f, 0.65f, 1.15f);
+		drawPixelTextCentered(titleFont, hpStr, heartX + (heartW * 0.5f), heartY + (heartH * 0.52f), textScale, ofColor::white, 2, ofColor::black);
+
+		// Gap between Heart and Segment 1
+		float barGap = 4.0f * barPixelScale;
+		float segOriginX = isOpponent ? (heartX - barGap) : (heartX + heartW + barGap);
+
+		float row1HealthY = heartY + (heartH * 0.5f) - (healthNativeH * barPixelScale * 0.5f);
+		float row2HealthY = row1HealthY + (healthNativeH * barPixelScale) + (2.0f * barPixelScale);
+
+		// 3. Draw Health Segments (max 20 per line)
+		int totalMaxHp = std::max(1, player.maxHealth);
+		int currentHp = std::clamp(player.health, 0, totalMaxHp);
+
+		for (int hpIdx = 1; hpIdx <= totalMaxHp; ++hpIdx) {
+			int row = (hpIdx - 1) / 20;
+			int col = (hpIdx - 1) % 20;
+
+			float rowY = (row == 0) ? row1HealthY : row2HealthY;
+			bool isStartPiece = (col == 0);
+			bool isFull = (hpIdx <= currentHp);
+
+			float pieceW = (isStartPiece ? healthStartNativeW : healthTileNativeW) * barPixelScale;
+			float pieceH = healthNativeH * barPixelScale;
+			float advanceX = (col == 0) ? 0.0f : ((healthStartNativeW - healthOverlap) + (col - 1) * healthStep) * barPixelScale;
+
+			float drawX = isOpponent ? (segOriginX - advanceX - pieceW) : (segOriginX + advanceX);
+
+			const ofImage * imgToDraw = nullptr;
+			if (isStartPiece) {
+				imgToDraw = isFull ? &s_healthFullStartImg : &s_healthEmptyStartImg;
+			} else {
+				imgToDraw = isFull ? &s_healthFullTileImg : &s_healthEmptyTileImg;
+			}
+
+			if (imgToDraw && imgToDraw->isAllocated()) {
+				drawSpriteOriented(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+			}
+		}
+
+		// 4. Draw Armour Bar (Stacked above Health)
+		if (totalArmor > 0) {
+			float armourY = row1HealthY - (armourNativeH * barPixelScale) - (3.0f * barPixelScale);
+
+			struct ArmorPip {
+				const ofImage * startImg;
+				const ofImage * tileImg;
+			};
+
+			std::vector<ArmorPip> armorSequence;
+			armorSequence.reserve(totalArmor);
+
+			auto appendArmorType = [&](int count, const ofImage & startImg, const ofImage & tileImg) {
+				for (int k = 0; k < count; ++k) {
+					armorSequence.push_back({ &startImg, &tileImg });
+				}
+			};
+
+			// Front to back damage absorption order: Block -> Holy Block -> Barrier -> Fortification -> Ward
+			appendArmorType(player.block, s_armourBlockStartImg, s_armourBlockTileImg);
+			appendArmorType(player.holyBlock, s_armourHolyStartImg, s_armourHolyTileImg);
+			appendArmorType(player.barrier, s_armourBarrierStartImg, s_armourBarrierTileImg);
+			appendArmorType(player.fortification, s_armourFortStartImg, s_armourFortTileImg);
+			appendArmorType(player.ward, s_armourWardStartImg, s_armourWardTileImg);
+
+			int totalPips = (int)armorSequence.size();
+			for (int aIdx = 0; aIdx < totalPips; ++aIdx) {
+				int row = aIdx / 20;
+				int col = aIdx % 20;
+
+				float rowY = armourY - (row * ((armourNativeH * barPixelScale) + (2.0f * barPixelScale)));
+				bool isStartPiece = (col == 0);
+
+				float pieceW = (isStartPiece ? armourStartNativeW : armourTileNativeW) * barPixelScale;
+				float pieceH = armourNativeH * barPixelScale;
+				float advanceX = (col == 0) ? 0.0f : ((armourStartNativeW - armourOverlap) + (col - 1) * armourStep) * barPixelScale;
+
+				float drawX = isOpponent ? (segOriginX - advanceX - pieceW) : (segOriginX + advanceX);
+				const ofImage * imgToDraw = isStartPiece ? armorSequence[aIdx].startImg : armorSequence[aIdx].tileImg;
+
+				if (imgToDraw && imgToDraw->isAllocated()) {
+					drawSpriteOriented(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+				}
+			}
+		}
+
+		ofPopStyle();
 	};
 
 	// --- 1. MOVEMENT PATH AP COST BADGE (CIRCULAR WITH -X NUMBER) ---
@@ -16944,13 +17497,18 @@ void ofApp::drawGame() {
 	if (settingsInWorldHPMode != 2 && !players.empty()) {
 		float uiScaleLocal = getUIScaleFromHeight((float)ofGetHeight());
 
+		// 0.4s hover delay check (identical to pile view hovering)
+		bool isHoverTimeMet = isHoveringUnit && (ofGetElapsedTimef() - unitHoverStartTime >= 0.4f);
+
 		for (size_t uIdx = 0; uIdx < players.size(); ++uIdx) {
 			const Player & u = players[uIdx];
 			if (u.health <= 0) continue;
 
-			if (settingsInWorldHPMode == 1 && hoveredUnitIndex != (int)uIdx) continue;
+			// If "On Hover" mode is selected, also wait for the 0.4s delay before showing the bar
+			if (settingsInWorldHPMode == 1 && (hoveredUnitIndex != (int)uIdx || !isHoverTimeMet)) continue;
 
 			// Fog of War Check
+
 			if (g_modifierFogOfWar) {
 				int owner = u.isMinion ? u.ownerID : u.playerID;
 				int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
@@ -17022,7 +17580,9 @@ void ofApp::drawGame() {
 				else if (u.holyBlock > 0)
 					pipCol = ofColor::yellow;
 				else if (u.ward > 0)
-					pipCol = ofColor::purple;
+					pipCol = ofColor::black;
+				else if (u.fortification > 0)
+					pipCol = ofColor(55, 55, 65);
 
 				ofSetColor(12, 14, 18, 235);
 				ofDrawCircle(bx + barW + 6.0f * uiScaleLocal, by + barH * 0.5f, 4.0f * uiScaleLocal);
@@ -17031,13 +17591,16 @@ void ofApp::drawGame() {
 			}
 
 			// Clean HP numbers above bar
-			if (hoveredUnitIndex == (int)uIdx || u.health <= 3) {
+			bool showMoreInfo = (hoveredUnitIndex == (int)uIdx) && isHoverTimeMet;
+
+			// Clean HP numbers above bar (always show for critical HP <= 3, or after hover delay)
+			if (showMoreInfo || u.health <= 3) {
 				std::string hpStr = ofToString(u.health) + "/" + ofToString(u.maxHealth);
 				drawPixelTextCentered(uiFont, hpStr, sp.x, by - 12.0f * uiScaleLocal, 0.90f * uiScaleLocal, ofColor::white, 2, ofColor::black);
 			}
 
-			// All-white text with 2px black outline, dynamically spaced to prevent overlap
-			if (hoveredUnitIndex == (int)uIdx) {
+			// All-white text with 2px black outline (only displayed after 0.4s hover delay)
+			if (showMoreInfo) {
 				float textScale = std::clamp(uiScaleLocal * 0.88f, 0.78f, 1.40f);
 				float fontHeight = uiFont.getLineHeight() * textScale;
 				float lineStep = fontHeight + (6.0f * uiScaleLocal);
@@ -17606,12 +18169,11 @@ void ofApp::drawGame() {
 		}
 
 		// --- DRAW P0 STATUSES (BOTTOM - Local Player) ---
-		// Position these relative to the local player's health bar: bottom-right, stacked above the HP counter
 		float p0_statusXStart = p0_healthX + 5 * scale;
-		// Account for stacked form bars above the health bar so statuses sit on top
 		int p0_formsAbove = (localPlayer->inTortoiseForm ? 1 : 0) + (localPlayer->inGhostForm ? 1 : 0);
 		float p0_totalFormsHeight = p0_formsAbove * (formBarHeight + formSpacing);
-		float p0_statusY = p0_healthY - 10 * scale - p0_totalFormsHeight; // start above the topmost form
+		float p0_staticArmourCeiling = (healthNativeH * barPixelScale) + (armourNativeH * barPixelScale) + (14.0f * barPixelScale);
+		float p0_statusY = p0_healthY - p0_staticArmourCeiling - p0_totalFormsHeight;
 		float smallFontScale = quantizePixelTextScale(fontScale * 0.8f);
 
 		auto drawStatusLine = [&](const std::string & text, ofColor color, const std::string & tooltip, float x, float & y) {
@@ -17739,13 +18301,10 @@ void ofApp::drawGame() {
 		}
 
 		// --- DRAW P1 STATUSES (TOP - Opponent in Multiplayer) ---
-		// Position these relative to the opponent's health bar: top-left, stacked below the HP counter
-		// Left-align P1 statuses to the health bar start (top-left area)
 		float p1_statusXStart = p1_healthX + 5 * scale;
-		// Account for stacked form bars below the health bar so statuses sit above them
 		int p1_formsBelow = (opponentPlayer->inTortoiseForm ? 1 : 0) + (opponentPlayer->inGhostForm ? 1 : 0);
 		float p1_totalFormsHeight = p1_formsBelow * (formBarHeight + formSpacing);
-		float p1_statusY = p1_healthY - 10 * scale - p1_totalFormsHeight; // start above the topmost form, same as P0
+		float p1_statusY = p1_healthY - p0_staticArmourCeiling - p1_totalFormsHeight;
 
 		// Draw combined Luck (permanent + passive) for opponent
 		int opponentPlayerIndex = -1;
@@ -17777,16 +18336,15 @@ void ofApp::drawGame() {
 	}
 
 	// End Turn Button / Turn Indicator
-	// Use uiScale specifically for the End Turn button to perfectly match prepareGameVisualState
 	float uiScaleBtn = getUIScaleFromHeight(ofGetHeight());
 
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
-		float btnWidth_tmp = 260 * uiScaleBtn;
+		float btnWidth_tmp = 260.0f * uiScaleBtn;
 		float scale1080 = (float)ofGetHeight() / 1080.0f;
 		float visibleY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080;
 		float glowMargin = 6.0f * uiScaleBtn + 2.0f * uiScaleBtn;
 		visibleY = std::max(visibleY, glowMargin + (3.0f * uiScaleBtn));
-		float hiddenY = -100 * uiScaleBtn;
+		float hiddenY = -100.0f * uiScaleBtn;
 		bool myTurn = isMyTurn();
 		if (myTurn)
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
@@ -17798,9 +18356,10 @@ void ofApp::drawGame() {
 	float btnWidth_end = 260.0f * scale;
 	float btnHeight_end = 66.0f * scale;
 
-	// Dead-center X horizontally on screen; interpolate only Y for vertical entrance/exit
+	// Pixel-snap coordinates to prevent subpixel outline jitter
 	float exactCenterX = std::round((ofGetWidth() - btnWidth_end) * 0.5f);
-	endTurnButtonRect.set(exactCenterX, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
+	float exactCenterY = std::round(endTurnButtonCurrentPos.y);
+	endTurnButtonRect.set(exactCenterX, exactCenterY, btnWidth_end, btnHeight_end);
 
 	bool myTurn = isMyTurn();
 	if (isAIvsAI) myTurn = true;
@@ -17808,149 +18367,38 @@ void ofApp::drawGame() {
 	bool isOptionalInteraction = false;
 	string optionalBtnText = "Done";
 	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
-			isOptionalInteraction = true;
-			optionalBtnText = "Done";
-		}
-		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage > 0) {
-			isOptionalInteraction = true;
-			optionalBtnText = "Done";
-		}
-	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
-		isOptionalInteraction = true;
-		optionalBtnText = "Done";
-	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_BLOCKING_BOON) {
-		isOptionalInteraction = true;
-		optionalBtnText = "Done";
+		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) isOptionalInteraction = true;
+		if (interactingCardType == CARD_CALL_FOR_WOLVES && wolfSummonStage > 0) isOptionalInteraction = true;
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+		if (interactingCardType == CARD_FORM_OF_TORTOISE || interactingCardType == CARD_BLOCKING_BOON) isOptionalInteraction = true;
 	}
 
 	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY) && !isOptionalInteraction;
 	bool showDoneBtn = isCurrentPlayerLocal() && isOptionalInteraction;
-	bool isCurrentMinion = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion);
 
-	if (showEndTurn || showDoneBtn) {
-		// 1. Draw End Turn / Finish Unit Button Background & Styled Archetype Border
-		ofColor baseFill;
-		ofColor baseBorder;
-
-		if (isCurrentMinion) {
-			// Minion: Slate-blue fill with cool silver / slate-blue trim
-			baseFill = isHoveringEndTurn ? ofColor(42, 54, 70, 245) : ofColor(28, 38, 50, 235);
-			baseBorder = ofColor(176, 196, 222, 220); // Silver / Slate-Blue
-		} else {
-			// Main Wizard: Classic dark charcoal fill with rich golden trim
-			baseFill = isHoveringEndTurn ? ofColor(56, 46, 52, 245) : ofColor(36, 30, 35, 235);
-			baseBorder = ofColor(255, 215, 0, 220); // Glowing Gold
-		}
-
-		ofSetColor(baseFill);
-		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
-
-		ofPushStyle();
-		ofNoFill();
-		ofSetLineWidth(2.5f * uiScaleBtn);
-		ofSetColor(baseBorder);
-		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
-		safePopStyle();
-	} else {
-		// Draw turn indicator showing whose turn it is
-		ofSetColor(60, 60, 80, 200);
-		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
-
-		std::string playerName = "Player";
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			playerName = getPlayerSteamName(currentPlayerIndex);
-		}
-
-		float avatarSize = btnHeight_end * 0.7f;
-		float avatarPadding = 10 * scale;
-		float avatarX = endTurnButtonRect.x + avatarPadding;
-		float avatarY = endTurnButtonRect.getCenter().y - avatarSize / 2;
-
-		ofPushStyle();
-		ofSetColor(80, 80, 100);
-		ofDrawCircle(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2);
-
-		bool isLocalTurn = false;
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			isLocalTurn = (players[currentPlayerIndex].playerID == myLocalPlayerID);
-		}
-
-		bool drewAvatar = false;
-		if (isLocalTurn && localAvatarReady) {
-			ofSetColor(255);
-			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
-			drewAvatar = true;
-		} else if (!isLocalTurn && opponentAvatarReady) {
-			ofSetColor(255);
-			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
-			drewAvatar = true;
-		}
-
-		if (!drewAvatar) {
-			ofSetColor(ofColor::white);
-			string initials = "";
-			if (!playerName.empty()) {
-				initials += playerName[0];
-				size_t spacePos = playerName.find(' ');
-				if (spacePos != string::npos && spacePos + 1 < playerName.length()) {
-					initials += playerName[spacePos + 1];
-				}
-			}
-			ofRectangle initialsBox = uiFont.getStringBoundingBox(initials, 0, 0);
-			float initialsScale = avatarSize / std::max(initialsBox.width, initialsBox.height) * 0.6f;
-			ofPushMatrix();
-			ofTranslate(avatarX + avatarSize / 2 - (initialsBox.width * initialsScale / 2),
-				avatarY + avatarSize / 2 + (initialsBox.height * initialsScale / 2));
-			ofScale(initialsScale, initialsScale);
-			SafeDrawText(uiFont, initials, 0, 0);
-			ofPopMatrix();
-		}
-		safePopStyle();
-
-		ofSetColor(ofColor::gold);
-		string turnText = playerName + "'s Turn";
-
-		float turnFontScale = fontScale * 0.7f;
-		ofRectangle turnTextBox = uiFont.getStringBoundingBox(turnText, 0, 0);
-		float textStartX = avatarX + avatarSize + avatarPadding;
-		float availableWidth = endTurnButtonRect.width - (avatarSize + avatarPadding * 3);
-
-		float textWidth = turnTextBox.width * turnFontScale;
-		if (textWidth > availableWidth) {
-			turnFontScale *= (availableWidth / textWidth) * 0.95f;
-		}
-
-		drawStatText(uiFont, turnText, textStartX, endTurnButtonRect.y, availableWidth, endTurnButtonRect.height, ofColor::gold, turnFontScale);
-	}
-
-	// 2. Determine AP and Draw State
+	// 1. Calculate AP and completion FIRST so colors are determined before rendering
 	int displayedAPForCurrent = 0;
 	bool apRollActive = false;
-	if (currentPlayerIndex >= 0) {
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			displayedAPForCurrent = players[currentPlayerIndex].ap;
-		}
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		displayedAPForCurrent = players[currentPlayerIndex].ap;
 		for (const auto & r : activeDiceRolls) {
-			if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-				displayedAPForCurrent += r.result;
+			if (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) {
+				if (!r.isFinishedVisual) apRollActive = true;
+				if (r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+					displayedAPForCurrent += r.result;
+				}
 			}
 		}
 		if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAPForCurrent += players[currentPlayerIndex].nextTurnAPBonus;
-		if (currentAP < displayedAPForCurrent) {
-			displayedAPForCurrent = currentAP;
-		} else {
-			displayedAPForCurrent = std::max(displayedAPForCurrent, currentAP);
-		}
+		displayedAPForCurrent = (currentAP < displayedAPForCurrent) ? currentAP : std::max(displayedAPForCurrent, currentAP);
 	}
 
 	bool rerollAvailable = false;
-	if (players.size() > 0 && currentPlayerIndex != -1 && displayedAPForCurrent == 0 && currentAP == 0) {
+	if (!players.empty() && currentPlayerIndex != -1 && displayedAPForCurrent == 0 && currentAP == 0) {
 		Player & curr = players[currentPlayerIndex];
 		for (const auto & p : players) {
 			if (p.isAssistant && p.health > 0 && p.directSummonerID == (curr.isMinion ? curr.ownerID : curr.playerID) && !p.assistantRerollUsedThisTurn) {
-				int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
-				if (dist <= 1) {
+				if (std::abs(p.x - curr.x) + std::abs(p.y - curr.y) <= 1) {
 					rerollAvailable = true;
 					break;
 				}
@@ -17965,43 +18413,60 @@ void ofApp::drawGame() {
 		activeActorHasDrawn = hasDrawnCardsThisTurn;
 	}
 
-	// Turn transitions to glowing Green when there is nothing left to do (0 AP, cards drawn, no reroll)
+	// Done: 0 AP, cards drawn, and no rerolls left
 	bool hasNothingLeftToDo = (!disableAllGlow && displayedAPForCurrent <= 0 && activeActorHasDrawn && !rerollAvailable && showEndTurn);
 
-	if (hasNothingLeftToDo) {
-		ofPushStyle();
-		ofSetColor(0, 220, 80, 160);
-		float glow = 6.0f * uiScaleBtn;
-		ofDrawRectRounded(endTurnButtonRect.x - glow, endTurnButtonRect.y - glow,
-			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
-			(10 * uiScaleBtn) + glow);
-
-		ofPath p;
-		p.rectRounded(endTurnButtonRect, 10 * uiScaleBtn);
-		p.setFilled(false);
-		p.setStrokeWidth(3.0f * uiScaleBtn);
-		p.setStrokeColor(ofColor(40, 255, 100));
-		p.draw();
-
-		safePopStyle();
-	}
-
-	// 3. Draw Button Text (dynamic per unit archetype: "Finish [Minion Name]" vs "End Turn")
+	// 2. Render Single Solid Button (No duplicate draws, no green flashing overlay)
 	if (showEndTurn || showDoneBtn) {
 		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
 
+		ofColor baseFill;
+		ofColor baseBorder;
+		ofColor textFill;
+
+		if (hasNothingLeftToDo) {
+			// DONE: Hearthstone Green Background with White Text
+			baseFill = isHoveringEndTurn ? ofColor(45, 195, 55) : ofColor(34, 160, 34);
+			baseBorder = ofColor(18, 105, 25);
+			textFill = ofColor::white;
+		} else {
+			// DEFAULT: Hearthstone Yellow Background with Black Text
+			baseFill = isHoveringEndTurn ? ofColor(255, 205, 50) : ofColor(235, 180, 40);
+			baseBorder = ofColor(135, 95, 20);
+			textFill = ofColor(18, 18, 18);
+		}
+
+		if (endTurnLocked) {
+			baseFill = ofColor(70, 70, 75);
+			baseBorder = ofColor(45, 45, 50);
+			textFill = ofColor(170, 170, 170);
+		}
+
+		float bx = std::round(endTurnButtonRect.x);
+		float by = std::round(endTurnButtonRect.y);
+		float bw = std::round(endTurnButtonRect.width);
+		float bh = std::round(endTurnButtonRect.height);
+		float stroke = std::max(2.0f, std::round(2.5f * uiScaleBtn));
+		float radius = std::round(10.0f * scale);
+
+		// Outer solid border
+		ofSetColor(baseBorder);
+		ofDrawRectRounded(bx, by, bw, bh, radius);
+
+		// Inner solid background
+		ofSetColor(baseFill);
+		ofDrawRectRounded(bx + stroke, by + stroke, bw - stroke * 2.0f, bh - stroke * 2.0f, std::max(2.0f, radius - stroke));
+
+		// Text
 		string defaultLabel = "End Turn";
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			if (players[currentPlayerIndex].isMinion) {
 				defaultLabel = "Finish " + getPlayerDisplayName(currentPlayerIndex);
-			} else {
-				defaultLabel = "End Turn";
 			}
 		}
 
 		string endTurnButtonText = showDoneBtn ? _L("UI_BTN_DONE", optionalBtnText) : (endTurnLocked ? _L("UI_BTN_ENDING", "Ending...") : defaultLabel);
 
-		// Dynamic font auto-scaler: prevents longer minion names from overflowing the 260px button width
 		float buttonTextScale = fontScale;
 		ofRectangle textBounds = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
 		float maxTextW = endTurnButtonRect.width - (24.0f * scale);
@@ -18009,43 +18474,44 @@ void ofApp::drawGame() {
 			buttonTextScale = maxTextW / std::max(1.0f, textBounds.width);
 		}
 
-		ofColor textFill = ofColor::white;
-		if (isCurrentMinion && !hasNothingLeftToDo && !endTurnLocked) {
-			textFill = ofColor(230, 240, 255); // Crisp ice-silver tone for minions
-		}
-
+		// Draw text once
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, textFill, buttonTextScale);
-	}
+	} else {
+		// Opponent Turn Indicator Banner
+		ofSetColor(60, 60, 80, 200);
+		ofDrawRectRounded(endTurnButtonRect, 10.0f * scale);
 
-	if (showEndTurn || showDoneBtn) {
-		if (endTurnButtonRect.inside(ofGetMouseX(), ofGetMouseY())) g_hoveredButtonId = "btn_end_turn";
-		ofSetColor(ofColor::white);
-
-		string defaultLabel = "End Turn";
+		std::string playerName = "Player";
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			if (players[currentPlayerIndex].isMinion) {
-				// Dynamically show the specific minion name (e.g., "Finish Skeleton 1", "Finish Wolf 2")
-				defaultLabel = "Finish " + getPlayerDisplayName(currentPlayerIndex);
-			} else {
-				defaultLabel = "End Turn";
-			}
+			playerName = getPlayerSteamName(currentPlayerIndex);
 		}
 
-		string endTurnButtonText = showDoneBtn ? _L("UI_BTN_DONE", optionalBtnText) : (endTurnLocked ? _L("UI_BTN_ENDING", "Ending...") : defaultLabel);
+		float avatarSize = btnHeight_end * 0.7f;
+		float avatarPadding = 10.0f * scale;
+		float avatarX = endTurnButtonRect.x + avatarPadding;
+		float avatarY = endTurnButtonRect.getCenter().y - avatarSize / 2.0f;
 
-		// If the minion name is long, dynamically scale the font down so it never overflows the button
-		float buttonTextScale = fontScale;
-		ofRectangle textBounds = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
-		if (textBounds.width * buttonTextScale > (endTurnButtonRect.width - 24.0f * scale)) {
-			buttonTextScale = (endTurnButtonRect.width - 24.0f * scale) / std::max(1.0f, textBounds.width);
+		ofPushStyle();
+		ofSetColor(80, 80, 100);
+		ofDrawCircle(avatarX + avatarSize / 2.0f, avatarY + avatarSize / 2.0f, avatarSize / 2.0f);
+
+		bool isLocalTurn = false;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			isLocalTurn = (players[currentPlayerIndex].playerID == myLocalPlayerID);
 		}
 
-		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, buttonTextScale);
+		if (isLocalTurn && localAvatarReady) {
+			ofSetColor(255);
+			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+		} else if (!isLocalTurn && opponentAvatarReady) {
+			ofSetColor(255);
+			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+		}
+		safePopStyle();
+
+		string turnText = playerName + "'s Turn";
+		drawStatText(uiFont, turnText, avatarX + avatarSize + avatarPadding, endTurnButtonRect.y, endTurnButtonRect.width - (avatarSize + avatarPadding * 3.0f), endTurnButtonRect.height, ofColor::gold, fontScale * 0.7f);
 	}
-
-	// Disable small HUD Save/Load buttons next to End Turn (moved to pause menu)
-	saveGameButtonRect.set(-1000, -1000, 0, 0);
-	loadGameButtonRect.set(-1000, -1000, 0, 0);
 
 	// --- ASSISTANT AP REROLL BUTTONS ---
 	assistantRerollButtons.clear();
@@ -19891,11 +20357,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			} else if (currentState == STATE_MULTIPLAYER_MENU) {
 
+				// 1. In-Book Lobby Controls (Right Page)
 				if (g_inLobby) {
-					clickedUI = true;
-
-					// Leave lobby
-					if (lobbyLeaveBtn.inside(x, y)) {
+					// Leave Lobby
+					if (s_bookLobbyLeaveBtn.inside(x, y)) {
+						clickedUI = true;
 						steamManager.leaveLobby();
 						g_inLobby = false;
 						g_isHostingLobby = false;
@@ -19909,35 +20375,30 @@ void ofApp::mousePressed(int x, int y, int button) {
 					bool isHostUser = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
 
 					// Toggle Fog of War
-					if (isHostUser && lobbyModFoWBtn.inside(x, y)) {
+					if (isHostUser && s_bookLobbyModFoW.inside(x, y)) {
+						clickedUI = true;
 						g_modifierFogOfWar = !g_modifierFogOfWar;
 						broadcastLobbyState(steamManager);
 						return;
 					}
 
-					// Toggle Custom Max HP Modifier
-					if (isHostUser && lobbyModCustomHpBtn.inside(x, y)) {
-						g_modifierCustomMaxHP = !g_modifierCustomMaxHP;
+					// Toggle Custom Max HP
+					if (isHostUser && s_bookLobbyModCustomHp.inside(x, y)) {
+						clickedUI = true;
+						if (s_bookLobbyModHpLeft.inside(x, y)) {
+							g_customStartingMaxHP = std::max(1, g_customStartingMaxHP - 1);
+						} else if (s_bookLobbyModHpRight.inside(x, y)) {
+							g_customStartingMaxHP = std::min(99, g_customStartingMaxHP + 1);
+						} else {
+							g_modifierCustomMaxHP = !g_modifierCustomMaxHP;
+						}
 						broadcastLobbyState(steamManager);
 						return;
 					}
 
-					// Adjust Custom Max HP Value
-					if (isHostUser && g_modifierCustomMaxHP) {
-						if (lobbyModCustomHpLeftBtn.inside(x, y)) {
-							g_customStartingMaxHP = std::max(1, g_customStartingMaxHP - 1);
-							broadcastLobbyState(steamManager);
-							return;
-						}
-						if (lobbyModCustomHpRightBtn.inside(x, y)) {
-							g_customStartingMaxHP = std::min(99, g_customStartingMaxHP + 1);
-							broadcastLobbyState(steamManager);
-							return;
-						}
-					}
-
 					// Add AI Bot
-					if (isHostUser && lobbyAddAIBtn.inside(x, y) && g_lobbyPlayers.size() < 4) {
+					if (isHostUser && s_bookLobbyAddAI.inside(x, y) && g_lobbyPlayers.size() < 4) {
+						clickedUI = true;
 						int nextID = 1;
 						while (true) {
 							bool found = false;
@@ -19961,15 +20422,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return;
 					}
 
-					// Click on player row (ready toggle or kick bot)
-					float py = lobbyPlayersPanelRect.y + (menuTileSize * 0.9f);
-					float itemH = menuTileSize * 0.95f;
-					for (size_t i = 0; i < g_lobbyPlayers.size(); i++) {
-						auto & lp = g_lobbyPlayers[i];
-						ofRectangle rowRect(lobbyPlayersPanelRect.x + 10, py, lobbyPlayersPanelRect.width - 20, itemH);
-						if (rowRect.inside(x, y)) {
+					// Click on Player Row (toggle Ready or remove Bot)
+					for (size_t pi = 0; pi < s_bookLobbyPlayerRows.size() && pi < g_lobbyPlayers.size(); ++pi) {
+						if (s_bookLobbyPlayerRows[pi].inside(x, y)) {
+							clickedUI = true;
+							auto & lp = g_lobbyPlayers[pi];
 							if (lp.isBot && isHostUser) {
-								g_lobbyPlayers.erase(g_lobbyPlayers.begin() + i);
+								g_lobbyPlayers.erase(g_lobbyPlayers.begin() + pi);
 								broadcastLobbyState(steamManager);
 								return;
 							} else if ((int)lp.playerID == myLocalPlayerID) {
@@ -19986,68 +20445,60 @@ void ofApp::mousePressed(int x, int y, int button) {
 								return;
 							}
 						}
-						py += itemH + (menuTileSize * 0.1f);
 					}
 
-					// Start buttons (Host only)
-					if (isHostUser) {
-						if (lobbyStartBtn.inside(x, y)) {
-							sanitizeLobbyPlayersForMatchStart();
-							bool allReady = (g_lobbyPlayers.size() > 1);
-							for (const auto & lp : g_lobbyPlayers) {
-								if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
-							}
-							if (allReady && !g_lobbyPlayers.empty()) {
-								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
-								InputCommandPacket startCmd = {};
-								startCmd.type = PKT_INPUT_COMMAND;
-								startCmd.playerID = myLocalPlayerID;
-								startCmd.commandType = CMD_PSEUDO_ACTION;
-								startCmd.params[0] = (int)currentMapSeed;
-								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
-								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-								// Apply locally via standard lockstep dispatcher only once
-								sendInputCommand(startCmd, true);
-							}
-						} else if (lobbyForceStartBtn.inside(x, y)) {
-							if (g_lobbyPlayers.size() > 1) {
-								currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
-								InputCommandPacket startCmd = {};
-								startCmd.type = PKT_INPUT_COMMAND;
-								startCmd.playerID = myLocalPlayerID;
-								startCmd.commandType = CMD_PSEUDO_ACTION;
-								startCmd.params[0] = (int)currentMapSeed;
-								strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
-								startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-								sendInputCommand(startCmd, false);
-								queueInputCommand(startCmd);
-							}
+					// Start Game (Host only)
+					if (isHostUser && s_bookLobbyStartBtn.inside(x, y)) {
+						clickedUI = true;
+						sanitizeLobbyPlayersForMatchStart();
+						bool allReady = (g_lobbyPlayers.size() > 1);
+						for (const auto & lp : g_lobbyPlayers) {
+							if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 						}
-					} else {
-						if (lobbyReadyBtn.inside(x, y)) {
-							bool nextReady = false;
-							for (auto & lp : g_lobbyPlayers) {
-								if ((int)lp.playerID == myLocalPlayerID) {
-									lp.isReady = !lp.isReady;
-									nextReady = lp.isReady;
-									break;
-								}
-							}
-							ClientReadyPacket cr = {};
-							cr.type = PKT_CLIENT_READY;
-							cr.playerID = myLocalPlayerID;
-							cr.ready = nextReady ? 1 : 0;
-							steamManager.sendPacket(&cr, sizeof(cr));
-							return;
+						if (allReady && g_lobbyPlayers.size() >= 2) {
+							currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
+							InputCommandPacket startCmd = {};
+							startCmd.type = PKT_INPUT_COMMAND;
+							startCmd.playerID = myLocalPlayerID;
+							startCmd.commandType = CMD_PSEUDO_ACTION;
+							startCmd.params[0] = (int)currentMapSeed;
+							strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
+							startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
+							sendInputCommand(startCmd, true);
 						}
+						return;
 					}
-					return;
+
+					// Ready / Unready (Client only)
+					if (!isHostUser && s_bookLobbyReadyBtn.inside(x, y)) {
+						clickedUI = true;
+						bool nextReady = false;
+						for (auto & lp : g_lobbyPlayers) {
+							if ((int)lp.playerID == myLocalPlayerID) {
+								lp.isReady = !lp.isReady;
+								nextReady = lp.isReady;
+								break;
+							}
+						}
+						ClientReadyPacket cr = {};
+						cr.type = PKT_CLIENT_READY;
+						cr.playerID = myLocalPlayerID;
+						cr.ready = nextReady ? 1 : 0;
+						steamManager.sendPacket(&cr, sizeof(cr));
+						return;
+					}
+
+					// Click into Chat Box
+					if (s_bookLobbyChatRect.inside(x, y)) {
+						clickedUI = true;
+						isChatOpen = true;
+						isChatMinimized = false;
+						return;
+					}
 				}
 
-				if (mpBackButton.inside(x, y)) {
-					clickedUI = true;
-					navigateToMenu(0, STATE_MAIN_MENU);
-				} else if (mpRefreshButton.inside(x, y)) {
+				// 2. Left Page Controls (Host, Refresh, Join Lobby)
+				if (mpRefreshButton.inside(x, y)) {
 					clickedUI = true;
 					steamManager.refreshLobbies();
 					steamManager.fetchLeaderboard();
@@ -20057,9 +20508,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					chatHistory.clear();
 					gameLog.clear();
 
-					// Attempt Steam lobby creation; if offline or fails, fallback to local host
 					steamManager.createLobby();
-
 					g_isHostingLobby = true;
 					g_inLobby = true;
 					myLocalPlayerID = 0;
@@ -20080,7 +20529,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 					lp.name = steamManager.isConnected() ? steamManager.getLocalPlayerName() : "Player 1";
 					if (lp.name.empty()) lp.name = "Player 1";
 					g_lobbyPlayers.push_back(lp);
-
 				} else if (steamManager.isConnected()) {
 					auto lobbies = steamManager.getLobbyList();
 					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
@@ -20245,43 +20693,56 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
-		if (settingsTabVideoRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_VIDEO;
-			return;
-		}
-
-		if (settingsTabAudioRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_AUDIO;
-			return;
-		}
-		if (settingsTabGameRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_GAME;
-			return;
-		}
-		if (settingsTabControlsRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_CONTROLS;
-			return;
-		}
-
-		if (settingsBackButton.inside(x, y)) {
-			// If they leave before the timer finishes, force the card rebuild now!
-			if (g_cardsNeedTranslationRebuild) {
-				loadCardData("Config/cards.json");
-				g_cardsNeedTranslationRebuild = false;
+		if (stateBeforeSettings == STATE_PAUSED) {
+			// --- PAUSE MENU SETTINGS (Sliders) ---
+			if (settingsBackButton.inside(x, y)) {
+				currentState = STATE_PAUSED;
+				return;
 			}
-
-			if (stateBeforeSettings == STATE_MAIN_MENU) triggerMenuTransition(false); // From Right
-			currentState = stateBeforeSettings;
-			return;
-		}
-		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
-			if (settingsVSyncBox.inside(x, y)) {
-				settingsUseVSync = !settingsUseVSync;
+			if (settingsAudioMasterSlider.inside(x, y)) {
+				draggingAudioMaster = true;
+				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
+				settingsMasterVolume = std::clamp(rel, 0.0f, 1.0f);
+				updateAudioVolumes();
+				return;
+			}
+			if (settingsAudioVolumeSlider.inside(x, y)) {
+				draggingAudioMenu = true;
+				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
+				settingsMenuVolume = std::clamp(rel, 0.0f, 1.0f);
+				updateAudioVolumes();
+				return;
+			}
+			if (settingsAudioSfxSlider.inside(x, y)) {
+				draggingAudioSfx = true;
+				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
+				settingsSfxVolume = std::clamp(rel, 0.0f, 1.0f);
+				updateAudioVolumes();
+				return;
+			}
+			if (settingsFramerateSlider.inside(x, y)) {
+				draggingFramerateSlider = true;
+				float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
+				settingsFramerateSliderValue = std::clamp(rel, 0.0f, 1.0f);
+				return;
+			}
+			if (settingsFullscreenButton.inside(x, y)) {
+				g_windowModeState = (g_windowModeState + 1) % 3;
 				applySettings();
 				saveSettings();
 				return;
 			}
-
+		} else {
+			// --- BOOK MENU SETTINGS (Arrow Steppers) ---
+			if (settingsBackButton.inside(x, y)) {
+				if (g_cardsNeedTranslationRebuild) {
+					loadCardData("Config/cards.json");
+					g_cardsNeedTranslationRebuild = false;
+				}
+				if (stateBeforeSettings == STATE_MAIN_MENU) triggerMenuTransition(false);
+				currentState = stateBeforeSettings;
+				return;
+			}
 			if (settingsLangLeftButton.inside(x, y)) {
 				g_currentLanguageIndex = (g_currentLanguageIndex - 1 + g_availableLanguageCodes.size()) % g_availableLanguageCodes.size();
 				loadLanguage(g_availableLanguageCodes[g_currentLanguageIndex]);
@@ -20300,53 +20761,69 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveSettings();
 				return;
 			}
-
-			// Only allow resolution changes in Windowed mode
-			if (g_windowModeState == 0) {
-				if (settingsResLeftButton.inside(x, y)) {
-					currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
-					applySettings();
-					saveSettings();
-					return;
-				}
-				if (settingsResRightButton.inside(x, y)) {
-					currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
-					applySettings();
-					saveSettings();
-					return;
-				}
-			}
-
-			if (!settingsUseVSync) {
-				if (settingsFpsLeftBtn.inside(x, y)) {
-					s_currentFpsIndex = (s_currentFpsIndex - 1 + (int)s_fpsPresets.size()) % (int)s_fpsPresets.size();
-					int fps = s_fpsPresets[s_currentFpsIndex];
-					settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
-					applySettings();
-					saveSettings();
-					return;
-				}
-				if (settingsFpsRightBtn.inside(x, y)) {
-					s_currentFpsIndex = (s_currentFpsIndex + 1) % (int)s_fpsPresets.size();
-					int fps = s_fpsPresets[s_currentFpsIndex];
-					settingsFramerateSliderValue = (fps == 0) ? 0.999f : ((float)(fps - 15) / 285.0f);
-					applySettings();
-					saveSettings();
-					return;
-				}
-			}
-
 			if (settingsFullscreenButton.inside(x, y)) {
 				g_windowModeState = (g_windowModeState + 1) % 3;
 				applySettings();
 				saveSettings();
 				return;
 			}
-		}
-
-		if (currentSettingsTab == SETTINGS_TAB_GAME) {
-			// In-World HP Mode step
-			if (settingsInWorldHPLeftBtn.inside(x, y) || settingsInWorldHPBtn.inside(x, y)) {
+			if (!settingsUseVSync) {
+				if (settingsFpsLeftBtn.inside(x, y)) {
+					s_currentFpsIndex = (s_currentFpsIndex - 1 + (int)s_fpsPresets.size()) % (int)s_fpsPresets.size();
+					applySettings();
+					saveSettings();
+					return;
+				}
+				if (settingsFpsRightBtn.inside(x, y)) {
+					s_currentFpsIndex = (s_currentFpsIndex + 1) % (int)s_fpsPresets.size();
+					applySettings();
+					saveSettings();
+					return;
+				}
+			}
+			if (settingsVSyncBox.inside(x, y)) {
+				settingsUseVSync = !settingsUseVSync;
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioMasterLeftBtn.inside(x, y)) {
+				settingsMasterVolume = std::max(0.0f, std::round((settingsMasterVolume - 0.05f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioMasterRightBtn.inside(x, y)) {
+				settingsMasterVolume = std::min(1.0f, std::round((settingsMasterVolume + 0.05f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioVolumeLeftBtn.inside(x, y)) {
+				settingsMenuVolume = std::max(0.0f, std::round((settingsMenuVolume - 0.05f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioVolumeRightBtn.inside(x, y)) {
+				settingsMenuVolume = std::min(1.0f, std::round((settingsMenuVolume + 0.05f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioSfxLeftBtn.inside(x, y)) {
+				settingsSfxVolume = std::max(0.0f, std::round((settingsSfxVolume - 0.05f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsAudioSfxRightBtn.inside(x, y)) {
+				settingsSfxVolume = std::min(1.0f, std::round((settingsSfxVolume + 0.05f) * 100.0f) / 100.0f);
+				updateAudioVolumes();
+				saveSettings();
+				return;
+			}
+			if (settingsInWorldHPLeftBtn.inside(x, y)) {
 				settingsInWorldHPMode = (settingsInWorldHPMode - 1 + 3) % 3;
 				saveSettings();
 				return;
@@ -20356,8 +20833,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveSettings();
 				return;
 			}
-
-			// UI Scale step (Strictly 50% to 150% in 10% increments)
 			if (settingsUIScaleLeftBtn.inside(x, y)) {
 				settingsUIScale = std::max(0.50f, std::round((settingsUIScale - 0.10f) * 100.0f) / 100.0f);
 				g_settingsUIScale = settingsUIScale;
@@ -20373,122 +20848,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 		}
-
-		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-			// Master Volume +/- 1%
-			if (settingsAudioMasterLeftBtn.inside(x, y)) {
-				settingsMasterVolume = std::max(0.0f, std::round((settingsMasterVolume - 0.01f) * 100.0f) / 100.0f);
-				updateAudioVolumes();
-				saveSettings();
-				return;
-			}
-			if (settingsAudioMasterRightBtn.inside(x, y)) {
-				settingsMasterVolume = std::min(1.0f, std::round((settingsMasterVolume + 0.01f) * 100.0f) / 100.0f);
-				updateAudioVolumes();
-				saveSettings();
-				return;
-			}
-
-			// Music Volume +/- 1%
-			if (settingsAudioVolumeLeftBtn.inside(x, y)) {
-				settingsMenuVolume = std::max(0.0f, std::round((settingsMenuVolume - 0.01f) * 100.0f) / 100.0f);
-				updateAudioVolumes();
-				saveSettings();
-				return;
-			}
-			if (settingsAudioVolumeRightBtn.inside(x, y)) {
-				settingsMenuVolume = std::min(1.0f, std::round((settingsMenuVolume + 0.01f) * 100.0f) / 100.0f);
-				updateAudioVolumes();
-				saveSettings();
-				return;
-			}
-
-			// SFX Volume +/- 1%
-			if (settingsAudioSfxLeftBtn.inside(x, y)) {
-				settingsSfxVolume = std::max(0.0f, std::round((settingsSfxVolume - 0.01f) * 100.0f) / 100.0f);
-				updateAudioVolumes();
-				saveSettings();
-				return;
-			}
-			if (settingsAudioSfxRightBtn.inside(x, y)) {
-				settingsSfxVolume = std::min(1.0f, std::round((settingsSfxVolume + 0.01f) * 100.0f) / 100.0f);
-				updateAudioVolumes();
-				saveSettings();
-				return;
-			}
-		}
-
-		if (currentSettingsTab == SETTINGS_TAB_GAME) {
-			if (settingsInWorldHPBtn.inside(x, y)) {
-				settingsInWorldHPMode = (settingsInWorldHPMode + 1) % 3;
-				saveSettings();
-				return;
-			}
-		}
-		if (settingsAudioMasterSlider.inside(x, y)) {
-			draggingAudioMaster = true;
-			float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
-			settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-			updateAudioVolumes();
-			saveSettings();
-			return;
-		}
-		if (settingsAudioVolumeSlider.inside(x, y)) {
-			draggingAudioMenu = true;
-			float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
-			settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-			updateAudioVolumes();
-			saveSettings();
-			return;
-		}
-		if (settingsAudioSfxSlider.inside(x, y)) {
-			draggingAudioSfx = true;
-			float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
-			settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
-			updateAudioVolumes();
-			saveSettings();
-			return;
-		}
+		return; // Consume settings clicks
 	}
-	if (currentSettingsTab == SETTINGS_TAB_GAME) {
-		if (settingsGameShowFPSBox.inside(x, y)) {
-			settingsShowFPS = !settingsShowFPS;
-			saveSettings();
-			return;
-		}
-		if (settingsCameraSensitivitySlider.inside(x, y)) {
-			float rel = (float)(x - settingsCameraSensitivitySlider.x) / (float)settingsCameraSensitivitySlider.width;
-			settingsCameraSensitivity = ofMap(rel, 0.0f, 1.0f, 0.5f, 2.0f, true);
-			saveSettings();
-			return;
-		}
-		if (settingsInvertYBox.inside(x, y)) {
-			settingsInvertCameraY = !settingsInvertCameraY;
-			saveSettings();
-			return;
-		}
-		if (settingsUIScaleSlider.inside(x, y)) {
-			float rel = (float)(x - settingsUIScaleSlider.x) / (float)settingsUIScaleSlider.width;
-			settingsUIScale = ofMap(rel, 0.0f, 1.0f, 0.75f, 1.25f, true);
-			saveSettings();
-			recalculateUI(ofGetWidth(), ofGetHeight());
-			return;
-		}
-		if (settingsVSyncBox.inside(x, y)) {
-			settingsUseVSync = !settingsUseVSync;
-			applySettings(); // Safely configures FPS/VSync together
-			saveSettings();
-			return;
-		}
-		if (settingsShowHintsBox.inside(x, y)) {
-			settingsShowHints = !settingsShowHints;
-			saveSettings();
-			return;
-		}
-	}
-
-	// Consume unhandled clicks within the settings menu
-	if (currentState == STATE_SETTINGS) return;
 
 	// Right-click cannot interact with cards during gameplay; it's only for cancellation/UI
 	if (button == OF_MOUSE_BUTTON_RIGHT && currentState == STATE_GAMEPLAY) {
@@ -22526,37 +22887,32 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 	// --- SETTINGS MENU SLIDER DRAG ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
-		// Audio tab sliders
-		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+		if (stateBeforeSettings == STATE_PAUSED) {
 			bool audioChanged = false;
 			if (draggingAudioMaster) {
 				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
-				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
+				settingsMasterVolume = std::clamp(rel, 0.0f, 1.0f);
 				audioChanged = true;
 			}
 			if (draggingAudioMenu) {
 				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
-				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
+				settingsMenuVolume = std::clamp(rel, 0.0f, 1.0f);
 				audioChanged = true;
 			}
 			if (draggingAudioSfx) {
 				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
-				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
+				settingsSfxVolume = std::clamp(rel, 0.0f, 1.0f);
 				audioChanged = true;
 			}
 			if (audioChanged) {
-				updateAudioVolumes(); // Fast memory update, fine to keep in drag loop
+				updateAudioVolumes();
+			}
+			if (draggingFramerateSlider) {
+				float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
+				settingsFramerateSliderValue = std::clamp(rel, 0.0f, 1.0f);
 			}
 		}
-		// Video tab: framerate slider
-		if (currentSettingsTab == SETTINGS_TAB_VIDEO && draggingFramerateSlider) {
-			float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
-			settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
-		}
-
-		// CRITICAL FIX: DO NOT call saveSettings() or applySettings() here!
-		// It causes massive Disk I/O bottlenecks and framerate drops!
-		return;
+		return; // CRITICAL: Stop dragging from triggering other UI elements!
 	}
 	if (currentState != STATE_GAMEPLAY) return;
 
@@ -22737,30 +23093,24 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	if (!isMyTurn()) return;
 	// --- SETTINGS MENU SLIDER DRAG END ---
 	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
-		bool settingsChanged = false;
-
-		// Audio tab
-		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-			if (draggingAudioMaster || draggingAudioMenu || draggingAudioSfx) {
+		if (stateBeforeSettings == STATE_PAUSED) {
+			bool settingsChanged = false;
+			if (draggingAudioMaster || draggingAudioMenu || draggingAudioSfx || draggingFramerateSlider) {
 				settingsChanged = true;
+			}
+			if (draggingFramerateSlider) {
+				applySettings(); // Safely apply framerate window hooks once upon release
 			}
 			draggingAudioMaster = false;
 			draggingAudioMenu = false;
 			draggingAudioSfx = false;
-		}
-		// Video tab
-		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
-			if (draggingFramerateSlider) {
-				applySettings(); // Safely apply framerate window hooks once upon release
-				settingsChanged = true;
-			}
 			draggingFramerateSlider = false;
-		}
 
-		// Save to disk exactly ONCE when the user finishes dragging
-		if (settingsChanged) {
-			saveSettings();
+			if (settingsChanged) {
+				saveSettings();
+			}
 		}
+		return;
 	}
 	// Recompute hover state immediately so cursor stays correct while stationary
 	mouseMoved(x, y);
@@ -32255,7 +32605,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						g_playerDefenses[target.playerID].push_back({ 6, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
-					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
+					queueFloatingTextVisual(tPos, s, ofColor::hotPink);
+
 					if (delta > 0) {
 						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
@@ -32275,7 +32626,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						g_playerDefenses[target.playerID].push_back({ 7, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
-					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
+					queueFloatingTextVisual(tPos, s, ofColor::yellow);
+
 					if (delta > 0) {
 						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
@@ -32295,7 +32647,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						g_playerDefenses[target.playerID].push_back({ 8, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
-					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
+					queueFloatingTextVisual(tPos, s, ofColor::black);
+
 					if (delta > 0) {
 						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
@@ -32319,7 +32672,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						g_playerDefenses[target.playerID].push_back({ 13, delta, expCycle });
 					}
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
-					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
+					queueFloatingTextVisual(tPos, s, ofColor(55, 55, 65));
+
 					if (delta > 0) {
 						// FIX: Trigger only if the Tortoise ITSELF gains Defense on its own turn!
 						bool isSpike = false;
@@ -35456,7 +35810,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		statusOp.data.status.duration = 0;
 		queueEffect(statusOp);
 
-		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(blockAmt) + " Holy Block", ofColor(255, 215, 0));
+		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(blockAmt) + " Holy Block", ofColor::yellow);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
@@ -37874,6 +38228,10 @@ void ofApp::applyPixelArtSettings() {
 		if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().generateMipmap();
 		if (g_cardTextSpriteSheet.isAllocated()) g_cardTextSpriteSheet.getTexture().generateMipmap();
 		if (cardBackImage.isAllocated()) cardBackImage.getTexture().generateMipmap();
+		if (s_minionBackgroundImg.isAllocated()) {
+			s_minionBackgroundImg.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+			s_minionBackgroundImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+		}
 		if (s_mainMenuBg.isAllocated()) s_mainMenuBg.getTexture().generateMipmap();
 	}
 }
@@ -42996,7 +43354,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	drawMinionSeg(minion.fortification, ofColor(55, 55, 65), _L("STAT_FORTIFY", "Fortification (Phys/Pierce)"), 1);
 	drawMinionSeg(minion.barrier, ofColor::hotPink, _L("STAT_BARRIER", "Barrier (Non-Physical)"), 2);
 	drawMinionSeg(minion.holyBlock, ofColor::yellow, _L("STAT_HOLY_BLOCK", "Holy Block (Holy)"), 3);
-	drawMinionSeg(minion.ward, ofColor(25, 25, 30), _L("STAT_WARD", "Ward (All Damage)"), 2);
+	drawMinionSeg(minion.ward, ofColor::black, _L("STAT_WARD", "Ward (All Damage)"), 2);
 
 	// --- FORM BARS (with Metallic Foil) ---
 	if (minion.inTortoiseForm || minion.inGhostForm) {
@@ -43024,7 +43382,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 			int rem = 4 - minion.ghostDamageTaken;
 			ofSetColor(30, 30, 50);
 			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
-			drawMetallicBar(formStartX, formY, totalBarW * (rem / 4.0f), formHeight, ofColor(150, 150, 255), 2);
+			drawMetallicBar(formStartX, formY, totalBarW * (rem / 4.0f), formHeight, ofColor(220, 220, 220), 2); // Light Light Grey
 			drawStatText(uiFont, _L("FORM_GHOST", "Ghost: ") + ofToString(rem) + "/4", formStartX, formY, totalBarW, formHeight, ofColor::black);
 
 			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -43472,57 +43830,69 @@ void ofApp::drawEncyclopediaState() {
 	int my = ofGetMouseY();
 
 	// =========================================================================
-	// 1. DEDICATED TOP-QUARTER NAVIGATION BAR
+	// 1. DEDICATED TOP-QUARTER NAVIGATION BAR (Always on Page 0)
 	// =========================================================================
-	float navAreaX = pa.leftPage.x + 8.0f;
-	float navAreaY = pa.leftPage.y + 6.0f;
-	float navAreaW = pa.leftPage.width - 16.0f;
-	float navAreaH = pa.leftPage.height * 0.23f; // Top ~23% of the left page
+	bool showTopNavBar = (s_bookRulesTab != 2 || s_bookMinionPage == 0);
+	float contentStartY = pa.leftPage.y + 40.0f;
 
-	float gap = 4.0f;
-	float itemH = (navAreaH - (3.0f * gap)) / 4.0f;
+	if (showTopNavBar) {
+		float navAreaX = pa.leftPage.x + 8.0f;
+		float navAreaY = pa.leftPage.y + 6.0f;
+		float navAreaW = pa.leftPage.width - 16.0f;
+		float navAreaH = pa.leftPage.height * 0.23f; // Top ~23% of the left page
 
-	s_bookSubTabHowToPlay.set(navAreaX, navAreaY, navAreaW, itemH);
-	s_bookSubTabEffects.set(navAreaX, navAreaY + (itemH + gap), navAreaW, itemH);
-	s_bookSubTabMinions.set(navAreaX, navAreaY + (itemH + gap) * 2.0f, navAreaW, itemH);
-	s_bookSubTabCards.set(navAreaX, navAreaY + (itemH + gap) * 3.0f, navAreaW, itemH);
+		float gap = 4.0f;
+		float itemH = (navAreaH - (3.0f * gap)) / 4.0f;
 
-	auto drawSubTabItem = [&](const ofRectangle & r, const std::string & text, int tabIdx) {
-		bool active = (s_bookRulesTab == tabIdx);
-		bool hov = r.inside(mx, my);
-		if (hov) g_hoveredButtonId = "subtab_" + std::to_string(tabIdx);
+		s_bookSubTabHowToPlay.set(navAreaX, navAreaY, navAreaW, itemH);
+		s_bookSubTabEffects.set(navAreaX, navAreaY + (itemH + gap), navAreaW, itemH);
+		s_bookSubTabMinions.set(navAreaX, navAreaY + (itemH + gap) * 2.0f, navAreaW, itemH);
+		s_bookSubTabCards.set(navAreaX, navAreaY + (itemH + gap) * 3.0f, navAreaW, itemH);
 
-		if (active) {
-			ofSetColor(40, 30, 25, 45);
-			ofDrawRectRounded(r, 6.0f);
-			ofNoFill();
-			ofSetLineWidth(1.5f);
-			ofSetColor(ink);
-			ofDrawRectRounded(r, 6.0f);
-			ofFill();
-		} else if (hov) {
-			ofSetColor(40, 30, 25, 20);
-			ofDrawRectRounded(r, 6.0f);
-		}
+		auto drawSubTabItem = [&](const ofRectangle & r, const std::string & text, int tabIdx) {
+			bool active = (s_bookRulesTab == tabIdx);
+			bool hov = r.inside(mx, my);
+			if (hov) g_hoveredButtonId = "subtab_" + std::to_string(tabIdx);
 
-		drawPixelTextBaseline(uiFont, (active ? "> " : "  ") + text, r.x + 8.0f, r.y + (r.height * 0.72f), 1.0f, ink);
-	};
+			if (active) {
+				ofSetColor(40, 30, 25, 45);
+				ofDrawRectRounded(r, 6.0f);
+				ofNoFill();
+				ofSetLineWidth(1.5f);
+				ofSetColor(ink);
+				ofDrawRectRounded(r, 6.0f);
+				ofFill();
+			} else if (hov) {
+				ofSetColor(40, 30, 25, 20);
+				ofDrawRectRounded(r, 6.0f);
+			}
 
-	drawSubTabItem(s_bookSubTabHowToPlay, "How to play", 0);
-	drawSubTabItem(s_bookSubTabEffects, "Effects & keywords", 1);
-	drawSubTabItem(s_bookSubTabMinions, "Minions", 2);
-	drawSubTabItem(s_bookSubTabCards, "Cards", 3);
+			drawPixelTextBaseline(uiFont, (active ? "> " : "  ") + text, r.x + 8.0f, r.y + (r.height * 0.72f), 1.0f, ink);
+		};
 
-	// Subtle parchment divider line below the top-quarter navigation
-	float dividerY = navAreaY + navAreaH + 6.0f;
-	ofSetColor(ink, 100);
-	ofSetLineWidth(1.5f);
-	ofDrawLine(navAreaX, dividerY, navAreaX + navAreaW, dividerY);
+		// Draw 4 sub-tabs using standardized Subheader size (1.50f)
+		drawSubTabItem(s_bookSubTabHowToPlay, "How to play", 0);
+		drawSubTabItem(s_bookSubTabEffects, "Effects & keywords", 1);
+		drawSubTabItem(s_bookSubTabMinions, "Minions", 2);
+		drawSubTabItem(s_bookSubTabCards, "Cards", 3);
 
-	// The actual text body starts cleanly below the divider!
-	float contentStartY = dividerY + 16.0f;
+		// Subtle parchment divider line below navigation
+		float dividerY = navAreaY + navAreaH + 6.0f;
+		ofSetColor(ink, 100);
+		ofSetLineWidth(1.5f);
+		ofDrawLine(navAreaX, dividerY, navAreaX + navAreaW, dividerY);
+
+		// Added a clear 24px gap below the dividing line for all sub-tabs
+		contentStartY = dividerY + 24.0f;
+	} else {
+		s_bookSubTabHowToPlay.set(0, 0, 0, 0);
+		s_bookSubTabEffects.set(0, 0, 0, 0);
+		s_bookSubTabMinions.set(0, 0, 0, 0);
+		s_bookSubTabCards.set(0, 0, 0, 0);
+		contentStartY = pa.leftPage.y + 16.0f;
+	}
+
 	float rightHeaderY = pa.rightPage.y + 24.0f;
-
 	// =========================================================================
 	// SUB-TAB 0: HOW TO PLAY
 	// =========================================================================
@@ -43648,11 +44018,11 @@ void ofApp::drawEncyclopediaState() {
 		}
 
 		// =========================================================================
-		// SUB-TAB 2: MINIONS
+		// SUB-TAB 2: MINIONS (Clean Line Spacing & Sized Typography)
 		// =========================================================================
 	} else if (s_bookRulesTab == 2) {
 		ensureModelsLoaded();
-		loadCardBackgroundImg();
+		loadMinionBackgroundImg();
 
 		struct MinionBookEntry {
 			std::string name;
@@ -43665,35 +44035,81 @@ void ofApp::drawEncyclopediaState() {
 		};
 
 		std::vector<MinionBookEntry> allMinions = {
-			{ "SKELETON", "1d6", "1d6", "Punch (x2), Hand Block (x2)", "Has Regeneration (+1 HP/turn). Weak to Holy (2x). Steals graveyard cards.", &skeletonModel, nullptr },
-			{ "GOLEM", "1d6", "1d10 (Adapts)", "Bash (x3), Hand Block (x2)", "Adapts element & HP to previous spell: Rock (1d20), Fire (1d10), Electric (1d6).", &golemModel, &golemTexRock },
-			{ "WOLF", "1d10", "4", "Slash (x3), Call for Wolves (x1)", "Weak to Piercing (2x). Call for Wolves flips a coin to spawn a 2nd Wolf.", &wolfModel, nullptr },
-			{ "HELLHOUND", "2d6", "2d6", "Slash (x2), Flame Hit (x2), Fireball (x2), Dark Shield (x3)", "Weak to Holy (2x). Generates Dark Shield stacks for summoner's AP.", &hellhoundModel, nullptr },
-			{ "DEMON", "4d4", "3d10", "Death (x2), Flail (x2), Fireball (x2), Summon Hellhound, Dark Shield (x3)", "Draws 3 cards/turn. Weak to Holy (2x). When slain, killer drafts Class 3!", &demonModel, nullptr },
-			{ "KOBOLD", "1d4", "1", "Punch (x1), Hand Block (x2), Call for Kobolds (x1)", "Pack swarm tactics: Spawns up to 1d4 Kobolds. Empowers Kobold King.", &koboldModel, nullptr },
-			{ "KOBOLD KING", "1d6", "1 + (Living Kobolds)", "Slash (x2), Stab (x2), Full Restore (x2)", "Max HP dynamically scales with the number of allied Kobolds alive on board.", &koboldKingModel, nullptr },
-			{ "ASSISTANT", "Coin (1-2)", "1", "Lesser Heal (x1), Hand Block (x4)", "Clover Aura (+1 Luck). Can reroll summoner's AP once per turn at 0 AP.", &assistantModel, nullptr },
-			{ "FAERIE", "1d4", "5", "Dispel (x2), Lesser Heal (x2), Magic Blast (x1)", "Regenerates. Automatically resurrects adjacent fallen allies (1d4 HP roll).", &faerieModel, nullptr },
-			{ "WALL", "1d4", "5", "Fortify (x2), Ward (x2), Summon Wall (x1)", "Solid obstruction unit: Blocks enemy movement and non-piercing attacks.", &wallUnitModel, nullptr }
+			{ "SKELETON", "1d6", "1d6", "Punch (x2), Hand Block (x2)", "Regeneration (+1 HP). Weak to Holy (2x). Steals graveyard cards.", &skeletonModel, nullptr },
+			{ "GOLEM", "1d6", "1d10 (Adapts)", "Bash (x3), Hand Block (x2)", "Adapts element to previous spell: Rock (1d20), Fire (1d10), Electric (1d6).", &golemModel, &golemTexRock },
+			{ "WOLF", "1d10", "4", "Slash (x3), Call for Wolves", "Weak to Piercing (2x). Call for Wolves flips coin to summon 2nd Wolf.", &wolfModel, nullptr },
+			{ "HELLHOUND", "2d6", "2d6", "Slash, Flame Hit, Fireball, Dark Shield", "Weak to Holy (2x). Dark Shield generates bonus AP for summoner.", &hellhoundModel, nullptr },
+			{ "DEMON", "4d4", "3d10", "Death, Flail, Fireball, Dark Shield", "Draws 3 cards. Weak to Holy. When slain, killer drafts Class 3!", &demonModel, nullptr },
+			{ "KOBOLD", "1d4", "1", "Punch, Hand Block (x2), Call Kobolds", "Swarm pack: Spawns up to 1d4 Kobolds. Empowers Kobold King.", &koboldModel, nullptr },
+			{ "KOBOLD KING", "1d6", "1 + Living Kobolds", "Slash (x2), Stab (x2), Full Restore (x2)", "Max HP dynamically scales with number of allied Kobolds alive.", &koboldKingModel, nullptr },
+			{ "ASSISTANT", "Coin (1-2)", "1", "Lesser Heal, Hand Block (x4)", "Clover (+1 Luck). Can reroll summoner's AP once per turn at 0 AP.", &assistantModel, nullptr },
+			{ "FAERIE", "1d4", "5", "Dispel (x2), Lesser Heal (x2), Magic Blast", "Regenerates. Automatically resurrects adjacent fallen allies (1d4 HP).", &faerieModel, nullptr },
+			{ "WALL", "1d4 / 1d6", "5 / 7", "Fortify (x2), Ward (x2), Summon Wall", "Solid obstruction. Blocks line of sight. Magic Wall doubles Magic dmg.", &wallUnitModel, nullptr }
 		};
 
-		auto drawMinionBlock = [&](const MinionBookEntry & m, float boxX, float boxY, float boxW, float boxH, float textX, float textW) {
-			ofSetColor(22, 20, 18, 40);
-			ofDrawRectRounded(boxX, boxY, boxW, boxH, 4.0f);
-			ofNoFill();
-			ofSetLineWidth(2.0f);
-			ofSetColor(ink);
-			ofDrawRectRounded(boxX, boxY, boxW, boxH, 4.0f);
-			ofFill();
+		// Compact integer scale so tiles fit neatly inside the page
+		int maxTileScale = std::max(1, (int)std::floor((s_bookDrawH * 0.48f) / 157.0f));
+		float tileScale = (float)maxTileScale;
+
+		float tileW = std::round(113.0f * tileScale);
+		float tileH = std::round(77.0f * tileScale);
+
+		// Center tiles horizontally on left and right pages
+		float leftTileX = std::round(pa.leftPage.getCenter().x - (tileW * 0.5f));
+		float rightTileX = std::round(pa.rightPage.getCenter().x - (tileW * 0.5f));
+
+		// Lowered vertical positions
+		float topTileY = std::round(s_bookDrawY + (s_bookDrawH * 0.36f));
+		float bottomTileY = std::round(s_bookDrawY + (s_bookDrawH * 0.655f));
+
+		auto drawMinionTile = [&](const MinionBookEntry & m, float tileX, float tileY) {
+			// 1. Draw 113x77 Background
+			if (s_minionBackgroundImg.isAllocated()) {
+				ofSetColor(255);
+				s_minionBackgroundImg.draw(tileX, tileY, tileW, tileH);
+			} else {
+				ofSetColor(22, 20, 18, 40);
+				ofDrawRectRounded(tileX, tileY, tileW, tileH, 4.0f);
+				ofNoFill();
+				ofSetLineWidth(2.0f);
+				ofSetColor(ink);
+				ofDrawRectRounded(tileX, tileY, tileW, tileH, 4.0f);
+				ofFill();
+			}
+
+			// 2. 3D Model inside the square
+			float boxX = tileX + (s_minionSquareNative.x * tileScale);
+			float boxY = tileY + (s_minionSquareNative.y * tileScale);
+			float boxW = s_minionSquareNative.width * tileScale;
+			float boxH = s_minionSquareNative.height * tileScale;
 
 			if (m.model && m.model->getMeshCount() > 0) {
 				ofEnableDepthTest();
 				glClear(GL_DEPTH_BUFFER_BIT);
 				ofDisableLighting();
 
+				// Scissor to square frame
+				float sfX = (float)ofGetViewportWidth() / (float)ofGetWidth();
+				float sfY = (float)ofGetViewportHeight() / (float)ofGetHeight();
+				if (!g_isFboPass) {
+					glEnable(GL_SCISSOR_TEST);
+					glScissor((int)(boxX * sfX), (int)((ofGetHeight() - (boxY + boxH)) * sfY), (int)(boxW * sfX), (int)(boxH * sfY));
+				}
+
 				ofPushMatrix();
-				ofTranslate(boxX + boxW * 0.5f, boxY + boxH * 0.85f);
-				float mScale = (boxW / 512.0f) * 90.0f * 0.02f;
+				ofTranslate(boxX + boxW * 0.5f, boxY + boxH * 0.84f);
+
+				float mScale = (boxW / 512.0f) * 44.0f * 0.02f;
+				if (m.name == "DEMON" || m.name == "GOLEM" || m.name == "WALL") {
+					mScale *= 0.65f;
+				} else if (m.name == "WOLF") {
+					mScale *= 0.65f;
+				} else if (m.name == "KOBOLD" || m.name == "FAERIE") {
+					mScale *= 1.10f;
+				} else if (m.name == "SKELETON") {
+					mScale *= 0.85f;
+				}
+
 				ofScale(mScale, mScale, mScale);
 				ofRotateZDeg(180);
 				ofRotateXDeg(15);
@@ -43713,6 +44129,12 @@ void ofApp::drawEncyclopediaState() {
 					if (m.customTex && m.customTex->isAllocated()) {
 						m.customTex->bind();
 						hasTex = true;
+					} else if (golemTexRock.isAllocated() && m.name == "GOLEM") {
+						golemTexRock.bind();
+						hasTex = true;
+					} else if (golemTexBase.isAllocated() && m.name == "GOLEM") {
+						golemTexBase.bind();
+						hasTex = true;
 					} else if (mdl->getMeshHelper(meshIdx).hasTexture()) {
 						mdl->getMeshHelper(meshIdx).getTextureRef().bind();
 						hasTex = true;
@@ -43722,6 +44144,8 @@ void ofApp::drawEncyclopediaState() {
 					if (hasTex) {
 						if (m.customTex)
 							m.customTex->unbind();
+						else if (m.name == "GOLEM")
+							golemTexRock.isAllocated() ? golemTexRock.unbind() : golemTexBase.unbind();
 						else
 							mdl->getMeshHelper(meshIdx).getTextureRef().unbind();
 					}
@@ -43731,118 +44155,131 @@ void ofApp::drawEncyclopediaState() {
 
 				glDisable(GL_NORMALIZE);
 				ofPopMatrix();
+
+				if (!g_isFboPass) {
+					glDisable(GL_SCISSOR_TEST);
+				}
 				ofDisableDepthTest();
 				ofSetColor(255);
 			}
 
-			float ty = boxY + 20.0f;
-			drawPixelTextBaseline(uiFont, m.name, textX, ty, 0.95f, ink);
-			ty += 20.0f;
+			// 3. Text layout using proportional typography (Subheader: 1.05f, Body: 0.80f)
+			float textRightX = tileX + ((s_minionSquareNative.x + s_minionSquareNative.width + 5.0f) * tileScale);
+			float textRightW = tileW - (textRightX - tileX) - (4.0f * tileScale);
+			float ty = tileY + (14.0f * tileScale);
 
-			std::string statsStr = "AP: " + m.ap + "  |  HP: " + m.hp;
-			drawPixelTextBaseline(uiFont, statsStr, textX, ty, 0.70f, ink);
-			ty += 16.0f;
+			// Minion name uses standardized Subheader size (1.05f)
+			ofRectangle nameBounds = uiFont.getStringBoundingBox(m.name, 0, 0);
+			float actualNameScale = kBookSubheaderScale;
+			if (nameBounds.width * actualNameScale > textRightW) {
+				actualNameScale = textRightW / std::max(1.0f, nameBounds.width);
+			}
+			drawPixelTextBaseline(uiFont, m.name, textRightX, ty, actualNameScale, ink);
+			ty += 18.0f;
+
+			// Stats use standardized Body size (0.80f) with generous 18px line spacing
+			std::string apStr = "AP: " + m.ap;
+			drawPixelTextBaseline(uiFont, apStr, textRightX, ty, kBookBodyScale, ink);
+			ty += 18.0f;
+
+			std::string hpStr = "HP: " + m.hp;
+			drawPixelTextBaseline(uiFont, hpStr, textRightX, ty, kBookBodyScale, ink);
+
+			// Below square: Deck & Traits use standardized Body size (0.80f)
+			float textBottomX = tileX + (s_minionSquareNative.x * tileScale);
+			float textBottomW = tileW - (s_minionSquareNative.x * 2.0f * tileScale);
+			float bTy = tileY + ((s_minionSquareNative.y + s_minionSquareNative.height + 7.0f) * tileScale);
 
 			std::string deckStr = "Deck: " + m.deck;
-			drawPixelTextBaseline(uiFont, deckStr, textX, ty, 0.70f, ink);
-			ty += 16.0f;
+			auto deckLines = wrapTextScaled(uiFont, deckStr, textBottomW, kBookBodyScale);
+			for (const auto & dl : deckLines) {
+				drawPixelTextBaseline(uiFont, dl, textBottomX, bTy, kBookBodyScale, ink);
+				bTy += 18.0f;
+			}
 
-			auto lines = wrapTextScaled(uiFont, m.traits, textW, 0.70f);
+			auto lines = wrapTextScaled(uiFont, m.traits, textBottomW, kBookBodyScale);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, textX, ty, 0.70f, ink);
-				ty += 14.0f;
+				drawPixelTextBaseline(uiFont, l, textBottomX, bTy, kBookBodyScale, ink);
+				bTy += 17.0f;
 			}
 		};
 
-		float blockW = 125.0f;
-		float blockH = 150.0f;
-
 		if (s_bookMinionPage == 0) {
-			float bgW = 115.0f * 1.35f;
-			float bgH = 160.0f * 1.35f;
-			float bgX = pa.leftPage.x + 8.0f;
-			float bgY = contentStartY;
+			// Page 0 Left Page: Clear gap below subheader dividing line, then minion explanation
+			float lX = pa.leftPage.x + 8.0f;
+			float lW = pa.leftPage.width - 16.0f;
+			float lY = contentStartY + 6.0f;
 
-			if (s_cardBackgroundImg.isAllocated()) {
-				ofSetColor(255);
-				s_cardBackgroundImg.draw(bgX, bgY, bgW, bgH);
-			}
+			// Section title uses standardized Subheader size (1.05f)
+			drawPixelTextBaseline(uiFont, "HOW MINIONS WORK", lX, lY, kBookSubheaderScale, ink);
+			lY += 4.0f;
+			ofSetColor(ink);
+			ofDrawLine(lX, lY, lX + 130.0f, lY);
+			lY += 20.0f;
 
-			const Card * raiseCard = nullptr;
-			for (const auto & c : allCards) {
-				if (c.type == CARD_RAISE_DEAD) {
-					raiseCard = &c;
-					break;
-				}
-			}
-			if (raiseCard) {
-				float cW = bgW * (105.0f / 115.0f);
-				float cH = bgH * (150.0f / 160.0f);
-				float cX = bgX + (bgW - cW) * 0.5f;
-				float cY = bgY + (bgH - cH) * 0.5f;
-				drawCardFaceDynamic(cardSpriteSheet, cardEffectFont, titleFont, *raiseCard, cX, cY, cW, cH, nullptr);
-			}
-
-			float noteX = bgX + bgW + 14.0f;
-			float noteW = pa.leftPage.width - bgW - 24.0f;
-			float noteY = bgY + 18.0f;
-			const char * minionRulesText = "MINION RULES:\n\n"
-										   "- Take turns before wizards.\n\n"
-										   "- Own separate decks.\n\n"
-										   "- Summoning sickness: Newly summoned minions wait until your next turn.";
-			auto lines = wrapTextScaled(uiFont, minionRulesText, noteW, 0.70f);
+			// Bullet points use standardized Body size (0.80f) with 18px line steps
+			const char * minionRulesText = "- Minions take their turns before wizards.\n"
+										   "- Command their own separate decks & AP.\n"
+										   "- Summoning Sickness: Wait 1 turn to act.\n"
+										   "- Support minions protect and empower masters.";
+			auto lines = wrapTextScaled(uiFont, minionRulesText, lW, kBookBodyScale);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, noteX, noteY, 0.70f, ink);
-				noteY += 16.0f;
+				drawPixelTextBaseline(uiFont, l, lX, lY, kBookBodyScale, ink);
+				lY += 18.0f;
 			}
 
-			// Right Page: Skeleton & Golem
-			float rY = rightHeaderY;
-			drawMinionBlock(allMinions[0], pa.rightPage.x + 10.0f, rY, blockW, blockH,
-				pa.rightPage.x + blockW + 18.0f, pa.rightPage.width - blockW - 28.0f);
+			// Left Page: 1 tile lowered to the bottom (Skeleton), aligned with right bottom tile
+			drawMinionTile(allMinions[0], leftTileX, bottomTileY);
 
-			if (1 < (int)allMinions.size()) {
-				drawMinionBlock(allMinions[1], pa.rightPage.x + 10.0f, rY + blockH + 16.0f, blockW, blockH,
-					pa.rightPage.x + blockW + 18.0f, pa.rightPage.width - blockW - 28.0f);
+			// Right Page: 2 tiles lowered and sized to fit page height (Golem & Wolf)
+			if (allMinions.size() > 1) {
+				drawMinionTile(allMinions[1], rightTileX, topTileY);
+			}
+			if (allMinions.size() > 2) {
+				drawMinionTile(allMinions[2], rightTileX, bottomTileY);
 			}
 		} else {
-			int baseIdx = 2 + (s_bookMinionPage - 1) * 4;
-			float lCurY = contentStartY;
+			// Pages 1 & 2: 2 on each page for the rest!
+			int baseIdx = 3 + (s_bookMinionPage - 1) * 4;
 
 			if (baseIdx < (int)allMinions.size()) {
-				drawMinionBlock(allMinions[baseIdx], pa.leftPage.x + 8.0f, lCurY, blockW, blockH,
-					pa.leftPage.x + blockW + 16.0f, pa.leftPage.width - blockW - 24.0f);
+				drawMinionTile(allMinions[baseIdx], leftTileX, topTileY);
 			}
 			if (baseIdx + 1 < (int)allMinions.size()) {
-				drawMinionBlock(allMinions[baseIdx + 1], pa.leftPage.x + 8.0f, lCurY + blockH + 16.0f, blockW, blockH,
-					pa.leftPage.x + blockW + 16.0f, pa.leftPage.width - blockW - 24.0f);
+				drawMinionTile(allMinions[baseIdx + 1], leftTileX, bottomTileY);
 			}
-
-			float rCurY = rightHeaderY;
 			if (baseIdx + 2 < (int)allMinions.size()) {
-				drawMinionBlock(allMinions[baseIdx + 2], pa.rightPage.x + 10.0f, rCurY, blockW, blockH,
-					pa.rightPage.x + blockW + 18.0f, pa.rightPage.width - blockW - 28.0f);
+				drawMinionTile(allMinions[baseIdx + 2], rightTileX, topTileY);
 			}
 			if (baseIdx + 3 < (int)allMinions.size()) {
-				drawMinionBlock(allMinions[baseIdx + 3], pa.rightPage.x + 10.0f, rCurY + blockH + 16.0f, blockW, blockH,
-					pa.rightPage.x + blockW + 18.0f, pa.rightPage.width - blockW - 28.0f);
+				drawMinionTile(allMinions[baseIdx + 3], rightTileX, bottomTileY);
 			}
 		}
 
-		float cornerW = 100.0f;
-		float cornerH = 32.0f;
-		s_bookTurnRightCorner.set(pa.rightPage.getRight() - cornerW - 10.0f, pa.rightPage.getBottom() - cornerH - 10.0f, cornerW, cornerH);
-		s_bookTurnLeftCorner.set(pa.leftPage.x + 10.0f, pa.leftPage.getBottom() - cornerH - 10.0f, cornerW, cornerH);
+		// Corner page turn buttons placed in the bottom-left and bottom-right book corners
+		float cornerW = 85.0f;
+		float cornerH = 26.0f;
+		float cornerY = std::round(s_bookDrawY + (s_bookDrawH * 0.885f));
+
+		// < Prev anchored to the bottom-left corner of the left page
+		s_bookTurnLeftCorner.set(pa.leftPage.x + 8.0f, cornerY, cornerW, cornerH);
+		// Next > anchored to the bottom-right corner of the right page
+		s_bookTurnRightCorner.set(pa.rightPage.getRight() - cornerW - 8.0f, cornerY, cornerW, cornerH);
 
 		if (s_bookMinionPage > 0) {
 			bool hov = s_bookTurnLeftCorner.inside(mx, my);
 			if (hov) g_hoveredButtonId = "minion_prev_page";
-			drawPixelTextCentered(uiFont, "< Prev", s_bookTurnLeftCorner.getCenter().x, s_bookTurnLeftCorner.getCenter().y, 1.0f, hov ? ofColor(140, 80, 40) : ink);
+			drawPixelTextCentered(uiFont, "< Prev", s_bookTurnLeftCorner.getCenter().x, s_bookTurnLeftCorner.getCenter().y, kBookSubheaderScale, hov ? ofColor(140, 80, 40) : ink);
+		} else {
+			s_bookTurnLeftCorner.set(0, 0, 0, 0);
 		}
+
 		if (s_bookMinionPage < s_bookMinionTotalPages - 1) {
 			bool hov = s_bookTurnRightCorner.inside(mx, my);
 			if (hov) g_hoveredButtonId = "minion_next_page";
-			drawPixelTextCentered(uiFont, "Next >", s_bookTurnRightCorner.getCenter().x, s_bookTurnRightCorner.getCenter().y, 1.0f, hov ? ofColor(140, 80, 40) : ink);
+			drawPixelTextCentered(uiFont, "Next >", s_bookTurnRightCorner.getCenter().x, s_bookTurnRightCorner.getCenter().y, kBookSubheaderScale, hov ? ofColor(140, 80, 40) : ink);
+		} else {
+			s_bookTurnRightCorner.set(0, 0, 0, 0);
 		}
 
 		// =========================================================================
