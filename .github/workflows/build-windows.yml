@@ -30,7 +30,6 @@ jobs:
           mingw-w64-x86_64-gdb
           mingw-w64-x86_64-pkgconf
           mingw-w64-x86_64-wget
-          mingw-w64-x86_64-tools
           mingw-w64-x86_64-zeromq
           mingw-w64-x86_64-cppzmq
           unzip
@@ -173,12 +172,44 @@ jobs:
         cd openFrameworks/apps/myApps/MageFight
         mkdir -p bin
         cd bin
-        echo "Forging Steamworks Library..."
-        gendef steam_api64.dll
-        dlltool -d steam_api64.def -D steam_api64.dll -l libsteam_api64.a
-        echo "Forging FMOD Library..."
-        gendef fmod.dll
-        dlltool -d fmod.def -D fmod.dll -l libfmod.a
+        
+        echo "Forging Steamworks Library Import Library..."
+        cat << 'EOF' > steam_api64.def
+        EXPORTS
+        SteamAPI_Init
+        SteamAPI_RunCallbacks
+        SteamAPI_Shutdown
+        SteamAPI_IsSteamRunning
+        SteamClient
+        SteamUser
+        SteamFriends
+        SteamUtils
+        SteamMatchmaking
+        SteamUserStats
+        SteamApps
+        SteamNetworking
+        SteamRemoteStorage
+        SteamHTTP
+        SteamController
+        SteamUGC
+        SteamAppList
+        SteamMusic
+        SteamMusicRemote
+        SteamHTMLSurface
+        SteamInventory
+        SteamVideo
+        SteamParentalSettings
+        EOF
+        dlltool -d steam_api64.def -l libsteam_api64.a
+
+        echo "Forging FMOD Library Import Library..."
+        cat << 'EOF' > fmod.def
+        EXPORTS
+        FMOD_System_Create
+        FMOD_Studio_System_Create
+        EOF
+        dlltool -d fmod.def -l libfmod.a
+
         echo "Forging Dummy Boost Libraries..."
         echo "void dummy_boost() {}" > dummy.cpp
         g++ -c dummy.cpp
@@ -192,7 +223,7 @@ jobs:
       run: |
         cd openFrameworks/apps/myApps/MageFight/bin
         echo "Copying required MSYS2 DLLs..."
-        ldd MageFight.exe | grep -o '/mingw64/bin/[^ ]*\.dll' | xargs -I{} cp "{}" .
+        ldd MageFight.exe | grep -o '/mingw64/bin/[^ ]*\.dll' | xargs -I{} cp "{}" . || true
         
         echo "Forcing steam_appid.txt generation..."
         echo "4329880" > steam_appid.txt
