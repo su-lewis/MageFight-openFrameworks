@@ -169,6 +169,9 @@ jobs:
 
     - name: Build MageFight
       run: |
+        # Ensure gendef and other build utilities are available
+        pacman -S --noconfirm --needed mingw-w64-x86_64-tools
+
         cd openFrameworks/apps/myApps/MageFight
         mkdir -p bin
         cd bin
