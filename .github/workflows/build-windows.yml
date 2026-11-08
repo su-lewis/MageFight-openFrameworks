@@ -173,13 +173,24 @@ jobs:
         mkdir -p bin
         cd bin
         
-        echo "Forging Steamworks Library Import Library..."
+        echo "Forging Full Steamworks Library Import Library..."
         cat << 'EOF' > steam_api64.def
         EXPORTS
         SteamAPI_Init
         SteamAPI_RunCallbacks
         SteamAPI_Shutdown
         SteamAPI_IsSteamRunning
+        SteamAPI_GetHSteamUser
+        SteamAPI_GetHSteamPipe
+        SteamAPI_ManualDispatch_Init
+        SteamAPI_ManualDispatch_RunFrame
+        SteamAPI_ManualDispatch_GetNextCallback
+        SteamAPI_ManualDispatch_GetAPICallResult
+        SteamAPI_ManualDispatch_FreeLastCallback
+        SteamInternal_SteamAPI_Init
+        SteamInternal_ContextInit
+        SteamInternal_FindOrCreateUserInterface
+        SteamInternal_FindOrCreateGameServerInterface
         SteamClient
         SteamUser
         SteamFriends
@@ -199,6 +210,48 @@ jobs:
         SteamInventory
         SteamVideo
         SteamParentalSettings
+        SteamAPI_ISteamUser_GetSteamID
+        SteamAPI_ISteamUserStats_GetStatInt32
+        SteamAPI_ISteamUserStats_SetStatInt32
+        SteamAPI_ISteamUserStats_StoreStats
+        SteamAPI_ISteamUserStats_RequestUserStats
+        SteamAPI_ISteamUserStats_FindLeaderboard
+        SteamAPI_ISteamUserStats_DownloadLeaderboardEntries
+        SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry
+        SteamAPI_ISteamUserStats_UploadLeaderboardScore
+        SteamAPI_ISteamApps_BIsSubscribed
+        SteamAPI_ISteamApps_GetLaunchCommandLine
+        SteamAPI_ISteamMatchmaking_CreateLobby
+        SteamAPI_ISteamMatchmaking_GetLobbyOwner
+        SteamAPI_ISteamMatchmaking_SetLobbyData
+        SteamAPI_ISteamMatchmaking_GetLobbyData
+        SteamAPI_ISteamMatchmaking_JoinLobby
+        SteamAPI_ISteamMatchmaking_LeaveLobby
+        SteamAPI_ISteamMatchmaking_GetLobbyByIndex
+        SteamAPI_ISteamMatchmaking_GetNumLobbyMembers
+        SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit
+        SteamAPI_ISteamMatchmaking_RequestLobbyList
+        SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter
+        SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter
+        SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter
+        SteamAPI_ISteamNetworkingSockets_ConnectP2P
+        SteamAPI_ISteamNetworkingSockets_SendMessageToConnection
+        SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P
+        SteamAPI_ISteamNetworkingSockets_CloseConnection
+        SteamAPI_ISteamNetworkingSockets_CloseListenSocket
+        SteamAPI_ISteamNetworkingSockets_AcceptConnection
+        SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection
+        SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess
+        SteamAPI_SteamNetworkingMessage_t_Release
+        SteamAPI_ISteamFriends_GetPersonaName
+        SteamAPI_ISteamFriends_GetFriendPersonaName
+        SteamAPI_ISteamFriends_GetSmallFriendAvatar
+        SteamAPI_ISteamFriends_GetMediumFriendAvatar
+        SteamAPI_ISteamFriends_GetLargeFriendAvatar
+        SteamAPI_ISteamFriends_SetRichPresence
+        SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog
+        SteamAPI_ISteamUtils_GetImageSize
+        SteamAPI_ISteamUtils_GetImageRGBA
         EOF
         dlltool -d steam_api64.def -l libsteam_api64.a
 
