@@ -6,10 +6,10 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-    
+
     permissions:
       contents: read
-      actions: read 
+      actions: read
 
     defaults:
       run:
@@ -30,6 +30,7 @@ jobs:
           mingw-w64-x86_64-gdb
           mingw-w64-x86_64-pkgconf
           mingw-w64-x86_64-wget
+          mingw-w64-x86_64-tools-git
           mingw-w64-x86_64-zeromq
           mingw-w64-x86_64-cppzmq
           unzip
@@ -56,17 +57,17 @@ jobs:
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
         cd openFrameworks/scripts/msys2
-        
+
         # Patch dependencies list
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*libusb[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*poco[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*tools[^[:space:]]*//gI' install_dependencies.sh
-        
+
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
-        
+
         # 1. Create glm.pc stub
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
@@ -131,16 +132,16 @@ jobs:
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
-        
+
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*rtaudio[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*libusb[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*poco[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*tools[^[:space:]]*//gI' install_dependencies.sh
-        
+
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
-        
+
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -172,96 +173,14 @@ jobs:
         cd openFrameworks/apps/myApps/MageFight
         mkdir -p bin
         cd bin
-        
-        echo "Forging Full Steamworks Library Import Library..."
-        cat << 'EOF' > steam_api64.def
-        EXPORTS
-        SteamAPI_Init
-        SteamAPI_RunCallbacks
-        SteamAPI_Shutdown
-        SteamAPI_IsSteamRunning
-        SteamAPI_GetHSteamUser
-        SteamAPI_GetHSteamPipe
-        SteamAPI_ManualDispatch_Init
-        SteamAPI_ManualDispatch_RunFrame
-        SteamAPI_ManualDispatch_GetNextCallback
-        SteamAPI_ManualDispatch_GetAPICallResult
-        SteamAPI_ManualDispatch_FreeLastCallback
-        SteamInternal_SteamAPI_Init
-        SteamInternal_ContextInit
-        SteamInternal_FindOrCreateUserInterface
-        SteamInternal_FindOrCreateGameServerInterface
-        SteamClient
-        SteamUser
-        SteamFriends
-        SteamUtils
-        SteamMatchmaking
-        SteamUserStats
-        SteamApps
-        SteamNetworking
-        SteamRemoteStorage
-        SteamHTTP
-        SteamController
-        SteamUGC
-        SteamAppList
-        SteamMusic
-        SteamMusicRemote
-        SteamHTMLSurface
-        SteamInventory
-        SteamVideo
-        SteamParentalSettings
-        SteamAPI_ISteamUser_GetSteamID
-        SteamAPI_ISteamUserStats_GetStatInt32
-        SteamAPI_ISteamUserStats_SetStatInt32
-        SteamAPI_ISteamUserStats_StoreStats
-        SteamAPI_ISteamUserStats_RequestUserStats
-        SteamAPI_ISteamUserStats_FindLeaderboard
-        SteamAPI_ISteamUserStats_DownloadLeaderboardEntries
-        SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry
-        SteamAPI_ISteamUserStats_UploadLeaderboardScore
-        SteamAPI_ISteamApps_BIsSubscribed
-        SteamAPI_ISteamApps_GetLaunchCommandLine
-        SteamAPI_ISteamMatchmaking_CreateLobby
-        SteamAPI_ISteamMatchmaking_GetLobbyOwner
-        SteamAPI_ISteamMatchmaking_SetLobbyData
-        SteamAPI_ISteamMatchmaking_GetLobbyData
-        SteamAPI_ISteamMatchmaking_JoinLobby
-        SteamAPI_ISteamMatchmaking_LeaveLobby
-        SteamAPI_ISteamMatchmaking_GetLobbyByIndex
-        SteamAPI_ISteamMatchmaking_GetNumLobbyMembers
-        SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit
-        SteamAPI_ISteamMatchmaking_RequestLobbyList
-        SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter
-        SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter
-        SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter
-        SteamAPI_ISteamNetworkingSockets_ConnectP2P
-        SteamAPI_ISteamNetworkingSockets_SendMessageToConnection
-        SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P
-        SteamAPI_ISteamNetworkingSockets_CloseConnection
-        SteamAPI_ISteamNetworkingSockets_CloseListenSocket
-        SteamAPI_ISteamNetworkingSockets_AcceptConnection
-        SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection
-        SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess
-        SteamAPI_SteamNetworkingMessage_t_Release
-        SteamAPI_ISteamFriends_GetPersonaName
-        SteamAPI_ISteamFriends_GetFriendPersonaName
-        SteamAPI_ISteamFriends_GetSmallFriendAvatar
-        SteamAPI_ISteamFriends_GetMediumFriendAvatar
-        SteamAPI_ISteamFriends_GetLargeFriendAvatar
-        SteamAPI_ISteamFriends_SetRichPresence
-        SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog
-        SteamAPI_ISteamUtils_GetImageSize
-        SteamAPI_ISteamUtils_GetImageRGBA
-        EOF
-        dlltool -d steam_api64.def -l libsteam_api64.a
 
-        echo "Forging FMOD Library Import Library..."
-        cat << 'EOF' > fmod.def
-        EXPORTS
-        FMOD_System_Create
-        FMOD_Studio_System_Create
-        EOF
-        dlltool -d fmod.def -l libfmod.a
+        echo "Forging Steamworks Library..."
+        gendef steam_api64.dll
+        dlltool -d steam_api64.def -D steam_api64.dll -l libsteam_api64.a
+
+        echo "Forging FMOD Library..."
+        gendef fmod.dll
+        dlltool -d fmod.def -D fmod.dll -l libfmod.a
 
         echo "Forging Dummy Boost Libraries..."
         echo "void dummy_boost() {}" > dummy.cpp
@@ -269,6 +188,7 @@ jobs:
         ar rcs libboost_system-mt.a dummy.o
         ar rcs libboost_filesystem-mt.a dummy.o
         rm dummy.cpp dummy.o
+
         cd ..
         make Release -j4
 
@@ -276,20 +196,22 @@ jobs:
       run: |
         cd openFrameworks/apps/myApps/MageFight/bin
         echo "Copying required MSYS2 DLLs..."
-        ldd MageFight.exe | grep -o '/mingw64/bin/[^ ]*\.dll' | xargs -I{} cp "{}" . || true
-        
+        ldd MageFight.exe | grep -o '/mingw64/bin/[^ ]*\.dll' | sort -u | xargs -I{} cp "{}" .
+        echo "Checking for any missing DLLs..."
+        ldd MageFight.exe | grep -i "not found" && exit 1 || true
+
         echo "Forcing steam_appid.txt generation..."
         echo "4329880" > steam_appid.txt
 
         echo "Copying credits.txt..."
         cp ../credits.txt . 2>/dev/null || cp data/credits.txt . 2>/dev/null || true
-        
+
         echo "Cleaning up Linux files and compiler stubs..."
         find . -name "*.so*" -type f -delete
         find . -name "*.a" -type f -delete
         find . -name "*.def" -type f -delete
         rm -f run.sh runsteam.sh Makefile
-        
+
         echo "Done! The folder is now perfectly clean for Windows."
 
     - name: Upload Windows Build Artifact
@@ -307,9 +229,9 @@ jobs:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       run: |
         cd my_game_repo
-        
+
         export CURRENT_DATE=$(date +"%Y-%m-%d %H:%M")
-        
+
         LAST_SHA=$(gh run list --workflow "${{ github.workflow }}" --status success --json headSha --jq '[.[].headSha | select(. != "${{ github.sha }}")][0]')
 
         if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" == "null" ]; then
