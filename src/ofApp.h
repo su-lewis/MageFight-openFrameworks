@@ -920,7 +920,6 @@ struct Player {
 	bool inTortoiseForm = false;
 	int tortoiseDamageTaken = 0;
 	Card tortoiseFormCard;
-	std::string originalModelType = "";
 	int storedDarkShieldDice = 0;
 
 	ofTexture * minionTexture = nullptr;
@@ -928,6 +927,12 @@ struct Player {
 
 	bool inGhostForm = false;
 	int ghostDamageTaken = 0;
+	std::string originalModelType = "";
+	int fireHeadsCount = 0;
+	bool paralysisNoBaseAPThisTurn = false;
+	int addPoisonTurnsRemaining = 0;
+	std::vector<CardType> cardsPlayedLastTurn;
+
 	Card ghostFormCard;
 
 	bool enteredWallByClick = false;
@@ -1789,6 +1794,23 @@ private:
 	float keyRenderScale = 0.75f;
 
 	int currentAP = 0;
+	int currentBonusAP = 0;
+	bool firstWolfSummoned[4] = { false, false, false, false };
+	bool firstKoboldSummoned[4] = { false, false, false, false };
+
+	std::vector<int> amnesiaOfferedDeckIndices;
+
+	int psionicWaveSetStage = 0;
+	int psionicWaveCurrentTargetIdx = -1;
+	int psionicWavePicksRemaining = 0;
+	std::vector<Card> psionicWaveSet1;
+	std::vector<Card> psionicWaveSet2;
+	std::vector<int> psionicWaveSelectedIndices;
+	std::vector<ofRectangle> psionicWaveCardRects;
+
+	int applyLuckToDiceRoll(int rawTotal, int numDice, int sides, int luckBonus) const;
+	void spendCurrentAP(int amount);
+	void advancePsionicWaveTargetOrStage();
 	bool hasDrawnCardsThisTurn = false;
 	bool opponentHasDrawnCardsThisTurn = false;
 	bool isHandlingTurnStartEffects = false;
