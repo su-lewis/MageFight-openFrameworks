@@ -546,7 +546,7 @@
 - **Targeting:** 2d20 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage if you **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, deal +1d6 of that type and apply **Paralysis**, **Burning**, or **Poisoned**.
+- **Effect Text:** Choose a target. Deal 1d6 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, deal +1d6 of that type and apply **Paralysis**, **Burning**, or **Poisoned**.
 ---
 
 ## 70. Summon Faerie
