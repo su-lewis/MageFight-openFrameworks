@@ -993,9 +993,16 @@ static std::string makeSavePath(const std::string & p);
 static void persistCrashReason(const std::string & tag, const std::string & reason) {
 	try {
 		std::string path = makeSavePath("startmatch_crash.log");
-		ofFile f(path, ofFile::Append);
+#ifdef _WIN32
+		if (const char * tempDir = std::getenv("TEMP")) {
+			path = std::string(tempDir) + "\\MageFight_startmatch_crash.log";
+		}
+#endif
+		std::ofstream f(path, std::ios::app);
+		if (!f.is_open()) return;
 		std::string timeStr = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
 		f << "[" << timeStr << "] [" << tag << "] " << reason << "\n";
+		f.flush();
 		f.close();
 		ofLogNotice("CrashLog") << "Wrote crash reason to " << path;
 	} catch (...) {
@@ -12103,9 +12110,11 @@ void ofApp::setupGame() {
 		}
 
 		if (hasHumanOpponent) {
+			persistCrashReason("setupGame", "Before armLeaverBuster");
 			steamManager.armLeaverBuster(opponentElo);
 			ofLogNotice("Setup") << "LeaverBuster armed against human opponent (Rating: " << opponentElo << ")";
 		} else {
+			persistCrashReason("setupGame", "Before disarmLeaverBuster");
 			steamManager.disarmLeaverBuster();
 			ofLogNotice("Setup") << "LeaverBuster disarmed: Solo or Bot match.";
 		}
@@ -12113,8 +12122,10 @@ void ofApp::setupGame() {
 		ofLogNotice("Setup") << "Multiplayer RNG firmly seeded to: " << currentMapSeed;
 
 		if (isHost() && steamManager.isConnected()) {
+			persistCrashReason("setupGame", "Before setLobbySeed / setMatchStarted");
 			steamManager.setLobbySeed(currentMapSeed);
 			steamManager.setMatchStarted();
+			persistCrashReason("setupGame", "After setLobbySeed / setMatchStarted");
 		}
 
 		// Only send peer packet if there is an actual connected peer. Safe string evaluation.

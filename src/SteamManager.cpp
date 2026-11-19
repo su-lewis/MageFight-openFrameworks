@@ -86,6 +86,14 @@ SteamManager::SteamManager()
 	, m_bIsHost(false)
 	, m_hListenSocket(k_HSteamListenSocket_Invalid)
 	, m_hConnection(k_HSteamNetConnection_Invalid) {
+	m_bStatsLoaded = false;
+	currentLeaderboardHandle = 0;
+	m_cachedXP = -1;
+	m_cachedLevel = 0;
+	opponentDisconnected = false;
+	opponentReconnected = false;
+	m_lobbyCreationFailed = false;
+	m_lobbyCreationSucceeded = false;
 }
 
 SteamManager::~SteamManager() {
@@ -204,6 +212,9 @@ void SteamManager::update() {
 						break;
 					case LeaderboardScoresDownloaded_t::k_iCallback:
 						OnLeaderboardScoresDownloaded((LeaderboardScoresDownloaded_t *)pData, bFailed);
+						break;
+					case UserStatsReceived_t::k_iCallback:
+						if (!bFailed) onUserStatsReceived((UserStatsReceived_t *)pData);
 						break;
 					}
 				}
@@ -434,7 +445,9 @@ CSteamID SteamManager::getOpponentSteamID() const { return m_OpponentID; }
 CSteamID SteamManager::getLocalSteamID() const { return m_LocalID; }
 
 bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int size) const {
-	if (!m_bInitialized || !SteamFriends() || !SteamUtils() || !id.IsValid()) return false;
+	if (!m_bInitialized || !SteamAPI_IsSteamRunning() || !SteamFriends() || !SteamUtils()) return false;
+	if (!id.IsValid() || id.ConvertToUint64() == 0) return false;
+
 	int imageId = 0;
 	if (size <= 32)
 		imageId = SteamAPI_ISteamFriends_GetSmallFriendAvatar((intptr_t)SteamFriends(), id.ConvertToUint64());
@@ -446,11 +459,12 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 	if (imageId <= 0) return false;
 	uint32_t width = 0, height = 0;
 
-	if (!SteamAPI_ISteamUtils_GetImageSize((intptr_t)SteamUtils(), imageId, &width, &height) || width == 0 || height == 0) return false;
+	if (!SteamAPI_ISteamUtils_GetImageSize((intptr_t)SteamUtils(), imageId, &width, &height)) return false;
+	if (width == 0 || height == 0 || width > 4096 || height > 4096) return false;
 
 	ofPixels pixels;
 	pixels.allocate(width, height, OF_PIXELS_RGBA);
-	if (!SteamAPI_ISteamUtils_GetImageRGBA((intptr_t)SteamUtils(), imageId, pixels.getData(), width * height * 4)) return false;
+	if (!SteamAPI_ISteamUtils_GetImageRGBA((intptr_t)SteamUtils(), imageId, pixels.getData(), (int)(width * height * 4))) return false;
 
 	outImage.setFromPixels(pixels);
 	return true;
@@ -526,6 +540,7 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 }
 
 void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t * pInfo) {
+	if (!pInfo) return;
 	switch (pInfo->m_info.m_eState) {
 	case k_ESteamNetworkingConnectionState_ClosedByPeer:
 	case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
@@ -650,7 +665,7 @@ void SteamManager::refreshLobbies() {
 }
 void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailure) {
 	currentLobbies.clear();
-	if (bIOFailure) return;
+	if (!pCallback || bIOFailure) return;
 	for (uint32_t i = 0; i < pCallback->m_nLobbiesMatching; i++) {
 		CSteamID lobbyID((uint64)SteamAPI_ISteamMatchmaking_GetLobbyByIndex((intptr_t)SteamMatchmaking(), i));
 		LobbyInfo info;
@@ -673,14 +688,16 @@ void SteamManager::fetchLeaderboard() {
 	SteamAPI_ISteamUserStats_FindLeaderboard((intptr_t)SteamUserStats(), "Global_Rankings");
 }
 void SteamManager::OnLeaderboardFindResult(LeaderboardFindResult_t * pCallback, bool bIOFailure) {
-	if (!bIOFailure && pCallback->m_bLeaderboardFound) {
+	if (pCallback && !bIOFailure && pCallback->m_bLeaderboardFound) {
 		currentLeaderboardHandle = pCallback->m_hSteamLeaderboard;
-		SteamAPI_ISteamUserStats_DownloadLeaderboardEntries((intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 100);
+		if (SteamUserStats()) {
+			SteamAPI_ISteamUserStats_DownloadLeaderboardEntries((intptr_t)SteamUserStats(), currentLeaderboardHandle, k_ELeaderboardDataRequestGlobal, 0, 100);
+		}
 	}
 }
 void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t * pCallback, bool bIOFailure) {
 	currentLeaderboard.clear();
-	if (bIOFailure) return;
+	if (!pCallback || bIOFailure) return;
 	for (int index = 0; index < pCallback->m_cEntryCount; index++) {
 		LeaderboardEntry_t leaderboardEntry;
 		SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry((intptr_t)SteamUserStats(), pCallback->m_hSteamLeaderboardEntries, index, &leaderboardEntry, NULL, 0);
@@ -694,7 +711,7 @@ void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t *
 }
 std::vector<SteamManager::LeaderboardEntry> SteamManager::getLeaderboardEntries() { return currentLeaderboard; }
 int SteamManager::getLocalElo() {
-	if (!m_bInitialized || !SteamUserStats()) return -1;
+	if (!m_bInitialized || !m_bStatsLoaded || !SteamUserStats()) return -1;
 	int32_t elo = 1000;
 	if (!SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "elo_rating", &elo)) {
 		return -1;
@@ -702,7 +719,7 @@ int SteamManager::getLocalElo() {
 	return (int)elo;
 }
 void SteamManager::setLocalElo(int elo) {
-	if (!m_bInitialized || !SteamUserStats()) return;
+	if (!m_bInitialized || !m_bStatsLoaded || !SteamUserStats()) return;
 	if (elo <= 300) elo = 300;
 	if (!SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "elo_rating", elo)) return;
 	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
@@ -711,17 +728,17 @@ void SteamManager::setLocalElo(int elo) {
 	}
 }
 void SteamManager::armLeaverBuster(int oppElo) {
-	if (!m_bInitialized || !SteamUserStats()) return;
+	if (!m_bInitialized || !m_bStatsLoaded || !SteamUserStats()) return;
 	if (!SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", oppElo)) return;
 	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
 }
 void SteamManager::disarmLeaverBuster() {
-	if (!m_bInitialized || !SteamUserStats()) return;
+	if (!m_bInitialized || !m_bStatsLoaded || !SteamUserStats()) return;
 	if (!SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", 0)) return;
 	SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
 }
 int SteamManager::checkLeaverBuster() {
-	if (!m_bInitialized || !SteamUserStats()) return 0;
+	if (!m_bInitialized || !m_bStatsLoaded || !SteamUserStats()) return 0;
 	int32_t oppElo = 0;
 	if (!SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "leaver_opp_elo", &oppElo)) return 0;
 	return (int)oppElo;
@@ -747,6 +764,14 @@ int SteamManager::getXPRequiredForLevel(int level) {
 }
 
 static std::string getMainGameProgressionPath() {
+#ifdef _WIN32
+	if (const char * appData = std::getenv("APPDATA")) {
+		std::string dir = std::string(appData) + "/MageFight";
+		ofDirectory d(dir);
+		if (!d.exists()) d.create(true);
+		return dir + "/progression.json";
+	}
+#endif
 	std::string dataPath = ofToDataPath("", true);
 	for (char & c : dataPath) {
 		if (c == '\\') c = '/';
@@ -788,7 +813,7 @@ void SteamManager::saveLocalProgressionBackup(int xp, int level) {
 }
 
 int SteamManager::getLocalXP() {
-	if (m_bInitialized && SteamUserStats()) {
+	if (m_bInitialized && m_bStatsLoaded && SteamUserStats()) {
 		int32_t xpVal = 0;
 		if (SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "player_xp", &xpVal)) {
 			m_cachedXP = (int)xpVal;
@@ -800,7 +825,7 @@ int SteamManager::getLocalXP() {
 }
 
 int SteamManager::getLocalLevel() {
-	if (m_bInitialized && SteamUserStats()) {
+	if (m_bInitialized && m_bStatsLoaded && SteamUserStats()) {
 		int32_t lvlVal = 1;
 		if (SteamAPI_ISteamUserStats_GetStatInt32((intptr_t)SteamUserStats(), "player_level", &lvlVal)) {
 			m_cachedLevel = std::max(1, (int)lvlVal);
@@ -838,7 +863,7 @@ SteamManager::XPGainResult SteamManager::addXP(int amount) {
 	m_cachedXP = curXP;
 	m_cachedLevel = curLvl;
 
-	if (m_bInitialized && SteamUserStats()) {
+	if (m_bInitialized && m_bStatsLoaded && SteamUserStats()) {
 		SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "player_xp", curXP);
 		SteamAPI_ISteamUserStats_SetStatInt32((intptr_t)SteamUserStats(), "player_level", curLvl);
 		SteamAPI_ISteamUserStats_StoreStats((intptr_t)SteamUserStats());
