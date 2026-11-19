@@ -1362,9 +1362,11 @@ static inline std::string normalizeCardKey(const std::string & s) {
 // Forward declaration of the safe subsection renderer
 static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet, float dstX, float dstY, float dstW, float dstH, float srcX, float srcY, float srcW, float srcH);
 
-// Forward declarations for text drawing used by drawCardFaceDynamic
+// Forward declarations for text drawing and cost helpers used by drawCardFaceDynamic
 static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
 static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float endDropPx, float clampXMin, float clampXMax, float clampBottomY, const ofColor & fillColor, const ofColor & outlineColor, int outlinePx);
+static int getEffectiveBaseCardCost(const Card & card);
+static int getEffectiveCardCostForPlayer(const Player & player, const Card & card);
 static std::vector<unsigned char> gCardAlphaMask;
 static int gCardAlphaMaskWidth = 0;
 static int gCardAlphaMaskHeight = 0;
@@ -1522,7 +1524,8 @@ void broadcastLobbyState(SteamManager & steamManager) {
 	lup.header.type = PKT_LOBBY_UPDATE;
 	lup.header.playerID = 0;
 	lup.numPlayers = std::min((int)g_lobbyPlayers.size(), 4);
-lup.modifiers = (g_modifierFogOfWar ? 1 : 0) | (g_modifierCustomMaxHP ? 2 : 0);	lup.customMaxHP = (uint8_t)std::clamp(g_customStartingMaxHP, 1, 99);
+	lup.modifiers = (g_modifierFogOfWar ? 1 : 0) | (g_modifierCustomMaxHP ? 2 : 0) | (g_modifierExperimentalBalancing ? 4 : 0);
+	lup.customMaxHP = (uint8_t)std::clamp(g_customStartingMaxHP, 1, 99);
 	for (int i = 0; i < lup.numPlayers; i++) {
 		lup.players[i].playerID = g_lobbyPlayers[i].playerID;
 		lup.players[i].elo = g_lobbyPlayers[i].elo;
@@ -2272,8 +2275,8 @@ static inline float getUIScaleFromHeight(float screenH) {
 }
 
 static inline float getHandCardVisualBoost(float screenH) {
-	float boost = 1.15f - ((screenH - 1080.0f) * (0.15f / 360.0f));
-	return std::clamp(boost, 0.95f, 1.15f);
+	// Neutral 1.0 baseline boost multiplier across standard aspect ratios
+	return 1.0f;
 }
 
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
@@ -2320,8 +2323,10 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 	HandLayout l;
 	float scale = getUIScaleFromHeight(screenH);
 	float handBoost = getHandCardVisualBoost(screenH);
-	l.cardW = kCardPixelWidth * kHandCardVisualScale * handBoost * scale;
-	l.cardH = kCardPixelHeight * kHandCardVisualScale * handBoost * scale;
+	// Scaled larger for 1440p displays while keeping full dynamic resolution scaling
+	float resolutionFactor = screenH / 1080.0f;
+	l.cardW = kCardPixelWidth * 0.50f * resolutionFactor * g_settingsUIScale * handBoost;
+	l.cardH = kCardPixelHeight * 0.50f * resolutionFactor * g_settingsUIScale * handBoost;
 	l.handAreaRect = computeHandAreaRect(screenW, screenH);
 	l.restY = screenH - 80.0f * scale;
 	if (numCards <= 1) {
@@ -2356,28 +2361,50 @@ static int getEffectiveBaseCardCost(const Card & card) {
 	if (!g_modifierExperimentalBalancing) return card.cost;
 
 	switch (card.type) {
-	case CARD_KICK:                   return 2;
-	case CARD_MIND_THEFT:             return 2;
-	case CARD_SHOOT_ARROW:            return 2;
-	case CARD_SPARK_OF_GENIUS:        return 2;
-	case CARD_HASTEN:                 return 2;
-	case CARD_CONSTITUTION_BOON:      return 3;
-	case CARD_RAISE_DEAD:             return 3;
-	case CARD_SUMMON_MAGIC_WALL:      return 3;
-	case CARD_CHAIN_LIGHTNING:        return 4;
-	case CARD_NECROMANCER_S_BLESSING: return 4;
-	case CARD_TRANSFORM_WALL:         return 4;
-	case CARD_TELEPORT:               return 4;
-	case CARD_DEMOLITION:             return 5;
-	case CARD_ETHEREAL_JOLT:          return 5;
-	case CARD_FULL_RESTORE:           return 5;
-	case CARD_STUDY:                  return 5;
-	case CARD_CALL_FOR_WOLVES:        return 6;
-	case CARD_FORM_OF_GHOST:          return 6;
-	case CARD_FOUR_LEAF_CLOVER:       return 7;
-	case CARD_PSIONIC_WAVE:           return 7;
-	case CARD_SUMMON_DEMON:           return 9;
-	default:                          return card.cost;
+	case CARD_KICK:
+		return 2;
+	case CARD_MIND_THEFT:
+		return 2;
+	case CARD_SHOOT_ARROW:
+		return 2;
+	case CARD_SPARK_OF_GENIUS:
+		return 2;
+	case CARD_HASTEN:
+		return 2;
+	case CARD_CONSTITUTION_BOON:
+		return 3;
+	case CARD_RAISE_DEAD:
+		return 3;
+	case CARD_SUMMON_MAGIC_WALL:
+		return 3;
+	case CARD_CHAIN_LIGHTNING:
+		return 4;
+	case CARD_NECROMANCER_S_BLESSING:
+		return 4;
+	case CARD_TRANSFORM_WALL:
+		return 4;
+	case CARD_TELEPORT:
+		return 4;
+	case CARD_DEMOLITION:
+		return 5;
+	case CARD_ETHEREAL_JOLT:
+		return 5;
+	case CARD_FULL_RESTORE:
+		return 5;
+	case CARD_STUDY:
+		return 5;
+	case CARD_CALL_FOR_WOLVES:
+		return 6;
+	case CARD_FORM_OF_GHOST:
+		return 6;
+	case CARD_FOUR_LEAF_CLOVER:
+		return 7;
+	case CARD_PSIONIC_WAVE:
+		return 7;
+	case CARD_SUMMON_DEMON:
+		return 9;
+	default:
+		return card.cost;
 	}
 }
 
@@ -4474,17 +4501,14 @@ void ofApp::startInitiativePhase() {
 	matchTurnOrder.clear();
 	matchPlacementOrder.clear();
 
-	// CRASH FIX: Abort if players array was never populated.
-	// This can happen on client-side races when StartMatch arrives before lobby state.
 	if (players.empty()) {
 		ofLogError("Initiative") << "startInitiativePhase() aborted: players array is empty!";
 		return;
 	}
 
-	// CRASH FIX: Clamp numPlayers to actual players.size() to prevent out-of-bounds blackboard writes.
 	int numPlayers = isMultiplayer ? (int)g_lobbyPlayers.size() : 2;
-	if (numPlayers == 0) numPlayers = 2; // Failsafe
-	numPlayers = std::min(numPlayers, (int)players.size()); // Never exceed actual array size
+	if (numPlayers == 0) numPlayers = 2;
+	numPlayers = std::min(numPlayers, (int)players.size());
 
 	struct PlayerRoll {
 		int playerID;
@@ -4493,26 +4517,22 @@ void ofApp::startInitiativePhase() {
 	};
 	std::vector<PlayerRoll> rolls;
 
-	// Roll 1d6 for each player, and a hidden tie-breaker
+	// Initial Roll 1d6 for each player
 	for (int i = 0; i < numPlayers; i++) {
 		std::vector<int> raw;
 		int r = resolveDiceRollDetailed(1, 6, raw);
-
-		// Use getGameRandom for a deterministic invisible tiebreaker (1 to 1000)
 		int tb = getGameRandom(1, 1000);
 
-		// CRITICAL FIX: Extract the exact Player ID, do not rely on the loop index!
 		int realPlayerID = i;
 		if ((size_t)i < players.size()) realPlayerID = players[i].playerID;
 
 		rolls.push_back({ realPlayerID, r, tb });
 
-		// CRASH FIX: Bounds-check blackboard write (size is 16).
 		if (i >= 0 && i < 16) {
-			currentEffectSequence.blackboard[i] = r; // Store for visual UI
+			currentEffectSequence.blackboard[i] = r;
 		}
 
-		// Queue the initiative die with a 4.2-second duration so it remains visible while players read results
+		// Spawn in their correct 4-player corner slot
 		queueVisualDiceRoll(getInitiativeDieWorldPos(realPlayerID, numPlayers, 7.0f), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 4.2f, "Initiative Roll");
 	}
 
@@ -4522,12 +4542,42 @@ void ofApp::startInitiativePhase() {
 		return a.tieBreaker > b.tieBreaker;
 	});
 
-	// Build the official turn order
+	// Check if there's a tie for 1st place (rolls[0].roll == rolls[1].roll)
+	if (rolls.size() >= 2 && rolls[0].roll == rolls[1].roll) {
+		addGameLog("Initiative Tie! Re-rolling tied players...");
+
+		// Clear previous overlapping roll visuals to prevent stacking
+		activeDiceRolls.clear();
+
+		int topRoll = rolls[0].roll;
+		int tieOffsetCount = 0;
+		for (auto & r : rolls) {
+			std::vector<int> raw;
+			// Re-roll for everyone involved or specifically tied ones; re-rolling all keeps visuals clean and uniform
+			r.roll = resolveDiceRollDetailed(1, 6, raw);
+			r.tieBreaker = getGameRandom(1, 1000);
+
+			glm::vec3 pos = getInitiativeDieWorldPos(r.playerID, numPlayers, 7.0f);
+			if (r.roll == topRoll) {
+				// Give tied dice a slight horizontal separation offset so they sit side-by-side cleanly
+				pos.x += (tieOffsetCount++ * 1.8f) - 0.9f;
+			}
+
+			queueVisualDiceRoll(pos, 1, 6, raw, r.roll, PURPOSE_DEBUG, r.playerID, 4.2f, r.roll == topRoll ? "Tie-Break Roll" : "Initiative Roll");
+		}
+
+		std::sort(rolls.begin(), rolls.end(), [](const PlayerRoll & a, const PlayerRoll & b) {
+			if (a.roll != b.roll) return a.roll > b.roll;
+			return a.tieBreaker > b.tieBreaker;
+		});
+	}
+
+	// Build official turn order preserving placement order
 	for (const auto & r : rolls) {
 		matchTurnOrder.push_back(r.playerID);
 	}
 
-	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED (4-Player) ---";
+	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED (" << numPlayers << "-Player) ---";
 }
 
 ofApp::~ofApp() { }
@@ -10392,8 +10442,7 @@ void ofApp::drawMainMenu() {
 	rY += 34.0f;
 
 	const char * welcomeText = "Welcome to MageFight.\n\n"
-							   "Select a mode from the page or click the bookmark tabs along the right edge of the grimoire.\n\n"
-							   "Draft your deck, manage Action Points, roll the dice, and vanquish rival mages in tactical arena duels.";
+							   "Select a mode from the page or click the bookmark tabs along the right edge of the grimoire.";
 	auto lines = wrapTextScaled(uiFont, welcomeText, rightW - 16.0f, 0.70f);
 	for (const auto & l : lines) {
 		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
@@ -12859,9 +12908,9 @@ void ofApp::prepareGameVisualState() {
 				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
 				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
 				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
-				float animBaseW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-				float animBaseH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-				anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
+				float uiScale = getUIScaleFromHeight(ofGetHeight());
+				float normalCardW = kCardPixelWidth * 0.45f * uiScale;
+				anim.endScale = std::max(0.05f, targetRect.getWidth() / std::max(1.0f, normalCardW));
 			}
 			float elapsed = ofGetElapsedTimef() - anim.startTime;
 			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
@@ -13701,10 +13750,17 @@ void ofApp::updateGameLogic() {
 							return;
 						}
 
-						endTurnLocked = true;
 						bool needsReloc = false;
 						CHECK_NEEDS_RELOCATE_INLINE(currentPlayerIndex, needsReloc);
 						if (needsReloc) {
+							// Pause the turn timer while the emergency relocate is resolved so it cannot loop
+							turnTimerPaused = true;
+							turnTimerPausedRemainingFrames = 0;
+							opponentDecisionTimerActive = true;
+							opponentDecisionStartFrame = simulationFrame;
+							opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+							opponentDecisionPlayerIndex = currentPlayerIndex;
+
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
 							cmd.playerID = myLocalPlayerID;
@@ -13715,6 +13771,7 @@ void ofApp::updateGameLogic() {
 							strncpy(cmd.stringData, "TriggerGhostRelocate", sizeof(cmd.stringData) - 1);
 							sendInputCommand(cmd, true);
 						} else {
+							endTurnLocked = true;
 							ofLogNotice("Timer") << "Host: Timeout. Auto-ending turn.";
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
@@ -16029,16 +16086,26 @@ void ofApp::drawGame() {
 			drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
 		}
 
-		// Build and draw blue joined outlines for card hover previews
+		// Build and draw blue range fills + joined outlines for card hover previews
 		{
 			bool previewTiles[BOARD_WIDTH][BOARD_HEIGHT];
 			for (int x = 0; x < BOARD_WIDTH; x++) {
 				for (int y = 0; y < BOARD_HEIGHT; y++) {
 					previewTiles[x][y] = board[x][y].isTargetPreview && !board[x][y].isTargetable;
+					if (previewTiles[x][y]) {
+						glm::vec3 wp = gridToWorld(x, y);
+						float h = board[x][y].hasWall ? (TILE_SIZE * 0.5f + 0.055f) : 0.028f;
+						ofSetColor(45, 145, 255, 70);
+						ofPushMatrix();
+						ofTranslate(wp.x, h, wp.z);
+						ofRotateXDeg(90);
+						ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+						ofPopMatrix();
+					}
 				}
 			}
 
-			ofColor previewBlue(80, 170, 255, 220); // AOE-style blue for hover previews
+			ofColor previewBlue(80, 185, 255, 235);
 			float avgSurfaceY = 0.035f;
 			drawJoinedOutlines(previewTiles, previewBlue, avgSurfaceY);
 		}
@@ -16064,17 +16131,27 @@ void ofApp::drawGame() {
 			drawJoinedOutlines(yellowPreviewTiles, yellowColor, avgSurfaceY);
 		}
 
-		// Build and draw green joined outlines for targetable tiles
+		// Build and draw green fills + joined outlines for clickable targetable tiles
 		{
 			bool targetableTiles[BOARD_WIDTH][BOARD_HEIGHT];
 			for (int x = 0; x < BOARD_WIDTH; x++) {
 				for (int y = 0; y < BOARD_HEIGHT; y++) {
 					targetableTiles[x][y] = board[x][y].isTargetable;
+					if (targetableTiles[x][y]) {
+						glm::vec3 wp = gridToWorld(x, y);
+						float h = board[x][y].hasWall ? (TILE_SIZE * 0.5f + 0.06f) : 0.032f;
+						ofSetColor(35, 235, 95, 95);
+						ofPushMatrix();
+						ofTranslate(wp.x, h, wp.z);
+						ofRotateXDeg(90);
+						ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+						ofPopMatrix();
+					}
 				}
 			}
 
-			ofColor greenColor(0, 255, 0, 220); // Green for targetable tiles
-			float avgSurfaceY = 0.04f; // Slightly above white outlines
+			ofColor greenColor(55, 255, 100, 245);
+			float avgSurfaceY = 0.04f;
 			drawJoinedOutlines(targetableTiles, greenColor, avgSurfaceY);
 		}
 
@@ -16136,9 +16213,31 @@ void ofApp::drawGame() {
 			}
 
 			if (memchr(magicWallEffectTiles, 1, sizeof(magicWallEffectTiles)) != nullptr) {
-				ofColor purpleColor(180, 100, 220, 180); // Purple for magic wall effect areas
-				float avgSurfaceY = 0.045f;
-				drawJoinedOutlines(magicWallEffectTiles, purpleColor, avgSurfaceY);
+				ofPushStyle();
+				ofEnableDepthTest();
+				glDepthMask(GL_FALSE);
+				ofEnableBlendMode(OF_BLENDMODE_ADD);
+
+				for (int x = 0; x < BOARD_WIDTH; ++x) {
+					for (int y = 0; y < BOARD_HEIGHT; ++y) {
+						if (!magicWallEffectTiles[x][y]) continue;
+						if (board[x][y].hasWall) continue; // Walls already draw their own 3D Magic Wall Sheen
+
+						float sheenAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + x * 0.7f + y * 0.5f);
+						ofSetColor(148, 0, 211, (int)std::clamp(sheenAlpha, 0.0f, 255.0f));
+
+						glm::vec3 worldPos = gridToWorld(x, y);
+						ofPushMatrix();
+						ofTranslate(worldPos.x, 0.02f, worldPos.z);
+						ofRotateXDeg(90);
+						ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+						ofPopMatrix();
+					}
+				}
+
+				safeDisableBlendMode();
+				glDepthMask(GL_TRUE);
+				safePopStyle();
 			}
 		}
 
@@ -16196,7 +16295,7 @@ void ofApp::drawGame() {
 					ofSetColor(255, 255, 255, 191);
 
 					// Size the tightly-cropped clover to fill exactly 75% of the tile
-					float cloverSize = TILE_SIZE * 0.75f;
+					float cloverSize = TILE_SIZE * 0.60f;
 
 					for (int x = 0; x < BOARD_WIDTH; x++) {
 						for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -18715,8 +18814,8 @@ void ofApp::drawGame() {
 
 		// Draw text once
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, textFill, buttonTextScale);
-	} else {
-		// Opponent Turn Indicator Banner
+	} else if (currentState != STATE_DRAFTING) {
+		// Opponent Turn Indicator Banner (Hidden entirely during drafting)
 		ofSetColor(60, 60, 80, 200);
 		ofDrawRectRounded(endTurnButtonRect, 10.0f * scale);
 
@@ -18761,7 +18860,8 @@ void ofApp::drawGame() {
 			std::vector<int> availableAssistants;
 			for (size_t i = 0; i < players.size(); i++) {
 				const Player & p = players[i];
-				if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+				int currOwner = curr.isMinion ? curr.ownerID : curr.playerID;
+				if (p.isAssistant && p.health > 0 && (p.directSummonerID == curr.playerID || p.directSummonerID == currOwner) && !p.assistantRerollUsedThisTurn) {
 					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
 					if (dist <= 1) {
 						availableAssistants.push_back((int)i);
@@ -19109,7 +19209,7 @@ void ofApp::drawGame() {
 			float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
 
 			// Set maximum panel height limits
-			float maxPanelHeight = ofGetHeight() * 0.75f;
+			float maxPanelHeight = ofGetHeight() * 0.85f; // Increased panel height limit
 			float contentHeightLimit = maxPanelHeight - titleHeight - (2.0f * panelPadding);
 
 			float viewCardScale = 0.90f; // Scale factor for details preview
@@ -19145,33 +19245,47 @@ void ofApp::drawGame() {
 
 			pileViewRect.set(startX, startY, totalContentWidth + (2.0f * panelPadding), panelHeight);
 
-			// 5. Draw the panel and its contents
-			ofSetColor(20, 20, 20, 220);
+			// 5. Draw the panel and fixed header
+			float headerH = panelPadding + titleHeight;
+			float cardStartY = startY + headerH;
+
+			ofSetColor(16, 16, 20, 235);
 			ofDrawRectRounded(pileViewRect, 15 * uiScale);
 
-			ofSetColor(ofColor::white);
-
-			ofPushMatrix();
-			ofTranslate(startX + panelPadding, startY + panelPadding + titleHeight * 0.5f);
-			ofScale(uiScale, uiScale);
-			SafeDrawText(uiFont, viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", 0, 0);
-			ofPopMatrix();
-
-			// Calculate and clamp scroll boundaries
+			// Calculate and clamp scroll boundaries first so clipping matches content bounds
 			float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
 			pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
 
-			// Clip the viewport bounds
+			// Strict Scissor Test placed BEFORE drawing cards so they are clipped underneath the header
 			ofPushStyle();
-			if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
-			int scX = (int)(startX + panelPadding);
-			int scW = (int)totalContentWidth;
-			// Corrected: Include titleHeight to prevent clipping the bottom of the card row
-			int scY = (int)(ofGetHeight() - (startY + panelPadding + titleHeight + visibleContentHeight));
-			int scH = (int)visibleContentHeight;
+			float sfX = (float)ofGetViewportWidth() / std::max(1.0f, (float)ofGetWidth());
+			float sfY = (float)ofGetViewportHeight() / std::max(1.0f, (float)ofGetHeight());
+			int scX = (int)std::floor(startX * sfX);
+			int scW = (int)std::ceil(pileViewRect.width * sfX);
+			// Scissor height spans exactly from cardStartY down to the bottom padding
+			int scY = (int)std::floor((ofGetHeight() - (cardStartY + visibleContentHeight)) * sfY);
+			int scH = (int)std::ceil(visibleContentHeight * sfY);
+			glEnable(GL_SCISSOR_TEST);
 			glScissor(scX, scY, scW, scH);
+			glDisable(GL_SCISSOR_TEST);
+			safePopStyle();
 
-			float cardStartY = startY + panelPadding + titleHeight;
+			// Dedicated fixed header rendered on top so scrolling cards never overlap it
+			ofSetColor(28, 28, 36, 255);
+			ofDrawRectRounded(startX, startY, pileViewRect.width, headerH, 15 * uiScale);
+			ofDrawRectangle(startX, startY + headerH * 0.5f, pileViewRect.width, headerH * 0.5f);
+			ofSetColor(70, 75, 90, 200);
+			ofDrawRectangle(startX + panelPadding * 0.5f, cardStartY - 2.0f * uiScale, pileViewRect.width - panelPadding, 2.0f * uiScale);
+
+			std::string fullTitle = viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)";
+			ofRectangle titleBox = uiFont.getStringBoundingBox(fullTitle, 0, 0);
+			float titleBaselineY = startY + (headerH * 0.5f) - ((titleBox.y + titleBox.height * 0.5f) * uiScale);
+			ofSetColor(ofColor::white);
+			ofPushMatrix();
+			ofTranslate(startX + panelPadding, titleBaselineY);
+			ofScale(uiScale, uiScale);
+			SafeDrawText(uiFont, fullTitle, 0, 0);
+			ofPopMatrix();
 
 			for (size_t i = 0; i < cardsToShowInView.size(); ++i) {
 				int row = i / gridWidthInCards;
@@ -19204,7 +19318,55 @@ void ofApp::drawGame() {
 				}
 			}
 
-			if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+			// Black edge fade on top and bottom of scroll viewport
+			{
+				float fadeH = std::min(36.0f * uiScale, visibleContentHeight * 0.22f);
+				float fadeX = startX + panelPadding;
+				float fadeW = totalContentWidth;
+
+				auto drawBlackFadeQuad = [&](float x0, float y0, float x1, float y1, const ofColor & topCol, const ofColor & botCol) {
+					ofMesh m;
+					m.setMode(OF_PRIMITIVE_TRIANGLES);
+					m.addVertex(glm::vec3(x0, y0, 0));
+					m.addColor(topCol);
+					m.addVertex(glm::vec3(x1, y0, 0));
+					m.addColor(topCol);
+					m.addVertex(glm::vec3(x1, y1, 0));
+					m.addColor(botCol);
+					m.addVertex(glm::vec3(x0, y1, 0));
+					m.addColor(botCol);
+					m.addIndex(0);
+					m.addIndex(1);
+					m.addIndex(2);
+					m.addIndex(0);
+					m.addIndex(2);
+					m.addIndex(3);
+					m.draw();
+				};
+
+				if (g_isSecondPass) {
+					glEnable(GL_BLEND);
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				} else {
+					safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+				}
+
+				ofColor solidEdge(10, 10, 14, 240);
+				ofColor clearEdge(10, 10, 14, 0);
+
+				if (pileViewScrollOffset > 0.5f) {
+					drawBlackFadeQuad(fadeX, cardStartY, fadeX + fadeW, cardStartY + fadeH, solidEdge, clearEdge);
+				}
+				if (pileViewScrollOffset < maxScroll - 0.5f) {
+					drawBlackFadeQuad(fadeX, cardStartY + visibleContentHeight - fadeH, fadeX + fadeW, cardStartY + visibleContentHeight, clearEdge, solidEdge);
+				}
+
+				if (g_isSecondPass) {
+					glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+				}
+			}
+
+			glDisable(GL_SCISSOR_TEST);
 			safePopStyle();
 
 			// Draw scrollbar
@@ -22840,7 +23002,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int targetGridX = gridX, targetGridY = gridY;
 				if (findNearestTargetableTile(gridX, gridY, targetGridX, targetGridY)) {
 					// Check if player has enough AP
-if (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, selectedCard)) {
+					if (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, selectedCard)) {
 						const std::string cardName = selectedCard.name;
 
 						// Always queue as a deterministic input command; singleplayer will be processed locally.
@@ -22879,18 +23041,14 @@ if (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, selectedCard)) {
 			}
 
 			// Clicked Self? Select for Movement.
-			if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
-				if (playerAction == PIECE_SELECTED) {
-					playerAction = NONE;
-					clearHighlights();
-				} else {
-					selectedPieceGridX = controlledPlayer->x;
-					selectedPieceGridY = controlledPlayer->y;
-					playerAction = PIECE_SELECTED;
-					selectedCardIndex = -1;
-					calculateTargetHighlights();
-					calculateHighlights();
-				}
+			// When PIECE_SELECTED is already active, only unselect if clicking own tile, never if clicking destination
+			if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y && playerAction != PIECE_SELECTED) {
+				selectedPieceGridX = controlledPlayer->x;
+				selectedPieceGridY = controlledPlayer->y;
+				playerAction = PIECE_SELECTED;
+				selectedCardIndex = -1;
+				calculateTargetHighlights();
+				calculateHighlights();
 				return;
 			}
 
@@ -24935,7 +25093,7 @@ void ofApp::startNewTurn() {
 
 	if (startingPlayer.health <= 0) skipTurn = true;
 
-if (!skipTurn && startingPlayer.isParalyzed && startingPlayer.sleepTurnsRemaining <= 0) {
+	if (!skipTurn && startingPlayer.isParalyzed && startingPlayer.sleepTurnsRemaining <= 0) {
 		std::vector<int> rawFlip;
 		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
@@ -26545,6 +26703,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		currentCardOutcome.cardType = CARD_GIANT_MAGIC_HAND;
 		currentCardOutcome.cardIndex = safeCardIdx;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
+		currentCardOutcome.apPaid = false; // Ensures card is consumed and discarded in applyCardOutcomeEffects
 		beginEffectSequence();
 
 		glm::ivec2 casterPos(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
@@ -26847,9 +27006,9 @@ void ofApp::drawActiveCardInteractionUI() {
 	float scale = 1.0f;
 	g_menuAlphaMult = 1.0f;
 
-	// Do not scale the full screen for Renewed Inspiration (hand selection) or Amnesia deck view
+	// Do not scale/darken the screen for board tile targeting, Renewed Inspiration, or Amnesia deck view
 	bool isModalChoiceCard = (interactingCardType != CARD_RENEWED_INSPIRATION && !(interactingCardType == CARD_AMNESIA && !amnesiaDeckCopy.empty()));
-	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS || (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)) && isModalChoiceCard;
+	bool isAnimatedMenu = (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) && isModalChoiceCard;
 
 	if (isAnimatedMenu) {
 		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
@@ -27494,15 +27653,15 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.targetPos = glm::vec2(cardCenterX_anim, handCenterY_anim);
 		anim.endPos = anim.startPos;
 
+		float uiScale = getUIScaleFromHeight(ofGetHeight());
+		float normalCardW = kCardPixelWidth * 0.45f * uiScale;
 		if (hasDrawSourceRect) {
-			float animBaseW = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-			float animBaseH = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-			anim.startScale = std::max(0.05f, std::min(drawSourceRect.getWidth() / std::max(1.0f, animBaseW), drawSourceRect.getHeight() / std::max(1.0f, animBaseH)));
+			anim.startScale = std::max(0.05f, drawSourceRect.getWidth() / std::max(1.0f, normalCardW));
 		} else {
 			anim.startScale = pileCardScale;
 		}
 		anim.endScale = 1.0f;
-		anim.currentScale = anim.startScale; // start at deck display scale
+		anim.currentScale = anim.startScale;
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 		ofLogNotice("DrawDebug") << "drawCard(): pushed DrawCardAnimation ownerIndex=" << anim.ownerIndex << " card='" << newCard.name << "' startTime=" << anim.startTime;
@@ -28787,20 +28946,17 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toY = dest.y;
 			queueEffect(mv);
 
+			resumeTurnTimerIfPausedForOpponent(tgt);
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
-			resetCardInteraction();
+			resetCardInteraction(false);
+			resetCardState(); // Unblocks CARD_PLAY_STATE_TARGETING so the turn can advance
 			ghostRelocateChoices.clear();
 			ghostRelocateTargetIndex = -1;
 			opponentInteraction.open = false;
 
-			if (isHost() && currentPlayerIndex == tgt) {
-				InputCommandPacket endCmd = {};
-				endCmd.type = PKT_INPUT_COMMAND;
-				endCmd.playerID = myLocalPlayerID;
-				endCmd.commandId = 0;
-				endCmd.turnNumber = globalTurnCounter;
-				endCmd.commandType = CMD_END_TURN;
-				sendInputCommand(endCmd, true);
+			if (currentPlayerIndex == tgt) {
+				endTurnLocked = true;
+				requestStartNewTurn(); // Deterministically ends turn once MOVE_UNIT finishes on all peers
 			}
 
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
@@ -28829,10 +28985,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			resumeTurnTimerIfPausedForOpponent(tgt);
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
-			resetCardInteraction();
+			resetCardInteraction(false);
 			magicHandRelocateChoices.clear();
 			magicHandRelocateTargetIndex = -1;
 			opponentInteraction.open = false;
+
+			// Advance state machine so Giant Magic Hand resolves outcome, pays AP, discards, and returns to IDLE
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 
 			if (!isMultiplayer || (int)cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
@@ -30529,12 +30688,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 							isHumanVictim = true;
 						}
 
+						int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+						bool isLocalVictim = (victimOwner == localTeam);
+
 						if (isMultiplayer) {
-							pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
-							if (isHumanVictim) {
+							if (isLocalVictim) {
+								pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
 								updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
 								calculateTargetHighlights(-1);
 							} else {
+								// Clear caster targeting first, THEN pause turn timer and show opponent decision state
+								resetCardInteraction(false);
+								pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
 								opponentInteraction.open = true;
 								opponentInteraction.type = MENU_MAGIC_HAND_RELOCATE;
 								opponentInteraction.targetIndex = magicHandPushedUnitIndex;
@@ -30803,8 +30968,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 targetTile = currentCardOutcome.primaryTarget;
 			int rangeTotal = currentEffectSequence.blackboard[0];
 
-			// Magic bolt ignores cover (goes through walls/units) until it reaches range.
-			// Use the same direct distance threshold as the UI instead of a Bresenham step-length check.
+			// Magic Bolt initial beam penetrates cover/walls to reach the target tile
 			glm::ivec2 impactTile = getSpellImpactTile(casterTile, targetTile, rangeTotal, true, CARD_MAGIC_BOLT);
 			currentCardOutcome.primaryTarget = impactTile;
 
@@ -30846,7 +31010,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			if (targetIdx != -1) {
-				// Only roll primary damage if we scored a direct hit
 				int primaryDamage = currentEffectSequence.blackboard[1];
 				std::vector<int> rawPrimary = { currentEffectSequence.blackboard[3] };
 				queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
@@ -30874,7 +31037,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 
-			// Direct hit deals 1d20 Magic damage
+			// 1. Direct hit deals 1d20 Magic damage
 			if (directHitIdx >= 0) {
 				EffectOp res = {};
 				res.type = EffectOpType::APPLY_GENERIC_DAMAGE;
@@ -30885,23 +31048,19 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueEffect(res);
 			}
 
-			// Check if any valid targets exist in the 1d20 ft AOE (blocked by walls/units)
+			// 2. Check targets in 1d20 ft AoE using exact spell range & LOS rules (walls/units block, gap rule, diagonal pinches)
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
 			bool hasAoeTargets = false;
+			glm::vec2 impactTileF((float)impactTile.x, (float)impactTile.y);
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.x == impactTile.x && p.y == impactTile.y) continue;
-				if (p.health <= 0 || board[p.x][p.y].hasWall) continue; // Units in walls protected
+				if (p.health <= 0 || board[p.x][p.y].hasWall) continue;
 
-				// Radial distance from center of impact tile
-				float dx = std::max(0.0f, std::abs((float)(p.x - impactTile.x)) - 0.5f) * 5.0f;
-				float dy = std::max(0.0f, std::abs((float)(p.y - impactTile.y)) - 0.5f) * 5.0f;
-				float distFeet = std::sqrt(dx * dx + dy * dy);
-
-				if (distFeet <= (float)aoeRadiusFeet) {
-					// AOE IS BLOCKED: Check LOS from impact tile (blocked by walls and units)
-					auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)p.x, (float)p.y), CARD_FIREBALL);
+				glm::vec2 pTileF((float)p.x, (float)p.y);
+				if (getRequiredRollForDistance(impactTileF, pTileF) <= aoeRadiusFeet) {
+					auto los = getClearLosRay(impactTileF, pTileF, CARD_FIREBALL);
 					if (los.hasLos) {
 						hasAoeTargets = true;
 						break;
@@ -30929,94 +31088,29 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			break;
 		} else if (step == 4) {
 			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
-			std::vector<int> aoeTargets;
 			glm::ivec2 impactTile = currentCardOutcome.primaryTarget;
+			glm::vec2 impactTileF((float)impactTile.x, (float)impactTile.y);
 
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.x == impactTile.x && p.y == impactTile.y) continue;
-				if (p.health <= 0 || board[p.x][p.y].hasWall) continue; // Cannot hit units inside walls
+				if (p.health <= 0 || board[p.x][p.y].hasWall) continue;
 
-				float dx = std::max(0.0f, std::abs((float)(p.x - impactTile.x)) - 0.5f) * 5.0f;
-				float dy = std::max(0.0f, std::abs((float)(p.y - impactTile.y)) - 0.5f) * 5.0f;
-				float distFeet = std::sqrt(dx * dx + dy * dy);
-
-				if (distFeet <= (float)aoeRadiusFeet) {
-					// AOE IS BLOCKED: Blocked by walls and intervening units
-					auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)p.x, (float)p.y), CARD_FIREBALL);
+				glm::vec2 pTileF((float)p.x, (float)p.y);
+				if (getRequiredRollForDistance(impactTileF, pTileF) <= aoeRadiusFeet) {
+					auto los = getClearLosRay(impactTileF, pTileF, CARD_FIREBALL);
 					if (los.hasLos) {
-						aoeTargets.push_back((int)i);
+						EffectOp aoeDmg = {};
+						aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
+						aoeDmg.data.damage.targetIndex = (int)i;
+						aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
+						aoeDmg.data.damage.fixedDamage = 3;
+						aoeDmg.data.damage.damageFromSlot = -1;
+						queueEffect(aoeDmg);
 					}
 				}
 			}
 
-			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
-				int pidx = aoeTargets[idx];
-				EffectOp aoeDmg = {};
-				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
-				aoeDmg.data.damage.targetIndex = pidx;
-				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
-				aoeDmg.data.damage.fixedDamage = 3;
-				aoeDmg.data.damage.damageFromSlot = -1;
-				queueEffect(aoeDmg);
-			}
-			opComplete = true;
-			break;
-		} else if (step == 4) {
-			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
-			std::vector<int> aoeTargets;
-
-			long long maxAoeDistSqScaled = (long long)aoeRadiusFeet * (long long)aoeRadiusFeet * 4LL;
-			glm::vec2 impactTileFloat((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y);
-			glm::vec2 impactCenter = impactTileFloat + 0.5f;
-
-			for (size_t i = 0; i < players.size(); ++i) {
-				Player & p = players[i];
-				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-				if (board[p.x][p.y].hasWall) continue; // AoE wall immunity
-
-				glm::vec2 targetTile((float)p.x, (float)p.y);
-				long long distSq = getFaceToFaceDistanceSquaredScaled(impactTileFloat, targetTile);
-
-				// SECURITY FIX: Add +4LL leniency to splash damage targets
-				if (distSq * 25LL <= maxAoeDistSqScaled + 4LL) {
-					bool blockedByWall = false;
-					int pDx = std::abs(p.x - currentCardOutcome.primaryTarget.x);
-					int pDy = std::abs(p.y - currentCardOutcome.primaryTarget.y);
-					if (pDx == 1 && pDy == 1) {
-						// Diagonal pinch rule: blocked only if both side tiles are walls
-						bool wall1 = isTileWall(currentCardOutcome.primaryTarget.x + (p.x - currentCardOutcome.primaryTarget.x), currentCardOutcome.primaryTarget.y);
-						bool wall2 = isTileWall(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y + (p.y - currentCardOutcome.primaryTarget.y));
-						if (wall1 && wall2) {
-							blockedByWall = true;
-						}
-					} else {
-						// Standard line of sight pathing for non-diagonal tiles
-						auto losPath = getLineOfSightPath(impactCenter, glm::vec2(p.x + 0.5f, p.y + 0.5f));
-						for (const auto & stepP : losPath) {
-							if ((int)stepP.x == currentCardOutcome.primaryTarget.x && (int)stepP.y == currentCardOutcome.primaryTarget.y) continue;
-							if ((int)stepP.x == p.x && (int)stepP.y == p.y) break;
-							if (isTileWall((int)stepP.x, (int)stepP.y)) {
-								blockedByWall = true;
-								break;
-							}
-						}
-					}
-					if (!blockedByWall) aoeTargets.push_back((int)i);
-				}
-			}
-
-			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
-				int pidx = aoeTargets[idx];
-
-				EffectOp aoeDmg = {};
-				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
-				aoeDmg.data.damage.targetIndex = pidx;
-				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
-				aoeDmg.data.damage.fixedDamage = 3;
-				aoeDmg.data.damage.damageFromSlot = -1;
-				queueEffect(aoeDmg);
-			}
 			opComplete = true;
 			break;
 		}
@@ -31087,11 +31181,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int dx = std::abs(p.x - impactTile.x);
 				int dy = std::abs(p.y - impactTile.y);
 				if (dx <= 1 && dy <= 1) {
-					bool blocked = false;
-					if (dx == 1 && dy == 1 && isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y) && isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y))) {
-						blocked = true;
-					}
-					if (!blocked) {
+					if (getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)p.x, (float)p.y), CARD_NONE).hasLos) {
 						hasAnyTarget = true;
 						break;
 					}
@@ -31124,6 +31214,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int dmg = currentEffectSequence.blackboard[1];
 
 			std::vector<int> aoeTargets;
+			glm::vec2 impTileF = glm::vec2((float)impactTile.x, (float)impactTile.y);
+
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.health <= 0 || board[p.x][p.y].hasWall) continue;
@@ -31131,9 +31223,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int dx = std::abs(p.x - impactTile.x);
 				int dy = std::abs(p.y - impactTile.y);
 				if (dx <= 1 && dy <= 1) {
-					bool blocked = false;
-					if (dx == 1 && dy == 1 && isTileWall(impactTile.x + (p.x - impactTile.x), impactTile.y) && isTileWall(impactTile.x, impactTile.y + (p.y - impactTile.y))) blocked = true;
-					if (!blocked) {
+					if (getClearLosRay(impTileF, glm::vec2((float)p.x, (float)p.y), CARD_NONE).hasLos) {
 						aoeTargets.push_back((int)i);
 						if (p.x != impactTile.x || p.y != impactTile.y) {
 							glm::vec3 wStart = gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 0.5f, 0);
@@ -31149,7 +31239,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				EffectOp aoeDmg = {};
 				aoeDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				aoeDmg.data.damage.targetIndex = pidx;
-				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC; // Electric damage strictly
+				aoeDmg.data.damage.damageType = DAMAGE_ELECTRIC;
 				aoeDmg.data.damage.fixedDamage = dmg;
 				aoeDmg.data.damage.damageFromSlot = -1;
 				queueEffect(aoeDmg);
@@ -33827,8 +33917,9 @@ void ofApp::applyCardOutcomeEffects() {
 
 		completeCardPlayAnimation(playedCard, currentCardOutcome.casterIndex);
 
-		// Append the standardized 2.0s post-card visual linger
-		if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
+		// Append the standardized post-card visual linger only for abilities with visual trajectories
+		bool isInstantMenuCard = (playedCard.type == CARD_TRAIN || playedCard.type == CARD_RENEWED_INSPIRATION || playedCard.type == CARD_CONSTITUTION_BOON || playedCard.type == CARD_GIANT_MAGIC_HAND);
+		if (!isInstantMenuCard && cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) {
 			beginEffectSequence();
 			EffectOp lingerOp = {};
 			lingerOp.type = EffectOpType::WAIT_VISUAL;
@@ -34251,7 +34342,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	// =========================================================
 
 	// Add tracer visuals for generic ranged abilities
-	bool wantsTracer = (playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE || playedCard.targeting == TARGET_ANY_TILE || playedCard.rangeDiceNum > 0) && playedCard.damageType != DAMAGE_PHYSICAL && playedCard.type != CARD_HEAL && playedCard.type != CARD_LESSER_HEAL && playedCard.type != CARD_BURST_OF_LIGHT && playedCard.type != CARD_TELEPORT;
+	bool isMeleeOrSelf = (playedCard.targeting == TARGET_SELF || playedCard.targeting == TARGET_NONE || playedCard.targeting == TARGET_ADJACENT_UNIT || playedCard.targeting == TARGET_ADJACENT_UNIT_OR_WALL || playedCard.targeting == TARGET_ADJACENT_OR_SELF_UNIT || playedCard.targeting == TARGET_CLEAVE_ADJACENT);
+	bool wantsTracer = !isMeleeOrSelf && (playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE || playedCard.targeting == TARGET_ANY_TILE || playedCard.rangeDiceNum > 0) && playedCard.type != CARD_HEAL && playedCard.type != CARD_LESSER_HEAL && playedCard.type != CARD_BURST_OF_LIGHT && playedCard.type != CARD_TELEPORT;
 
 	if (wantsTracer) {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
@@ -34529,17 +34621,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		glm::vec2 pos1 = { currentPlayer.x + dir.x, currentPlayer.y + dir.y };
 		glm::vec2 pos2 = { currentPlayer.x + dir.x * 2.0f, currentPlayer.y + dir.y * 2.0f };
 
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
-				currentCardOutcome.attackTargetIndices.push_back((int)i);
-				break;
-			}
-		}
 		if (!isTileWall((int)pos1.x, (int)pos1.y)) {
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
 					currentCardOutcome.attackTargetIndices.push_back((int)i);
 					break;
+				}
+			}
+			if (!isTileWall((int)pos2.x, (int)pos2.y)) {
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+						currentCardOutcome.attackTargetIndices.push_back((int)i);
+						break;
+					}
 				}
 			}
 		}
@@ -34547,8 +34641,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	if (playedCard.targeting != TARGET_NONE && playedCard.type != CARD_TELEPORT) {
 		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
-		if (rangeDiceNum > 0 && rangeDiceSides > 0) {
-			float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
+		if ((rangeDiceNum > 0 && rangeDiceSides > 0) || playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE) {
+			float maxRangeFeet = (rangeDiceNum > 0 && rangeDiceSides > 0) ? (float)(rangeDiceNum * rangeDiceSides) : 9999.0f;
 			if (playedCard.type == CARD_MAGIC_BOLT) {
 				float maxAoeFeet = (playedCard.aoeRadiusDiceNum > 0 && playedCard.aoeRadiusDiceSides > 0) ? (float)(playedCard.aoeRadiusDiceNum * playedCard.aoeRadiusDiceSides) : 20.0f;
 				maxRangeFeet += maxAoeFeet;
@@ -36599,15 +36693,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				int tx = currentPlayer.x + dx;
 				int ty = currentPlayer.y + dy;
 				if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
-				bool blocked = false;
-				if (board[tx][ty].hasWall) blocked = true;
-				if (!blocked && abs(dx) == 1 && abs(dy) == 1) {
+				if (board[tx][ty].hasWall || !board[tx][ty].hasPlayer) continue;
+
+				// Melee rule: only walls block swings. Diagonals are blocked if both corner pinch tiles are walls.
+				if (abs(dx) == 1 && abs(dy) == 1) {
 					if (isTileWall(currentPlayer.x + dx, currentPlayer.y) && isTileWall(currentPlayer.x, currentPlayer.y + dy)) {
-						blocked = true;
+						continue; // Corner pinch blocked by walls!
 					}
 				}
-				if (blocked) continue;
-				if (board[tx][ty].hasPlayer) hasFlailTarget = true;
+
+				hasFlailTarget = true;
 			}
 		}
 		if (!hasFlailTarget) {
@@ -36647,14 +36742,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					int ty = currentPlayer.y + dy;
 					if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
 					if (std::max(abs(dx), abs(dy)) != 1) continue;
-					bool blocked = false;
-					if (board[tx][ty].hasWall) blocked = true;
-					if (!blocked && abs(dx) == 1 && abs(dy) == 1) {
-						if (isTileWall(currentPlayer.x + dx, currentPlayer.y) && isTileWall(currentPlayer.x, currentPlayer.y + dy)) {
-							blocked = true;
-						}
-					}
-					if (blocked || !board[tx][ty].hasPlayer) continue;
+					if (!board[tx][ty].hasPlayer) continue;
+					if (isMeleePathBlockedByWalls(currentPlayer.x, currentPlayer.y, tx, ty)) continue;
+
 					int targetIdx = -1;
 					for (size_t i = 0; i < players.size(); ++i) {
 						if (players[i].x == tx && players[i].y == ty) {
@@ -37110,6 +37200,26 @@ ofVec2f ofApp::mouseToBoard(int x, int y) {
 }
 
 //--------------------------------------------------------------
+bool ofApp::isMeleePathBlockedByWalls(int cx, int cy, int tx, int ty) {
+	if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return true;
+	if (isTileWall(tx, ty)) return true; // Target tile is a wall
+
+	int dx = tx - cx;
+	int dy = ty - cy;
+
+	// Orthogonal attacks (N, S, E, W): never blocked by corners
+	if (dx == 0 || dy == 0) return false;
+
+	// Diagonal attacks: blocked ONLY if BOTH shared corner neighbors are solid walls
+	if (std::abs(dx) == 1 && std::abs(dy) == 1) {
+		if (isTileWall(cx + dx, cy) && isTileWall(cx, cy + dy)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+//--------------------------------------------------------------
 void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	// 1. Reset Board
 	for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -37545,24 +37655,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								long long pDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y));
 
 								if (pDistSq * 25LL <= aoeDistSqScaled) {
-									bool blockedByWall = false;
-									int pDx = std::abs(players[i].x - impactTile.x);
-									int pDy = std::abs(players[i].y - impactTile.y);
-									if (pDx == 1 && pDy == 1) {
-										// Diagonal pinch rule: blocked only if both side tiles are walls
-										bool wall1 = isTileWall(impactTile.x + (players[i].x - impactTile.x), impactTile.y);
-										bool wall2 = isTileWall(impactTile.x, impactTile.y + (players[i].y - impactTile.y));
-										if (wall1 && wall2) {
-											blockedByWall = true;
-										}
-									} else {
-										// Standard line of sight pathing for non-diagonal tiles
-										auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y), card.type);
-										if (!los.hasLos) {
-											blockedByWall = true;
-										}
-									}
-									if (!blockedByWall) {
+									// CARD_NONE enforces normal spell LOS (walls/units block, diagonal pinches, and gap rule)
+									auto los = getClearLosRay(glm::vec2((float)impactTile.x, (float)impactTile.y), glm::vec2((float)players[i].x, (float)players[i].y), CARD_NONE);
+									if (los.hasLos) {
 										hitsSomeone = true;
 										break;
 									}
@@ -37667,40 +37762,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 		}
 
-		// Start expanding AOE ring animation for Magic Bolt
-		if (card.type == CARD_MAGIC_BOLT) {
-			// Find first valid target to use as center for AOE preview
-			glm::ivec2 aoeCenterTile(-1, -1);
-			for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
-				for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-					if (board[tx][ty].isTargetable) {
-						aoeCenterTile = { tx, ty };
-						break;
-					}
-				}
-				if (aoeCenterTile.x >= 0) break;
-			}
-
-			// If we have a valid target, spawn a new preview ring on the 2-second cadence.
-			if (aoeCenterTile.x >= 0) {
-				float now = ofGetElapsedTimef();
-				if (now - lastMagicBoltAOERingSpawnTime >= 2.0f) {
-					ExpandingAOERing ring;
-					ring.centerTile = aoeCenterTile;
-					// Derive radius from the active card's AOE dice if available
-					if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
-						ring.maxRadiusFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
-					} else {
-						ring.maxRadiusFeet = 20; // fallback (1d20)
-					}
-					ring.startTime = now;
-					ring.duration = 1.5f;
-					ring.cardType = card.type;
-					activeMagicBoltAOERings.push_back(ring);
-					lastMagicBoltAOERingSpawnTime = now;
-				}
-			}
-		}
+		// Live hover AoE ring rendering is handled directly per-frame in drawExpandingAOERings()
 
 		return; // we've set previews for these cards; skip generic logic
 	}
@@ -37800,23 +37862,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					int dx = x - px;
 					int dy = y - py;
 
-					// 1. Check Neighbors
 					if (std::max(abs(dx), abs(dy)) == 1) {
-						bool blocked = false;
-
-						if (board[x][y].hasWall) blocked = true;
-
-						// Diagonal Pinch Check
-						if (!blocked && abs(dx) == 1 && abs(dy) == 1) {
-							if (isTileWall(px + dx, py) && isTileWall(px, py + dy)) {
-								blocked = true;
-							}
-						}
-
-						if (!blocked) {
-							isPreview = true; // Red Square on ground
+						if (!isMeleePathBlockedByWalls(px, py, x, y)) {
+							isPreview = true;
 							if (board[x][y].hasPlayer) {
-								isValidTarget = true; // Green Outline for enemies
+								isValidTarget = true;
 							}
 						}
 					}
@@ -38311,51 +38361,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 	}
 
-	// Start expanding AOE ring animation for Psionic Wave and Magic Bolt
-	if (activeCardIndex >= 0 && activeCardIndex < (int)currentPlayer.hand.size()) {
-		Card & card = currentPlayer.hand[activeCardIndex];
-		if (card.type == CARD_PSIONIC_WAVE) {
-			activeAOERing.centerTile = { (int)currentPlayer.x, (int)currentPlayer.y };
-			activeAOERing.maxRadiusFeet = 40; // Max AOE radius (2d20)
-			activeAOERing.startTime = ofGetElapsedTimef();
-			activeAOERing.duration = 1.5f;
-			activeAOERing.cardType = CARD_PSIONIC_WAVE;
-		} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
-			glm::ivec2 hoverTile = { (int)mouseTile.x, (int)mouseTile.y };
-			if (hoverTile.x >= 0 && hoverTile.x < BOARD_WIDTH && hoverTile.y >= 0 && hoverTile.y < BOARD_HEIGHT && board[hoverTile.x][hoverTile.y].isTargetPreview) {
+	// Hover AoE preview rings are computed live on hover inside drawExpandingAOERings()
 
-				// Calculate the actual impact tile for the preview ring (in case it fell short and hit a wall)
-				glm::vec2 cPos((float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f);
-				glm::vec2 tPos((float)hoverTile.x + 0.5f, (float)hoverTile.y + 0.5f);
-				glm::ivec2 impactTile = hoverTile;
-				auto [rNum, rSides] = getCardRangeDice(card, card.numDice, card.diceSides);
-				long long maxRangeHalfTiles = ((long long)(rNum * rSides) * 2LL) / 5LL;
-				long long neededDistSq = getFaceToFaceDistanceSquaredScaled(cPos, tPos);
-				if (neededDistSq > maxRangeHalfTiles * maxRangeHalfTiles) {
-					glm::vec2 dir = tPos - cPos;
-					float len = glm::length(dir);
-					if (len > 0.001f) {
-						dir /= len;
-						glm::vec2 impactPos = getTileEdgeOrigin(cPos, tPos) + dir * (((float)maxRangeHalfTiles / 2.0f) + 0.001f);
-						impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
-					}
-				}
-
-				bool centerChanged = (activeAOERing.centerTile != impactTile) || (activeAOERing.cardType != CARD_MAGIC_BOLT);
-				activeAOERing.centerTile = impactTile;
-				if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
-					activeAOERing.maxRadiusFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
-				} else {
-					activeAOERing.maxRadiusFeet = 20;
-				}
-				if (centerChanged) {
-					activeAOERing.startTime = ofGetElapsedTimef();
-				}
-				activeAOERing.duration = 1.5f;
-				activeAOERing.cardType = CARD_MAGIC_BOLT;
-			}
-		}
-	}
 	// --- PURGE HIGHLIGHT FILTERING ---
 	// When Dispel is in Purge mode, only highlight targets that have active statuses
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DISPEL && interactionMenuChoice == "Purge") {
@@ -38871,7 +38878,7 @@ std::string ofApp::buildSnapshotString() {
 		}
 	}
 
-	ss << "MODIFIERS\t" << (g_modifierFogOfWar ? 1 : 0) << "\t" << (g_modifierCustomMaxHP ? 1 : 0) << "\t" << g_customStartingMaxHP << "\n";
+	ss << "MODIFIERS\t" << (g_modifierFogOfWar ? 1 : 0) << "\t" << (g_modifierCustomMaxHP ? 1 : 0) << "\t" << g_customStartingMaxHP << "\t" << (g_modifierExperimentalBalancing ? 1 : 0) << "\n";
 
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)syncState
@@ -39449,6 +39456,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 					g_modifierCustomMaxHP = (std::stoi(parts[2]) != 0);
 					g_customStartingMaxHP = std::clamp(std::stoi(parts[3]), 1, 99);
 				}
+				g_modifierExperimentalBalancing = (parts.size() >= 5) ? (std::stoi(parts[4]) != 0) : false;
 			} else if (parts[0] == "BOARD" && parts.size() >= 3) {
 				const std::string & walls = parts[1];
 				const std::string & magicWalls = parts[2];
@@ -40576,7 +40584,7 @@ bool ofApp::hasAssistantRerollAvailable(int playerIndex, int atX, int atY) {
 	int ownerID = curr.isMinion ? curr.ownerID : curr.playerID;
 
 	for (const auto & p : players) {
-		if (p.isAssistant && p.health > 0 && p.directSummonerID == ownerID && !p.assistantRerollUsedThisTurn) {
+		if (p.isAssistant && p.health > 0 && (p.directSummonerID == curr.playerID || p.directSummonerID == ownerID) && !p.assistantRerollUsedThisTurn) {
 			int dist = std::abs(p.x - atX) + std::abs(p.y - atY);
 			if (dist <= 1) {
 				return true;
@@ -41652,56 +41660,181 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 
 //--------------------------------------------------------------
 void ofApp::drawExpandingAOERings(float surfaceY) {
-	// Draw expanding ring visualization for Magic Bolt / Psionic Wave previews
-	// Rings expand from the center tile outward based on elapsed time
-	auto drawOneRing = [&](const ExpandingAOERing & ring) {
-		float elapsed = ofGetElapsedTimef() - ring.startTime;
-		if (elapsed > ring.duration) return;
+	if (disableAllGlow) return;
+	if (players.empty() || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 
-		float progress = elapsed / ring.duration;
-		float currentRadiusFeet = 1.0f + (progress * (ring.maxRadiusFeet - 1.0f));
+	// Helper to draw joined outlines inset inwards from tile edges so AoE never overlaps green borders
+	auto drawInsetJoinedOutlines = [&](bool mask[BOARD_WIDTH][BOARD_HEIGHT], ofColor color, float surfY, float inset) {
+		ofPushStyle();
+		ofFill();
+		ofSetColor(color);
+		ofEnableDepthTest();
 
-		std::vector<glm::ivec2> affectedTiles;
+		float thickness = TILE_SIZE * 0.08f;
+		float halfThick = thickness * 0.5f;
+		float outerHalf = TILE_SIZE * 0.5f;
+		float innerHalf = std::max(0.05f, outerHalf - inset);
+
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				float centerDistFeet = glm::distance(glm::vec2(ring.centerTile.x + 0.5f, ring.centerTile.y + 0.5f), glm::vec2((float)x + 0.5f, (float)y + 0.5f)) * 5.0f;
-				float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-				int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
+				if (!mask[x][y]) continue;
 
-				// For Psionic Wave, ignore LOS (walls don't block ring). For Magic Bolt, we check LOS elsewhere,
-				// but visually the expanding ring passing through walls is fine/looks cool.
-				if (neededFeet <= (int)currentRadiusFeet) {
-					affectedTiles.push_back({ x, y });
+				glm::vec3 worldPos = gridToWorld(x, y);
+				float height = board[x][y].hasWall ? (TILE_SIZE * 0.5f + 0.09f) : (surfY + 0.045f);
+
+				bool drawTop = (y == 0 || !mask[x][y - 1]);
+				bool drawBottom = (y == BOARD_HEIGHT - 1 || !mask[x][y + 1]);
+				bool drawLeft = (x == 0 || !mask[x - 1][y]);
+				bool drawRight = (x == BOARD_WIDTH - 1 || !mask[x + 1][y]);
+
+				float topEdge = drawTop ? -innerHalf : -outerHalf;
+				float bottomEdge = drawBottom ? innerHalf : outerHalf;
+				float leftEdge = drawLeft ? -innerHalf : -outerHalf;
+				float rightEdge = drawRight ? innerHalf : outerHalf;
+
+				ofPushMatrix();
+				ofTranslate(worldPos.x, height, worldPos.z);
+				ofRotateXDeg(90);
+
+				if (drawTop) {
+					ofDrawRectangle(leftEdge - halfThick, topEdge - halfThick, (rightEdge - leftEdge) + thickness, thickness);
 				}
+				if (drawBottom) {
+					ofDrawRectangle(leftEdge - halfThick, bottomEdge - halfThick, (rightEdge - leftEdge) + thickness, thickness);
+				}
+				if (drawLeft) {
+					ofDrawRectangle(leftEdge - halfThick, topEdge - halfThick, thickness, (bottomEdge - topEdge) + thickness);
+				}
+				if (drawRight) {
+					ofDrawRectangle(rightEdge - halfThick, topEdge - halfThick, thickness, (bottomEdge - topEdge) + thickness);
+				}
+
+				ofPopMatrix();
+			}
+		}
+		safePopStyle();
+	};
+
+	auto drawRepeatingRing = [&](glm::ivec2 centerTile, int maxRadiusFeet, CardType cType, float duration, float startTimeOverride = -1.0f) {
+		float now = ofGetElapsedTimef();
+		float progress = (startTimeOverride >= 0.0f)
+			? std::clamp((now - startTimeOverride) / duration, 0.0f, 1.0f)
+			: std::fmod(now, duration) / duration;
+
+		float currentRadiusFeet = 1.0f + (progress * std::max(0.0f, (float)(maxRadiusFeet - 1)));
+		bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
+		memset(highlightedTiles, 0, sizeof(highlightedTiles));
+
+		bool anyTile = false;
+		glm::vec2 centerF((float)centerTile.x, (float)centerTile.y);
+
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				if (cType != CARD_PSIONIC_WAVE && board[x][y].hasWall) continue;
+
+				if (cType == CARD_CHAIN_LIGHTNING) {
+					int dx = std::abs(x - centerTile.x);
+					int dy = std::abs(y - centerTile.y);
+					float stepDist = (float)std::max(dx, dy);
+					if (stepDist > progress * 1.35f || dx > 1 || dy > 1) continue;
+					if (!getClearLosRay(centerF, glm::vec2((float)x, (float)y), CARD_FIREBALL).hasLos) continue;
+				} else if (cType == CARD_MAGIC_BLAST) {
+					int dist = std::abs(x - centerTile.x) + std::abs(y - centerTile.y);
+					if ((float)dist > progress * 1.35f || dist > 1) continue;
+					if (!getClearLosRay(centerF, glm::vec2((float)x, (float)y), CARD_FIREBALL).hasLos) continue;
+				} else {
+					int neededFeet = (x == centerTile.x && y == centerTile.y) ? 0 : getRequiredRollForDistance(centerF, glm::vec2((float)x, (float)y));
+					if (neededFeet > (int)currentRadiusFeet) continue;
+
+					// Magic Bolt AoE obeys full spell LOS & Gap Rule; Psionic Wave ignores walls
+					if (cType == CARD_MAGIC_BOLT) {
+						if (!getClearLosRay(centerF, glm::vec2((float)x, (float)y), CARD_FIREBALL).hasLos) continue;
+					}
+				}
+
+				highlightedTiles[x][y] = true;
+				anyTile = true;
 			}
 		}
 
-		if (!affectedTiles.empty()) {
-			bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
-			memset(highlightedTiles, 0, sizeof(highlightedTiles));
-			for (const auto & tile : affectedTiles) {
-				highlightedTiles[tile.x][tile.y] = true;
-			}
-
-			float alpha = 200.0f * (1.0f - progress);
-			ofColor ringColor(100, 200, 255, (int)alpha);
-			drawJoinedOutlines(highlightedTiles, ringColor, surfaceY);
+		if (anyTile) {
+			float fade = (progress < 0.15f) ? (progress / 0.15f) : (1.0f - ((progress - 0.15f) / 0.85f));
+			int alpha = (int)std::clamp(235.0f * fade, 40.0f, 235.0f);
+			ofColor aoeOrange(255, 145, 20, alpha);
+			drawInsetJoinedOutlines(highlightedTiles, aoeOrange, surfaceY, TILE_SIZE * 0.16f);
 		}
 	};
 
-	if (disableAllGlow) return;
+	// 1. Live Hover AoE Preview (only appears while hovering over a valid tile on the board)
+	Player & currentPlayer = players[currentPlayerIndex];
+	int activeCardIdx = -1;
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+		activeCardIdx = interactingCardIndex;
+	else if (draggedCardIndex != -1)
+		activeCardIdx = draggedCardIndex;
+	else if (selectedCardIndex != -1)
+		activeCardIdx = selectedCardIndex;
+	else
+		activeCardIdx = hoveredCardIndex;
 
-	if (activeAOERing.centerTile.x >= 0 && activeAOERing.centerTile.y >= 0) {
-		drawOneRing(activeAOERing);
+	if (activeCardIdx >= 0 && activeCardIdx < (int)currentPlayer.hand.size() && isCurrentPlayerLocal()) {
+		const Card & card = currentPlayer.hand[activeCardIdx];
+		bool isHoverAoeCard = (card.type == CARD_MAGIC_BOLT || card.type == CARD_PSIONIC_WAVE || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST);
+
+		if (isHoverAoeCard) {
+			ofVec2f mouseBoard = mouseToBoard(ofGetMouseX(), ofGetMouseY());
+			int hx = (int)floor(mouseBoard.x);
+			int hy = (int)floor(mouseBoard.y);
+
+			if (hx >= 0 && hx < BOARD_WIDTH && hy >= 0 && hy < BOARD_HEIGHT) {
+				if (board[hx][hy].isTargetPreview || board[hx][hy].isTargetable) {
+					glm::ivec2 aoeOrigin(hx, hy);
+					int maxRadius = 20;
+
+					if (card.type == CARD_PSIONIC_WAVE) {
+						aoeOrigin = glm::ivec2(currentPlayer.x, currentPlayer.y);
+						maxRadius = 40;
+					} else if (card.type == CARD_MAGIC_BOLT) {
+						// If hovered tile exceeds 40ft bolt range, anchor the AoE at the 40ft impact tile along the ray
+						glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
+						glm::vec2 tPos((float)hx, (float)hy);
+						auto [rNum, rSides] = getCardRangeDice(card, 2, 20);
+						if (rNum <= 0 || rSides <= 0) {
+							rNum = 2;
+							rSides = 20;
+						}
+						float maxBoltRange = (float)(rNum * rSides);
+						if ((float)getRequiredRollForDistance(cPos, tPos) > maxBoltRange) {
+							glm::vec2 cCenter = cPos + 0.5f;
+							glm::vec2 tCenter = tPos + 0.5f;
+							glm::vec2 dir = tCenter - cCenter;
+							float len = glm::length(dir);
+							if (len > 0.001f) {
+								dir /= len;
+								glm::vec2 rayStart = cCenter + dir * (0.5f / std::max(std::abs(dir.x), std::abs(dir.y)));
+								glm::vec2 shortPt = rayStart + dir * ((maxBoltRange / 5.0f) + 0.001f);
+								aoeOrigin = glm::ivec2((int)floor(shortPt.x), (int)floor(shortPt.y));
+							}
+						}
+						maxRadius = (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) ? (card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 20;
+					}
+
+					if (aoeOrigin.x >= 0 && aoeOrigin.x < BOARD_WIDTH && aoeOrigin.y >= 0 && aoeOrigin.y < BOARD_HEIGHT) {
+						drawRepeatingRing(aoeOrigin, maxRadius, card.type, 1.35f);
+					}
+				}
+			}
+		}
 	}
 
+	// 2. Active Cast-Time Rings (e.g., when Psionic Wave is cast)
 	for (auto it = activeMagicBoltAOERings.begin(); it != activeMagicBoltAOERings.end();) {
 		float elapsed = ofGetElapsedTimef() - it->startTime;
 		if (elapsed > it->duration) {
 			it = activeMagicBoltAOERings.erase(it);
 			continue;
 		}
-		drawOneRing(*it);
+		drawRepeatingRing(it->centerTile, it->maxRadiusFeet, static_cast<CardType>(it->cardType), it->duration, it->startTime);
 		++it;
 	}
 }
@@ -42205,9 +42338,11 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 	int stepX = (dx > 0) ? 1 : ((dx < 0) ? -1 : 0);
 	int stepY = (dy > 0) ? 1 : ((dy < 0) ? -1 : 0);
 
-	// DDA Math: Perfectly tracks which tile borders we cross
-	float tMaxX = (stepX != 0) ? (floor(rayStart.x) + (stepX > 0 ? 1.0f : 0.0f) - rayStart.x) / std::abs(dx) : FLT_MAX;
-	float tMaxY = (stepY != 0) ? (floor(rayStart.y) + (stepY > 0 ? 1.0f : 0.0f) - rayStart.y) / std::abs(dy) : FLT_MAX;
+	// DDA Math: Perfectly tracks which tile borders we cross (always positive distance to next border)
+	float tMaxX = (stepX > 0) ? (floor(rayStart.x) + 1.0f - rayStart.x) / std::abs(dx)
+							  : ((stepX < 0) ? (rayStart.x - floor(rayStart.x)) / std::abs(dx) : FLT_MAX);
+	float tMaxY = (stepY > 0) ? (floor(rayStart.y) + 1.0f - rayStart.y) / std::abs(dy)
+							  : ((stepY < 0) ? (rayStart.y - floor(rayStart.y)) / std::abs(dy) : FLT_MAX);
 
 	float tDeltaX = (stepX != 0) ? 1.0f / std::abs(dx) : FLT_MAX;
 	float tDeltaY = (stepY != 0) ? 1.0f / std::abs(dy) : FLT_MAX;
@@ -42429,15 +42564,15 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 					break;
 				}
 
-				// 2. THE GAP RULE (Restored): If a tile is a 1-tile choke between obstacles, line of sight must be axis-aligned
+				// 2. THE GAP RULE: If a tile is a 1-tile choke between obstacles, BOTH origin and target must align straight
 				bool horizGap = isObstacle(gx, gy - 1) && isObstacle(gx, gy + 1);
 				bool vertGap = isObstacle(gx - 1, gy) && isObstacle(gx + 1, gy);
 
-				if (horizGap && ty != gy) {
+				if (horizGap && (ty != gy || cy != gy)) {
 					blocked = true;
 					break;
 				}
-				if (vertGap && tx != gx) {
+				if (vertGap && (tx != gx || cx != gx)) {
 					blocked = true;
 					break;
 				}
@@ -42542,20 +42677,21 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 				for (size_t i = 0; i < players.size(); ++i) {
 					if (casterIndexForSelfChecks >= 0 && (int)i == casterIndexForSelfChecks) continue; // Cannot validate on self
 					if (players[i].health <= 0) continue;
+
+					// Direct hit on the target tile itself (even if unit is inside a wall)
+					if (players[i].x == (int)targetTile.x && players[i].y == (int)targetTile.y) {
+						hasTargetInAoe = true;
+						break;
+					}
+
+					// AoE splash cannot hit units inside walls
+					if (board[players[i].x][players[i].y].hasWall) continue;
+
 					long long distSq = getFaceToFaceDistanceSquaredScaled(targetTile, glm::vec2((float)players[i].x, (float)players[i].y));
-					// SECURITY FIX: Add +4LL leniency for AOE splash calculations
 					if (distSq * 25LL <= maxAoeDistSqScaled + 4LL) {
-						auto innerLosPath = getLineOfSightPath(targetTile + 0.5f, glm::vec2((float)players[i].x + 0.5f, (float)players[i].y + 0.5f));
-						bool blockedByWall = false;
-						for (const auto & stepP : innerLosPath) {
-							if ((int)stepP.x == (int)targetTile.x && (int)stepP.y == (int)targetTile.y) continue;
-							if ((int)stepP.x == players[i].x && (int)stepP.y == players[i].y) break;
-							if (isTileWall((int)stepP.x, (int)stepP.y)) {
-								blockedByWall = true;
-								break;
-							}
-						}
-						if (!blockedByWall) {
+						// CARD_NONE runs standard spell LOS (walls/units, diagonal pinches, and gap rule)
+						auto los = getClearLosRay(targetTile, glm::vec2((float)players[i].x, (float)players[i].y), CARD_NONE);
+						if (los.hasLos) {
 							hasTargetInAoe = true;
 							break;
 						}
@@ -42569,7 +42705,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 						int nx = (int)targetTile.x + dx;
 						int ny = (int)targetTile.y + dy;
-						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && board[nx][ny].hasPlayer) {
 							auto occs = getTileOccupants(nx, ny);
 							for (int o : occs) {
 								if (casterIndexForSelfChecks < 0 || o != casterIndexForSelfChecks) { // Must be someone other than caster
@@ -45199,8 +45335,8 @@ void ofApp::drawInitiativeRoll() {
 			std::string pName = getPlayerNameByID(pID);
 			ofColor pColor = getPlayerThemeColor(pID);
 
-			// Draw player name above their initiative die
-			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y - 12.0f, 0.75f, pColor, 2, ofColor(0, 0, 0, 255));
+			// Draw player name well above their initiative die to prevent overlapping
+			drawPixelTextCentered(titleFont, pName, screenPos.x, screenPos.y - 36.0f, 0.85f, pColor, 2, ofColor(0, 0, 0, 255));
 		}
 
 		// Draw Result Message once all dice stop
@@ -45230,6 +45366,17 @@ void ofApp::drawDraftScreen() {
 	int mx = ofGetMouseX();
 	int my = ofGetMouseY();
 
+	// Only darken the background if the draft cards are actually visible (respects the "Hide" toggle)
+	if (!s_draftCardsHidden) {
+		ofPushStyle();
+		ofDisableLighting();
+		ofDisableDepthTest();
+		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(0, 0, 0, 90); // Very light, soft dimming
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		safePopStyle();
+	}
+
 	if (draftOptions.empty()) {
 		if (draftEndScheduled) return;
 
@@ -45237,11 +45384,6 @@ void ofApp::drawDraftScreen() {
 		ofDisableLighting();
 		ofDisableDepthTest();
 		safeEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-		if (!s_draftCardsHidden) {
-			ofSetColor(0, 0, 0, 180);
-			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-		}
 
 		float boxW = std::min(540.0f, ofGetWidth() * 0.72f);
 		float boxH = 96.0f;
@@ -45337,15 +45479,12 @@ void ofApp::drawDraftScreen() {
 		}
 
 		float scale1080 = (float)ofGetHeight() / 1080.0f;
-		float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080) + (66.0f * uiScale);
+		float indicatorBottomY = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + (86.0f * scale1080);
 
-		ofRectangle headerMeasureBox = titleFont.getStringBoundingBox(header, 0, 0);
-		float fontHeightScaled = (headerMeasureBox.height > 0 ? headerMeasureBox.height : 36.0f) * scale;
-		float textTopMargin = 22.0f * uiScale;
-
-		float ty = indicatorBottomY + textTopMargin + fontHeightScaled;
-		float instrTy = ty + 48.0f * uiScale;
-		float classTy = instrTy + 44.0f * uiScale;
+		// Generous line spacing so header text, instructions, and tier title never overlap
+		float ty = indicatorBottomY + 16.0f * uiScale;
+		float instrTy = ty + 42.0f * uiScale;
+		float classTy = instrTy + 42.0f * uiScale;
 
 		int activeTurnOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
 			? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID)
@@ -45525,10 +45664,13 @@ void ofApp::drawDraftScreen() {
 	float hideBtnW = std::clamp(140.0f * uiScale, 100.0f, 200.0f);
 	float buttonGap = 16.0f * uiScale;
 
-	float gapBelowCards = 22.0f * uiScale;
-	float btnY = startY + cardH + gapBelowCards;
+	// Place action buttons securely below the bottom of the card grid with a clean safety margin
+	float gapBelowCards = 28.0f * uiScale;
+	// Place accept button right above the active hand area
+	float handAreaTop = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight()).y;
+	float btnY = handAreaTop - btnH - (14.0f * uiScale);
 
-	float maxAllowedBtnY = ofGetHeight() - btnH - (20.0f * uiScale);
+	float maxAllowedBtnY = ofGetHeight() - btnH - (15.0f * uiScale);
 	if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
 
 	float btnX = 0.0f;
@@ -45833,7 +45975,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 	float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 
-	float maxPanelHeight = ofGetHeight() * 0.75f;
+	float maxPanelHeight = ofGetHeight() * 0.85f;
 	float contentHeightLimit = maxPanelHeight - titleHeight - (2.0f * panelPadding);
 	float visibleContentHeight = std::min(totalContentHeight, contentHeightLimit);
 	float panelHeight = visibleContentHeight + titleHeight + (2.0f * panelPadding);
@@ -45865,29 +46007,40 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 	pileViewRect.set(startX, startY, totalContentWidth + (2.0f * panelPadding), panelHeight);
 
-	ofSetColor(20, 20, 20, 220);
+	float headerH = panelPadding + titleHeight;
+	float cardStartY = startY + headerH;
+
+	ofSetColor(16, 16, 20, 235);
 	ofDrawRectRounded(pileViewRect, 15 * uiScale);
 
-	ofSetColor(ofColor::white);
+	ofSetColor(28, 28, 36, 245);
+	ofDrawRectRounded(startX, startY, pileViewRect.width, headerH, 15 * uiScale);
+	ofDrawRectangle(startX, startY + headerH * 0.5f, pileViewRect.width, headerH * 0.5f);
+	ofSetColor(70, 75, 90, 200);
+	ofDrawRectangle(startX + panelPadding * 0.5f, cardStartY - 2.0f * uiScale, pileViewRect.width - panelPadding, 2.0f * uiScale);
 
+	std::string fullTitle = viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(fullTitle, 0, 0);
+	float titleBaselineY = startY + (headerH * 0.5f) - ((titleBox.y + titleBox.height * 0.5f) * uiScale);
+	ofSetColor(ofColor::white);
 	ofPushMatrix();
-	ofTranslate(startX + panelPadding, startY + panelPadding + titleHeight * 0.5f);
+	ofTranslate(startX + panelPadding, titleBaselineY);
 	ofScale(uiScale, uiScale);
-	SafeDrawText(uiFont, viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", 0, 0);
+	SafeDrawText(uiFont, fullTitle, 0, 0);
 	ofPopMatrix();
 
 	float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
 	pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
 
 	ofPushStyle();
-	if (!g_isFboPass) glEnable(GL_SCISSOR_TEST);
-	int scX = (int)(startX + panelPadding);
-	int scW = (int)totalContentWidth;
-	int scY = (int)(ofGetHeight() - (startY + panelPadding + visibleContentHeight));
-	int scH = (int)visibleContentHeight;
+	float sfX = (float)ofGetViewportWidth() / std::max(1.0f, (float)ofGetWidth());
+	float sfY = (float)ofGetViewportHeight() / std::max(1.0f, (float)ofGetHeight());
+	int scX = (int)std::floor((startX + panelPadding) * sfX);
+	int scW = (int)std::ceil(totalContentWidth * sfX);
+	int scY = (int)std::floor((ofGetHeight() - (cardStartY + visibleContentHeight)) * sfY);
+	int scH = (int)std::ceil(visibleContentHeight * sfY);
+	glEnable(GL_SCISSOR_TEST);
 	glScissor(scX, scY, scW, scH);
-
-	float cardStartY = startY + panelPadding + titleHeight;
 
 	for (size_t i = 0; i < cardsToShow.size(); ++i) {
 		int row = i / gridWidthInCards;
@@ -45903,7 +46056,54 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		}
 	}
 
-	if (!g_isFboPass) glDisable(GL_SCISSOR_TEST);
+	{
+		float fadeH = std::min(36.0f * uiScale, visibleContentHeight * 0.22f);
+		float fadeX = startX + panelPadding;
+		float fadeW = totalContentWidth;
+
+		auto drawBlackFadeQuad = [&](float x0, float y0, float x1, float y1, const ofColor & topCol, const ofColor & botCol) {
+			ofMesh m;
+			m.setMode(OF_PRIMITIVE_TRIANGLES);
+			m.addVertex(glm::vec3(x0, y0, 0));
+			m.addColor(topCol);
+			m.addVertex(glm::vec3(x1, y0, 0));
+			m.addColor(topCol);
+			m.addVertex(glm::vec3(x1, y1, 0));
+			m.addColor(botCol);
+			m.addVertex(glm::vec3(x0, y1, 0));
+			m.addColor(botCol);
+			m.addIndex(0);
+			m.addIndex(1);
+			m.addIndex(2);
+			m.addIndex(0);
+			m.addIndex(2);
+			m.addIndex(3);
+			m.draw();
+		};
+
+		if (g_isSecondPass) {
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		} else {
+			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
+		}
+
+		ofColor solidEdge(10, 10, 14, 240);
+		ofColor clearEdge(10, 10, 14, 0);
+
+		if (pileViewScrollOffset > 0.5f) {
+			drawBlackFadeQuad(fadeX, cardStartY, fadeX + fadeW, cardStartY + fadeH, solidEdge, clearEdge);
+		}
+		if (pileViewScrollOffset < maxScroll - 0.5f) {
+			drawBlackFadeQuad(fadeX, cardStartY + visibleContentHeight - fadeH, fadeX + fadeW, cardStartY + visibleContentHeight, clearEdge, solidEdge);
+		}
+
+		if (g_isSecondPass) {
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+		}
+	}
+
+	glDisable(GL_SCISSOR_TEST);
 	safePopStyle();
 
 	if (maxScroll > 0.0f) {
@@ -45918,16 +46118,18 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 // Simple layout helper for draft card metrics (keeps UI compiling).
 void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
-	float uiScale = (ofGetHeight() / 1080.0f) * g_settingsUIScale;
+	float uiScale = std::clamp((ofGetHeight() / 1080.0f) * g_settingsUIScale, 0.65f, 1.35f);
 
-	float btnH = std::clamp(72.0f * uiScale, 48.0f, 96.0f);
-	float bottomMargin = btnH + (30.0f * uiScale);
+	// Accept button positioned slightly above the hand area
+	float handAreaTop = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight()).y;
+	float btnH = std::clamp(64.0f * uiScale, 48.0f, 88.0f);
+	float bottomMargin = ofGetHeight() - handAreaTop + (15.0f * uiScale);
 
-	// Header text sits safely below timer
-	float timerH = turnTimerEnabled ? (16.0f * uiScale) : 0.0f;
-	outStartY = timerH + (95.0f * uiScale);
+	// Instruction text sits right below the End Turn button / top timer bar (~110-130px)
+	float scale1080 = (float)ofGetHeight() / 1080.0f;
+	float topBarBottom = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080 + 35.0f * uiScale;
+	outStartY = topBarBottom + 55.0f * uiScale; // Cards fit cleanly between here and the accept button
 
-	// Calculate maximum vertical space between header text and bottom buttons
 	float maxAvailableH = ofGetHeight() - outStartY - bottomMargin;
 
 	// Base target card size

@@ -1423,6 +1423,7 @@ private:
 	int isGapTile(glm::vec2 tile);
 	bool isTileBlocked(int x, int y);
 	bool isTileWall(int x, int y);
+	bool isMeleePathBlockedByWalls(int cx, int cy, int tx, int ty);
 	bool isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end);
 	float getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile);
 	std::vector<glm::vec2> getLineOfSightPath(glm::vec2 start, glm::vec2 end);

@@ -1,0 +1,70 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-11-19 14:46:13
+End Reason: Victory
+Seed: 1613989855
+Turns: 4
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[14:43:30] --- MATCH STARTED ---
+[14:43:36] Turn 0: Player 2's turn
+[14:43:37] Player 2 moved to (12,1)
+[14:43:38] Player 2 moved to (12,2)
+[14:43:39] Player 2 moved to (12,3)
+[14:43:40] Player 2 moved to (11,3)
+[14:43:43] Player 2 moved to (10,3)
+[14:43:43] Turn 1: Player 1's turn
+[14:43:58] Player 1 moved to (0,7)
+[14:43:58] Turn 1: Player 2's turn
+[14:44:00] Player 2 moved to (9,3)
+[14:44:01] Player 2 moved to (8,3)
+[14:44:02] Player 2 moved to (8,4)
+[14:44:04] Player 2 moved to (8,5)
+[14:44:05] Player 2 moved to (9,5)
+[14:44:06] Player 2 moved to (10,5)
+[14:44:07] Turn 2: Player 1's turn
+[14:44:18] Player 1 moved to (0,5)
+[14:44:22] Player 1 moved to (0,4)
+[14:44:25] Player 1 moved to (1,3)
+[14:44:28] Player 1 moved to (2,3)
+[14:44:29] Turn 2: Player 2's turn
+[14:44:31] Player 2 moved to (11,5)
+[14:44:34] Player 2 moved to (12,5)
+[14:44:35] Player 2 moved to (12,4)
+[14:44:37] Player 2 moved to (12,3)
+[14:44:38] Player 2 moved to (11,3)
+[14:44:39] Player 2 moved to (10,3)
+[14:44:40] Turn 3: Player 1's turn
+[14:44:46] Player 1 moved to (4,4)
+[14:44:51] Player 1 moved to (4,3)
+[14:44:53] Turn 3: Player 2's turn
+[14:44:55] Player 2 moved to (11,3)
+[14:44:56] Turn 4: Player 1's turn
+[14:45:35] Unlimited time enabled (turn timer disabled).
+[14:45:35] Turn timer enabled.
+[14:45:36] Player 1 moved to (11,5)
+[14:45:52] Player 1 moved to (9,2)
+[14:45:55] Player 1 played Demolition targeting (10,2)
+[14:45:56] Player 1 moved to (11,0)
+[14:45:58] Player 1 played Summon Wall targeting (11,1)
+[14:45:59] Player 1 moved to (11,4)
+[14:46:06] Player 1 moved to (10,3)
+[14:46:08] Player 1 moved to (10,2)
+[14:46:13] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 2
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================
