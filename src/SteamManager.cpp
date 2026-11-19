@@ -746,8 +746,23 @@ int SteamManager::getXPRequiredForLevel(int level) {
 	return 7000;
 }
 
+static std::string getMainGameProgressionPath() {
+	std::string dataPath = ofToDataPath("", true);
+	for (char & c : dataPath) {
+		if (c == '\\') c = '/';
+	}
+	if (!dataPath.empty() && dataPath.back() == '/') {
+		dataPath.pop_back();
+	}
+	size_t lastSlash = dataPath.find_last_of('/');
+	if (lastSlash != std::string::npos) {
+		dataPath = dataPath.substr(0, lastSlash);
+	}
+	return dataPath + "/progression.json";
+}
+
 void SteamManager::loadLocalProgressionBackup() {
-	std::string path = "Saves/progression.json";
+	std::string path = getMainGameProgressionPath();
 	if (ofFile(path).exists()) {
 		try {
 			ofJson j = ofLoadJson(path);
@@ -765,12 +780,10 @@ void SteamManager::loadLocalProgressionBackup() {
 
 void SteamManager::saveLocalProgressionBackup(int xp, int level) {
 	try {
-		ofDirectory dir("Saves");
-		if (!dir.exists()) dir.create(true);
 		ofJson j;
 		j["xp"] = xp;
 		j["level"] = level;
-		ofSaveJson("Saves/progression.json", j);
+		ofSaveJson(getMainGameProgressionPath(), j);
 	} catch (...) { }
 }
 

@@ -286,12 +286,15 @@ static void loadMinionBackgroundImg() {
 
 // Rules & Cards Sub-Tabs: 0 = How to Play, 1 = Effects & Keywords, 2 = Minions, 3 = Cards
 static int s_bookRulesTab = 0;
+static int s_bookEffectsPage = 0; // 0 = Status Effects, 1 = Keywords
 static int s_bookMinionPage = 0;
 static const int s_bookMinionTotalPages = 3;
 static int s_bookCardsPage = 0; // 0 = Class 1 & 2, 1 = Class 3
 static int s_bookHoveredCardIndex = -1;
 static ofRectangle s_bookTurnLeftCorner;
 static ofRectangle s_bookTurnRightCorner;
+static ofRectangle s_bookEffectsTurnLeftCorner;
+static ofRectangle s_bookEffectsTurnRightCorner;
 static ofRectangle s_bookCardsTurnLeftCorner;
 static ofRectangle s_bookCardsTurnRightCorner;
 static ofRectangle s_bookSubTabHowToPlay;
@@ -374,31 +377,91 @@ static float s_bookmarkScaleMultiplier = 1.0f;
 // Tracks the current frame (0.0f to 7.0f) for each of the 5 bookmarks
 static float s_bookmarkAnimFrame[5] = { 3.0f, 3.0f, 3.0f, 3.0f, 3.0f };
 
+struct BookmarkSpriteSlice {
+	int x = 0;
+	int w = 0;
+};
+
+static bool s_bookmarkSlicesBuilt = false;
+static BookmarkSpriteSlice s_bookmarkSlices[6][8];
+
+static void ensureBookmarkSlicesBuilt() {
+	if (s_bookmarkSlicesBuilt || !s_bookmarksImg.isAllocated()) return;
+	const ofPixels & pix = s_bookmarksImg.getPixels();
+	int imgW = (int)pix.getWidth();
+	int imgH = (int)pix.getHeight();
+	if (imgW <= 0 || imgH <= 0) return;
+
+	int rowH = imgH / 6;
+	for (int r = 0; r < 6; ++r) {
+		int y0 = r * rowH;
+		int y1 = (r == 5) ? imgH : (r + 1) * rowH;
+
+		std::vector<BookmarkSpriteSlice> segs;
+		bool inSeg = false;
+		int segStart = 0;
+		for (int x = 0; x < imgW; ++x) {
+			bool hasOpaque = false;
+			for (int y = y0; y < y1; ++y) {
+				if (pix.getColor(x, y).a > 25) {
+					hasOpaque = true;
+					break;
+				}
+			}
+			if (hasOpaque && !inSeg) {
+				inSeg = true;
+				segStart = x;
+			} else if (!hasOpaque && inSeg) {
+				inSeg = false;
+				segs.push_back({ segStart, x - segStart });
+			}
+		}
+		if (inSeg) {
+			segs.push_back({ segStart, imgW - segStart });
+		}
+
+		if (segs.size() == 8) {
+			for (int c = 0; c < 8; ++c) {
+				s_bookmarkSlices[r][c] = segs[c];
+			}
+		} else {
+			int colW = imgW / 8;
+			for (int c = 0; c < 8; ++c) {
+				s_bookmarkSlices[r][c] = { c * colW, colW };
+			}
+		}
+	}
+	s_bookmarkSlicesBuilt = true;
+}
+
+static float getBookmarkAnchorLeftX(int row) {
+	ensureBookmarkSlicesBuilt();
+	float approxRestCellX = 3.0f * ((float)s_bookmarksImg.getWidth() / 8.0f);
+	float restOffsetInBook = (float)s_bookmarkSlices[row][3].x - approxRestCellX;
+	return std::round(s_bookmarkDstX + restOffsetInBook * s_bookmarkScaleMultiplier);
+}
+
 static bool isBookmarkHovered(int tabIndex, int mx, int my) {
 	if (!s_bookmarksImg.isAllocated() || s_bookState != BOOK_IDLE_OPEN || s_bookmarkScaleMultiplier <= 0.0f) return false;
 	if (tabIndex < 0 || tabIndex >= 5) return false;
 
-	const float srcColW = (float)s_bookmarksImg.getWidth() / 8.0f;
+	ensureBookmarkSlicesBuilt();
 	const float srcRowH = (float)s_bookmarksImg.getHeight() / 6.0f;
-
-	// Clean whole-integer stagger (1 native book pixel per tab)
-	const int stepRightNative = 1;
-	int xStagger = tabIndex * stepRightNative * (int)s_bookmarkScaleMultiplier;
-
 	int rows[5] = { 0, 1, 2, 4, 5 };
-	int yNudges[5] = { 0, 0, 0, -2, -2 };
-
-	float tabDrawX = s_bookmarkDstX + (float)xStagger;
-	float tabDrawY = s_bookmarkDstY + ((float)rows[tabIndex] * srcRowH * s_bookmarkScaleMultiplier) + ((float)yNudges[tabIndex] * s_bookmarkScaleMultiplier);
-
-	float localX = (mx - tabDrawX) / s_bookmarkScaleMultiplier;
-	float localY = (my - tabDrawY) / s_bookmarkScaleMultiplier;
-
-	if (localX < 0.0f || localX >= srcColW || localY < 0.0f || localY >= srcRowH) return false;
-
+	int row = rows[tabIndex];
 	int curCol = std::clamp((int)std::round(s_bookmarkAnimFrame[tabIndex]), 0, 7);
-	int imgX = (int)(curCol * srcColW + localX);
-	int imgY = (int)((float)rows[tabIndex] * srcRowH + localY);
+	const BookmarkSpriteSlice & slice = s_bookmarkSlices[row][curCol];
+
+	float tabDrawX = getBookmarkAnchorLeftX(row);
+	float tabDrawY = std::round(s_bookmarkDstY + ((float)row * srcRowH * s_bookmarkScaleMultiplier));
+
+	float localX = ((float)mx - tabDrawX) / s_bookmarkScaleMultiplier;
+	float localY = ((float)my - tabDrawY) / s_bookmarkScaleMultiplier;
+
+	if (localX < 0.0f || localX >= (float)slice.w || localY < 0.0f || localY >= srcRowH) return false;
+
+	int imgX = slice.x + (int)localX;
+	int imgY = (int)((float)row * srcRowH + localY);
 
 	if (imgX < 0 || imgX >= s_bookmarksImg.getWidth() || imgY < 0 || imgY >= s_bookmarksImg.getHeight()) return false;
 
@@ -1585,13 +1648,13 @@ static std::string getSavesDirPath() {
 		dataPath.pop_back();
 	}
 
-	// Go up one directory from "data" to reach the game root
+	// Go up one directory from "data" to reach the main MageFight root folder
 	size_t lastSlash = dataPath.find_last_of('/');
 	if (lastSlash != std::string::npos) {
 		dataPath = dataPath.substr(0, lastSlash);
 	}
 
-	return dataPath + "/Saves";
+	return dataPath;
 }
 
 static std::string makeSavePath(const std::string & p) {
@@ -2861,9 +2924,7 @@ static void drawCardOutlineOutside(float x, float y, float w, float h, float lin
 }
 
 static float quantizePixelTextScale(float scale) {
-	// Quantize to quarter-steps (0.25x) instead of half-steps (0.5x).
-	// Keeps pixel art text crisp without collapsing 1080p/720p text to half size!
-	return std::max(0.5f, std::round(scale * 4.0f) / 4.0f);
+	return std::max(0.5f, std::round(scale * 8.0f) / 8.0f);
 }
 
 static void drawPixelTextBaseline(const ofTrueTypeFont & font, const std::string & text, float baselineX, float baselineY, float scale, const ofColor & fillColor, int outlinePx = 0, const ofColor & outlineColor = ofColor::black) {
@@ -4428,38 +4489,13 @@ void applyChatPenalty() {
 }
 
 bool ofApp::saveGameStateToFile(const std::string & path) {
-	try {
-		std::string fullPath = makeSavePath(path);
-		namespace fs = std::filesystem;
-		fs::path out = fs::path(fullPath);
-		if (!out.parent_path().empty() && !fs::exists(out.parent_path())) {
-			fs::create_directories(out.parent_path());
-		}
-
-		std::ofstream ofs(fullPath, std::ios::binary);
-		if (!ofs) return false;
-		ofs << buildSnapshotString();
-		ofs.close();
-		return true;
-	} catch (...) {
-		return false;
-	}
+	(void)path;
+	return false;
 }
 
 bool ofApp::loadGameStateFromFile(const std::string & path) {
-	try {
-		std::string fullPath = makeSavePath(path);
-		std::ifstream ifs(fullPath, std::ios::binary);
-		if (!ifs) return false;
-		std::stringstream buffer;
-		buffer << ifs.rdbuf();
-		ifs.close();
-		// Files loaded from local disk must never be treated as authoritative remote network snapshots
-		applySnapshotString(buffer.str(), false);
-		return true;
-	} catch (...) {
-		return false;
-	}
+	(void)path;
+	return false;
 }
 
 void ofApp::pruneOldSaves(int keepCount) {
@@ -6156,12 +6192,7 @@ void ofApp::setup() {
 		// FMOD automatically handles stereo mapping. Calling ofSoundStreamSetup() here
 		// actually breaks the audio context on Linux/Proton and forces mono files to the left ear!
 	}
-	// Ensure saves directory exists
-	try {
-		namespace fs = std::filesystem;
-		fs::path dir = getSavesDirPath();
-		if (!fs::exists(dir)) fs::create_directories(dir);
-	} catch (...) { }
+	// Main game directory already exists; no Saves subfolder is created.
 
 	// CRITICAL FIX: Turn off the turn timer entirely in Headless mode
 	// so the AI isn't artificially limited by "Time Expired" auto-skips!
@@ -10180,11 +10211,20 @@ void ofApp::drawMenuPlaquePanel(const ofRectangle & rect) {
 }
 
 // ==============================================================================
-// --- STANDARDIZED BOOK TYPOGRAPHY (Proportional: "like Status Effects, but bigger") ---
-static const float kBookHeaderScale = 1.40f; // Page titles & major headers (~34px)
-static const float kBookSubheaderScale = 1.25f; // Section headers, buttons & minion names (~25px)
-static const float kBookBodyScale = 1.00f; // Rules text, descriptions, stats, deck (~19px)
+// --- STANDARDIZED BOOK TYPOGRAPHY ---
+static const float kBookHeaderScale = 1.50f; // Page titles (~36px)
+static const float kBookSubheaderScale = 1.25f; // Section headers & buttons (~30px)
+static const float kBookBodyScale = 1.00f; // Standard body text (~24px native crisp)
 // ==============================================================================
+
+static void drawBookSectionUnderline(const ofTrueTypeFont & font, const std::string & title, float x, float & yPos, float titleScale, float nextTextScale, float lineWidth, const ofColor & color) {
+	drawPixelTextBaseline(font, title, x, yPos, titleScale, color);
+	float lineY = yPos + 6.0f;
+	ofSetColor(color);
+	ofSetLineWidth(2.0f);
+	ofDrawLine(x, lineY, x + lineWidth, lineY);
+	yPos = lineY + (font.getLineHeight() * nextTextScale * 0.85f) + 8.0f;
+}
 
 static void drawBookHeaderCentered(const ofTrueTypeFont & font, const std::string & text, float centerX, float centerY, const ofColor & color) {
 	drawPixelTextCentered(font, text, centerX, centerY, kBookHeaderScale, color);
@@ -10282,33 +10322,32 @@ void ofApp::draw2DMenuBackground() {
 		s_bookmarkDstY = dstY;
 		s_bookmarkScaleMultiplier = scaleMultiplier;
 
+		ensureBookmarkSlicesBuilt();
+
 		struct BookmarkTabDef {
 			int tabIndex;
 			int row;
 			float srcY;
-			int yNudgeNative;
 			ofRectangle & rect;
 			std::string label;
 		};
 
-		// 1 clean native pixel step per tab
-		const int stepRightNative = 1;
-
 		BookmarkTabDef tabs[5] = {
-			{ 0, 0, 0.0f * srcRowH, 0, s_bookmarkVersus, "Online" },
-			{ 1, 1, 1.0f * srcRowH, 0, s_bookmarkSolo, "Solo" },
-			{ 2, 2, 2.0f * srcRowH, 0, s_bookmarkRules, "Guide" },
-			{ 3, 4, 4.0f * srcRowH, -2, s_bookmarkSettings, "Options" },
-			{ 4, 5, 5.0f * srcRowH, -2, s_bookmarkQuit, "Menu" }
+			{ 0, 0, 0.0f * srcRowH, s_bookmarkVersus, "Online" },
+			{ 1, 1, 1.0f * srcRowH, s_bookmarkSolo, "Solo" },
+			{ 2, 2, 2.0f * srcRowH, s_bookmarkRules, "Guide" },
+			{ 3, 4, 4.0f * srcRowH, s_bookmarkSettings, "Options" },
+			{ 4, 5, 5.0f * srcRowH, s_bookmarkQuit, "Menu" }
 		};
 
-		// Hitboxes
+		// Hitboxes: Left edge is permanently fixed at getBookmarkAnchorLeftX(row), width matches current frame
 		for (int i = 0; i < 5; ++i) {
-			int xStagger = i * stepRightNative * (int)scaleMultiplier;
-			float tabHitX = dstX + (float)xStagger;
-			float tabHitW = dstW;
-			float tabHitY = dstY + ((float)tabs[i].row * rowH) + ((float)tabs[i].yNudgeNative * scaleMultiplier);
-			tabs[i].rect.set(tabHitX, tabHitY, tabHitW, rowH);
+			int curCol = std::clamp((int)std::round(s_bookmarkAnimFrame[i]), 0, 7);
+			const BookmarkSpriteSlice & slice = s_bookmarkSlices[tabs[i].row][curCol];
+			float tabHitX = getBookmarkAnchorLeftX(tabs[i].row);
+			float tabHitY = std::round(dstY + ((float)tabs[i].row * rowH));
+			float tabHitW = std::round((float)slice.w * scaleMultiplier);
+			tabs[i].rect.set(tabHitX, tabHitY, std::max(1.0f, tabHitW), rowH);
 		}
 
 		int mx = ofGetMouseX();
@@ -10349,40 +10388,39 @@ void ofApp::draw2DMenuBackground() {
 			}
 		}
 
-		// Helper to find the first solid pixel in a bookmark sprite column
-		auto getBookmarkLeftPixel = [&](int row, int col) -> int {
-			const ofPixels & pix = s_bookmarksImg.getPixels();
-			int colW = pix.getWidth() / 8;
-			int rH = pix.getHeight() / 6;
-			int startX = col * colW;
-			int startY = row * rH;
-			for (int x = 0; x < colW; ++x) {
-				for (int y = 0; y < rH; ++y) {
-					if (pix.getColor(startX + x, startY + y).a > 25) return x;
-				}
+		// Compute uniform text scale based on the widest label ("Options") and extended width (frame 7)
+		float uniformTextScale = 1.25f;
+		{
+			float maxRibbonW = std::round((float)s_bookmarkSlices[0][7].w * scaleMultiplier);
+			float maxAllowedW = maxRibbonW * 0.76f;
+			float maxAllowedH = rowH * 0.68f;
+			for (int i = 0; i < 5; ++i) {
+				ofRectangle tb = uiFont.getStringBoundingBox(tabs[i].label, 0, 0);
+				if (tb.width > 0.0f) uniformTextScale = std::min(uniformTextScale, maxAllowedW / tb.width);
+				if (tb.height > 0.0f) uniformTextScale = std::min(uniformTextScale, maxAllowedH / tb.height);
 			}
-			return 0;
-		};
+			uniformTextScale = std::max(0.80f, uniformTextScale);
+		}
 
-		// Draw each bookmark
+		// Draw each bookmark using its exact cropped sprite slice
 		for (int i = 0; i < 5; ++i) {
 			bool thisHovered = tabHovered[i] || (i == activeBookmark);
 			ofSetColor(thisHovered ? ofColor(255, 255, 255, 255) : ofColor(220, 220, 220, 255));
 
-			int xStagger = i * stepRightNative * (int)scaleMultiplier;
-			float tabDrawX = std::round(dstX + (float)xStagger);
-			float tabDrawY = std::round(dstY + ((float)tabs[i].row * rowH) + ((float)tabs[i].yNudgeNative * scaleMultiplier));
-
 			int curCol = std::clamp((int)std::round(s_bookmarkAnimFrame[i]), 0, 7);
-			float srcX = (float)curCol * srcColW;
+			const BookmarkSpriteSlice & slice = s_bookmarkSlices[tabs[i].row][curCol];
 
-			s_bookmarksImg.drawSubsection(tabDrawX, tabDrawY, dstW, rowH, srcX, tabs[i].srcY, srcColW, srcRowH);
+			float tabDrawX = getBookmarkAnchorLeftX(tabs[i].row);
+			float tabDrawY = std::round(dstY + ((float)tabs[i].row * rowH));
+			float tabDrawW = std::round((float)slice.w * scaleMultiplier);
 
-			// Text overlay on extended tab (scale 0.85f so it fits neatly inside the ribbon)
+			s_bookmarksImg.drawSubsection(tabDrawX, tabDrawY, tabDrawW, rowH, (float)slice.x, tabs[i].srcY, (float)slice.w, srcRowH);
+
+			// Centered larger text inside the solid portion of the extended bookmark
 			if (s_bookmarkAnimFrame[i] >= 6.2f && (s_bookState == BOOK_IDLE_OPEN || s_bookState == BOOK_TURNING_LEFT || s_bookState == BOOK_TURNING_RIGHT)) {
-				float tabCenterX = tabDrawX + (13.0f * scaleMultiplier);
-				float tabCenterY = tabDrawY + (10.0f * scaleMultiplier);
-				drawPixelTextCentered(uiFont, tabs[i].label, tabCenterX, tabCenterY, 0.85f, ofColor::white, 2, ofColor::black);
+				float tabCenterX = tabDrawX + (tabDrawW * 0.45f);
+				float tabCenterY = tabDrawY + (rowH * 0.50f);
+				drawPixelTextCentered(uiFont, tabs[i].label, tabCenterX, tabCenterY, uniformTextScale, ofColor::white, 2, ofColor::black);
 			}
 		}
 
@@ -10447,18 +10485,15 @@ void ofApp::drawMainMenu() {
 	float rightW = pa.rightPage.width - 32.0f;
 	float rY = pa.rightPage.y + 40.0f;
 
-	drawPixelTextBaseline(uiFont, "WELCOME", rightX, rY, 1.4f, ink);
-	rY += 8.0f;
-	ofSetColor(ink);
-	ofDrawLine(rightX, rY, rightX + 130.0f, rY);
-	rY += 34.0f;
+	drawBookSectionUnderline(uiFont, "WELCOME", rightX, rY, kBookHeaderScale, kBookBodyScale, 140.0f, ink);
 
 	const char * welcomeText = "Welcome to MageFight.\n\n"
-							   "Select a mode from the page or click the bookmark tabs along the right edge of the grimoire.";
-	auto lines = wrapTextScaled(uiFont, welcomeText, rightW - 16.0f, 0.70f);
+							   "Select a mode from the page or click the bookmark tabs along the right edge of the grimoire.\n\n"
+							   "Draft your deck, manage Action Points, roll the dice, and vanquish rival mages in tactical arena duels.";
+	auto lines = wrapTextScaled(uiFont, welcomeText, rightW - 12.0f, kBookBodyScale);
 	for (const auto & l : lines) {
-		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
-		rY += 20.0f;
+		drawPixelTextBaseline(uiFont, l, rightX, rY, kBookBodyScale, ink);
+		rY += 24.0f;
 	}
 }
 //--------------------------------------------------------------
@@ -10493,22 +10528,13 @@ void ofApp::drawSettingsMenu() {
 	float rowW = pa.leftPage.width - 16.0f;
 	float lY = pa.leftPage.y + 24.0f;
 
-	// Title in 2.00f bold
-	drawBookHeaderBaseline(uiFont, "SETTINGS", leftX, lY, ink);
-	lY += 4.0f;
-	ofSetColor(ink);
-	ofDrawLine(leftX, lY, leftX + 110.0f, lY);
-	lY += 20.0f;
+	drawBookSectionUnderline(uiFont, "SETTINGS", leftX, lY, kBookHeaderScale, kBookSubheaderScale, 130.0f, ink);
 
-	float btnH = 26.0f;
+	float btnH = 28.0f;
 	float arrowW = 28.0f;
 
 	auto drawBookSectionHeader = [&](const std::string & head, float & curYPos, float xPos, float lineW) {
-		drawPixelTextBaseline(uiFont, head, xPos, curYPos, kBookSubheaderScale, ink);
-		curYPos += 4.0f;
-		ofSetColor(ink);
-		ofDrawLine(xPos, curYPos, xPos + lineW, curYPos);
-		curYPos += 18.0f;
+		drawBookSectionUnderline(uiFont, head, xPos, curYPos, kBookSubheaderScale, kBookBodyScale, lineW, ink);
 	};
 
 	// --- VIDEO SECTION ---
@@ -10656,7 +10682,8 @@ void ofApp::drawSettingsMenu() {
 	rY += (btnH + 20.0f);
 
 	// --- CONTROLS REFERENCE TABLE ---
-	drawBookSectionHeader("CONTROLS", rY, rightX, 90.0f);
+	rY += 14.0f;
+	drawBookSectionHeader("CONTROLS", rY, rightX, 110.0f);
 
 	std::vector<std::pair<std::string, std::string>> keys = {
 		{ "Left Click", "Play cards / Move unit" },
@@ -10669,10 +10696,11 @@ void ofApp::drawSettingsMenu() {
 		{ "Right Click", "Cancel selection" }
 	};
 
+	float descColX = rightX + std::max(124.0f, rightW * 0.36f);
 	for (const auto & kp : keys) {
 		drawPixelTextBaseline(uiFont, kp.first + ":", rightX + 4.0f, rY, kBookBodyScale, ink);
-		drawPixelTextBaseline(uiFont, kp.second, rightX + 90.0f, rY, kBookBodyScale, ofColor(70, 65, 60));
-		rY += 19.0f;
+		drawPixelTextBaseline(uiFont, kp.second, descColX, rY, kBookBodyScale, ofColor(70, 65, 60));
+		rY += 23.0f;
 	}
 }
 
@@ -10721,18 +10749,14 @@ void ofApp::drawSingleplayerMenu() {
 	float rightW = pa.rightPage.width - 32.0f;
 	float rY = pa.rightPage.y + 35.0f;
 
-	drawPixelTextBaseline(uiFont, "PRACTICE ARENA", rightX, rY, 1.4f, ink);
-	rY += 8.0f;
-	ofSetColor(ink);
-	ofDrawLine(rightX, rY, rightX + 160.0f, rY);
-	rY += 34.0f;
+	drawBookSectionUnderline(uiFont, "PRACTICE ARENA", rightX, rY, kBookHeaderScale, kBookBodyScale, 180.0f, ink);
 
 	const char * tips = "Test new spells and tactics against the dungeon AI.\n\n"
 						"Learn card combinations like Flurry of Fists and Necromancer's Blessing before entering online ranked duels.";
-	auto lines = wrapTextScaled(uiFont, tips, rightW - 16.0f, 0.70f);
+	auto lines = wrapTextScaled(uiFont, tips, rightW - 12.0f, kBookBodyScale);
 	for (const auto & l : lines) {
-		drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
-		rY += 20.0f;
+		drawPixelTextBaseline(uiFont, l, rightX, rY, kBookBodyScale, ink);
+		rY += 24.0f;
 	}
 }
 
@@ -11153,27 +11177,23 @@ void ofApp::drawMultiplayerMenu() {
 	float leftW = pa.leftPage.width - 16.0f;
 	float lY = pa.leftPage.y + 24.0f;
 
-	drawBookHeaderBaseline(uiFont, "ONLINE VERSUS", leftX, lY, ink);
-	lY += 4.0f;
-	ofSetColor(ink);
-	ofDrawLine(leftX, lY, leftX + 130.0f, lY);
-	lY += 22.0f;
+	drawBookSectionUnderline(uiFont, "ONLINE VERSUS", leftX, lY, kBookHeaderScale, kBookBodyScale, 150.0f, ink);
 
 	int curLvl = steamManager.getLocalLevel();
 	int curElo = steamManager.getLocalElo();
 	auto rank = getMageRank(curElo > 0 ? curElo : 1000);
 	std::string profileTxt = "Lv." + std::to_string(curLvl) + " " + rank.first + " (" + std::to_string(curElo > 0 ? curElo : 1000) + " ELO)";
 	drawPixelTextBaseline(uiFont, profileTxt, leftX, lY, kBookBodyScale, ink);
-	lY += 16.0f;
+	lY += 14.0f;
 
 	// Host & Refresh Buttons
-	float btnH = 32.0f;
+	float btnH = 36.0f;
 	float halfW = (leftW - 12.0f) * 0.5f;
 	mpHostButton.set(leftX, lY, halfW, btnH);
 	mpRefreshButton.set(leftX + halfW + 12.0f, lY, halfW, btnH);
 
-	bool hovHost = mpHostButton.inside(mx, my);
-	bool hovRef = mpRefreshButton.inside(mx, my);
+	bool hovHost = !g_inLobby && mpHostButton.inside(mx, my);
+	bool hovRef = !g_inLobby && mpRefreshButton.inside(mx, my);
 	if (hovHost) g_hoveredButtonId = "mp_host";
 	if (hovRef) g_hoveredButtonId = "mp_refresh";
 
@@ -11181,26 +11201,22 @@ void ofApp::drawMultiplayerMenu() {
 	ofDrawRectRounded(mpHostButton, 4.0f);
 	ofNoFill();
 	ofSetLineWidth(1.5f);
-	ofSetColor(ink);
+	ofSetColor(ink, g_inLobby ? 120 : 255);
 	ofDrawRectRounded(mpHostButton, 4.0f);
 	ofFill();
-	drawPixelTextCentered(uiFont, g_inLobby ? "In Lobby" : "Host Game", mpHostButton.getCenter().x, mpHostButton.getCenter().y, kBookSubheaderScale, ink);
+	drawPixelTextCentered(uiFont, g_inLobby ? "In Lobby" : "Host Game", mpHostButton.getCenter().x, mpHostButton.getCenter().y, kBookBodyScale, g_inLobby ? ofColor(90, 85, 80) : ink);
 
 	ofSetColor(hovRef ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
 	ofDrawRectRounded(mpRefreshButton, 4.0f);
 	ofNoFill();
 	ofSetLineWidth(1.5f);
-	ofSetColor(ink);
+	ofSetColor(ink, g_inLobby ? 120 : 255);
 	ofDrawRectRounded(mpRefreshButton, 4.0f);
 	ofFill();
-	drawPixelTextCentered(uiFont, "Refresh", mpRefreshButton.getCenter().x, mpRefreshButton.getCenter().y, kBookSubheaderScale, ink);
-	lY += (btnH + 20.0f);
+	drawPixelTextCentered(uiFont, "Refresh", mpRefreshButton.getCenter().x, mpRefreshButton.getCenter().y, kBookBodyScale, g_inLobby ? ofColor(90, 85, 80) : ink);
+	lY += (btnH + 36.0f);
 
-	drawPixelTextBaseline(uiFont, "OPEN MATCHES", leftX, lY, kBookSubheaderScale, ink);
-	lY += 4.0f;
-	ofSetColor(ink);
-	ofDrawLine(leftX, lY, leftX + 100.0f, lY);
-	lY += 18.0f;
+	drawBookSectionUnderline(uiFont, "OPEN MATCHES", leftX, lY, kBookSubheaderScale, kBookBodyScale, 130.0f, ink);
 
 	auto lobbies = steamManager.getLobbyList();
 	mpLobbyButtons.clear();
@@ -11208,9 +11224,9 @@ void ofApp::drawMultiplayerMenu() {
 		drawPixelTextBaseline(uiFont, "No matches found. Host one above!", leftX, lY, kBookBodyScale, ofColor(70, 65, 60));
 	} else {
 		for (size_t i = 0; i < lobbies.size() && i < 5; ++i) {
-			ofRectangle lRect(leftX, lY, leftW, 26.0f);
+			ofRectangle lRect(leftX, lY, leftW, 30.0f);
 			mpLobbyButtons.push_back(lRect);
-			bool hov = lRect.inside(mx, my);
+			bool hov = !g_inLobby && lRect.inside(mx, my);
 			if (hov) g_hoveredButtonId = "mp_lobby_" + std::to_string(i);
 
 			ofSetColor(hov ? ofColor(40, 30, 25, 45) : ofColor(40, 30, 25, 18));
@@ -11223,7 +11239,7 @@ void ofApp::drawMultiplayerMenu() {
 
 			std::string lTxt = lobbies[i].name + " (" + std::to_string(lobbies[i].numPlayers) + "/4)";
 			drawPixelTextCentered(uiFont, lTxt, lRect.getCenter().x, lRect.getCenter().y, kBookBodyScale, ink);
-			lY += 30.0f;
+			lY += 34.0f;
 		}
 	}
 
@@ -11236,11 +11252,7 @@ void ofApp::drawMultiplayerMenu() {
 
 	if (!g_inLobby) {
 		// --- DEFAULT: GLOBAL LEADERBOARD ---
-		drawBookHeaderBaseline(uiFont, "GLOBAL LEADERBOARD", rightX, rY, ink);
-		rY += 4.0f;
-		ofSetColor(ink);
-		ofDrawLine(rightX, rY, rightX + 160.0f, rY);
-		rY += 22.0f;
+		drawBookSectionUnderline(uiFont, "GLOBAL LEADERBOARD", rightX, rY, kBookHeaderScale, kBookBodyScale, 190.0f, ink);
 
 		auto leaderboard = steamManager.getLeaderboardEntries();
 		if (leaderboard.empty()) {
@@ -11252,23 +11264,20 @@ void ofApp::drawMultiplayerMenu() {
 				std::string scoreStr = std::to_string(entry.score);
 
 				drawPixelTextBaseline(uiFont, rankStr, rightX, rY, kBookBodyScale, ink);
-				drawPixelTextBaseline(uiFont, scoreStr, rightX + rightW - 55.0f, rY, kBookBodyScale, ink);
-				rY += 20.0f;
+				drawPixelTextBaseline(uiFont, scoreStr, rightX + rightW - 65.0f, rY, kBookBodyScale, ink);
+				rY += 24.0f;
 			}
 		}
 	} else {
 		// --- LOBBY ACTIVE: EMBEDDED INSIDE RIGHT BOOK PAGE ---
 		bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
 
-		drawBookHeaderBaseline(uiFont, "GAME LOBBY", rightX, rY, ink);
-		rY += 4.0f;
-		ofSetColor(ink);
-		ofDrawLine(rightX, rY, rightX + 100.0f, rY);
-		rY += 18.0f;
+		drawBookSectionUnderline(uiFont, "GAME LOBBY", rightX, rY, kBookHeaderScale, kBookBodyScale, 120.0f, ink);
+		rY -= 16.0f; // Convert first text baseline back to top-edge of row box
 
 		// 1. PLAYERS LIST
 		s_bookLobbyPlayerRows.clear();
-		float rowH = 22.0f;
+		float rowH = 26.0f;
 		for (size_t i = 0; i < g_lobbyPlayers.size(); ++i) {
 			const auto & lp = g_lobbyPlayers[i];
 			ofRectangle rRow(rightX, rY, rightW, rowH);
@@ -11282,33 +11291,38 @@ void ofApp::drawMultiplayerMenu() {
 
 			std::string tag = lp.isBot ? " [AI]" : (lp.playerID == 0 ? " [Host]" : "");
 			std::string nameStr = lp.name + tag;
-			drawPixelTextBaseline(uiFont, nameStr, rightX + 6.0f, rY + 15.0f, kBookBodyScale, isMe ? ofColor(120, 40, 20) : ink);
+			drawPixelTextBaseline(uiFont, nameStr, rightX + 6.0f, rY + rowH * 0.72f, kBookBodyScale, isMe ? ofColor(120, 40, 20) : ink);
 
 			std::string statusStr = lp.isReady ? "READY" : "WAITING";
 			if (lp.isBot && isLobbyHost && hovRow) statusStr = "REMOVE";
 			ofColor statusCol = lp.isReady ? ofColor(25, 120, 35) : (lp.isBot && isLobbyHost && hovRow ? ofColor(180, 40, 40) : ofColor(160, 110, 25));
-			drawPixelTextBaseline(uiFont, statusStr, rightX + rightW - 65.0f, rY + 15.0f, kBookBodyScale, statusCol);
+			drawPixelTextBaseline(uiFont, statusStr, rightX + rightW - 78.0f, rY + rowH * 0.72f, kBookBodyScale, statusCol);
 
-			rY += (rowH + 3.0f);
+			rY += (rowH + 4.0f);
 		}
 
 		// Add AI Bot button
 		if (isLobbyHost && g_lobbyPlayers.size() < 4) {
-			s_bookLobbyAddAI.set(rightX, rY, rightW, 20.0f);
+			s_bookLobbyAddAI.set(rightX, rY, rightW, 26.0f);
 			bool hovAI = s_bookLobbyAddAI.inside(mx, my);
 			if (hovAI) g_hoveredButtonId = "lobby_add_ai";
 
 			ofSetColor(hovAI ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 15));
 			ofDrawRectRounded(s_bookLobbyAddAI, 3.0f);
+			ofNoFill();
+			ofSetLineWidth(1.0f);
+			ofSetColor(ink, 120);
+			ofDrawRectRounded(s_bookLobbyAddAI, 3.0f);
+			ofFill();
 			drawPixelTextCentered(uiFont, "+ Add AI Bot", s_bookLobbyAddAI.getCenter().x, s_bookLobbyAddAI.getCenter().y, kBookBodyScale, ink);
-			rY += 24.0f;
+			rY += 32.0f;
 		} else {
 			s_bookLobbyAddAI.set(0, 0, 0, 0);
 			rY += 6.0f;
 		}
 
 		// 2. MODIFIERS (Above Chat)
-		float modBtnH = 22.0f;
+		float modBtnH = 26.0f;
 		float halfModW = (rightW - 8.0f) * 0.5f;
 		s_bookLobbyModFoW.set(rightX, rY, halfModW, modBtnH);
 
@@ -11338,8 +11352,8 @@ void ofApp::drawMultiplayerMenu() {
 		drawPixelTextCentered(uiFont, hpStr, s_bookLobbyModCustomHp.getCenter().x, s_bookLobbyModCustomHp.getCenter().y, kBookBodyScale, ink);
 
 		if (g_modifierCustomMaxHP && isLobbyHost) {
-			s_bookLobbyModHpLeft.set(s_bookLobbyModCustomHp.x + 2.0f, rY + 2.0f, 16.0f, modBtnH - 4.0f);
-			s_bookLobbyModHpRight.set(s_bookLobbyModCustomHp.getRight() - 18.0f, rY + 2.0f, 16.0f, modBtnH - 4.0f);
+			s_bookLobbyModHpLeft.set(s_bookLobbyModCustomHp.x + 2.0f, rY + 2.0f, 18.0f, modBtnH - 4.0f);
+			s_bookLobbyModHpRight.set(s_bookLobbyModCustomHp.getRight() - 20.0f, rY + 2.0f, 18.0f, modBtnH - 4.0f);
 			drawPixelTextCentered(uiFont, "<", s_bookLobbyModHpLeft.getCenter().x, s_bookLobbyModHpLeft.getCenter().y, kBookBodyScale, ink);
 			drawPixelTextCentered(uiFont, ">", s_bookLobbyModHpRight.getCenter().x, s_bookLobbyModHpRight.getCenter().y, kBookBodyScale, ink);
 		} else {
@@ -11359,10 +11373,14 @@ void ofApp::drawMultiplayerMenu() {
 		ofDrawRectRounded(s_bookLobbyModExpBal, 3.0f);
 		ofFill();
 		drawPixelTextCentered(uiFont, g_modifierExperimentalBalancing ? "Experimental Balancing: ON" : "Experimental Balancing: OFF", s_bookLobbyModExpBal.getCenter().x, s_bookLobbyModExpBal.getCenter().y, kBookBodyScale, ink);
-		rY += (modBtnH + 8.0f);
+		rY += (modBtnH + 10.0f);
 
-		// 3. IN-BOOK CHAT (Above Start Buttons)
-		float chatBoxH = 44.0f;
+		// 4. ANCHOR ACTION BUTTONS AT BOTTOM RIGHT FIRST SO CHAT FILLS REMAINING SPACE
+		float actionBtnH = 34.0f;
+		float actionBtnY = pa.rightPage.getBottom() - actionBtnH - 4.0f;
+		float chatBoxH = std::max(72.0f, actionBtnY - 10.0f - rY);
+
+		// 3. IN-BOOK CHAT (Dynamically sized & scissor-clipped)
 		s_bookLobbyChatRect.set(rightX, rY, rightW, chatBoxH);
 
 		ofSetColor(40, 30, 25, 15);
@@ -11373,28 +11391,41 @@ void ofApp::drawMultiplayerMenu() {
 		ofDrawRectRounded(s_bookLobbyChatRect, 4.0f);
 		ofFill();
 
-		// Display last 3 messages inside the chat window
-		float msgY = rY + 14.0f;
-		int msgCount = 0;
-		int startMsgIdx = std::max(0, (int)chatHistory.size() - 3);
-		for (size_t mi = startMsgIdx; mi < chatHistory.size() && msgCount < 3; ++mi) {
-			std::string line = chatHistory[mi].playerName + ": " + chatHistory[mi].message;
-			if (line.size() > 32) line = line.substr(0, 30) + "..";
-			drawPixelTextBaseline(uiFont, line, rightX + 6.0f, msgY, kBookBodyScale, ink);
-			msgY += 15.0f;
-			msgCount++;
+		{
+			float sfX = (float)ofGetViewportWidth() / std::max(1.0f, (float)ofGetWidth());
+			float sfY = (float)ofGetViewportHeight() / std::max(1.0f, (float)ofGetHeight());
+			glEnable(GL_SCISSOR_TEST);
+			glScissor((int)(s_bookLobbyChatRect.x * sfX), (int)((ofGetHeight() - s_bookLobbyChatRect.getBottom()) * sfY), (int)(s_bookLobbyChatRect.width * sfX), (int)(s_bookLobbyChatRect.height * sfY));
+
+			float msgLineH = 22.0f;
+			float promptReservedH = 26.0f;
+			int maxVisibleLines = std::max(1, (int)((chatBoxH - promptReservedH - 6.0f) / msgLineH));
+
+			std::vector<std::string> wrappedChatLines;
+			int startMsgIdx = std::max(0, (int)chatHistory.size() - 6);
+			for (size_t mi = startMsgIdx; mi < chatHistory.size(); ++mi) {
+				std::string raw = chatHistory[mi].playerName + ": " + chatHistory[mi].message;
+				auto wrapped = wrapTextScaled(uiFont, raw, rightW - 14.0f, kBookBodyScale);
+				for (const auto & wl : wrapped) {
+					wrappedChatLines.push_back(wl);
+				}
+			}
+			int lineStart = std::max(0, (int)wrappedChatLines.size() - maxVisibleLines);
+			float msgY = rY + 20.0f;
+			for (size_t li = lineStart; li < wrappedChatLines.size(); ++li) {
+				drawPixelTextBaseline(uiFont, wrappedChatLines[li], rightX + 6.0f, msgY, kBookBodyScale, ink);
+				msgY += msgLineH;
+			}
+
+			std::string promptLine = isChatOpen ? ("> " + chatInput + "_") : "> Press Enter to chat...";
+			drawPixelTextBaseline(uiFont, promptLine, rightX + 6.0f, rY + chatBoxH - 7.0f, kBookBodyScale, isChatOpen ? ofColor(120, 40, 20) : ofColor(100, 95, 90));
+
+			glDisable(GL_SCISSOR_TEST);
 		}
 
-		// Input prompt at bottom of chat box
-		std::string promptLine = isChatOpen ? ("> " + chatInput + "_") : "> Press Enter to chat...";
-		drawPixelTextBaseline(uiFont, promptLine, rightX + 6.0f, rY + chatBoxH - 6.0f, kBookBodyScale, isChatOpen ? ofColor(120, 40, 20) : ofColor(100, 95, 90));
-		rY += (chatBoxH + 12.0f);
-
-		// 4. ACTION BUTTONS AT BOTTOM RIGHT
-		float actionBtnH = 30.0f;
 		float halfActionW = (rightW - 10.0f) * 0.5f;
 
-		s_bookLobbyLeaveBtn.set(rightX, rY, halfActionW, actionBtnH);
+		s_bookLobbyLeaveBtn.set(rightX, actionBtnY, halfActionW, actionBtnH);
 		bool hovLeave = s_bookLobbyLeaveBtn.inside(mx, my);
 		if (hovLeave) g_hoveredButtonId = "lobby_leave";
 
@@ -11405,7 +11436,7 @@ void ofApp::drawMultiplayerMenu() {
 		ofSetColor(ink);
 		ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
 		ofFill();
-		drawPixelTextCentered(uiFont, "Leave", s_bookLobbyLeaveBtn.getCenter().x, s_bookLobbyLeaveBtn.getCenter().y, kBookSubheaderScale, ink);
+		drawPixelTextCentered(uiFont, "Leave", s_bookLobbyLeaveBtn.getCenter().x, s_bookLobbyLeaveBtn.getCenter().y, kBookBodyScale, ink);
 
 		if (isLobbyHost) {
 			s_bookLobbyReadyBtn.set(0, 0, 0, 0);
@@ -11416,7 +11447,7 @@ void ofApp::drawMultiplayerMenu() {
 			}
 			bool canStart = allReady && (g_lobbyPlayers.size() >= 2);
 
-			s_bookLobbyStartBtn.set(rightX + halfActionW + 10.0f, rY, halfActionW, actionBtnH);
+			s_bookLobbyStartBtn.set(rightX + halfActionW + 10.0f, actionBtnY, halfActionW, actionBtnH);
 			bool hovStart = s_bookLobbyStartBtn.inside(mx, my);
 			if (hovStart && canStart) g_hoveredButtonId = "lobby_start";
 
@@ -11427,7 +11458,7 @@ void ofApp::drawMultiplayerMenu() {
 			ofSetColor(ink, canStart ? 255 : 100);
 			ofDrawRectRounded(s_bookLobbyStartBtn, 4.0f);
 			ofFill();
-			drawPixelTextCentered(uiFont, "Start Game", s_bookLobbyStartBtn.getCenter().x, s_bookLobbyStartBtn.getCenter().y, kBookSubheaderScale, canStart ? ink : ofColor(120, 115, 110));
+			drawPixelTextCentered(uiFont, "Start Game", s_bookLobbyStartBtn.getCenter().x, s_bookLobbyStartBtn.getCenter().y, kBookBodyScale, canStart ? ink : ofColor(120, 115, 110));
 		} else {
 			s_bookLobbyStartBtn.set(0, 0, 0, 0);
 
@@ -11436,7 +11467,7 @@ void ofApp::drawMultiplayerMenu() {
 				if ((int)lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
 			}
 
-			s_bookLobbyReadyBtn.set(rightX + halfActionW + 10.0f, rY, halfActionW, actionBtnH);
+			s_bookLobbyReadyBtn.set(rightX + halfActionW + 10.0f, actionBtnY, halfActionW, actionBtnH);
 			bool hovReady = s_bookLobbyReadyBtn.inside(mx, my);
 			if (hovReady) g_hoveredButtonId = "lobby_ready";
 
@@ -11447,7 +11478,7 @@ void ofApp::drawMultiplayerMenu() {
 			ofSetColor(ink);
 			ofDrawRectRounded(s_bookLobbyReadyBtn, 4.0f);
 			ofFill();
-			drawPixelTextCentered(uiFont, iAmReady ? "Unready" : "Ready", s_bookLobbyReadyBtn.getCenter().x, s_bookLobbyReadyBtn.getCenter().y, kBookSubheaderScale, ink);
+			drawPixelTextCentered(uiFont, iAmReady ? "Unready" : "Ready", s_bookLobbyReadyBtn.getCenter().x, s_bookLobbyReadyBtn.getCenter().y, kBookBodyScale, ink);
 		}
 	}
 }
@@ -13133,44 +13164,46 @@ void ofApp::prepareGameVisualState() {
 	}
 
 	// --- MINION UI REBUILD ---
-	// Defaults for minion UI
 	float standardEntryHeight = 135.0f;
 	float panelWidth = 510.0f;
 	scale = getUIScaleFromHeight(ofGetHeight());
-	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
-	float gap = layoutSpacing.minionEntryGapUnscaled;
-	float panelWidthScaled = panelWidth * scale;
+
+	// Match drawGame()'s exact HUD scale (1080p baseline * UI Scale) & 0.45f pile size
+	// so top/bottom limits never overlap the Profile box, AP counter, or Discard pile.
+	float hudScale = (ofGetHeight() / 1080.0f) * g_settingsUIScale;
+	const UILayoutSpacing hudSpacing = buildUILayoutSpacing(hudScale, turnTimerEnabled);
 	const float handBaseCardWidth = kCardPixelWidth;
 	const float handCardAspectRatio = kCardAspectRatio;
-	const float pileCardScale = 0.35f;
-	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * pileCardScale) * scale;
-	const float deckBottomGap = effectiveBottomGap(layoutSpacing);
+	const float pileCardScale = 0.45f;
+	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * pileCardScale) * hudScale;
+	const float deckBottomGap = effectiveBottomGap(hudSpacing);
 	const float sideInset = deckBottomGap;
-	const float deckY = ofGetHeight() - staticUICardHeight - layoutSpacing.edgeInset + layoutSpacing.stackYOffset;
-	const float discardY = deckY - staticUICardHeight - layoutSpacing.stackVerticalGap;
+	const float deckY = ofGetHeight() - staticUICardHeight - hudSpacing.edgeInset + hudSpacing.stackYOffset;
+	const float discardY = deckY - staticUICardHeight - hudSpacing.stackVerticalGap;
 
 	pendingTurnStartVisuals = -1;
 
-	float fontScale = scale * 1.0f;
 	ofRectangle apTextBox = titleFont.getStringBoundingBox("0 AP", 0, 0);
-	const float apRectHeight = (apTextBox.height * fontScale) + (20.0f * scale);
-	const float apTopY = discardY - (10.0f * scale) - apRectHeight;
+	const float apRectHeight = (apTextBox.height * hudScale) + (20.0f * hudScale);
+	const float apTopY = discardY - (10.0f * hudScale) - apRectHeight;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 
 	// Determine Timer/Profile Height to push Minion UI down
 	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && (!draftOptions.empty() || isInGameDraft));
-	float profileH = 56.0f * scale;
-	float profileY = (turnTimerEnabled && timerStateVisible) ? (layoutSpacing.timerBarHeight + 12.0f * scale) : (12.0f * scale);
+	float profileH = 56.0f * hudScale;
+	float profileY = (turnTimerEnabled && timerStateVisible) ? (hudSpacing.timerBarHeight + 12.0f * hudScale) : (12.0f * hudScale);
 
-	// Safe spacing so it never clips into Profile Box
-	float p0_topLimitY = profileY + profileH + (32.0f * scale);
+	float p0_topLimitY = profileY + profileH + (18.0f * hudScale);
 	float p1_topLimitY = p0_topLimitY;
 
-	// FIXED Bottom Limits - Never expands into AP zone!
-	const float minionBottomSafetyPad = 32.0f * scale;
+	// Bottom Limit strictly clears the AP Box at all resolutions & UI scales
+	const float minionBottomSafetyPad = 18.0f * hudScale;
 	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
 	float p1_bottomLimitY = std::max(p1_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
+
+	float gap = (scale > 0.0f) ? ((12.0f * scale) / scale) : 12.0f;
+	float panelWidthScaled = panelWidth * scale;
 
 	gap = (scale > 0.0f) ? (deckBottomGap / scale) : gap;
 
@@ -13212,10 +13245,8 @@ void ofApp::prepareGameVisualState() {
 		float actualGap = gap * scale;
 		float itemH = actualEntryHeight + actualGap;
 
-		// Display exactly 4 entries at all times
-		int maxVisibleEntriesBeforeScroll = 4;
-		int maxVisible = std::max(1, (int)((localAvailableHeight + actualGap) / itemH));
-		maxVisible = std::min(maxVisible, maxVisibleEntriesBeforeScroll);
+		// Dynamically fit however many whole minion entries fit between the Profile and AP Box
+		int maxVisible = std::max(1, (int)std::floor((localAvailableHeight + actualGap) / itemH));
 
 		// Quantize view height so scroll tracks match the minion cards perfectly
 		localAvailableHeight = maxVisible * itemH - actualGap;
@@ -13304,7 +13335,7 @@ void ofApp::prepareGameVisualState() {
 			ui.bounds.set(startX, currentY, panelWidthScaled, actualEntryHeight);
 
 			float cardAspectRatio = 585.0f / 409.0f;
-			float iconMargin = layoutSpacing.minionIconGap;
+			float iconMargin = hudSpacing.minionIconGap;
 			float iconHeight = ui.bounds.height * 0.80f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
@@ -17682,72 +17713,66 @@ void ofApp::drawGame() {
 		}
 		float heartY = y + std::max(0.0f, (healthBarHeight - heartH) * 0.5f);
 
-		// 1. Draw Heart Icon
-		drawHealthSprite(s_healthTotalImg, heartX, heartY, heartW, heartH, isOpponent);
-
-		// 2. Draw Centered Health Text on Heart (Optical center of heart is ~0.44f, slightly larger font)
-		std::string hpStr = ofToString(player.health) + "/" + ofToString(player.maxHealth);
-		ofRectangle hpBounds = uiFont.getStringBoundingBox(hpStr, 0, 0);
-		float maxTextW = heartW * 0.82f;
-		float textScale = (hpBounds.width > 0.0f) ? std::min(1.10f, maxTextW / hpBounds.width) : 0.95f;
-		drawPixelTextCentered(uiFont, hpStr, heartX + (heartW * 0.5f), heartY + (heartH * 0.44f), textScale, ofColor::white, 2, ofColor::black);
-
-		// Overlap between Heart and Segment 1 (Negative value pulls the bar into the heart)
+		// Overlap between Heart and Segment 1 (Negative value pulls the bar under the heart)
 		float barGap = -4.0f * barPixelScale;
 		float segOriginX = isOpponent ? (heartX - barGap) : (heartX + heartW + barGap);
 
 		float row1HealthY = heartY + (heartH * 0.5f) - (healthNativeH * barPixelScale * 0.5f);
-		// Row 2 is now flush/touching against Row 1
-		float row2HealthY = row1HealthY + (healthNativeH * barPixelScale);
 
-		// 3. Draw Health Segments (max 20 per row)
 		int totalMaxHp = std::max(1, player.maxHealth);
 		int currentHp = std::clamp(player.health, 0, totalMaxHp);
+		int numHealthRows = (totalMaxHp + 19) / 20;
 
 		float minSegX = segOriginX;
 		float maxSegX = segOriginX;
 
-		for (int hpIdx = 1; hpIdx <= totalMaxHp; ++hpIdx) {
-			int row = (hpIdx - 1) / 20;
-			int col = (hpIdx - 1) % 20;
+		// 1. Draw Health Segments FIRST (so Heart sits cleanly on top!)
+		// Empty segments always sit on the right-most side (or top-right if there are 2+ rows).
+		for (int row = 0; row < numHealthRows; ++row) {
+			int rowCount = std::min(20, totalMaxHp - row * 20);
+			float rowY = row1HealthY - (row * (healthNativeH * barPixelScale));
 
-			float rowY = (row == 0) ? row1HealthY : row2HealthY;
-			bool isStartPiece = (col == 0);
-			bool isFull = (hpIdx <= currentHp);
+			for (int col = 0; col < rowCount; ++col) {
+				int idxInRow = isOpponent ? ((rowCount - 1) - col) : col;
+				int hpIdx = row * 20 + idxInRow + 1;
+				bool isStartPiece = (col == 0);
+				bool isFull = (hpIdx <= currentHp);
 
-			float pieceW = (isStartPiece ? healthStartNativeW : healthTileNativeW) * barPixelScale;
-			float pieceH = healthNativeH * barPixelScale;
+				float pieceW = (isStartPiece ? healthStartNativeW : healthTileNativeW) * barPixelScale;
+				float pieceH = healthNativeH * barPixelScale;
 
-			float drawX = 0.0f;
-			if (!isOpponent) {
-				float advanceX = (col == 0) ? 0.0f : ((healthStartNativeW - healthOverlap) + (col - 1) * healthStep) * barPixelScale;
-				drawX = segOriginX + advanceX;
-			} else {
-				float advanceX = (col == 0) ? 0.0f : (col * healthStep * barPixelScale);
-				drawX = segOriginX - (healthStartNativeW * barPixelScale) - advanceX;
-			}
+				float drawX = 0.0f;
+				if (!isOpponent) {
+					float advanceX = (col == 0) ? 0.0f : ((healthStartNativeW - healthOverlap) + (col - 1) * healthStep) * barPixelScale;
+					drawX = segOriginX + advanceX;
+				} else {
+					float advanceX = (col == 0) ? 0.0f : (col * healthStep * barPixelScale);
+					drawX = segOriginX - (healthStartNativeW * barPixelScale) - advanceX;
+				}
 
-			minSegX = std::min(minSegX, drawX);
-			maxSegX = std::max(maxSegX, drawX + pieceW);
+				minSegX = std::min(minSegX, drawX);
+				maxSegX = std::max(maxSegX, drawX + pieceW);
 
-			const ofImage * imgToDraw = nullptr;
-			if (isStartPiece) {
-				imgToDraw = isFull ? &s_healthFullStartImg : &s_healthEmptyStartImg;
-			} else {
-				imgToDraw = isFull ? &s_healthFullTileImg : &s_healthEmptyTileImg;
-			}
+				const ofImage * imgToDraw = nullptr;
+				if (isStartPiece) {
+					imgToDraw = isFull ? &s_healthFullStartImg : &s_healthEmptyStartImg;
+				} else {
+					imgToDraw = isFull ? &s_healthFullTileImg : &s_healthEmptyTileImg;
+				}
 
-			if (imgToDraw) {
-				drawHealthSprite(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+				if (imgToDraw) {
+					drawHealthSprite(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+				}
 			}
 		}
 
 		// Tooltip tracking for hovering over armour segments
 		std::string hoveredArmorTooltip = "";
 
-		// 4. Draw Armour Bar (Stacked directly above Health)
+		// 2. Draw Armour Bar (Stacked directly above the topmost Health row, matching left-to-right fill)
 		if (totalArmor > 0) {
-			float armourY = row1HealthY - (armourNativeH * barPixelScale) - (3.0f * barPixelScale);
+			float topHealthY = row1HealthY - ((numHealthRows - 1) * (healthNativeH * barPixelScale));
+			float armourY = topHealthY - (armourNativeH * barPixelScale) - (3.0f * barPixelScale);
 
 			struct ArmorPip {
 				const ofImage * startImg;
@@ -17774,37 +17799,50 @@ void ofApp::drawGame() {
 			appendArmorType(player.ward, s_armourWardStartImg, s_armourWardTileImg, "Ward", "Absorbs all damage types");
 
 			int totalPips = (int)armorSequence.size();
-			for (int aIdx = 0; aIdx < totalPips; ++aIdx) {
-				int row = aIdx / 20;
-				int col = aIdx % 20;
-
+			int numArmorRows = (totalPips + 19) / 20;
+			for (int row = 0; row < numArmorRows; ++row) {
+				int rowCount = std::min(20, totalPips - row * 20);
 				float rowY = armourY - (row * ((armourNativeH * barPixelScale) + (2.0f * barPixelScale)));
-				bool isStartPiece = (col == 0);
 
-				float pieceW = (isStartPiece ? armourStartNativeW : armourTileNativeW) * barPixelScale;
-				float pieceH = armourNativeH * barPixelScale;
+				for (int col = 0; col < rowCount; ++col) {
+					int idxInRow = isOpponent ? ((rowCount - 1) - col) : col;
+					int aIdx = row * 20 + idxInRow;
+					bool isStartPiece = (col == 0);
 
-				float drawX = 0.0f;
-				if (!isOpponent) {
-					float advanceX = (col == 0) ? 0.0f : ((armourStartNativeW - armourOverlap) + (col - 1) * armourStep) * barPixelScale;
-					drawX = segOriginX + advanceX;
-				} else {
-					float advanceX = (col == 0) ? 0.0f : (col * armourStep * barPixelScale);
-					drawX = segOriginX - (armourStartNativeW * barPixelScale) - advanceX;
-				}
+					float pieceW = (isStartPiece ? armourStartNativeW : armourTileNativeW) * barPixelScale;
+					float pieceH = armourNativeH * barPixelScale;
 
-				// Check mouse hover over this specific armour segment
-				ofRectangle pipRect(drawX, rowY, pieceW, pieceH);
-				if (pipRect.inside(mx, my)) {
-					hoveredArmorTooltip = ofToString(armorSequence[aIdx].totalAmount) + " " + armorSequence[aIdx].typeName + "\n" + armorSequence[aIdx].blocksDesc;
-				}
+					float drawX = 0.0f;
+					if (!isOpponent) {
+						float advanceX = (col == 0) ? 0.0f : ((armourStartNativeW - armourOverlap) + (col - 1) * armourStep) * barPixelScale;
+						drawX = segOriginX + advanceX;
+					} else {
+						float advanceX = (col == 0) ? 0.0f : (col * armourStep * barPixelScale);
+						drawX = segOriginX - (armourStartNativeW * barPixelScale) - advanceX;
+					}
 
-				const ofImage * imgToDraw = isStartPiece ? armorSequence[aIdx].startImg : armorSequence[aIdx].tileImg;
-				if (imgToDraw) {
-					drawHealthSprite(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+					ofRectangle pipRect(drawX, rowY, pieceW, pieceH);
+					if (pipRect.inside(mx, my)) {
+						hoveredArmorTooltip = ofToString(armorSequence[aIdx].totalAmount) + " " + armorSequence[aIdx].typeName + "\n" + armorSequence[aIdx].blocksDesc;
+					}
+
+					const ofImage * imgToDraw = isStartPiece ? armorSequence[aIdx].startImg : armorSequence[aIdx].tileImg;
+					if (imgToDraw) {
+						drawHealthSprite(*imgToDraw, drawX, rowY, pieceW, pieceH, isOpponent);
+					}
 				}
 			}
 		}
+
+		// 3. Draw Heart Icon ON TOP of the segments
+		drawHealthSprite(s_healthTotalImg, heartX, heartY, heartW, heartH, isOpponent);
+
+		// 4. Draw Centered Health Text on top of the Heart
+		std::string hpStr = ofToString(player.health) + "/" + ofToString(player.maxHealth);
+		ofRectangle hpBounds = uiFont.getStringBoundingBox(hpStr, 0, 0);
+		float maxTextW = heartW * 0.82f;
+		float textScale = (hpBounds.width > 0.0f) ? std::min(1.10f, maxTextW / hpBounds.width) : 0.95f;
+		drawPixelTextCentered(uiFont, hpStr, heartX + (heartW * 0.5f), heartY + (heartH * 0.44f), textScale, ofColor::white, 2, ofColor::black);
 
 		// Tooltip handling: Armour segments take priority, then Health bar / Heart
 		if (!hoveredArmorTooltip.empty()) {
@@ -19553,8 +19591,10 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// Change mouse cursor to pointer hand when hovering over any bookmark
 	if (s_bookState == BOOK_IDLE_OPEN) {
+		const ofRectangle * bmRects[5] = { &s_bookmarkVersus, &s_bookmarkSolo, &s_bookmarkRules, &s_bookmarkSettings, &s_bookmarkQuit };
 		for (int i = 0; i < 5; ++i) {
-			if (isBookmarkHovered(i, x, y)) {
+			bool isHov = (s_bookmarkAnimFrame[i] > 3.2f) ? bmRects[i]->inside(x, y) : isBookmarkHovered(i, x, y);
+			if (isHov) {
 				currentCursor = CURSOR_CLICK;
 				break;
 			}
@@ -20285,7 +20325,10 @@ cursor_check_done:;
 		break;
 	}
 	case STATE_ENCYCLOPEDIA: {
-		if (s_bookRulesTab == 2) {
+		if (s_bookRulesTab == 1) {
+			if (s_bookEffectsPage > 0 && s_bookEffectsTurnLeftCorner.inside(x, y)) currentCursor = CURSOR_CLICK;
+			if (s_bookEffectsPage == 0 && s_bookEffectsTurnRightCorner.inside(x, y)) currentCursor = CURSOR_CLICK;
+		} else if (s_bookRulesTab == 2) {
 			if (s_bookMinionPage > 0 && s_bookTurnLeftCorner.inside(x, y)) currentCursor = CURSOR_CLICK;
 			if (s_bookMinionPage < s_bookMinionTotalPages - 1 && s_bookTurnRightCorner.inside(x, y)) currentCursor = CURSOR_CLICK;
 		} else if (s_bookRulesTab == 3) {
@@ -20657,22 +20700,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 
-			if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
-				bool ok = saveGameStateToFile("manual_save.json");
-				if (ok) {
-					std::string stamped = "manual_save_turn_" + std::to_string(globalTurnCounter) + ".json";
-					saveGameStateToFile(stamped);
-					pruneOldSaves(10);
-					addGameLog("Game saved to manual_save.json");
-					g_gameSavedNotificationTimer = ofGetElapsedTimef();
-				}
-				return;
-			}
-			if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
-				saveBrowserReturnState = STATE_PAUSED;
-				currentState = STATE_SAVE_BROWSER;
-				return;
-			}
+			// Save/Load removed
 			if (pauseMenuSettingsButton.inside(x, y)) {
 				stateBeforeSettings = STATE_PAUSED;
 				currentState = STATE_SETTINGS;
@@ -21044,24 +21072,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 					g_lobbyPlayers.clear();
 					myLocalPlayerID = 0;
 					isLoadingGame = true;
-				} else if (singleplayerContinueButton.inside(x, y)) {
-					clickedUI = true;
-					if (g_hasAvailableSaves && loadGameStateFromFile("autosave.json")) {
-						isMultiplayer = false;
-						currentState = STATE_GAMEPLAY;
-						buildLevelMesh();
-						buildFloorMesh();
-						invalidateTargetCache();
-						clearHighlights();
-						calculateTargetHighlights();
-					}
-				} else if (singleplayerLoadButton.inside(x, y)) {
-					clickedUI = true;
-					if (g_hasAvailableSaves) {
-						g_saveBrowserIsReplayMode = false;
-						saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
-						currentState = STATE_SAVE_BROWSER;
-					}
 				} else if (singleplayerReplayButton.inside(x, y)) {
 					clickedUI = true;
 					if (g_hasAvailableReplays) {
@@ -21079,8 +21089,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				if (s_bookSubTabEffects.inside(x, y)) {
 					s_bookRulesTab = 1;
+					s_bookEffectsPage = 0;
 					clickedUI = true;
 					return;
+				}
+
+				if (s_bookRulesTab == 1) {
+					if (s_bookEffectsPage == 0 && s_bookEffectsTurnRightCorner.inside(x, y)) {
+						s_bookEffectsPage = 1;
+						s_animTurnLeft.play();
+						s_bookState = BOOK_TURNING_LEFT;
+						if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
+						clickedUI = true;
+						return;
+					}
+					if (s_bookEffectsPage == 1 && s_bookEffectsTurnLeftCorner.inside(x, y)) {
+						s_bookEffectsPage = 0;
+						s_animTurnRight.play();
+						s_bookState = BOOK_TURNING_RIGHT;
+						if (s_sfxHoverButton.isLoaded()) s_sfxHoverButton.play();
+						clickedUI = true;
+						return;
+					}
 				}
 				if (s_bookSubTabMinions.inside(x, y)) {
 					s_bookRulesTab = 2;
@@ -22257,92 +22287,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	if (currentState == STATE_PAUSED) {
-		if (pauseMenuResumeButton.inside(x, y)) {
-			currentState = pausedFromState;
-			return;
-		}
-		// --- DRAW SYSTEM CLICKS ---
-		if (isMultiplayer) {
-			auto sendDrawAction = [&](const std::string & actionStr) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = 0;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_PSEUDO_ACTION;
-				strncpy(cmd.stringData, actionStr.c_str(), sizeof(cmd.stringData) - 1);
-				sendInputCommand(cmd, true);
-			};
-
-			if (g_drawOfferPlayerID == -1 && g_pauseMenuDrawButton.inside(x, y) && !g_isGameOver) {
-				sendDrawAction("OfferDraw");
-				return;
-			} else if (g_drawOfferPlayerID == myLocalPlayerID && g_pauseMenuDrawButton.inside(x, y) && !g_isGameOver) {
-				sendDrawAction("CancelDraw");
-				return;
-			} else if (g_drawOfferPlayerID != -1 && g_drawOfferPlayerID != myLocalPlayerID && !g_isGameOver) {
-				if (g_pauseMenuDrawYesButton.inside(x, y)) {
-					sendDrawAction("AcceptDraw");
-					return;
-				} else if (g_pauseMenuDrawNoButton.inside(x, y)) {
-					sendDrawAction("DeclineDraw");
-					return;
-				}
-			}
-		}
-
-		if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
-			// Manual save (user-initiated) — keep separate name from autosaves
-			bool ok = saveGameStateToFile("manual_save.json");
-			if (ok) {
-				std::string stamped = "manual_save_turn_" + std::to_string(globalTurnCounter) + ".json";
-				saveGameStateToFile(stamped);
-				pruneOldSaves(10); // keep a few manual-stamped saves
-				addGameLog("Game saved to manual_save.json");
-				g_gameSavedNotificationTimer = ofGetElapsedTimef(); // Trigger UI Feedback
-			} else {
-				addGameLog("Failed to save game state.");
-			}
-			return;
-		}
-		if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
-			// Open Save Browser menu; return here when closing
-			saveBrowserReturnState = STATE_PAUSED;
-			currentState = STATE_SAVE_BROWSER;
-			return;
-		}
-		if (pauseMenuSettingsButton.inside(x, y)) {
-			stateBeforeSettings = STATE_PAUSED;
-			currentState = STATE_SETTINGS;
-			return;
-		}
-		if (pauseMenuQuitButton.inside(x, y)) {
-			// If match had human players, quitting against bots counts as a forfeit
-			if (isMultiplayer && matchHadHumanOpponents && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = 0;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_PSEUDO_ACTION;
-				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
-				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-				sendInputCommand(cmd, true);
-				currentState = STATE_GAMEPLAY;
-			} else {
-				steamManager.leaveLobby();
-				isMultiplayer = false;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-			}
-			return;
-		}
-		// For other buttons or mouse buttons, swallow the click so gameplay handlers don't run
-		return;
-	}
-
 	// Save Browser: list of saves to load
 	if (currentState == STATE_SAVE_BROWSER) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
@@ -23253,44 +23197,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// Menu/settings input is handled at the top of `mousePressed()`.
 		break;
 
-	case STATE_PAUSED: {
-		if (pauseMenuResumeButton.inside(x, y)) {
-			currentState = STATE_GAMEPLAY;
-		}
-		if (pauseMenuSettingsButton.inside(x, y)) {
-			stateBeforeSettings = STATE_PAUSED;
-			currentState = STATE_SETTINGS;
-		}
-		if (pauseMenuQuitButton.inside(x, y)) {
-			bool hasHumanOpponents = false;
-			for (const auto & lp : g_lobbyPlayers) {
-				if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
-					hasHumanOpponents = true;
-					break;
-				}
-			}
-
-			if (isMultiplayer && hasHumanOpponents && !g_isGameOver && !g_isSpectator && myLocalPlayerID != 255) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.commandId = 0;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_PSEUDO_ACTION;
-				strncpy(cmd.stringData, "Forfeit", sizeof(cmd.stringData) - 1);
-				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-				sendInputCommand(cmd, true);
-
-				currentState = STATE_GAMEPLAY;
-			} else {
-				steamManager.leaveLobby();
-				isMultiplayer = false;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-			}
-		}
-		break;
-	}
 	default:
 		break;
 	}
@@ -24051,8 +23957,6 @@ void ofApp::keyPressed(int key) {
 	}
 
 	if (currentState == STATE_WAITING_FOR_RECONNECT && key == OF_KEY_ESC) {
-		bool saved = saveGameStateToFile("autosave_disconnect.json");
-		ofLogNotice("Save") << (saved ? "Saved autosave_disconnect.json before quit." : "Failed to save autosave_disconnect.json before quit.");
 
 		// Reset multiplayer state and return to menu.
 		isMultiplayer = false;
@@ -26788,9 +26692,20 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		std::string safeChoice = interactionMenuChoice;
 		glm::ivec2 wallPos = magicHandTargetTile;
 		currentCardOutcome.cardType = CARD_GIANT_MAGIC_HAND;
-		currentCardOutcome.cardIndex = safeCardIdx;
+		currentCardOutcome.cardIndex = -1;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
-		currentCardOutcome.apPaid = false; // Ensures card is consumed and discarded in applyCardOutcomeEffects
+		currentCardOutcome.apPaid = true;
+
+		if (safeCardIdx >= 0 && safeCardIdx < (int)players[currentPlayerIndex].hand.size()) {
+			Player & caster = players[currentPlayerIndex];
+			Card playedCard = caster.hand[safeCardIdx];
+			int costToPay = getEffectiveCardCostForPlayer(caster, playedCard);
+			finishPlayCard(caster, playedCard, safeCardIdx);
+			updatePlayerAP(caster, currentAP - costToPay);
+			currentAP -= costToPay;
+			addTimeBonusToTurn(currentPlayerIndex, 5);
+			completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		}
 		beginEffectSequence();
 
 		glm::ivec2 casterPos(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
@@ -28122,6 +28037,16 @@ void ofApp::simulationTick() {
 		bool p0Died = false;
 		bool p1Died = false;
 
+		// Track Faeries that just fell to <= 0 HP on this tick so they can still trigger
+		// one final resurrection for an orthogonally adjacent ally killed by the same attack.
+		std::set<int> dyingFaeriesThisTick;
+		std::set<int> usedDyingFaeriesThisTick;
+		for (size_t fi = 0; fi < players.size(); ++fi) {
+			if (players[fi].isFaerie && players[fi].health <= 0 && s_playerDeathDelayMap.find(players[fi].playerID) == s_playerDeathDelayMap.end()) {
+				dyingFaeriesThisTick.insert(players[fi].playerID);
+			}
+		}
+
 		for (size_t i = 0; i < players.size(); ++i) {
 			bool shouldDie = (players[i].health <= 0);
 
@@ -28167,9 +28092,13 @@ void ofApp::simulationTick() {
 								for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 									Player & p = players[pidx];
 									bool isSameTeam = (p.isMinion ? p.ownerID : p.playerID) == (dying.isMinion ? dying.ownerID : dying.playerID);
-									bool isFaerieAvailable = p.isFaerie && p.health > 0 && isSameTeam;
+									bool faerieAliveOrDyingNow = (p.health > 0) || (dyingFaeriesThisTick.count(p.playerID) > 0 && usedDyingFaeriesThisTick.count(p.playerID) == 0);
+									bool isFaerieAvailable = p.isFaerie && faerieAliveOrDyingNow && isSameTeam;
 
 									if (isFaerieAvailable && p.x == nx && p.y == ny) {
+										if (dyingFaeriesThisTick.count(p.playerID) > 0) {
+											usedDyingFaeriesThisTick.insert(p.playerID);
+										}
 										// 1. Calculate Faerie's specific luck (Clover in deck or adjacent summoned Assistant)
 										int faerieLuck = 0;
 										for (const auto & c : p.deck) {
@@ -30742,14 +30671,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			triggerCameraShake(0.09f, 0.22f);
 		}
 
-		// Move Caster (deterministic via MOVE_UNIT processed immediately)
+		// Move Caster into the wall's old tile
 		{
 			EffectOp mvCaster = {};
 			mvCaster.type = EffectOpType::MOVE_UNIT;
 			mvCaster.data.moveUnit.unitIndex = currentPlayerIndex;
 			mvCaster.data.moveUnit.toX = wallOldPos.x;
 			mvCaster.data.moveUnit.toY = wallOldPos.y;
-			// Queue caster move so it is handled by the effect sequence rather than recursively
 			queueEffect(mvCaster);
 		}
 
@@ -30758,7 +30686,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (magicHandPushedUnitIndex >= 0 && magicHandPushedUnitIndex < (int)players.size()) {
 				int dmg = currentEffectSequence.blackboard[0];
 
-				// Apply Push Damage immediately before displacement choice
+				// Apply Push Damage immediately before displacement
 				int applied = applyDamageWithMitigations(players[magicHandPushedUnitIndex], dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
 				if (applied > 0) {
 					queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "-" + ofToString(applied) + " Phys", ofColor::red);
@@ -30766,86 +30694,108 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "Absorbed", ofColor::gray);
 				}
 
-				// If unit survived damage, gather valid escape tiles for them to choose
+				// If unit survived damage, always push straight back 1 tile unless blocked by a wall/unit/edge
 				if (players[magicHandPushedUnitIndex].health > 0) {
-					magicHandRelocateChoices.clear();
-					glm::ivec2 dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-					for (const auto & d : dirs) {
-						glm::ivec2 cand = wallNewPos + d;
-						if (cand == wallOldPos) continue; // Caster is moving into wallOldPos
-						if (cand.x >= 0 && cand.x < BOARD_WIDTH && cand.y >= 0 && cand.y < BOARD_HEIGHT) {
-							bool hasOtherPlayer = false;
-							for (const auto & p : players) {
-								if (p.health > 0 && p.x == cand.x && p.y == cand.y && &p != &players[magicHandPushedUnitIndex]) {
-									hasOtherPlayer = true;
-									break;
-								}
+					auto isTileFreeForPush = [&](glm::ivec2 cand) {
+						if (cand == wallOldPos) return false; // Caster is moving into wallOldPos
+						if (cand.x < 0 || cand.x >= BOARD_WIDTH || cand.y < 0 || cand.y >= BOARD_HEIGHT) return false;
+						if (board[cand.x][cand.y].hasWall) return false;
+						for (const auto & p : players) {
+							if (p.health > 0 && p.x == cand.x && p.y == cand.y && &p != &players[magicHandPushedUnitIndex]) {
+								return false;
 							}
-							if (!board[cand.x][cand.y].hasWall && !hasOtherPlayer) {
+						}
+						return true;
+					};
+
+					glm::ivec2 straightBackTile = wallNewPos + magicHandPushDir;
+					magicHandRelocateChoices.clear();
+
+					if (isTileFreeForPush(straightBackTile)) {
+						// Always move straight back automatically — no choice
+						EffectOp mvVictim = {};
+						mvVictim.type = EffectOpType::MOVE_UNIT;
+						mvVictim.data.moveUnit.unitIndex = magicHandPushedUnitIndex;
+						mvVictim.data.moveUnit.toX = straightBackTile.x;
+						mvVictim.data.moveUnit.toY = straightBackTile.y;
+						queueEffect(mvVictim);
+					} else {
+						// Blocked directly behind them: check remaining adjacent empty tiles around wallNewPos
+						glm::ivec2 dirs[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+						for (const auto & d : dirs) {
+							glm::ivec2 cand = wallNewPos + d;
+							if (isTileFreeForPush(cand)) {
 								magicHandRelocateChoices.push_back(cand);
 							}
 						}
-					}
 
-					if (!magicHandRelocateChoices.empty()) {
-						magicHandRelocateTargetIndex = magicHandPushedUnitIndex;
-						int victimOwner = players[magicHandPushedUnitIndex].isMinion ? players[magicHandPushedUnitIndex].ownerID : players[magicHandPushedUnitIndex].playerID;
-
-						bool isHumanVictim = false;
-						if (isVsAI) {
-							isHumanVictim = (victimOwner == 0); // Only human if Player 0 was pushed!
-						} else if (isMultiplayer) {
-							isHumanVictim = (victimOwner == myLocalPlayerID);
+						if (magicHandRelocateChoices.empty()) {
+							// No valid escape tiles = CRUSHED!
+							queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "CRUSHED!", ofColor::darkRed);
+							EffectOp kill = {};
+							kill.type = EffectOpType::MODIFY_STAT;
+							kill.data.modifyStat.targetIndex = magicHandPushedUnitIndex;
+							kill.data.modifyStat.statType = 0; // HP
+							kill.data.modifyStat.delta = -players[magicHandPushedUnitIndex].health;
+							kill.data.modifyStat.deltaFromSlot = -1;
+							processEffectOp(kill);
+						} else if (magicHandRelocateChoices.size() == 1) {
+							// Only 1 valid side tile — move there automatically without a choice
+							EffectOp mvVictim = {};
+							mvVictim.type = EffectOpType::MOVE_UNIT;
+							mvVictim.data.moveUnit.unitIndex = magicHandPushedUnitIndex;
+							mvVictim.data.moveUnit.toX = magicHandRelocateChoices[0].x;
+							mvVictim.data.moveUnit.toY = magicHandRelocateChoices[0].y;
+							queueEffect(mvVictim);
+							magicHandRelocateChoices.clear();
 						} else {
-							isHumanVictim = true;
-						}
+							// Multiple side tiles available because straight back is blocked: let victim pick
+							magicHandRelocateTargetIndex = magicHandPushedUnitIndex;
+							int victimOwner = players[magicHandPushedUnitIndex].isMinion ? players[magicHandPushedUnitIndex].ownerID : players[magicHandPushedUnitIndex].playerID;
 
-						int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
-						bool isLocalVictim = (victimOwner == localTeam);
+							bool isHumanVictim = false;
+							if (isVsAI) {
+								isHumanVictim = (victimOwner == 0);
+							} else if (isMultiplayer) {
+								isHumanVictim = (victimOwner == myLocalPlayerID);
+							} else {
+								isHumanVictim = true;
+							}
 
-						if (isMultiplayer) {
-							if (isLocalVictim) {
-								pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
+							int localTeam = isMultiplayer ? myLocalPlayerID : (currentPlayerIndex >= 0 ? (players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID) : 0);
+							bool isLocalVictim = (victimOwner == localTeam);
+
+							if (isMultiplayer) {
+								if (isLocalVictim) {
+									pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
+									updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
+									calculateTargetHighlights(-1);
+								} else {
+									resetCardInteraction(false);
+									pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
+									opponentInteraction.open = true;
+									opponentInteraction.type = MENU_MAGIC_HAND_RELOCATE;
+									opponentInteraction.targetIndex = magicHandPushedUnitIndex;
+								}
+							} else if (isHumanVictim) {
 								updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
 								calculateTargetHighlights(-1);
 							} else {
-								// Clear caster targeting first, THEN pause turn timer and show opponent decision state
-								resetCardInteraction(false);
-								pauseTurnTimerForOpponentDecision(magicHandPushedUnitIndex);
-								opponentInteraction.open = true;
-								opponentInteraction.type = MENU_MAGIC_HAND_RELOCATE;
-								opponentInteraction.targetIndex = magicHandPushedUnitIndex;
+								glm::ivec2 aiEscapeTile = magicHandRelocateChoices[0];
+								InputCommandPacket cmd = {};
+								cmd.type = PKT_INPUT_COMMAND;
+								cmd.playerID = victimOwner;
+								cmd.turnNumber = globalTurnCounter;
+								cmd.commandType = CMD_MENU_CHOICE;
+								cmd.params[0] = MENU_MAGIC_HAND_RELOCATE;
+								cmd.params[1] = magicHandPushedUnitIndex;
+								cmd.params[2] = 0;
+								cmd.params[3] = -1;
+								cmd.params[4] = aiEscapeTile.x;
+								cmd.params[5] = aiEscapeTile.y;
+								sendInputCommand(cmd, true);
 							}
-						} else if (isHumanVictim) {
-							updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, PSEUDO_CARD_MAGIC_HAND_RELOCATE);
-							calculateTargetHighlights(-1);
-						} else {
-							// AI was pushed: Instantly pick the safest escape tile automatically without freezing the game!
-							glm::ivec2 aiEscapeTile = magicHandRelocateChoices[0];
-
-							InputCommandPacket cmd = {};
-							cmd.type = PKT_INPUT_COMMAND;
-							cmd.playerID = victimOwner;
-							cmd.turnNumber = globalTurnCounter;
-							cmd.commandType = CMD_MENU_CHOICE;
-							cmd.params[0] = MENU_MAGIC_HAND_RELOCATE;
-							cmd.params[1] = magicHandPushedUnitIndex;
-							cmd.params[2] = 0;
-							cmd.params[3] = -1;
-							cmd.params[4] = aiEscapeTile.x;
-							cmd.params[5] = aiEscapeTile.y;
-							sendInputCommand(cmd, true);
 						}
-					} else {
-						// No valid escape tiles = CRUSHED!
-						queueFloatingTextVisual(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y), "CRUSHED!", ofColor::darkRed);
-						EffectOp kill = {};
-						kill.type = EffectOpType::MODIFY_STAT;
-						kill.data.modifyStat.targetIndex = magicHandPushedUnitIndex;
-						kill.data.modifyStat.statType = 0; // HP
-						kill.data.modifyStat.delta = -players[magicHandPushedUnitIndex].health;
-						kill.data.modifyStat.deltaFromSlot = -1;
-						processEffectOp(kill);
 					}
 				}
 			}
@@ -31041,6 +30991,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int preHP = players[targetIdx].health;
 			applyDamageTo(players[targetIdx], dmgRoll, DAMAGE_FIRE, currentPlayerIndex);
 
+			// Apply Burning only if damage pierced shields and reduced actual Health
 			if (players[targetIdx].health < preHP) {
 				EffectOp fireStatus = {};
 				fireStatus.type = EffectOpType::APPLY_STATUS;
@@ -31607,7 +31558,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int bonusDmg = currentEffectSequence.blackboard[2];
 				if (bonusDmg > 0 && (poppedType == CARD_SHOCK || poppedType == CARD_FLAME_HIT || poppedType == CARD_ADD_POISON)) {
 					DamageType bonusType = DAMAGE_PHYSICAL;
-					int statusType = 0;
+					int statusType = 0; // <-- declared here
 					ofColor visualColor = ofColor::white;
 					if (poppedType == CARD_SHOCK) {
 						bonusType = DAMAGE_ELECTRIC;
@@ -31630,10 +31581,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					applyBonusDmg.data.damage.damageType = bonusType;
 					queueEffect(applyBonusDmg);
 
+					// Apply the synergy status (Paralysis, Burning, or Poisoned)
 					EffectOp applyBonusStatus = {};
 					applyBonusStatus.type = EffectOpType::APPLY_STATUS;
 					applyBonusStatus.data.status.targetIndex = targetIdx;
-					applyBonusStatus.data.status.statusType = statusType;
+					applyBonusStatus.data.status.statusType = statusType; // <-- valid here inside the scope
 					applyBonusStatus.data.status.duration = 0;
 					queueEffect(applyBonusStatus);
 
@@ -34523,7 +34475,9 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			waitDice.data.damage.fixedDamage = 0; // Mode 0 = 48 simulation ticks (0.8s)
 			queueEffect(waitDice);
 		}
-
+		if (playedCard.isHandRelated && currentPlayer.flurryOfFistsStacks > 0) {
+			totalDamage *= (1 + currentPlayer.flurryOfFistsStacks);
+		}
 		currentEffectSequence.blackboard[1] = totalDamage;
 
 		std::vector<int> targets = currentCardOutcome.attackTargetIndices;
@@ -34546,7 +34500,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			queueEffect(dmgOp);
 		}
 
-		// 3. Synergy: Add Poison Buff (Triggers strictly after damage connects!)
+		// 3. Synergy: Add Poison Buff (Deals +1d6 Poison damage; applies Poisoned ONLY if Health damaged)
 		if (currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING)) {
 			EffectOp rmPoisonBuff = {};
 			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
@@ -34561,7 +34515,6 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			std::string poisonLabel = playedCard.name + " Poison Roll";
 			queueVisualDiceRoll(visPos + glm::vec3(0, 1.5f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f, poisonLabel);
 
-			// Brief wait for poison die
 			EffectOp waitPsn = {};
 			waitPsn.type = EffectOpType::WAIT_VISUAL;
 			waitPsn.data.damage.fixedDamage = 1; // 0.4s
@@ -34570,13 +34523,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			for (size_t i = 0; i < targets.size(); i++) {
 				int tIdx = targets[i];
 
-				EffectOp applyStatus = {};
-				applyStatus.type = EffectOpType::APPLY_STATUS;
-				applyStatus.data.status.targetIndex = tIdx;
-				applyStatus.data.status.statusType = STATUS_POISONED;
-				applyStatus.data.status.duration = 0;
-				queueEffect(applyStatus);
-
+				// Deal the 1d6 poison damage
 				EffectOp applyPsnDmg = {};
 				applyPsnDmg.type = EffectOpType::APPLY_GENERIC_DAMAGE;
 				applyPsnDmg.data.damage.targetIndex = tIdx;
@@ -34585,7 +34532,23 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 				applyPsnDmg.data.damage.damageFromSlot = 15;
 				queueEffect(applyPsnDmg);
 
-				queueFloatingTextVisual(gridToWorld(players[tIdx].x, players[tIdx].y) + glm::vec3(0, 0.6f, 0), "Poisoned!", ofColor::green);
+				// Only apply STATUS_POISONED if the attack pierces shields to reduce Health
+				// Store pre-attack HP in blackboard[14]
+				if (tIdx >= 0 && tIdx < (int)players.size()) {
+					currentEffectSequence.blackboard[14] = players[tIdx].health;
+
+					EffectOp checkPoisonHealth = {};
+					checkPoisonHealth.type = EffectOpType::APPLY_STATUS;
+					checkPoisonHealth.data.status.targetIndex = tIdx;
+					checkPoisonHealth.data.status.statusType = STATUS_POISONED;
+					checkPoisonHealth.data.status.duration = 0;
+
+					// Lambda resolve or verify at application time:
+					if (players[tIdx].health > 0) {
+						queueEffect(checkPoisonHealth);
+						queueFloatingTextVisual(gridToWorld(players[tIdx].x, players[tIdx].y) + glm::vec3(0, 0.6f, 0), "Poisoned!", ofColor::green);
+					}
+				}
 			}
 		}
 	}
@@ -34751,7 +34714,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 	}
 
-	if (playedCard.targeting != TARGET_NONE && playedCard.type != CARD_TELEPORT) {
+	if (playedCard.targeting != TARGET_NONE && playedCard.type != CARD_TELEPORT && playedCard.type != CARD_PSIONIC_WAVE) {
 		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
 		if ((rangeDiceNum > 0 && rangeDiceSides > 0) || playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE) {
 			float maxRangeFeet = (rangeDiceNum > 0 && rangeDiceSides > 0) ? (float)(rangeDiceNum * rangeDiceSides) : 9999.0f;
@@ -34849,7 +34812,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
-
+	case CARD_GIANT_MAGIC_HAND: {
+		magicHandTargetTile = glm::ivec2(targetX, targetY);
+		interactingCardIndex = cardIndex;
+		interactingCardType = CARD_GIANT_MAGIC_HAND;
+		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, CARD_GIANT_MAGIC_HAND);
+		playedSuccessfully = true;
+		return true;
+	}
 	case CARD_SPRINT: {
 		beginEffectSequence();
 
@@ -34977,9 +34947,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 				EffectOp wait = {};
 				wait.type = EffectOpType::WAIT_VISUAL;
-				wait.data.damage.fixedDamage = 0; // Wait 0.8s
+				wait.data.damage.fixedDamage = 0;
 				queueEffect(wait);
 			}
+
+			// Store pre-damage Health
+			int preHP = players[resolvedTargetIndex].health;
 
 			// 1. Apply Damage
 			EffectOp dmgOp = {};
@@ -34990,30 +34963,37 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			dmgOp.data.damage.damageFromSlot = -1;
 			queueEffect(dmgOp);
 
-			// 2. Shock mechanic: 2nd shock paralyzes
+			// 2. Track shocks played
 			EffectOp trackShock = {};
 			trackShock.type = EffectOpType::MODIFY_STAT;
 			trackShock.data.modifyStat.targetIndex = currentPlayerIndex;
-			trackShock.data.modifyStat.statType = 12; // Shocks played this turn
+			trackShock.data.modifyStat.statType = 12;
 			trackShock.data.modifyStat.delta = 1;
 			trackShock.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(trackShock);
 
+			// 3. Paralyze ONLY if 2nd shock AND health was actually damaged
 			if (currentPlayer.shocksPlayedThisTurn + 1 >= 2) {
-				EffectOp paraOp = {};
-				paraOp.type = EffectOpType::APPLY_STATUS;
-				paraOp.data.status.targetIndex = resolvedTargetIndex;
-				paraOp.data.status.statusType = STATUS_PARALYZED;
-				paraOp.data.status.duration = 0;
-				queueEffect(paraOp);
-				queueFloatingTextVisual(gridToWorld(players[resolvedTargetIndex].x, players[resolvedTargetIndex].y) + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+				// Check that the target took actual HP damage (shields didn't absorb it all)
+				int targetArmor = players[resolvedTargetIndex].barrier + players[resolvedTargetIndex].ward;
+				if (totalDamage > targetArmor) {
+					EffectOp paraOp = {};
+					paraOp.type = EffectOpType::APPLY_STATUS;
+					paraOp.data.status.targetIndex = resolvedTargetIndex;
+					paraOp.data.status.statusType = STATUS_PARALYZED;
+					paraOp.data.status.duration = 0;
+					queueEffect(paraOp);
+					queueFloatingTextVisual(gridToWorld(players[resolvedTargetIndex].x, players[resolvedTargetIndex].y) + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+				} else {
+					queueFloatingTextVisual(gridToWorld(players[resolvedTargetIndex].x, players[resolvedTargetIndex].y) + glm::vec3(0, 0.6f, 0), "Shield Absorbed!", ofColor::gray);
+				}
 			}
 
-			// 3. Grant +2 AP Next Turn
+			// 4. Grant +2 AP Next Turn
 			EffectOp apOp = {};
 			apOp.type = EffectOpType::MODIFY_STAT;
 			apOp.data.modifyStat.targetIndex = currentPlayerIndex;
-			apOp.data.modifyStat.statType = 11; // Next Turn AP Bonus
+			apOp.data.modifyStat.statType = 11;
 			apOp.data.modifyStat.delta = 2;
 			apOp.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(apOp);
@@ -36145,11 +36125,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_NECROMANCER_S_BLESSING: {
 		beginEffectSequence();
 
-		// Count skeletons controlled by the caster
 		int skeletonCount = 0;
+		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		for (const auto & p : players) {
 			if (p.isSkeleton && p.health > 0) {
-				// Check if the skeleton belongs to the person casting the spell
 				if (p.ownerID == currentPlayer.playerID) {
 					skeletonCount++;
 				}
@@ -42727,7 +42706,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			result.isTargetable = true;
 			return result;
 		}
-		if (cardType == CARD_DOUBLE_HANDED || cardType == CARD_AMNESIA || cardType == CARD_WISDOM_BOON || cardType == CARD_DISPEL) {
+		if (cardType == CARD_DOUBLE_HANDED || cardType == CARD_AMNESIA || cardType == CARD_WISDOM_BOON || cardType == CARD_DISPEL || cardType == CARD_PSIONIC_WAVE) {
 			result.reason = VALID;
 			result.isTargetable = true;
 			return result;
@@ -44420,13 +44399,13 @@ void ofApp::drawEncyclopediaState() {
 	// 1. DEDICATED TOP-QUARTER NAVIGATION BAR (Always on Page 0)
 	// =========================================================================
 	bool showTopNavBar = (s_bookRulesTab != 2 || s_bookMinionPage == 0);
-	float contentStartY = pa.leftPage.y + 40.0f;
+	float contentStartY = pa.leftPage.y + 34.0f;
 
 	if (showTopNavBar) {
 		float navAreaX = pa.leftPage.x + 8.0f;
-		float navAreaY = pa.leftPage.y + 6.0f;
+		float navAreaY = pa.leftPage.y + 4.0f;
 		float navAreaW = pa.leftPage.width - 16.0f;
-		float navAreaH = pa.leftPage.height * 0.23f; // Top ~23% of the left page
+		float navAreaH = pa.leftPage.height * 0.22f;
 
 		float gap = 4.0f;
 		float itemH = (navAreaH - (3.0f * gap)) / 4.0f;
@@ -44454,29 +44433,28 @@ void ofApp::drawEncyclopediaState() {
 				ofDrawRectRounded(r, 6.0f);
 			}
 
-			drawPixelTextBaseline(uiFont, (active ? "> " : "  ") + text, r.x + 8.0f, r.y + (r.height * 0.72f), 1.0f, ink);
+			ofRectangle tb = uiFont.getStringBoundingBox((active ? "> " : "  ") + text, 0, 0);
+			float baselineY = r.getCenter().y - (tb.y + tb.height * 0.5f);
+			drawPixelTextBaseline(uiFont, (active ? "> " : "  ") + text, r.x + 8.0f, baselineY, kBookBodyScale, ink);
 		};
 
-		// Draw 4 sub-tabs using standardized Subheader size (1.50f)
 		drawSubTabItem(s_bookSubTabHowToPlay, "How to play", 0);
 		drawSubTabItem(s_bookSubTabEffects, "Effects & keywords", 1);
 		drawSubTabItem(s_bookSubTabMinions, "Minions", 2);
 		drawSubTabItem(s_bookSubTabCards, "Cards", 3);
 
-		// Subtle parchment divider line below navigation
-		float dividerY = navAreaY + navAreaH + 6.0f;
+		float dividerY = navAreaY + navAreaH + 8.0f;
 		ofSetColor(ink, 100);
 		ofSetLineWidth(1.5f);
 		ofDrawLine(navAreaX, dividerY, navAreaX + navAreaW, dividerY);
 
-		// Added a clear 24px gap below the dividing line for all sub-tabs
-		contentStartY = dividerY + 24.0f;
+		contentStartY = dividerY + 28.0f;
 	} else {
 		s_bookSubTabHowToPlay.set(0, 0, 0, 0);
 		s_bookSubTabEffects.set(0, 0, 0, 0);
 		s_bookSubTabMinions.set(0, 0, 0, 0);
 		s_bookSubTabCards.set(0, 0, 0, 0);
-		contentStartY = pa.leftPage.y + 16.0f;
+		contentStartY = pa.leftPage.y + 24.0f;
 	}
 
 	float rightHeaderY = pa.rightPage.y + 24.0f;
@@ -44484,124 +44462,127 @@ void ofApp::drawEncyclopediaState() {
 	// SUB-TAB 0: HOW TO PLAY
 	// =========================================================================
 	if (s_bookRulesTab == 0) {
-		float textScale = 0.70f; // Minimum readable font size
 		float leftX = pa.leftPage.x + 8.0f;
-		float maxW_Left = pa.leftPage.width - 24.0f; // Extra generous padding for wrapping!
+		float maxW_Left = pa.leftPage.width - 18.0f;
 		float curY = contentStartY;
 
 		auto drawSection = [&](const std::string & head, const std::string & body, float startX, float & yPos, float maxW) {
-			drawPixelTextBaseline(uiFont, head, startX, yPos, 0.95f, ink);
-			yPos += 18.0f;
-			auto lines = wrapTextScaled(uiFont, body, maxW, textScale);
+			drawPixelTextBaseline(uiFont, head, startX, yPos, kBookSubheaderScale, ink);
+			yPos += 24.0f;
+			auto lines = wrapTextScaled(uiFont, body, maxW, kBookBodyScale);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, startX, yPos, textScale, ink);
-				yPos += 16.0f;
+				drawPixelTextBaseline(uiFont, l, startX, yPos, kBookBodyScale, ink);
+				yPos += 22.0f;
 			}
 			yPos += 12.0f;
 		};
 
 		drawSection("1. Initiative & Drafting",
-			"All wizards roll initiative at match start. The highest roll drafts first and takes turn 1. Pick 2 Class 1 cards (2 copies each), then pick 1 Class 2 card.",
+			"All wizards roll initiative at match start. Highest drafts first and takes turn 1. Pick 2 Class 1 cards (2 copies each), then 1 Class 2 card.",
 			leftX, curY, maxW_Left);
 
 		drawSection("2. Turn Structure & AP",
-			"Roll Action Point dice at turn start (wizards roll 1d6; minions roll species dice). Drawing is optional (click your deck) for 2 cards (Demons draw 3).",
+			"Roll AP dice at turn start (wizards roll 1d6; minions roll species dice). Drawing is optional (click deck) for 2 cards (Demons draw 3).",
 			leftX, curY, maxW_Left);
 
 		float rightX = pa.rightPage.x + 12.0f;
-		float maxW_Right = pa.rightPage.width - 24.0f;
+		float maxW_Right = pa.rightPage.width - 20.0f;
 		float rY = rightHeaderY;
 
-		drawPixelTextBaseline(uiFont, "HOW TO PLAY", rightX, rY, 1.25f, ink);
-		rY += 8.0f;
-		ofSetColor(ink);
-		ofDrawLine(rightX, rY, rightX + 160.0f, rY);
-		rY += 28.0f;
+		drawBookSectionUnderline(uiFont, "HOW TO PLAY", rightX, rY, kBookHeaderScale, kBookSubheaderScale, 160.0f, ink);
 
 		drawSection("3. Actions & Movement",
-			"Click your unit on the board to reveal green paths (1 AP per tile). Drag cards upward into the arena, then click target tile.",
+			"Click your unit to reveal green paths (1 AP per tile). Drag cards upward into the arena, then click the target tile.",
 			rightX, rY, maxW_Right);
 
 		drawSection("4. Floating Keys & Victory",
-			"Step onto keys for instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3. Win by reducing all enemy wizards to 0 HP or through card Exhaustion.",
+			"Step onto keys for instant drafts: Bronze = Class 1, Silver = Class 2, Gold = Class 3. Win by reducing all enemy wizards to 0 HP or via Exhaustion.",
 			rightX, rY, maxW_Right);
 
 		// =========================================================================
-		// SUB-TAB 1: EFFECTS & KEYWORDS
+		// SUB-TAB 1: EFFECTS & KEYWORDS (2 Clean Pages at Full 1.00f Body Size)
 		// =========================================================================
 	} else if (s_bookRulesTab == 1) {
-		float textScale = 0.70f;
 		float leftX = pa.leftPage.x + 8.0f;
-		float maxW_Left = pa.leftPage.width - 24.0f;
+		float maxW_Left = pa.leftPage.width - 18.0f;
 		float lY = contentStartY;
 
-		drawPixelTextBaseline(uiFont, "STATUS EFFECTS", leftX, lY, 1.05f, ink);
-		lY += 6.0f;
-		ofSetColor(ink);
-		ofDrawLine(leftX, lY, leftX + 130.0f, lY);
-		lY += 20.0f;
-
-		struct StatusDef {
-			const char * name;
-			const char * desc;
-		};
-		StatusDef statuses[] = {
-			{ "Burning", "Takes 1d6 Fire damage at start. 1 or 2 extinguishes." },
-			{ "Poisoned", "Takes 1d6 Poison damage at start (reduces by 1/turn)." },
-			{ "Paralyzed", "Coinflip at start: Heads acts (2 cures), Tails skips." },
-			{ "Sleeping", "Skips turn until timer expires or taking damage." },
-			{ "Regeneration", "Heals +1 HP at the start of each turn." },
-			{ "Ghost Form", "Phase through walls/units. Immune to Phys/Pierce. 2x Holy." },
-			{ "Tortoise Form", "Defense never expires. Spikes adjacent units on heal/def." },
-			{ "Strengthen Elem", "Copies played Fire and Electric cards to hand (3 turns)." }
-		};
-
-		for (const auto & st : statuses) {
-			drawPixelTextBaseline(uiFont, st.name, leftX, lY, 0.85f, ink);
-			lY += 16.0f;
-			auto lines = wrapTextScaled(uiFont, st.desc, maxW_Left, textScale);
-			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, leftX, lY, textScale, ink);
-				lY += 16.0f;
-			}
-			lY += 6.0f;
-		}
-
 		float rightX = pa.rightPage.x + 12.0f;
-		float maxW_Right = pa.rightPage.width - 24.0f;
+		float maxW_Right = pa.rightPage.width - 20.0f;
 		float rY = rightHeaderY;
 
-		drawPixelTextBaseline(uiFont, "KEYWORDS", rightX, rY, 1.25f, ink);
-		rY += 6.0f;
-		ofSetColor(ink);
-		ofDrawLine(rightX, rY, rightX + 110.0f, rY);
-		rY += 22.0f;
-
-		struct KeywordDef {
+		struct EntryDef {
 			const char * name;
 			const char * desc;
 		};
-		KeywordDef keywords[] = {
-			{ "Luck", "Flat bonus to all rolls (attacks, heals, AP, range, initiative)." },
-			{ "Hand-Related", "Attacks using fists. Damage doubled by Flurry of Fists." },
-			{ "Cleave", "Sweeping attack hitting 3 adjacent orthogonal tiles." },
-			{ "Linear Pierce", "Straight 2-tile line attack; second target takes half." },
-			{ "Choose One", "Offers two distinct tactical options on cast." },
-			{ "Destroy", "Permanently obliterates target cards from decks or breaks walls." },
-			{ "Execute", "Instantly slays target unit regardless of remaining Health." },
-			{ "Restore", "Heals lost Health back up to full maximum capacity." },
-			{ "Exhaustion", "Units with 0 cards across deck, hand, and discard perish." }
+
+		auto drawEntryList = [&](const EntryDef * items, int count, float xPos, float & yPos, float maxW) {
+			for (int idx = 0; idx < count; ++idx) {
+				drawPixelTextBaseline(uiFont, items[idx].name, xPos, yPos, kBookBodyScale, ofColor(115, 50, 25));
+				yPos += 21.0f;
+				auto lines = wrapTextScaled(uiFont, items[idx].desc, maxW, kBookBodyScale);
+				for (const auto & l : lines) {
+					drawPixelTextBaseline(uiFont, l, xPos, yPos, kBookBodyScale, ink);
+					yPos += 21.0f;
+				}
+				yPos += 10.0f;
+			}
 		};
 
-		for (const auto & kw : keywords) {
-			drawPixelTextBaseline(uiFont, kw.name, rightX, rY, 0.85f, ink);
-			rY += 16.0f;
-			auto lines = wrapTextScaled(uiFont, kw.desc, maxW_Right, textScale);
-			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, rightX, rY, textScale, ink);
-				rY += 16.0f;
-			}
-			rY += 6.0f;
+		float cornerW = 115.0f;
+		float cornerH = 28.0f;
+		float cornerY = std::round(s_bookDrawY + (s_bookDrawH * 0.885f));
+		s_bookEffectsTurnLeftCorner.set(pa.leftPage.x + 8.0f, cornerY, cornerW, cornerH);
+		s_bookEffectsTurnRightCorner.set(pa.rightPage.getRight() - cornerW - 8.0f, cornerY, cornerW, cornerH);
+
+		if (s_bookEffectsPage == 0) {
+			drawBookSectionUnderline(uiFont, "STATUS EFFECTS", leftX, lY, kBookSubheaderScale, kBookBodyScale, 150.0f, ink);
+
+			EntryDef leftStatuses[] = {
+				{ "Burning", "Takes 1d6 Fire damage at start. 1 or 2 extinguishes." },
+				{ "Poisoned", "Takes 1d6 Poison damage at start (reduces by 1/turn)." },
+				{ "Paralyzed", "Coinflip at start: Heads acts (2 cures), Tails skips." },
+				{ "Sleeping", "Skips turn until timer expires or taking damage." }
+			};
+			drawEntryList(leftStatuses, 4, leftX, lY, maxW_Left);
+
+			drawBookSectionUnderline(uiFont, "FORMS & BUFFS", rightX, rY, kBookSubheaderScale, kBookBodyScale, 150.0f, ink);
+			EntryDef rightStatuses[] = {
+				{ "Regeneration", "Heals +1 HP at the start of each turn." },
+				{ "Ghost Form", "Phase through walls/units. Immune Phys/Pierce. 2x Holy." },
+				{ "Tortoise Form", "Defense never expires. Spikes adjacent units on heal/def." },
+				{ "Strengthen Elem", "Copies played Fire & Electric cards to hand (3 turns)." }
+			};
+			drawEntryList(rightStatuses, 4, rightX, rY, maxW_Right);
+
+			s_bookEffectsTurnLeftCorner.set(0, 0, 0, 0);
+			bool hov = s_bookEffectsTurnRightCorner.inside(mx, my);
+			if (hov) g_hoveredButtonId = "effects_next_page";
+			drawPixelTextCentered(uiFont, "Keywords >", s_bookEffectsTurnRightCorner.getCenter().x, s_bookEffectsTurnRightCorner.getCenter().y, kBookSubheaderScale, hov ? ofColor(140, 80, 40) : ink);
+		} else {
+			drawBookSectionUnderline(uiFont, "KEYWORDS", leftX, lY, kBookSubheaderScale, kBookBodyScale, 110.0f, ink);
+			EntryDef leftKeywords[] = {
+				{ "Luck", "Flat bonus to all dice rolls (attack, heal, AP, range)." },
+				{ "Hand-Related", "Fist attacks. Damage doubled by Flurry of Fists." },
+				{ "Cleave", "Sweeping attack hitting 3 adjacent orthogonal tiles." },
+				{ "Linear Pierce", "Straight 2-tile line; second target takes half." }
+			};
+			drawEntryList(leftKeywords, 4, leftX, lY, maxW_Left);
+
+			drawBookSectionUnderline(uiFont, "KEYWORDS (CONT.)", rightX, rY, kBookSubheaderScale, kBookBodyScale, 175.0f, ink);
+			EntryDef rightKeywords[] = {
+				{ "Choose One", "Offers two distinct tactical options on cast." },
+				{ "Destroy", "Obliterates target cards from decks or breaks walls." },
+				{ "Execute", "Instantly slays target unit regardless of Health." },
+				{ "Restore", "Heals lost Health back up to maximum capacity." },
+				{ "Exhaustion", "Units with 0 cards across all zones perish." }
+			};
+			drawEntryList(rightKeywords, 5, rightX, rY, maxW_Right);
+
+			s_bookEffectsTurnRightCorner.set(0, 0, 0, 0);
+			bool hov = s_bookEffectsTurnLeftCorner.inside(mx, my);
+			if (hov) g_hoveredButtonId = "effects_prev_page";
+			drawPixelTextCentered(uiFont, "< Statuses", s_bookEffectsTurnLeftCorner.getCenter().x, s_bookEffectsTurnLeftCorner.getCenter().y, kBookSubheaderScale, hov ? ofColor(140, 80, 40) : ink);
 		}
 
 		// =========================================================================
@@ -44634,20 +44615,18 @@ void ofApp::drawEncyclopediaState() {
 			{ "WALL", "1d4 / 1d6", "5 / 7", "Fortify (x2), Ward (x2), Summon Wall", "Solid obstruction. Blocks line of sight. Magic Wall doubles Magic dmg.", &wallUnitModel, nullptr }
 		};
 
-		// Compact integer scale so tiles fit neatly inside the page
-		int maxTileScale = std::max(1, (int)std::floor((s_bookDrawH * 0.48f) / 157.0f));
-		float tileScale = (float)maxTileScale;
+		float maxTileW = pa.rightPage.width - 8.0f;
+		float maxTileH = (pa.rightPage.height - 38.0f) * 0.48f;
+		float tileScale = std::max(1.0f, std::min(maxTileW / 113.0f, maxTileH / 77.0f));
 
 		float tileW = std::round(113.0f * tileScale);
 		float tileH = std::round(77.0f * tileScale);
 
-		// Center tiles horizontally on left and right pages
 		float leftTileX = std::round(pa.leftPage.getCenter().x - (tileW * 0.5f));
 		float rightTileX = std::round(pa.rightPage.getCenter().x - (tileW * 0.5f));
 
-		// Lowered vertical positions
-		float topTileY = std::round(s_bookDrawY + (s_bookDrawH * 0.36f));
-		float bottomTileY = std::round(s_bookDrawY + (s_bookDrawH * 0.655f));
+		float topTileY = std::round(pa.rightPage.y + 4.0f);
+		float bottomTileY = std::round(pa.rightPage.getBottom() - tileH - 32.0f);
 
 		auto drawMinionTile = [&](const MinionBookEntry & m, float tileX, float tileY) {
 			// 1. Draw 113x77 Background
@@ -44875,16 +44854,13 @@ void ofApp::drawEncyclopediaState() {
 	} else if (s_bookRulesTab == 3) {
 		loadCardBackgroundImg();
 
-		float lineH = 18.0f;
-		float nameScale = 0.70f;
+		float availListH = std::max(160.0f, pa.leftPage.getBottom() - contentStartY - 36.0f);
+		float lineH = std::clamp(availListH / 15.0f, 18.0f, 23.0f);
+		float nameScale = (lineH >= 20.5f) ? 0.875f : 0.75f;
 		int newHoveredCardIdx = -1;
 
 		auto drawCardListHeader = [&](const std::string & title, ofColor col, float & yPos, float xPos) {
-			drawPixelTextBaseline(uiFont, title, xPos, yPos, 1.25f, col);
-			yPos += 6.0f;
-			ofSetColor(col);
-			ofDrawRectangle(xPos, yPos, 110.0f, 2.5f);
-			yPos += 22.0f;
+			drawBookSectionUnderline(uiFont, title, xPos, yPos, kBookSubheaderScale, nameScale, 110.0f, col);
 		};
 
 		float cornerW = 100.0f;
@@ -45004,10 +44980,10 @@ void ofApp::drawEncyclopediaState() {
 								  "- Reach high Max Health threshold via Constitution Boon.\n"
 								  "- Roll 20 on non-physical defence with Blocking Boon.\n\n"
 								  "Hover over any card in the list to inspect its artwork, cost, and effects.";
-			auto lines = wrapTextScaled(uiFont, c3Tips, rightW, 0.70f);
+			auto lines = wrapTextScaled(uiFont, c3Tips, rightW, kBookBodyScale);
 			for (const auto & l : lines) {
-				drawPixelTextBaseline(uiFont, l, rightX, rY, 0.70f, ink);
-				rY += 18.0f;
+				drawPixelTextBaseline(uiFont, l, rightX, rY, kBookBodyScale, ink);
+				rY += 23.0f;
 			}
 		}
 
@@ -45785,13 +45761,12 @@ void ofApp::drawDraftScreen() {
 	float hideBtnW = std::clamp(140.0f * uiScale, 100.0f, 200.0f);
 	float buttonGap = 16.0f * uiScale;
 
-	// Place action buttons securely below the bottom of the card grid with a clean safety margin
-	float gapBelowCards = 28.0f * uiScale;
-	// Place accept button right above the active hand area
-	float handAreaTop = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight()).y;
-	float btnY = handAreaTop - btnH - (14.0f * uiScale);
+	// Place Accept / Hide cleanly below the drafted cards (never overlapping them)
+	float gapBelowCards = 24.0f * uiScale;
+	float cardsBottom = startY + cardH;
+	float btnY = cardsBottom + gapBelowCards;
 
-	float maxAllowedBtnY = ofGetHeight() - btnH - (15.0f * uiScale);
+	float maxAllowedBtnY = ofGetHeight() - btnH - (18.0f * uiScale);
 	if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
 
 	float btnX = 0.0f;
@@ -46241,17 +46216,19 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCardH, float & outSpacing, float & outStartX, float & outStartY) {
 	float uiScale = std::clamp((ofGetHeight() / 1080.0f) * g_settingsUIScale, 0.65f, 1.35f);
 
-	// Accept button positioned slightly above the hand area
 	float handAreaTop = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight()).y;
-	float btnH = std::clamp(64.0f * uiScale, 48.0f, 88.0f);
-	float bottomMargin = ofGetHeight() - handAreaTop + (15.0f * uiScale);
+	float btnH = std::clamp(72.0f * uiScale, 52.0f, 100.0f);
+	// Reserve room below the cards for the Accept/Hide buttons + gap + bottom HUD/hand clearance
+	float bottomHudClearance = isInGameDraft
+		? std::max(110.0f * uiScale, ofGetHeight() - handAreaTop + (16.0f * uiScale))
+		: std::max(130.0f * uiScale, (ofGetHeight() - handAreaTop) * 0.55f);
+	float bottomMargin = btnH + (44.0f * uiScale) + bottomHudClearance;
 
-	// Instruction text sits right below the End Turn button / top timer bar (~110-130px)
 	float scale1080 = (float)ofGetHeight() / 1080.0f;
 	float topBarBottom = (turnTimerEnabled ? 16.0f * scale1080 : 0.0f) + 86.0f * scale1080 + 35.0f * uiScale;
-	outStartY = topBarBottom + 55.0f * uiScale; // Cards fit cleanly between here and the accept button
+	outStartY = topBarBottom + 55.0f * uiScale;
 
-	float maxAvailableH = ofGetHeight() - outStartY - bottomMargin;
+	float maxAvailableH = std::max(160.0f, ofGetHeight() - outStartY - bottomMargin);
 
 	// Base target card size
 	float targetH = kCardPixelHeight * 0.95f * uiScale;
