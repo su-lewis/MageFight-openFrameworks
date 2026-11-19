@@ -1,0 +1,82 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-11-19 14:49:57
+End Reason: Victory
+Seed: 429937617
+Turns: 11
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[14:46:41] --- MATCH STARTED ---
+[14:46:45] Turn 1: Player 1's turn
+[14:46:53] Player 1 played Sprint targeting (0,8)
+[14:46:56] Player 1 played Sprint targeting (0,8)
+[14:46:57] Player 1 played Form of Ghost targeting (0,8)
+[14:47:01] Player 1 played Sprint targeting (0,8)
+[14:47:07] Player 1 played Sprint targeting (0,8)
+[14:47:08] Player 1 moved to (2,7)
+[14:48:07] Turn 1: Player 2's turn
+[14:48:26] Player 2 played Summon Wall targeting (11,0)
+[14:48:27] Turn 2: Player 1's turn
+[14:48:31] Player 1 moved to (4,8)
+[14:48:33] Player 1 moved to (6,4)
+[14:48:37] Player 1 moved to (6,0)
+[14:48:39] Turn 2: Player 2's turn
+[14:48:42] Player 2 played Summon Wall targeting (12,1)
+[14:48:43] Turn 3: Player 1's turn
+[14:48:45] Player 1 moved to (9,0)
+[14:48:48] Turn 3: Player 2's turn
+[14:48:50] Turn 4: Player 1's turn
+[14:48:52] Player 1 moved to (10,0)
+[14:48:53] Turn 4: Player 2's turn
+[14:48:54] Turn 5: Player 1's turn
+[14:48:56] Turn 5: Player 2's turn
+[14:48:57] Turn 6: Player 1's turn
+[14:48:59] Turn 6: Player 2's turn
+[14:49:00] Turn 7: Player 1's turn
+[14:49:02] Player 1 played Sprint targeting (10,0)
+[14:49:03] Player 1 played Sprint targeting (10,0)
+[14:49:03] Turn 7: Player 2's turn
+[14:49:04] Turn 8: Player 1's turn
+[14:49:08] Player 1 moved to (11,0)
+[14:49:09] Player 1 played Flame Hit targeting (12,0)
+[14:49:09] Player 1 moved to (10,0)
+[14:49:11] Player 1 played Summon Hellhound targeting (9,0)
+[14:49:12] Player 1 summoned unit kind 3 at (9,0)
+[14:49:13] Turn 8: Player 2's turn
+[14:49:16] Player 2 played Replicate targeting (12,0)
+[14:49:17] Turn 9: Player 1's turn
+[14:49:19] Player 1 moved to (8,4)
+[14:49:27] Player 1 played Form of Ghost targeting (8,4)
+[14:49:30] Player 1 moved to (12,4)
+[14:49:32] Player 1 moved to (12,1)
+[14:49:34] Player 1 moved to (11,1)
+[14:49:34] Turn 9: Player 1's turn
+[14:49:36] Player 1 played Sprint targeting (10,0)
+[14:49:37] Turn 9: Player 2's turn
+[14:49:41] Player 2 played Replicate targeting (12,0)
+[14:49:43] Turn 10: Player 1's turn
+[14:49:44] Turn 10: Player 1's turn
+[14:49:45] Turn 10: Player 2's turn
+[14:49:49] Player 2 played Hand Block targeting (12,0)
+[14:49:49] Player 2 played Hand Block targeting (12,0)
+[14:49:53] Turn 11: Player 1's turn
+[14:49:55] Turn 11: Player 1's turn
+[14:49:56] Turn 11: Player 2's turn
+[14:49:57] Player 2 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 1
+  Cards Played: 17
+  Minions Spawned: 1
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 0
+  Minions Spawned: 0
+  Total Healing: 0
+=====================

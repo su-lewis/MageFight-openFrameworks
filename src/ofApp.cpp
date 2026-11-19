@@ -4493,6 +4493,13 @@ static glm::vec3 getInitiativeDieWorldPos(int playerID, int totalPlayers, float 
 		return glm::vec3(0.0f, diceY, 0.0f);
 	}
 }
+struct InitiativeDieEntry {
+	int playerID = 0;
+	int roll = 0;
+	std::vector<int> raw;
+};
+static std::vector<std::vector<InitiativeDieEntry>> s_initiativeTieRounds;
+
 void ofApp::startInitiativePhase() {
 	currentState = STATE_INITIATIVE_ROLL;
 	isInitiativeRolling = true;
@@ -4500,6 +4507,11 @@ void ofApp::startInitiativePhase() {
 
 	matchTurnOrder.clear();
 	matchPlacementOrder.clear();
+	s_initiativeTieRounds.clear();
+	activeDiceRolls.clear();
+	visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(),
+						   [](const VisualEvent & ev) { return ev.type == VE_DICE; }),
+		visualEvents.end());
 
 	if (players.empty()) {
 		ofLogError("Initiative") << "startInitiativePhase() aborted: players array is empty!";
@@ -4532,7 +4544,7 @@ void ofApp::startInitiativePhase() {
 			currentEffectSequence.blackboard[i] = r;
 		}
 
-		// Spawn in their correct 4-player corner slot
+		// Spawn in their correct corner/side slot
 		queueVisualDiceRoll(getInitiativeDieWorldPos(realPlayerID, numPlayers, 7.0f), 1, 6, raw, r, PURPOSE_DEBUG, realPlayerID, 4.2f, "Initiative Roll");
 	}
 
@@ -4542,31 +4554,26 @@ void ofApp::startInitiativePhase() {
 		return a.tieBreaker > b.tieBreaker;
 	});
 
-	// Check if there's a tie for 1st place (rolls[0].roll == rolls[1].roll)
-	if (rolls.size() >= 2 && rolls[0].roll == rolls[1].roll) {
-		addGameLog("Initiative Tie! Re-rolling tied players...");
-
-		// Clear previous overlapping roll visuals to prevent stacking
-		activeDiceRolls.clear();
-
+	// Queue separate visual tie-break rounds until 1st place has a clear winner
+	int safetyRounds = 0;
+	while (rolls.size() >= 2 && rolls[0].roll == rolls[1].roll && safetyRounds < 10) {
+		safetyRounds++;
 		int topRoll = rolls[0].roll;
-		int tieOffsetCount = 0;
-		for (auto & r : rolls) {
-			std::vector<int> raw;
-			// Re-roll for everyone involved or specifically tied ones; re-rolling all keeps visuals clean and uniform
-			r.roll = resolveDiceRollDetailed(1, 6, raw);
-			r.tieBreaker = getGameRandom(1, 1000);
-
-			glm::vec3 pos = getInitiativeDieWorldPos(r.playerID, numPlayers, 7.0f);
-			if (r.roll == topRoll) {
-				// Give tied dice a slight horizontal separation offset so they sit side-by-side cleanly
-				pos.x += (tieOffsetCount++ * 1.8f) - 0.9f;
-			}
-
-			queueVisualDiceRoll(pos, 1, 6, raw, r.roll, PURPOSE_DEBUG, r.playerID, 4.2f, r.roll == topRoll ? "Tie-Break Roll" : "Initiative Roll");
+		size_t tiedCount = 0;
+		while (tiedCount < rolls.size() && rolls[tiedCount].roll == topRoll) {
+			tiedCount++;
 		}
 
-		std::sort(rolls.begin(), rolls.end(), [](const PlayerRoll & a, const PlayerRoll & b) {
+		std::vector<InitiativeDieEntry> roundEntries;
+		for (size_t i = 0; i < tiedCount; ++i) {
+			std::vector<int> raw;
+			rolls[i].roll = resolveDiceRollDetailed(1, 6, raw);
+			rolls[i].tieBreaker = getGameRandom(1, 1000);
+			roundEntries.push_back({ rolls[i].playerID, rolls[i].roll, raw });
+		}
+		s_initiativeTieRounds.push_back(roundEntries);
+
+		std::sort(rolls.begin(), rolls.begin() + tiedCount, [](const PlayerRoll & a, const PlayerRoll & b) {
 			if (a.roll != b.roll) return a.roll > b.roll;
 			return a.tieBreaker > b.tieBreaker;
 		});
@@ -4577,7 +4584,7 @@ void ofApp::startInitiativePhase() {
 		matchTurnOrder.push_back(r.playerID);
 	}
 
-	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED (" << numPlayers << "-Player) ---";
+	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED (" << numPlayers << "-Player, tieRounds=" << s_initiativeTieRounds.size() << ") ---";
 }
 
 ofApp::~ofApp() { }
@@ -7080,20 +7087,25 @@ void ofApp::setup() {
 		setupGame(); // Naturally begins Initiative Roll -> Real Drafting Phase!
 	}
 
-	// Connect to Python AI if in training mode or Singleplayer vs AI!
-	try {
-		zmqContext = new zmq::context_t(1);
-		zmqSocket = new zmq::socket_t(*zmqContext, zmq::socket_type::rep); // REP socket
-		std::string port = "5555";
-		if (std::getenv("MAGEFIGHT_PORT") != nullptr) port = std::getenv("MAGEFIGHT_PORT");
+	// Connect to Python AI only in headless training mode (or when MAGEFIGHT_ZMQ is explicitly set)
+	if (headless || std::getenv("MAGEFIGHT_ZMQ") != nullptr) {
+		try {
+			zmqContext = new zmq::context_t(1);
+			zmqSocket = new zmq::socket_t(*zmqContext, zmq::socket_type::rep); // REP socket
+			std::string port = "5555";
+			if (std::getenv("MAGEFIGHT_PORT") != nullptr) port = std::getenv("MAGEFIGHT_PORT");
 
-		// 🟢 THE C++ GAME IS THE SERVER (It waits for the AI to connect)
-		zmqSocket->bind("tcp://*:" + port);
-		zmqConnected = true;
-		ofLogNotice("AI") << "Bound C++ Game to port " << port;
-	} catch (const std::exception & e) {
-		ofLogError("AI") << "Failed to bind ZMQ socket on port 5555 (Is a previous instance still running?). Error: " << e.what();
+			zmqSocket->bind("tcp://*:" + port);
+			zmqConnected = true;
+			ofLogNotice("AI") << "Bound C++ Game to port " << port;
+		} catch (const std::exception & e) {
+			ofLogError("AI") << "Failed to bind ZMQ socket on port 5555 (Is a previous instance still running?). Error: " << e.what();
+			zmqConnected = false;
+			currentAIMode = AI_MODE_RULE_BASED;
+		}
+	} else {
 		zmqConnected = false;
+		currentAIMode = AI_MODE_RULE_BASED;
 	}
 }
 //--------------------------------------------------------------
@@ -11773,6 +11785,7 @@ void ofApp::setupGame() {
 	s_pendingLocalChecksums.clear();
 	s_playerDeathDelayMap.clear();
 
+	s_initiativeTieRounds.clear();
 	g_isGameOver = false;
 	g_winnerID = -1;
 	g_drawOfferPlayerID = -1;
@@ -14508,10 +14521,12 @@ void ofApp::drawGame() {
 			int col = i % rowLength;
 
 			if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 1) {
-				int totalDice = (int)activeDiceRolls.size();
+				int totalPlayers = isMultiplayer ? (int)g_lobbyPlayers.size() : 2;
+				if (totalPlayers <= 0) totalPlayers = 2;
+				totalPlayers = std::min(totalPlayers, std::max(1, (int)players.size()));
 				int pID = roll.associatedUnit;
 				if (pID < 0 || pID > 3) pID = (int)i;
-				glm::vec3 pos = getInitiativeDieWorldPos(pID, totalDice, diceDisplayY);
+				glm::vec3 pos = getInitiativeDieWorldPos(pID, totalPlayers, diceDisplayY);
 				ofTranslate(pos.x, pos.y, pos.z);
 			} else {
 				int totalDice = (int)activeDiceRolls.size();
@@ -20767,6 +20782,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 						g_inLobby = false;
 						g_isHostingLobby = false;
 						g_isConnectingToLobby = false;
+						g_isSpectator = false;
+						isMultiplayer = false;
+						isVsAI = false;
+						isAIvsAI = false;
+						hasReceivedHandshake = false;
+						waitingForClientHandshake = false;
+						nextCommandId = 1;
+						lastProcessedCommandId = 0;
+						commandQueue.clear();
+						provisionalCommands.clear();
+						provisionalSnapshots.clear();
+						queuedCommandKeys.clear();
+						executedCommandKeys.clear();
+						skippedOptimisticCommands.clear();
 						g_lobbyPlayers.clear();
 						isChatOpen = false;
 						isChatMinimized = true;
@@ -20861,10 +20890,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 						clickedUI = true;
 						sanitizeLobbyPlayersForMatchStart();
 						bool allReady = (g_lobbyPlayers.size() > 1);
+						bool hasRemoteHuman = false;
 						for (const auto & lp : g_lobbyPlayers) {
 							if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
+							if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) hasRemoteHuman = true;
 						}
 						if (allReady && g_lobbyPlayers.size() >= 2) {
+							if (!hasRemoteHuman && !steamManager.isHost()) {
+								steamManager.becomeHost();
+							}
+							nextCommandId = 1;
+							lastProcessedCommandId = 0;
+							commandQueue.clear();
+							queuedCommandKeys.clear();
+							executedCommandKeys.clear();
+							skippedOptimisticCommands.clear();
+
 							currentMapSeed = (uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF);
 							InputCommandPacket startCmd = {};
 							startCmd.type = PKT_INPUT_COMMAND;
@@ -20906,51 +20947,79 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 
-				// 2. Left Page Controls (Host, Refresh, Join Lobby)
-				if (mpRefreshButton.inside(x, y)) {
-					clickedUI = true;
-					steamManager.refreshLobbies();
-					steamManager.fetchLeaderboard();
-				} else if (mpHostButton.inside(x, y)) {
-					clickedUI = true;
-					g_isSpectator = false;
-					chatHistory.clear();
-					gameLog.clear();
+				// 2. Left Page Controls (Host, Refresh, Join Lobby - disabled while already inside a lobby)
+				if (!g_inLobby) {
+					if (mpRefreshButton.inside(x, y)) {
+						clickedUI = true;
+						steamManager.refreshLobbies();
+						steamManager.fetchLeaderboard();
+					} else if (mpHostButton.inside(x, y)) {
+						clickedUI = true;
+						g_isSpectator = false;
+						isMultiplayer = false;
+						isVsAI = false;
+						isAIvsAI = false;
+						hasReceivedHandshake = false;
+						waitingForClientHandshake = false;
+						nextCommandId = 1;
+						lastProcessedCommandId = 0;
+						commandQueue.clear();
+						provisionalCommands.clear();
+						provisionalSnapshots.clear();
+						queuedCommandKeys.clear();
+						executedCommandKeys.clear();
+						skippedOptimisticCommands.clear();
+						chatHistory.clear();
+						gameLog.clear();
 
-					steamManager.createLobby();
-					g_isHostingLobby = true;
-					g_inLobby = true;
-					myLocalPlayerID = 0;
+						steamManager.createLobby();
+						g_isHostingLobby = true;
+						g_inLobby = true;
+						myLocalPlayerID = 0;
 
-					if (myElo <= 0 && steamManager.isConnected()) {
-						int fetched = steamManager.getLocalElo();
-						myElo = (fetched > 0) ? fetched : 1000;
-					}
-					if (myElo <= 0) myElo = 1000;
+						if (myElo <= 0 && steamManager.isConnected()) {
+							int fetched = steamManager.getLocalElo();
+							myElo = (fetched > 0) ? fetched : 1000;
+						}
+						if (myElo <= 0) myElo = 1000;
 
-					g_lobbyPlayers.clear();
-					LobbyPlayer lp;
-					lp.playerID = 0;
-					lp.seed = localSeedComponent;
-					lp.elo = myElo;
-					lp.isReady = true;
-					lp.isBot = false;
-					lp.name = steamManager.isConnected() ? steamManager.getLocalPlayerName() : "Player 1";
-					if (lp.name.empty()) lp.name = "Player 1";
-					g_lobbyPlayers.push_back(lp);
-				} else if (steamManager.isConnected()) {
-					auto lobbies = steamManager.getLobbyList();
-					for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
-						if (mpLobbyButtons[i].inside(x, y)) {
-							clickedUI = true;
-							chatHistory.clear();
-							gameLog.clear();
-							bool inProgress = (lobbies[i].numPlayers >= 4);
-							g_isSpectator = inProgress;
-							myLocalPlayerID = 255;
-							steamManager.joinLobbyByID(lobbies[i].lobbyID);
-							g_isConnectingToLobby = true;
-							return;
+						g_lobbyPlayers.clear();
+						LobbyPlayer lp;
+						lp.playerID = 0;
+						lp.seed = localSeedComponent;
+						lp.elo = myElo;
+						lp.isReady = true;
+						lp.isBot = false;
+						lp.name = steamManager.isConnected() ? steamManager.getLocalPlayerName() : "Player 1";
+						if (lp.name.empty()) lp.name = "Player 1";
+						g_lobbyPlayers.push_back(lp);
+					} else if (steamManager.isConnected()) {
+						auto lobbies = steamManager.getLobbyList();
+						for (size_t i = 0; i < mpLobbyButtons.size() && i < lobbies.size(); ++i) {
+							if (mpLobbyButtons[i].inside(x, y)) {
+								clickedUI = true;
+								isMultiplayer = false;
+								isVsAI = false;
+								isAIvsAI = false;
+								hasReceivedHandshake = false;
+								waitingForClientHandshake = false;
+								nextCommandId = 1;
+								lastProcessedCommandId = 0;
+								commandQueue.clear();
+								provisionalCommands.clear();
+								provisionalSnapshots.clear();
+								queuedCommandKeys.clear();
+								executedCommandKeys.clear();
+								skippedOptimisticCommands.clear();
+								chatHistory.clear();
+								gameLog.clear();
+								bool inProgress = (lobbies[i].numPlayers >= 4);
+								g_isSpectator = inProgress;
+								myLocalPlayerID = 255;
+								steamManager.joinLobbyByID(lobbies[i].lobbyID);
+								g_isConnectingToLobby = true;
+								return;
+							}
 						}
 					}
 				}
@@ -20971,6 +21040,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					isVsAI = true;
 					isAIvsAI = false;
 					isMultiplayer = false;
+					if (!headless) currentAIMode = AI_MODE_RULE_BASED;
 					g_lobbyPlayers.clear();
 					myLocalPlayerID = 0;
 					isLoadingGame = true;
@@ -26162,6 +26232,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 	if (players.empty() || currentPlayerIndex < 0) return;
 
+	int actorOwnerID = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size())
+		? getOwnerIdForActorIndex(currentPlayerIndex)
+		: myLocalPlayerID;
+
 	// Teleport destination commit is step 2 of the lockstep flow.
 	// Do not require a live hand index here (card may already be consumed by step 1).
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
@@ -26169,7 +26243,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
+		cmd.playerID = actorOwnerID;
 		cmd.seq = 0;
 		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
@@ -26197,9 +26271,12 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			}
 		}
 		if (isValid) {
+			int ghostOwnerID = (ghostRelocateTargetIndex >= 0 && ghostRelocateTargetIndex < (int)players.size())
+				? getOwnerIdForActorIndex(ghostRelocateTargetIndex)
+				: actorOwnerID;
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
+			cmd.playerID = ghostOwnerID;
 			cmd.seq = 0;
 			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
@@ -26224,9 +26301,12 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			}
 		}
 		if (isValid) {
+			int mhOwnerID = (magicHandRelocateTargetIndex >= 0 && magicHandRelocateTargetIndex < (int)players.size())
+				? getOwnerIdForActorIndex(magicHandRelocateTargetIndex)
+				: actorOwnerID;
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
+			cmd.playerID = mhOwnerID;
 			cmd.seq = 0;
 			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
@@ -26254,7 +26334,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			// This "Menu Choice" packet is just secretly carrying our board click!
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
+			cmd.playerID = actorOwnerID;
 			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_MENU_CHOICE;
@@ -26276,7 +26356,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				if (dist == 1) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
+					cmd.playerID = actorOwnerID;
 					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
@@ -26303,7 +26383,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				if (dist == 1) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
+					cmd.playerID = actorOwnerID;
 					cmd.commandId = 0;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
@@ -26374,7 +26454,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	case CARD_FORM_OF_TORTOISE: {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
+		cmd.playerID = actorOwnerID;
 		cmd.seq = 0;
 		cmd.commandId = 0;
 		cmd.turnNumber = globalTurnCounter;
@@ -26405,7 +26485,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			// Send the final target choice over the network!
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
+			cmd.playerID = actorOwnerID;
 			cmd.seq = 0;
 			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
@@ -26474,7 +26554,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		// Funnel the generic targeted cards into lockstep queue.
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
+		cmd.playerID = actorOwnerID;
 		cmd.seq = 0;
 
 		cmd.commandId = 0; // sendInputCommand will assign canonical commandId
@@ -26645,9 +26725,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		}
 
 		if (choice > 0) {
+			int menuSenderID = getOwnerIdForActorIndex(currentPlayerIndex);
+			if (interactingCardType == CARD_MAGIC_BLAST) {
+				int blastTargetIdx = findPlayerIndexByID(magicBlastTargetPlayerIndex);
+				if (blastTargetIdx >= 0) menuSenderID = getOwnerIdForActorIndex(blastTargetIdx);
+			} else if (menuSenderID < 0) {
+				menuSenderID = myLocalPlayerID;
+			}
 			InputCommandPacket cmd = {};
 			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
+			cmd.playerID = menuSenderID;
 			cmd.seq = 0;
 			cmd.commandId = 0;
 			cmd.turnNumber = globalTurnCounter;
@@ -27854,7 +27941,7 @@ void ofApp::processCommandQueue() {
 
 		// Hold StartMatch in the queue until the authoritative lobby roster arrives
 		if (cmdType == CMD_PSEUDO_ACTION && strcmp(cmd.stringData, "StartMatch") == 0) {
-			if (isMultiplayer && !steamManager.isHost()) {
+			if ((isMultiplayer || g_inLobby) && !steamManager.isHost()) {
 				bool localPlayerPresent = false;
 				for (const auto & lp : g_lobbyPlayers) {
 					if ((int)lp.playerID == myLocalPlayerID) {
@@ -27951,19 +28038,45 @@ void ofApp::simulationTick() {
 	// Deterministic initiative resolution: wait 4.2s (0.8s spin + 3.4s reading pause)
 	if (currentState == STATE_INITIATIVE_ROLL) {
 		initiativeTimerFrames += 1;
-		const int INITIATIVE_THRESHOLD = (int)std::round(4.2f / SIMULATION_TIMESTEP);
-		if (initiativeTimerFrames >= INITIATIVE_THRESHOLD) {
-			activeDiceRolls.clear(); // Clear visual dice
+		if (!s_initiativeTieRounds.empty()) {
+			const int TIE_DISPLAY_FRAMES = headless ? 1 : (int)std::round(2.2f / SIMULATION_TIMESTEP);
+			if (initiativeTimerFrames >= TIE_DISPLAY_FRAMES) {
+				addGameLog("Initiative Tie! Re-rolling tied players...");
+				activeDiceRolls.clear();
+				visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(),
+									   [](const VisualEvent & ev) { return ev.type == VE_DICE; }),
+					visualEvents.end());
 
-			// The player who won initiative drafts first!
-			currentDraftingOrderIndex = 0;
-			draftPlayerIndex = findPlayerIndexByID(matchTurnOrder[0]);
-			if (draftPlayerIndex < 0) draftPlayerIndex = 0; // Failsafe
+				int totalPlayers = isMultiplayer ? (int)g_lobbyPlayers.size() : 2;
+				if (totalPlayers <= 0) totalPlayers = 2;
+				totalPlayers = std::min(totalPlayers, std::max(1, (int)players.size()));
 
-			beginInitiativeDrafting(draftPlayerIndex);
+				auto nextRound = std::move(s_initiativeTieRounds.front());
+				s_initiativeTieRounds.erase(s_initiativeTieRounds.begin());
 
-			ofLogNotice("Initiative") << "Initiative resolved! Player " << draftPlayerIndex << " drafts first.";
-			initiativeTimerFrames = 0;
+				for (const auto & entry : nextRound) {
+					queueVisualDiceRoll(getInitiativeDieWorldPos(entry.playerID, totalPlayers, 7.0f), 1, 6, entry.raw, entry.roll, PURPOSE_DEBUG, entry.playerID, 4.2f, "Tie-Break Roll");
+				}
+				initiativeTimerFrames = 0;
+			}
+		} else {
+			const int INITIATIVE_THRESHOLD = headless ? 1 : (int)std::round(4.2f / SIMULATION_TIMESTEP);
+			if (initiativeTimerFrames >= INITIATIVE_THRESHOLD) {
+				activeDiceRolls.clear();
+				visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(),
+									   [](const VisualEvent & ev) { return ev.type == VE_DICE; }),
+					visualEvents.end());
+
+				// The player who won initiative drafts first!
+				currentDraftingOrderIndex = 0;
+				draftPlayerIndex = findPlayerIndexByID(matchTurnOrder[0]);
+				if (draftPlayerIndex < 0) draftPlayerIndex = 0; // Failsafe
+
+				beginInitiativeDrafting(draftPlayerIndex);
+
+				ofLogNotice("Initiative") << "Initiative resolved! Player " << draftPlayerIndex << " drafts first.";
+				initiativeTimerFrames = 0;
+			}
 		}
 	}
 	// <--- ERROR: This brace prematurely closes simulationTick()!
@@ -29717,34 +29830,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 				persistCrashReason("StartMatch", "Received StartMatch cmdId=" + std::to_string(cmd.commandId) + " seed=" + std::to_string(cmd.params[0]));
 
-				// CRASH FIX: Force isMultiplayer to true immediately so the lobby validations pass!
-				isMultiplayer = true;
-				g_inLobby = false; // Exit lobby visually
-				isWaitingForMenuTransition = false;
-				currentMenuPanX = 0.0f;
-				targetMenuPanX = 0.0f;
-
-				// Check if this lobby match is exclusively against bots
-				bool hasHumanOpponentInLobby = false;
-				for (const auto & lp : g_lobbyPlayers) {
-					if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
-						hasHumanOpponentInLobby = true;
-						break;
-					}
-				}
-				if (!hasHumanOpponentInLobby) {
-					isVsAI = true;
-					// FIX: Force the built-in rule-based AI so we don't crash trying
-					// to communicate with a nonexistent Python Deep Learning ZMQ client!
-					currentAIMode = AI_MODE_RULE_BASED;
-				}
-
-				// Close and minimize the chat box so it doesn't cover the draft/gameplay
-				isChatOpen = false;
-				isChatMinimized = true;
-				chatInput = "";
-
-				// Client must have a valid lobby roster before we build players.
+				// Client must have a valid lobby roster before transitioning out of the lobby.
 				if (!steamManager.isHost()) {
 					sanitizeLobbyPlayersForMatchStart();
 					bool localPlayerPresent = false;
@@ -29767,6 +29853,32 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 						break;
 					}
 				}
+
+				isMultiplayer = true;
+				g_inLobby = false; // Exit lobby visually
+				isWaitingForMenuTransition = false;
+				currentMenuPanX = 0.0f;
+				targetMenuPanX = 0.0f;
+
+				// Check if this lobby match is exclusively against bots
+				bool hasHumanOpponentInLobby = false;
+				for (const auto & lp : g_lobbyPlayers) {
+					if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) {
+						hasHumanOpponentInLobby = true;
+						break;
+					}
+				}
+				if (!hasHumanOpponentInLobby) {
+					isVsAI = true;
+				}
+				if (!headless) {
+					currentAIMode = AI_MODE_RULE_BASED;
+				}
+
+				// Close and minimize the chat box so it doesn't cover the draft/gameplay
+				isChatOpen = false;
+				isChatMinimized = true;
+				chatInput = "";
 
 				// Set the deterministic seed provided by the Host
 				currentMapSeed = cmd.params[0];
@@ -43149,6 +43261,7 @@ void ofApp::cleanupGame() {
 	currentDraftingOrderIndex = 0;
 	matchTurnOrder.clear();
 	matchPlacementOrder.clear();
+	s_initiativeTieRounds.clear();
 	draftNextScheduled = false;
 	draftEndScheduled = false;
 	draftNextAt = 0.0f;
@@ -45316,7 +45429,10 @@ void ofApp::drawInitiativeRoll() {
 		// CRASH FIX: Guard against empty players array (can happen on client races).
 		if (players.empty()) return;
 
-		int totalDice = (int)activeDiceRolls.size();
+		int totalPlayers = isMultiplayer ? (int)g_lobbyPlayers.size() : 2;
+		if (totalPlayers <= 0) totalPlayers = 2;
+		totalPlayers = std::min(totalPlayers, std::max(1, (int)players.size()));
+
 		for (size_t i = 0; i < activeDiceRolls.size(); ++i) {
 			const auto & roll = activeDiceRolls[i];
 			if (roll.purpose != PURPOSE_DEBUG) continue;
@@ -45325,7 +45441,7 @@ void ofApp::drawInitiativeRoll() {
 			if (pID < 0 || pID > 3) pID = (int)i;
 
 			// Position text directly above the physical 3D die
-			glm::vec3 dieWorldPos = getInitiativeDieWorldPos(pID, totalDice, 7.0f);
+			glm::vec3 dieWorldPos = getInitiativeDieWorldPos(pID, totalPlayers, 7.0f);
 			glm::vec3 screenPos3D = activeCam.worldToScreen(dieWorldPos + glm::vec3(0, 1.8f, 0));
 			glm::vec2 screenPos(screenPos3D.x, screenPos3D.y);
 
@@ -45346,8 +45462,13 @@ void ofApp::drawInitiativeRoll() {
 		}
 
 		if (allDone && !matchTurnOrder.empty()) {
-			std::string winnerName = getPlayerNameByID(matchTurnOrder[0]);
-			string msg = winnerName + " won Initiative! They draft first.";
+			string msg;
+			if (!s_initiativeTieRounds.empty()) {
+				msg = "Initiative Tie! Re-rolling...";
+			} else {
+				std::string winnerName = getPlayerNameByID(matchTurnOrder[0]);
+				msg = winnerName + " won Initiative! They draft first.";
+			}
 
 			// Draw in Instruction Area (Top Center)
 			ofRectangle mBox = titleFont.getStringBoundingBox(msg, 0, 0);
@@ -46552,30 +46673,34 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 
-						// Assign new ID or reuse stale unready placeholder
+						// Assign new ID or reuse stale unready placeholder (or spectate if match already started)
 						if (assignedID == -1) {
-							// Check if an unready placeholder slot exists to reuse before creating a new slot
-							for (size_t i = 1; i < g_lobbyPlayers.size(); i++) {
-								if (g_lobbyPlayers[i].name.rfind("Player ", 0) == 0 && !g_lobbyPlayers[i].isReady) {
-									assignedID = g_lobbyPlayers[i].playerID;
-									g_lobbyPlayers[i].seed = pkt->seed;
-									break;
+							if (isMultiplayer) {
+								assignedID = 255; // Match already started; join as Spectator
+							} else {
+								// Check if an unready placeholder slot exists to reuse before creating a new slot
+								for (size_t i = 1; i < g_lobbyPlayers.size(); i++) {
+									if (g_lobbyPlayers[i].name.rfind("Player ", 0) == 0 && !g_lobbyPlayers[i].isReady) {
+										assignedID = g_lobbyPlayers[i].playerID;
+										g_lobbyPlayers[i].seed = pkt->seed;
+										break;
+									}
 								}
-							}
 
-							if (assignedID == -1) {
-								if (g_lobbyPlayers.size() < 4) { // Max 4 Players
-									assignedID = (int)g_lobbyPlayers.size();
-									LobbyPlayer lp;
-									lp.playerID = assignedID;
-									lp.seed = pkt->seed;
-									lp.elo = (pkt->elo > 0) ? (int)pkt->elo : 1000;
-									lp.isReady = false;
-									lp.isBot = false;
-									lp.name = "Player " + std::to_string(assignedID + 1);
-									g_lobbyPlayers.push_back(lp);
-								} else {
-									assignedID = 255; // Spectator
+								if (assignedID == -1) {
+									if (g_lobbyPlayers.size() < 4) { // Max 4 Players
+										assignedID = (int)g_lobbyPlayers.size();
+										LobbyPlayer lp;
+										lp.playerID = assignedID;
+										lp.seed = pkt->seed;
+										lp.elo = (pkt->elo > 0) ? (int)pkt->elo : 1000;
+										lp.isReady = false;
+										lp.isBot = false;
+										lp.name = "Player " + std::to_string(assignedID + 1);
+										g_lobbyPlayers.push_back(lp);
+									} else {
+										assignedID = 255; // Spectator
+									}
 								}
 							}
 						}
@@ -50609,7 +50734,10 @@ std::vector<float> ofApp::extractGameStateForAI() {
 }
 
 int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, bool done) {
-	if (!zmqConnected) return 0;
+	if (!zmqConnected || !zmqSocket) {
+		currentAIMode = AI_MODE_RULE_BASED;
+		return -1;
+	}
 
 	std::vector<float> validActions;
 	int activeID = 1;

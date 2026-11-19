@@ -184,29 +184,31 @@ void SteamManager::update() {
 		// 1. Check for Async Call Results (Lobby Creation, Leaderboards, etc)
 		if (callbackMsg.m_iCallback == SteamAPICallCompleted_t::k_iCallback) {
 			SteamAPICallCompleted_t * pCallCompleted = (SteamAPICallCompleted_t *)callbackMsg.m_pubParam;
-			void * pData = malloc(pCallCompleted->m_cubParam);
-			bool bFailed = false;
+			if (pCallCompleted && pCallCompleted->m_cubParam > 0) {
+				void * pData = malloc(pCallCompleted->m_cubParam);
+				bool bFailed = false;
 
-			if (SteamAPI_ManualDispatch_GetAPICallResult(hPipe, pCallCompleted->m_hAsyncCall, pData, pCallCompleted->m_cubParam, pCallCompleted->m_iCallback, &bFailed)) {
-				switch (pCallCompleted->m_iCallback) {
-				case LobbyCreated_t::k_iCallback:
-					OnLobbyCreated((LobbyCreated_t *)pData, bFailed);
-					break;
-				case LobbyEnter_t::k_iCallback:
-					OnLobbyEnter((LobbyEnter_t *)pData, bFailed);
-					break;
-				case LobbyMatchList_t::k_iCallback:
-					OnLobbyMatchList((LobbyMatchList_t *)pData, bFailed);
-					break;
-				case LeaderboardFindResult_t::k_iCallback:
-					OnLeaderboardFindResult((LeaderboardFindResult_t *)pData, bFailed);
-					break;
-				case LeaderboardScoresDownloaded_t::k_iCallback:
-					OnLeaderboardScoresDownloaded((LeaderboardScoresDownloaded_t *)pData, bFailed);
-					break;
+				if (pData && SteamAPI_ManualDispatch_GetAPICallResult(hPipe, pCallCompleted->m_hAsyncCall, pData, pCallCompleted->m_cubParam, pCallCompleted->m_iCallback, &bFailed)) {
+					switch (pCallCompleted->m_iCallback) {
+					case LobbyCreated_t::k_iCallback:
+						OnLobbyCreated((LobbyCreated_t *)pData, bFailed);
+						break;
+					case LobbyEnter_t::k_iCallback:
+						OnLobbyEnter((LobbyEnter_t *)pData, bFailed);
+						break;
+					case LobbyMatchList_t::k_iCallback:
+						OnLobbyMatchList((LobbyMatchList_t *)pData, bFailed);
+						break;
+					case LeaderboardFindResult_t::k_iCallback:
+						OnLeaderboardFindResult((LeaderboardFindResult_t *)pData, bFailed);
+						break;
+					case LeaderboardScoresDownloaded_t::k_iCallback:
+						OnLeaderboardScoresDownloaded((LeaderboardScoresDownloaded_t *)pData, bFailed);
+						break;
+					}
 				}
+				free(pData);
 			}
-			free(pData);
 		}
 		// 2. Check for Standard Callbacks (Join Requests, Network Events, etc)
 		else {
@@ -489,7 +491,7 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
-	if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
+	if (!pCallback || bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
 		g_isConnectingToLobby = false;
 		return;
 	}
@@ -501,6 +503,7 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 		return;
 	}
 
+	if (!SteamMatchmaking() || !SteamNetworkingSockets()) return;
 	CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 	if (owner == m_LocalID) {
 		m_bIsHost = true;
@@ -606,7 +609,7 @@ void SteamManager::setMatchStarted() {
 	}
 }
 bool SteamManager::isMatchStarted() const {
-	if (!m_LobbyID.IsValid()) return false;
+	if (!m_bInitialized || !SteamMatchmaking() || !m_LobbyID.IsValid()) return false;
 	const char * val = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started");
 	if (!val) return false;
 	return std::string(val) == "1";
@@ -619,7 +622,7 @@ void SteamManager::setLobbySeed(uint32_t seed) {
 	}
 }
 uint32_t SteamManager::getLobbySeed() const {
-	if (!m_LobbyID.IsValid()) return 0;
+	if (!m_bInitialized || !SteamMatchmaking() || !m_LobbyID.IsValid()) return 0;
 	const char * v = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed");
 	if (!v || strlen(v) == 0) return 0;
 	try {
@@ -762,6 +765,8 @@ void SteamManager::loadLocalProgressionBackup() {
 
 void SteamManager::saveLocalProgressionBackup(int xp, int level) {
 	try {
+		ofDirectory dir("Saves");
+		if (!dir.exists()) dir.create(true);
 		ofJson j;
 		j["xp"] = xp;
 		j["level"] = level;
