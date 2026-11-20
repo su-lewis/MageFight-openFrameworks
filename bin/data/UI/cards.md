@@ -111,9 +111,10 @@
 
 ## 15. Teleport
 - **AP Cost:** 5
+- **Targeting:** 3d6 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll 3d6 ft, then choose an empty tile within that distance to teleport to. Can target through walls.
+- **Effect Text:** Roll for range, then choose an empty tile within that distance to teleport to. Can target through walls.
 ---
 
 ## 16. Hasten
@@ -177,7 +178,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. **Improve** if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn. 
+- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you played Shock or Chain Lightning this turn, replace its attacks with 3x Shock (1d6 HP); if Flame Hit or Fireball, 1x Fireball and 2x Flame Hit; if Rock Crush, add 2x Rock Crush (1d20 HP).
 - **Deck:** 3x Bash, 2x Hand Block
 - **AP:** 1d6
 - **HP:** 1d10
@@ -209,7 +210,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card already played this turn. **Restore** Health equal to damage dealt. **Hand-related**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card played this turn. **Restore** Health equal to damage dealt. **Hand-related**.
 ---
 
 ## 28. Double Handed
@@ -223,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 (X = non-Physical **Defence**). For 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
+- **Effect Text:** Roll Xd20 (X = **Defence** other than Physical). For each die that rolls 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
 ---
 
 ## 30. Call for Wolves
@@ -255,16 +256,16 @@
 - **AP Cost:** 2
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Deal [X] Physical damage to an adjacent unit. This deals 2 damage for each **Hand-related** card in your discard pile. Gain +1 **Luck** and +1 **Max Health**. **Destroy** their top card. **Hand-related**.
+- **Effect Text:** Deal [X] Physical damage to an adjacent unit (X = 2 per **Hand-related** card in your discard pile). Gain +1 **Luck** and +1 **Max Health**. **Destroy** their top card. **Hand-related**.
 ---
 
 ## 34. Magic Bolt
-- **Damage type:** Magic / Electric AOE
+- **Damage type:** Magic
 - **AP Cost:** 6
 - **Targeting:** 2d20 ft
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an 1d20 ft **AOE** from the tile hit. Can target through walls (**AOE** is blocked).
+- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 Electric damage in a 1d20 ft radius from the tile hit. Can target through walls (radius is blocked).
 ---
 
 ## 35. Flail
@@ -290,8 +291,9 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Roll 1d20. If higher than their Health, **Destroy** them. If lower, apply **Sleep** for 1d6 turns. If already **Sleeping**, **Execute** them.
+- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 1d20: if higher than their Health, **Destroy** them; if equal or lower, apply **Sleep** for 1d6 turns.
 ---
+
 
 ## 38. Summon Demon
 - **AP Cost:** 10
@@ -321,7 +323,7 @@
 ## 41. Chain Lightning
 - **Damage type:** Electric
 - **AP Cost:** 3
-- **Targeting:** 2d10ft
+- **Targeting:** 2d10 ft
 - **Class:** 2
 - **Picture:** 
 - **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and all 8 surrounding tiles. Gain +3 AP next turn. If multiple units are hit, apply **Paralysis**.
@@ -362,7 +364,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 Health damage. Gain +5 **Max Health**. **Restore** 5 Health. Shuffle 2x Dispel into your deck. Your **Defence** does not expire. Deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**. 
+- **Effect Text:** Gain +5 **Max Health**. **Restore** 5 Health. Shuffle 2x Dispel into your deck. Transform into a Tortoise until you take 5 Health damage: your **Defence** does not expire, and deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**.
 ---
 
 ## 47. Fortify
@@ -414,10 +416,10 @@
 
 ## 53. Psionic Wave
 - **AP Cost:** 8
-- **Targeting:** 2d20 ft AOE
+- **Targeting:** 2d20 ft radius
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Destroy** the top 2d4 cards of all other units' decks in the **AOE**.
+- **Effect Text:** **Destroy** the top 2d4 cards of all other units' decks in the radius.
 ---
 
 ## 54. Summon Magic Wall
@@ -432,7 +434,7 @@
 - **AP Cost:** 5
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** All units roll 1d4 and move that many tiles in a random direction. Take 1d4 damage if colliding with a unit, wall, or board edge.
+- **Effect Text:** All units roll 1d4 and move that many tiles in a random direction, taking 1d4 damage if they collide with a wall, board edge, or another unit (both units take this damage on a unit collision).
 ---
 
 ## 56. Form of Ghost
@@ -469,7 +471,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform an adjacent wall into a Wall minion. Stats improve if it was a Magic Wall. 
+- **Effect Text:** Transform an adjacent wall into a **Wall Unit** (or a **Magic Wall Unit** if it was a Magic Wall). 
 - **Deck:** 2x Fortify, 2x Ward, 1x Summon Wall
 - **AP:** 1d4
 - **HP:** 5
@@ -491,7 +493,7 @@
 - **Picture:** 
 - **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent, you gain +1 **Luck** and can reroll AP once if at 0. 
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
-- **AP:** Coin
+- **AP:** 1d2
 - **HP:** 1
 ---
 
@@ -502,7 +504,7 @@
 - **Effect Text:** Check **Max Health**. 16-20: **Draft** Class 1. 21-25: **Draft** Class 2. 26-30: **Draft** Class 3. 31+: Win the game.
 ---
 
-## 64. Four-leaf clover
+## 64. Four-Leaf Clover
 - **AP Cost:** 10
 - **Class:** 2
 - **Picture:** 
@@ -553,7 +555,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Adjacent non-Faerie units resurrect, clear all status effects, and recover 25% of their **Max Health** per point rolled on a 1d4
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Adjacent units other than **Faeries** resurrect, clear all status effects, and recover 25% of their **Max Health** per point rolled on a 1d4.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5
