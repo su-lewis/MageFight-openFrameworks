@@ -224,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 (X = **Defence** other than Physical). For each die that rolls 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
+- **Effect Text:** Roll Xd20 (X = **Defence** other than Physical). Each 10-15: **Draft** Class 1. 16-19: **Draft** Class 2. 20+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
 ---
 
 ## 30. Call for Wolves
@@ -441,7 +441,7 @@
 - **AP Cost:** 7
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Ghost until you take 4 Health damage. **Immune** to Physical and Piercing damage. Gain **Regeneration**. Move freely through walls and units (cannot end turn inside). Take double Holy damage.
+- **Effect Text:** Transform into a Ghost until you take 4 Health damage: **Immune** to Physical and Piercing damage, gain **Regeneration**, move freely through walls and units (cannot end turn inside), and take double Holy damage.
 ---
 
 ## 57. Giant Magic Hand
