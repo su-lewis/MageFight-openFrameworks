@@ -8035,7 +8035,9 @@ void ofApp::update() {
 				lastAvatarFetchTimeUpdate = ofGetElapsedTimef();
 
 				if (!localAvatarReady && steamManager.getLocalSteamID().IsValid()) {
+					persistCrashReason("update", "Before getAvatarImage local");
 					localAvatarReady = steamManager.getAvatarImage(steamManager.getLocalSteamID(), localAvatarImage, 64);
+					persistCrashReason("update", "After getAvatarImage local");
 				}
 				if (!opponentAvatarReady && steamManager.hasOpponent() && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0) {
 					opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
@@ -11721,7 +11723,9 @@ static void sanitizeLobbyPlayersForMatchStart() {
 
 //--------------------------------------------------------------
 void ofApp::setupGame() {
+	persistCrashReason("setupGame", "Entered setupGame");
 	ensureModelsLoaded();
+	persistCrashReason("setupGame", "After ensureModelsLoaded");
 
 	if (isMultiplayer) {
 		sanitizeLobbyPlayersForMatchStart();
@@ -12314,11 +12318,11 @@ void ofApp::setupGame() {
 	// This prevents the opponent's model from snapping to your local tile on the client's screen on startup.
 	playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
-	// --- INITIATIVE PHASE START ---
-	// Start initiative roll immediately for all players
+	persistCrashReason("setupGame", "Before startInitiativePhase");
 	startInitiativePhase();
-
-	recalculateUI(ofGetWidth(), ofGetHeight()); // <-- Fixes the missing Draw button!
+	persistCrashReason("setupGame", "Before recalculateUI");
+	recalculateUI(ofGetWidth(), ofGetHeight());
+	persistCrashReason("setupGame", "Finished setupGame");
 }
 
 void ofApp::initGameFromSeed(uint32_t seed) {
@@ -18799,7 +18803,7 @@ void ofApp::drawGame() {
 	if (!players.empty() && currentPlayerIndex != -1 && displayedAPForCurrent == 0 && currentAP == 0) {
 		Player & curr = players[currentPlayerIndex];
 		for (const auto & p : players) {
-			if (p.isAssistant && p.health > 0 && p.directSummonerID == (curr.isMinion ? curr.ownerID : curr.playerID) && !p.assistantRerollUsedThisTurn) {
+			if (p.isAssistant && p.health > 0 && p.playerID != curr.playerID && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
 				if (std::abs(p.x - curr.x) + std::abs(p.y - curr.y) <= 1) {
 					rerollAvailable = true;
 					break;
@@ -18924,8 +18928,7 @@ void ofApp::drawGame() {
 			std::vector<int> availableAssistants;
 			for (size_t i = 0; i < players.size(); i++) {
 				const Player & p = players[i];
-				int currOwner = curr.isMinion ? curr.ownerID : curr.playerID;
-				if (p.isAssistant && p.health > 0 && (p.directSummonerID == curr.playerID || p.directSummonerID == currOwner) && !p.assistantRerollUsedThisTurn) {
+				if (p.isAssistant && p.health > 0 && p.playerID != curr.playerID && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
 					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
 					if (dist <= 1) {
 						availableAssistants.push_back((int)i);
@@ -20927,6 +20930,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Start Game (Host only)
 					if (isHostUser && s_bookLobbyStartBtn.inside(x, y)) {
 						clickedUI = true;
+
+						bool startAlreadyQueued = false;
+						for (const auto & qCmd : commandQueue) {
+							if (qCmd.commandType == CMD_PSEUDO_ACTION && strcmp(qCmd.stringData, "StartMatch") == 0) {
+								startAlreadyQueued = true;
+								break;
+							}
+						}
+						if (startAlreadyQueued) return;
+
 						sanitizeLobbyPlayersForMatchStart();
 						bool allReady = (g_lobbyPlayers.size() > 1);
 						bool hasRemoteHuman = false;
@@ -20949,11 +20962,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 							InputCommandPacket startCmd = {};
 							startCmd.type = PKT_INPUT_COMMAND;
 							startCmd.playerID = myLocalPlayerID;
+							startCmd.turnNumber = globalTurnCounter;
 							startCmd.commandType = CMD_PSEUDO_ACTION;
 							startCmd.params[0] = (int)currentMapSeed;
 							strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 							startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
-							sendInputCommand(startCmd, true);
+
+							// Defer execution out of the GLFW mousePressed callback onto the next update()->simulationTick()
+							startCmd.seq = ++watchdogClientActionCounter;
+							startCmd.commandId = nextCommandId++;
+							if (!g_isSimulatedMultiplayer && steamManager.isHost()) {
+								steamManager.sendPacket(&startCmd, sizeof(startCmd));
+							}
+							queueInputCommand(startCmd);
 						}
 						return;
 					}
@@ -23628,6 +23649,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 				if (candidate.type == CARD_SHOOT_ARROW && currentPlayer.deck.empty()) return false;
 
+				if (candidate.type == CARD_BLOCKING_BOON) {
+					int phys = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
+					int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
+					return (phys > 0 || nonPhys > 0);
+				}
+
 				if (candidate.type == CARD_TRAIN || candidate.type == CARD_RENEWED_INSPIRATION || candidate.type == CARD_WISDOM_BOON || candidate.type == CARD_DOUBLE_HANDED || candidate.type == CARD_DISPEL || candidate.type == CARD_HASTEN || candidate.type == CARD_SPARK_OF_GENIUS || candidate.type == CARD_STRENGTHEN_ELEMENTS || candidate.type == CARD_ADD_POISON || candidate.type == CARD_TIME_VORTEX || candidate.type == CARD_NECROMANCER_S_BLESSING || candidate.type == CARD_FULL_RESTORE || candidate.type == CARD_PSIONIC_WAVE) return true;
 				if (candidate.type == CARD_BURST_OF_LIGHT) {
 					if (currentPlayer.health < currentPlayer.maxHealth) return true;
@@ -23649,7 +23676,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 					}
 					return false;
 				}
-				if (candidate.targeting == TARGET_SELF && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
+				if ((candidate.targeting == TARGET_SELF || candidate.targeting == TARGET_NONE) && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL && candidate.type != CARD_BURST_OF_LIGHT) return true;
 				if (candidate.type == CARD_TELEPORT) return true;
 				calculateTargetHighlights(cardIndex);
 				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -25172,37 +25199,6 @@ void ofApp::startNewTurn() {
 		}
 
 		return;
-	}
-
-	if (startingPlayer.nextTurnBonusDiceFromMinions) {
-		int minionCount = startingPlayer.storedDarkShieldDice;
-
-		lastAPDiceNum = minionCount;
-		lastAPDiceSides = 6;
-
-		if (minionCount > 0) {
-			std::vector<int> rawAP;
-			int apRollRaw = resolveDiceRollDetailed(minionCount, 6, rawAP);
-			int luckBonus = 0;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			}
-			int apRoll = apRollRaw + (minionCount * luckBonus);
-			currentEffectSequence.blackboard[0] = apRoll;
-			lastAPRawResults = rawAP;
-		} else {
-			currentEffectSequence.blackboard[0] = 0;
-			lastAPRawResults.clear();
-			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "No Minions (0 AP)", ofColor::gray);
-		}
-
-		EffectOp clearBonusDice = {};
-		clearBonusDice.type = EffectOpType::REMOVE_STATUS;
-		clearBonusDice.data.status.targetIndex = currentPlayerIndex;
-		clearBonusDice.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
-		clearBonusDice.data.status.duration = 0;
-		queueEffect(clearBonusDice);
-		if (!isProcessingEffect) beginEffectSequence();
 	}
 
 	continueNewTurn();
@@ -37809,8 +37805,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				}
 
-				// Check AOE valid centers
-				if (card.isAoe) {
+				// Check AOE valid centers (Chain Lightning uses its own 3x3 check in isLosTargetValid)
+				if (card.isAoe && card.type != CARD_CHAIN_LIGHTNING) {
 					// MUST HAVE LOS TO THE TARGET TILE ITSELF!
 					if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[tx][ty].hasWall) {
 						bool hitsSomeone = false;
@@ -40683,10 +40679,9 @@ bool ofApp::wouldAffectOtherUnit(const Card & card, int casterIdx, int tx, int t
 bool ofApp::hasAssistantRerollAvailable(int playerIndex, int atX, int atY) {
 	if (playerIndex < 0 || playerIndex >= (int)players.size()) return false;
 	const Player & curr = players[playerIndex];
-	int ownerID = curr.isMinion ? curr.ownerID : curr.playerID;
 
 	for (const auto & p : players) {
-		if (p.isAssistant && p.health > 0 && (p.directSummonerID == curr.playerID || p.directSummonerID == ownerID) && !p.assistantRerollUsedThisTurn) {
+		if (p.isAssistant && p.health > 0 && p.playerID != curr.playerID && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
 			int dist = std::abs(p.x - atX) + std::abs(p.y - atY);
 			if (dist <= 1) {
 				return true;
@@ -49131,7 +49126,7 @@ void ofApp::thinkRuleBasedAI() {
 	// ASSISTANT REROLL
 	if (currentAP == 0) {
 		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == me.playerID && !players[i].assistantRerollUsedThisTurn) {
+			if (players[i].isAssistant && players[i].health > 0 && players[i].playerID != me.playerID && players[i].directSummonerID == me.playerID && !players[i].assistantRerollUsedThisTurn) {
 				if (std::abs(players[i].x - me.x) + std::abs(players[i].y - me.y) <= 1) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
@@ -50775,7 +50770,7 @@ int ofApp::getAIActionFromModel(const std::vector<float> & state, float reward, 
 
 			// Assistant Reroll
 			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].isAssistant && players[i].health > 0 && players[i].directSummonerID == activeID && !players[i].assistantRerollUsedThisTurn) {
+				if (players[i].isAssistant && players[i].health > 0 && players[i].playerID != players[currentPlayerIndex].playerID && players[i].directSummonerID == players[currentPlayerIndex].playerID && !players[i].assistantRerollUsedThisTurn) {
 					if (abs(players[i].x - players[currentPlayerIndex].x) + abs(players[i].y - players[currentPlayerIndex].y) <= 1) {
 						validActions.push_back(2.0f);
 						break;

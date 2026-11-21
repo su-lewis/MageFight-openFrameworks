@@ -349,7 +349,7 @@
     "name": "Blocking Boon",
     "type": "CARD_BLOCKING_BOON",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT",
+    "targeting": "TARGET_SELF",
     "class": 1
   },
   {
