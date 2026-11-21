@@ -91,7 +91,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Shock this turn, apply **Paralysis**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Shock this turn and it damages Health, apply **Paralysis**.
 ---
 
 ## 13. Rock Crush
@@ -178,7 +178,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you played Shock or Chain Lightning this turn, replace its attacks with 3x Shock (1d6 HP); if Flame Hit or Fireball, 1x Fireball and 2x Flame Hit; if Rock Crush, add 2x Rock Crush (1d20 HP).
+- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you dealt Electric damage this turn, replace its attacks with 3x Shock (1d6 HP); if Fire damage, 1x Fireball and 2x Flame Hit; if you played Rock Crush, add 2x Rock Crush (1d20 HP).
 - **Deck:** 3x Bash, 2x Hand Block
 - **AP:** 1d6
 - **HP:** 1d10
@@ -326,7 +326,7 @@
 - **Targeting:** 2d10 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and all 8 surrounding tiles. Gain +3 AP next turn. If multiple units are hit, apply **Paralysis**.
+- **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and all 8 surrounding tiles. Gain +3 AP next turn. If multiple units are hit and it damages Health, apply **Paralysis**.
 ---
 
 ## 42. Study
@@ -364,7 +364,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Gain +5 **Max Health**. **Restore** 5 Health. Shuffle 2x Dispel into your deck. Transform into a Tortoise until you take 5 Health damage: your **Defence** does not expire, and deal 3 damage to an adjacent unit whenever you **Restore** Health or gain **Defence**.
+- **Effect Text:** Gain +5 **Max Health**. **Restore** 5 Health. Shuffle 2x Dispel into your deck. Transform into a Tortoise until taking 5 Health damage: your **Defence** doesn't expire, and deal 3 damage to an adjacent unit when you **Restore** Health or gain **Defence**.
 ---
 
 ## 47. Fortify
@@ -441,7 +441,7 @@
 - **AP Cost:** 7
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Ghost until you take 4 Health damage: **Immune** to Physical and Piercing damage, gain **Regeneration**, move freely through walls and units (cannot end turn inside), and take double Holy damage.
+- **Effect Text:** Transform into a Ghost until taking 4 Health damage: **Immune** to Physical and Piercing damage, gain **Regeneration**, move freely through walls and units (cannot end turn inside), and take double Holy damage.
 ---
 
 ## 57. Giant Magic Hand
@@ -508,7 +508,7 @@
 - **AP Cost:** 10
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +1 **Luck**. **Passive:** Gain +1 **Luck** while this is in your deck. 
+- **Effect Text:** Gain +1 **Luck**. **Passive:** Gain +1 **Luck** while in your deck. 
 ---
 
 ## 65. Sprint
