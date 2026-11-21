@@ -42621,6 +42621,8 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 
 		int facesToTest = std::min(2, (int)validCasterFaces.size());
 		for (int i = 0; i < facesToTest; i++) {
+			int originX = cx + validCasterFaces[i].nx;
+			int originY = cy + validCasterFaces[i].ny;
 			long long startX = validCasterFaces[i].x;
 			long long startY = validCasterFaces[i].y;
 			long long endX = tFace.x;
@@ -42666,15 +42668,15 @@ ofApp::LosResult ofApp::getClearLosRay(glm::vec2 casterTile, glm::vec2 targetTil
 					break;
 				}
 
-				// 2. THE GAP RULE: If a tile is a 1-tile choke between obstacles, BOTH origin and target must align straight
+				// 2. THE GAP RULE: If a tile is a 1-tile choke between obstacles, BOTH the caster's open edge and target must align straight
 				bool horizGap = isObstacle(gx, gy - 1) && isObstacle(gx, gy + 1);
 				bool vertGap = isObstacle(gx - 1, gy) && isObstacle(gx + 1, gy);
 
-				if (horizGap && (ty != gy || cy != gy)) {
+				if (horizGap && (ty != gy || originY != gy)) {
 					blocked = true;
 					break;
 				}
-				if (vertGap && (tx != gx || cx != gx)) {
+				if (vertGap && (tx != gx || originX != gx)) {
 					blocked = true;
 					break;
 				}
