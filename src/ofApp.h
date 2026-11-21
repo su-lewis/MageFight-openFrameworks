@@ -97,23 +97,20 @@ enum DamageType {
 };
 
 enum TargetingType {
-	TARGET_NONE,
-	TARGET_EMPTY_TILE,
-	TARGET_ANY_TILE,
-	TARGET_WALL,
-	TARGET_ADJACENT_UNIT,
-	TARGET_SELF,
-	TARGET_LINEAR_PIERCE,
-	TARGET_CLEAVE_ADJACENT,
-	TARGET_ADJACENT_OR_SELF_UNIT,
-	TARGET_LINE_OF_SIGHT_TILE,
-	TARGET_BURST_AREA,
-	TARGET_ADJACENT_UNIT_OR_WALL,
-	TARGET_EMPTY_ADJACENT,
-	TARGET_ADJACENT_WALL
+	TARGET_NONE = 0,
+	TARGET_SELF, // Self-cast or instant (Hand Block, Ward, Sprint, etc.)
+	TARGET_ADJACENT_UNIT, // Single adjacent unit (Punch, Kick, Bash, etc.)
+	TARGET_ADJACENT_OR_SELF_UNIT, // Adjacent unit or caster (Amnesia, Wisdom Boon, Dispel)
+	TARGET_ADJACENT_WALL, // Adjacent wall (Demolition, Fortify, Transform Wall, Giant Magic Hand)
+	TARGET_ADJACENT_UNIT_OR_WALL, // Adjacent unit or wall (Rock Crush)
+	TARGET_EMPTY_ADJACENT, // Adjacent empty floor tile (Summon spells, Create Wall)
+	TARGET_EMPTY_TILE, // Any empty tile within range (Teleport)
+	TARGET_LINE_OF_SIGHT_TILE, // Targeted tile within range (Fireball, Magic Bolt, Death, Heal)
+	TARGET_ANY_TILE, // Targeted tile anywhere within range (Ethereal Jolt)
+	TARGET_LINEAR_PIERCE, // 2-tile piercing line (Stab)
+	TARGET_CLEAVE_ADJACENT, // 3-tile sweeping arc (Slash)
+	TARGET_SURROUND_8_TILE // All 8 surrounding adjacent tiles (Flail)
 };
-
-enum StatusType : int;
 
 enum CardType {
 	CARD_NONE,
@@ -197,6 +194,169 @@ enum CardType {
 	CARD_SUMMON_MAGIC_WALL,
 	PSEUDO_CARD_GHOST_RELOCATE
 };
+enum CardFormType {
+	FORM_NONE = 0,
+	FORM_GHOST = 1,
+	FORM_TORTOISE = 2
+};
+
+struct MinionTemplate {
+	int kind = 0;
+	int flatHP = 1;
+	int hpDiceNum = 0;
+	int hpDiceSides = 0;
+	int apDiceNum = 1;
+	int apDiceSides = 6;
+	bool hasRegen = false;
+	std::vector<std::pair<std::string, int>> deckRecipe;
+};
+struct Card {
+	std::string name;
+	ofRectangle textureRect;
+	float currentScale = 1.0f;
+	float targetScale = 1.0f;
+	ofVec2f currentPos;
+	ofVec2f targetPos;
+	CardType type = CARD_NONE;
+	int value = 0;
+	int cost = 1;
+	int cardClass = 1;
+	DamageType damageType = DAMAGE_PHYSICAL;
+	TargetingType targeting = TARGET_ANY_TILE;
+
+	// --- Core Behavioral Flags ---
+	bool canTargetThroughWalls = false;
+	bool isChooseOne = false;
+	bool isTeleport = false;
+	bool restoresToMaxHP = false;
+	bool cleansesStatuses = false;
+	bool destroysTargetWall = false;
+	bool createsWall = false;
+	bool createsMagicWall = false;
+	bool stealsTopCard = false;
+	bool stealsFromGraveyard = false;
+	bool nextTurnD10AP = false;
+	bool nextTurnAPFromUndead = false;
+	bool drawByUtilityRoll = false;
+	bool extraTurnsByUtilityRoll = false;
+	bool summonHPPerKobold = false;
+	bool isAoe = false;
+	bool isHandRelated = false;
+	bool hasRadius = false;
+	int summonFlatHP = 0;
+	int extraDrawNextTurn = 0;
+	int freeKickTurns = 0;
+	int draftClassOnPlay = 0;
+	int luckPerSkeleton = 0;
+	int applyStatusOnHealthDamage = 0;
+	bool canTargetSelf = false;
+	bool isCleave = false;
+	bool isLinearPierce = false;
+	bool isAoeBurst = false;
+	bool isHandRelated = false;
+	bool destroysTopDeckCard = false;
+	bool stealsTopDeckCard = false;
+	bool grantsExtraTurn = false;
+	bool forcesDraft = false;
+	int draftTierToGive = 0;
+	bool checksMaxHealthForWin = false;
+	bool isChooseOne = false;
+
+	// --- Synergy Triggers ---
+	// e.g., if card requires/triggers off "Shock", "Flame Hit", "Add Poison"
+	std::string synergyTriggerKeyword = "";
+	int synergyBonusDamage = 0;
+	DamageType synergyBonusDamageType = DAMAGE_PHYSICAL;
+	int synergyApplyStatus = 0;
+
+	CardFormType transformForm = FORM_NONE;
+	int formBreakDamage = 0;
+	bool formHalfPhysInsteadOfImmune = false;
+	int formDefenseDecayPct = 0;
+	int formSpikeDamage = 0;
+	std::string shuffleCardName = "";
+	int shuffleCardCount = 0;
+	int aoeFixedDamage = 0;
+	DamageType aoeDamageType = DAMAGE_PHYSICAL;
+
+	// --- Primary Dice Nomenclature (Count & Die Type) ---
+	int rangeDiceCount = 0;
+	int rangeDieType = 0;
+
+	int damageDiceCount = 0;
+	int damageDieType = 0;
+	int baseDamage = 0;
+
+	int healDiceCount = 0;
+	int healDieType = 0;
+	int baseHeal = 0;
+	int healAmount = 0;
+
+	int radiusDiceCount = 0;
+	int radiusDieType = 0;
+	int staticRadiusFeet = 0;
+
+	int utilityDiceCount = 0;
+	int utilityDieType = 0;
+
+	int summonDiceCount = 0;
+	int summonDieType = 0;
+	int summonKind = 0;
+
+	// --- Status & Resource Buffs ---
+	int applyStatus = 0;
+	int statusDuration = 0;
+	int apGain = 0;
+	int apGainThisTurn = 0;
+	int apGainNextTurn = 0;
+	int drawCount = 0;
+	int discardHandCount = 0;
+	int discardDeckCount = 0;
+	int destroyDeckTargetCount = 0;
+
+	// --- Defences ---
+	int blockAmount = 0;
+	int blockGain = 0;
+	int wardAmount = 0;
+	int wardGain = 0;
+	int barrierAmount = 0;
+	int barrierGain = 0;
+	int holyBlockAmount = 0;
+	int holyBlockGain = 0;
+	int fortifyAmount = 0;
+	int fortificationGain = 0;
+
+	// --- Progression ---
+	int luckGain = 0;
+	int maxHealthGain = 0;
+	int hpDerivedAdd = 0;
+	std::string hpDerivedFromUnitType = "";
+	ofJson variantDefs;
+
+	// --- Value Aliases (Standard ints, NO references, preserves operator=) ---
+	int numDice = 0;
+	int diceSides = 0;
+	int rangeDiceNum = 0;
+	int rangeDiceSides = 0;
+	int damageDiceNum = 0;
+	int damageDiceSides = 0;
+	int healDiceNum = 0;
+	int healDiceSides = 0;
+	int aoeRadiusDiceNum = 0;
+	int aoeRadiusDiceSides = 0;
+	int utilityDiceNum = 0;
+	int utilityDiceSides = 0;
+	int summonDiceNum = 0;
+	int summonDiceSides = 0;
+
+	// --- Runtime Instance Flags ---
+	bool drawnThisTurn = false;
+	bool playedThisTurn = false;
+	bool isAnimating = false;
+	bool isCopied = false;
+};
+
+enum StatusType : int;
 
 enum DicePurpose {
 	PURPOSE_AP,
@@ -316,6 +476,7 @@ struct CardTemplateRecord {
 	std::string picture;
 	std::string summonAP;
 	std::string summonHP;
+	std::string summonDeck;
 };
 
 struct CardTemplateLayout {
@@ -389,76 +550,6 @@ struct DiceRoll {
 	std::string label;
 };
 
-struct Card {
-	std::string name;
-	ofRectangle textureRect;
-	float currentScale = 1.0f;
-	float targetScale = 1.0f;
-	ofVec2f currentPos;
-	ofVec2f targetPos;
-	CardType type = CARD_NONE;
-	int value = 0;
-	int numDice = 0;
-	int diceSides = 0;
-	int rangeDiceNum = 0;
-	int rangeDiceSides = 0;
-	int utilityDiceNum = 0;
-	int utilityDiceSides = 0;
-	int summonDiceNum = 0;
-	int summonDiceSides = 0;
-	int summonKind = 0;
-	int baseDamage = 0;
-	int damageDiceNum = 0;
-	int damageDiceSides = 0;
-	int aoeRadiusDiceNum = 0;
-	int aoeRadiusDiceSides = 0;
-	int statusDuration = 0;
-	int healAmount = 0;
-	DamageType damageType = DAMAGE_PHYSICAL;
-	int cost = 1;
-
-	int apGain = 0;
-	int drawCount = 0;
-	int discardHandCount = 0;
-	int discardDeckCount = 0;
-	int applyStatus = 0;
-	bool isAoe = false;
-	bool isHandRelated = false;
-
-	int baseHeal = 0;
-	int healDiceNum = 0;
-	int healDiceSides = 0;
-
-	int blockGain = 0;
-	int wardGain = 0;
-	int barrierGain = 0;
-	int holyBlockGain = 0;
-	int fortificationGain = 0;
-	int maxHealthGain = 0;
-	int luckGain = 0;
-	int apGainThisTurn = 0;
-	int apGainNextTurn = 0;
-
-	int destroyDeckTargetCount = 0;
-
-	int blockAmount = 0;
-	int wardAmount = 0;
-	int barrierAmount = 0;
-	int holyBlockAmount = 0;
-	int fortifyAmount = 0;
-
-	ofJson variantDefs;
-	std::string hpDerivedFromUnitType = "";
-	int hpDerivedAdd = 0;
-
-	TargetingType targeting = TARGET_ANY_TILE;
-	bool drawnThisTurn = false;
-	bool playedThisTurn = false;
-	bool isAnimating = false;
-	bool isCopied = false;
-	int cardClass = 1;
-};
-
 struct ActionHistoryEntry {
 	std::string cardName;
 	Card card;
@@ -493,6 +584,7 @@ enum class EffectOpType : uint8_t {
 	SPAWN_UNIT,
 	SPAWN_PLAYER,
 	MODIFY_STAT,
+	APPLY_GENERIC_RANGED,
 	MODIFY_TILE,
 	ADD_CARD_TO_DECK,
 	RESHUFFLE_DISCARD_TO_DECK,
@@ -1033,7 +1125,21 @@ public:
 	std::vector<float> extractGameStateForAI();
 	int getAIActionFromModel(const std::vector<float> & state, float reward, bool done);
 	void executeAIAction(int actionIndex);
+	std::unordered_map<int, MinionTemplate> minionTemplates;
 
+	struct CardRuleSet {
+		std::vector<Card> allCards;
+		std::vector<Card> class1Cards;
+		std::vector<Card> class2Cards;
+		std::vector<Card> class3Cards;
+		std::unordered_map<int, MinionTemplate> minionTemplates;
+		std::unordered_map<std::string, CardTemplateRecord> templateRecords;
+	};
+	CardRuleSet baseCardSet;
+	CardRuleSet balancedCardSet;
+	bool activeCardSetIsBalanced = false;
+	void loadCardSetFromMarkdown(const std::string & mdPath, CardRuleSet & outSet);
+	void applyActiveCardSet(bool useBalanced);
 	// =========================================================================
 	// ADVANCED TACTICAL AI ENGINE STRUCTURES
 	// =========================================================================
@@ -1260,7 +1366,6 @@ private:
 	void applyCardOutcomeEffects();
 	void handleCardTargetInput(int gridX, int gridY);
 	void handleCardDiceResult(int result, DicePurpose purpose);
-	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult);
 	bool executeCardGeneric(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult);
 
 	void updateEarthquakeSimulation();
