@@ -65,7 +65,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose an adjacent unit or yourself. View the top 3 cards of their deck, then the next 3 cards (unchosen cards go to the bottom). Choose up to 3 cards across both sets to **Destroy**.
+- **Effect Text:** Choose an adjacent unit or yourself. View the top 3 cards of their deck, choose one card to **Destroy**.
 ---
 
 ## 10. Magic Blast
@@ -91,7 +91,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Electric-dealing card this or last turn and it damages Health, apply **Paralysis**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Electric-dealing card this or last turn and this damages Health, apply **Paralysis**.
 ---
 
 ## 13. Rock Crush
@@ -178,7 +178,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. Gains bonuses if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this or last turn.
+- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you dealt Electric damage this or last turn, replace its attacks with 3x Shock; if Fire damage, 1x Fireball and 2x Flame Hit; if you played Rock Crush, add 2x Rock Crush.
 - **Deck:** 3x Bash, 2x Hand Block
 - **AP:** 2+1d4
 - **HP:** 3+1d6
@@ -241,7 +241,7 @@
 - **AP Cost:** 3
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** If you have a friendly **Skeleton**, gain +1 **Luck**. Shuffle 1x Raise Dead into your deck. For the next 2 turns, friendly **Skeletons** share your **Luck** and deal +2 extra damage on each attack.
+- **Effect Text:** If you have a friendly **Skeleton**, gain +1 **Luck**. Shuffle 1x Raise Dead into your deck. For the next 3 turns, friendly **Skeletons** share your **Luck** and deal +2 extra damage on each attack.
 ---
 
 ## 32. Time Vortex
@@ -291,7 +291,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 2d10: if higher than their Health, **Destroy** them; if equal or lower, apply **Sleep** for 1d6 turns.
+- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 2d10: if higher than their Health, **Destroy** them; if equal or lower, apply **Sleep** for 1d4 turns.
 ---
 
 ## 38. Summon Demon
@@ -325,7 +325,7 @@
 - **Targeting:** 2d10 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage to the tile hit and 2 damage to all 8 surrounding tiles. If multiple units are hit and it damages Health, apply **Paralysis**.
+- **Effect Text:** Choose a target. Deal 1d6 damage to the tile hit and 3 damage to all 8 surrounding tiles. If multiple units are hit and it damages Health, apply **Paralysis**.
 ---
 
 ## 42. Study
@@ -347,7 +347,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal +1 Poison damage to units hit by your next Physical or Piercing attack this or next turn. If it damages Health, apply **Poisoned**.
+- **Effect Text:** Deal +1 damage to units hit by your next Physical or Piercing attack this or next turn. If it damages Health, apply **Poisoned**.
 ---
 
 ## 45. Flurry of Fists
@@ -363,7 +363,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Restore** 3 Health. Shuffle 1x Dispel into your deck. Transform into a Tortoise until taking 5 Health damage: your **Defence** doesn't expire, non-Physical **Defence** decays by 50%, and deal 3 damage to an adjacent unit when you **Restore** Health or gain **Defence**. **Passive:** Take double Piercing damage while this is in your deck or discard pile.
+- **Effect Text:** **Restore** 3 Health. Shuffle 1x Dispel into your deck. Transform into a Tortoise until taking 5 Health damage: your **Defence** doesn't expire, and deal 3 damage to an adjacent unit when you **Restore** Health or gain **Defence** and take double Piercing damage.
 ---
 
 ## 47. Fortify
@@ -418,7 +418,7 @@
 - **Targeting:** 2d20 ft radius
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** For each other unit in the **AOE**: View the top 3 cards of their deck, then the next 3 cards (unchosen cards go to the bottom). Choose up to 3 cards across both sets to **Destroy**.
+- **Effect Text:** For each other unit in the **Radius**: View the top 3 cards of their deck, then the next 3 cards (viewed cards go to the bottom). Choose up to 3 cards across both sets to **Destroy**.
 ---
 
 ## 54. Summon Magic Wall
@@ -472,7 +472,7 @@
 - **Picture:** 
 - **Effect Text:** Transform an adjacent wall into a **Wall Unit** (or a **Magic Wall Unit** if it was a Magic Wall). Summoner gains +3 **Block** at end of Wall's turn if adjacent.
 - **Deck:** 2x Fortify, 2x Ward, 1x Summon Wall, 1x Rock Crush
-- **AP:** 1d4+3
+- **AP:** 1d4
 - **HP:** 1d6+3
 ---
 
@@ -490,8 +490,8 @@
 - **AP Cost:** 4
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent, you gain +1 **Luck** and can reroll AP once if at 0. 
-- **Deck:** 1x Lesser Heal, 4x Hand Block 
+- **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent to it, its summoner gains +1 **Luck** and may reroll their AP dice once per turn at 0 AP.
+- **Deck:** 1x Punch, 4x Hand Block 
 - **AP:** 1d2
 - **HP:** 1
 ---
@@ -547,14 +547,14 @@
 - **Targeting:** 2d20 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, apply that card's effect on top (poison counts for the card).
+- **Effect Text:** Choose a target. Deal 1d6 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, play that card's effect on top (poison counts for the card).
 ---
 
 ## 70. Summon Faerie
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Once per **Faerie**, an adjacent fallen ally resurrects with up to 5 HP and clears all statuses (taking 3 physical damage on resurrection), then the **Faerie** dies.
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Once per **Faerie**, an adjacent fallen ally resurrects with up to 5 HP and clears all statuses (taking 3 Physical damage on resurrection), then the **Faerie** dies.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5

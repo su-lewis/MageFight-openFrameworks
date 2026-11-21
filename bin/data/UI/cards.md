@@ -5,7 +5,7 @@
 - **AP Cost:** 1
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. **Hand-related**. 
+- **Effect Text:** Deal 2 damage to an adjacent unit. **Hand-related**.
 ---
 
 ## 2. Kick
@@ -145,7 +145,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 7 damage. **Destroy** their top card. Apply **Paralysis**. Can target through walls. 
+- **Effect Text:** Choose a target. Deal 7 damage. **Destroy** their top card. Apply **Paralysis**. Can target through walls.
 ---
 
 ## 20. Flame Hit
@@ -294,7 +294,6 @@
 - **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 1d20: if higher than their Health, **Destroy** them; if equal or lower, apply **Sleep** for 1d6 turns.
 ---
 
-
 ## 38. Summon Demon
 - **AP Cost:** 10
 - **Class:** 3
@@ -419,7 +418,7 @@
 - **Targeting:** 2d20 ft radius
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Destroy** the top 2d4 cards of all other units' decks in the radius.
+- **Effect Text:** **Destroy** the top 2d4 cards of all other units' decks in the **Radius**.
 ---
 
 ## 54. Summon Magic Wall
@@ -491,7 +490,7 @@
 - **AP Cost:** 4
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile. While adjacent, you gain +1 **Luck** and can reroll AP once if at 0. 
+- **Effect Text:** **Summon** an **Assistant** in an adjacent empty tile.hile adjacent to it, its summoner gains +1 **Luck** and may reroll their AP dice once per turn at 0 AP.
 - **Deck:** 1x Lesser Heal, 4x Hand Block 
 - **AP:** 1d2
 - **HP:** 1
@@ -555,7 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Adjacent units other than **Faeries** resurrect, clear all status effects, and recover 25% of their **Max Health** per point rolled on a 1d4.
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Adjacent fallen allies other than **Faeries** resurrect, clear all status effects, and recover 25% of their **Max Health** per point rolled on a 1d4.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5
