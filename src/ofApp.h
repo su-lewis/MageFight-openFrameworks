@@ -226,7 +226,6 @@ struct Card {
 
 	// --- Core Behavioral Flags ---
 	bool canTargetThroughWalls = false;
-	bool isChooseOne = false;
 	bool isTeleport = false;
 	bool restoresToMaxHP = false;
 	bool cleansesStatuses = false;
@@ -241,7 +240,6 @@ struct Card {
 	bool extraTurnsByUtilityRoll = false;
 	bool summonHPPerKobold = false;
 	bool isAoe = false;
-	bool isHandRelated = false;
 	bool hasRadius = false;
 	int summonFlatHP = 0;
 	int extraDrawNextTurn = 0;

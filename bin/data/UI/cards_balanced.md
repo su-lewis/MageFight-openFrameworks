@@ -43,7 +43,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1d6 damage in a 2-tile line. The second unit takes half.
+- **Effect Text:** Deal 1d6 damage in a 2-tile line; the second unit takes half.
 ---
 
 ## 7. Slash
@@ -74,7 +74,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. A unit on the tile hit chooses 3 times: Take 5 damage or **Destroy** their top card. Adjacent units choose once.
+- **Effect Text:** Choose a target. A unit on the tile hit chooses 3 times: take 5 damage or **Destroy** their top card. Adjacent units choose once.
 ---
 
 ## 11. Fireball
@@ -83,7 +83,7 @@
 - **Targeting:** 2d6 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d4 damage. If it damages Health, apply **Burning**.
+- **Effect Text:** Choose a target. Deal 1d4 damage. If it damages **Health**, apply **Burning**.
 ---
 
 ## 12. Shock
@@ -91,7 +91,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Electric-dealing card this or last turn and this damages Health, apply **Paralysis**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Electric-dealing card this or last turn and this damages **Health**, apply **Paralysis**.
 ---
 
 ## 13. Rock Crush
@@ -145,7 +145,7 @@
 - **Targeting:** 2d10 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 6 damage. Apply **Paralysis**. Can target through walls.
+- **Effect Text:** Choose a target. Deal 6 damage. If it damages **Health**, apply **Paralysis**. Can target through walls.
 ---
 
 ## 20. Flame Hit
@@ -153,7 +153,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1 damage to an adjacent unit. If it damages Health, apply **Burning**.
+- **Effect Text:** Deal 1 damage to an adjacent unit. If it damages **Health**, apply **Burning**.
 ---
 
 ## 21. Heal
@@ -161,7 +161,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target or yourself. **Restore** 1d6+2 Health.
+- **Effect Text:** Choose a target or yourself. **Restore** 1d6+2 **Health**.
 ---
 
 ## 22. Raise Dead
@@ -178,7 +178,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you dealt Electric damage this or last turn, replace its attacks with 3x Shock; if Fire damage, 1x Fireball and 2x Flame Hit; if you played Rock Crush, add 2x Rock Crush.
+- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you dealt Electric damage this or last turn, replace its attacks with 3x Shock. If you dealt Fire damage, replace its attacks with 1x Fireball and 2x Flame Hit. If you played Rock Crush, add 2x Rock Crush.
 - **Deck:** 3x Bash, 2x Hand Block
 - **AP:** 2+1d4
 - **HP:** 3+1d6
@@ -188,7 +188,7 @@
 - **AP Cost:** 3
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** For the next 3 turns: The first time each turn you play an Electric or Fire card, add a 0-cost copy to your hand.
+- **Effect Text:** For the next 3 turns, the first time each turn you play an Electric or Fire card, add a 0-cost copy to your hand.
 ---
 
 ## 25. Summon Wall
@@ -210,28 +210,28 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 for each **Hand-related** card played this turn. **Restore** Health equal to damage dealt. **Hand-related**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Deal +2 damage for each **Hand-related** card played this turn. **Restore** **Health** equal to **Health** damage dealt. **Hand-related**.
 ---
 
 ## 28. Double Handed
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Choose One:** Shuffle 2x Punch; or 2x Hand Block into your deck or an adjacent unit's deck. **Hand-related**.
+- **Effect Text:** **Choose One:** Shuffle 2x Punch or 2x Hand Block into your deck or an adjacent unit's deck. **Hand-related**.
 ---
 
 ## 29. Blocking Boon
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll 1d20 + total non-Physical **Defence**. 10-16: **Draft** Class 1. 17-24: **Draft** Class 2. 25+: **Draft** Class 3. For each Physical **Defence**, flip a coin. Heads: +1 **Max Health**. Tails: -1 **Max Health** to an adjacent unit.
+- **Effect Text:** Roll 1d20 + total non-Physical **Defence**: 10-16: **Draft** Class 1; 17-24: **Draft** Class 2; 25+: **Draft** Class 3. For each Physical **Defence**, flip a coin: Heads: +1 **Max Health**; Tails: -1 **Max Health** to an adjacent unit.
 ---
 
 ## 30. Call for Wolves
 - **AP Cost:** 6
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Wolf** in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck or discard.
+- **Effect Text:** **Summon** a **Wolf** in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck or discard pile.
 - **Deck:** 3x Slash, 1x Call for Wolves
 - **AP:** 2d4
 - **HP:** 3
@@ -256,7 +256,7 @@
 - **AP Cost:** 2
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Deal 2 Physical damage to an adjacent unit (+1 for each other **Hand-related** card in your deck, discard, or hand). Gain +1 **Luck** and +1 **Max Health**. **Hand-related**.
+- **Effect Text:** Deal 2 Physical damage to an adjacent unit (+1 damage for each other **Hand-related** card in your deck, discard pile, or hand). Gain +1 **Luck** and +1 **Max Health**. **Hand-related**.
 ---
 
 ## 34. Magic Bolt
@@ -265,7 +265,7 @@
 - **Targeting:** 2d20 ft
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d10+4 damage to the unit hit, then deal 3 Electric damage in a 1d20 ft radius from the tile hit. Can target through walls (radius is blocked).
+- **Effect Text:** Choose a target. Deal 1d10+4 damage to the unit hit. Then deal 3 Electric damage in a 1d20 ft radius from the tile hit. Can target through walls (radius is blocked).
 ---
 
 ## 35. Flail
@@ -291,7 +291,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 2d10: if higher than their Health, **Destroy** them; if equal or lower, apply **Sleep** for 1d4 turns.
+- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 2d10: if higher than their **Health**, **Destroy** them; if equal or lower, apply **Sleep** for 1d4 turns.
 ---
 
 ## 38. Summon Demon
@@ -325,7 +325,7 @@
 - **Targeting:** 2d10 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage to the tile hit and 3 damage to all 8 surrounding tiles. If multiple units are hit and it damages Health, apply **Paralysis**.
+- **Effect Text:** Choose a target. Deal 1d6 damage to the tile hit and 2 damage to all 8 surrounding tiles. If multiple units are hit and it damages **Health**, apply **Paralysis**. Gain +2 AP next turn.
 ---
 
 ## 42. Study
@@ -339,7 +339,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain +2 **Max Health**. **Restore** 2 Health.
+- **Effect Text:** Gain +2 **Max Health**. **Restore** 2 **Health**.
 ---
 
 ## 44. Add Poison
@@ -347,7 +347,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal +1 damage to units hit by your next Physical or Piercing attack this or next turn. If it damages Health, apply **Poisoned**.
+- **Effect Text:** Deal +1 damage to units hit by your next Physical or Piercing attack this or next turn. If it damages **Health**, apply **Poisoned**.
 ---
 
 ## 45. Flurry of Fists
@@ -355,7 +355,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = Flurry of Fists played this turn). **Hand-related**.
+- **Effect Text:** Deal 2 damage to an adjacent unit and draw a card; if **Hand-related**, it costs 0 AP this turn. This turn, **Hand-related** card effects happen X additional times (X = number of Flurry of Fists played this turn). **Hand-related**.
 ---
 
 ## 46. Form of Tortoise
@@ -363,7 +363,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Restore** 3 Health. Shuffle 1x Dispel into your deck. Transform into a Tortoise until taking 5 Health damage: your **Defence** doesn't expire, and deal 3 damage to an adjacent unit when you **Restore** Health or gain **Defence** and take double Piercing damage.
+- **Effect Text:** **Restore** 3 **Health**. Shuffle 1x Dispel into your deck. Transform into a Tortoise until taking 5 **Health** damage: your **Defence** doesn't expire, deal 3 damage to an adjacent unit when you **Restore** **Health** or gain **Defence**, and take double Piercing damage.
 ---
 
 ## 47. Fortify
@@ -379,7 +379,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 3 damage to an adjacent unit. If it damages Health, **Restore** 2 Health and shuffle 1x Vampire Bite into their deck. **Passive:** Take double Holy damage while this is in your deck or discard pile.
+- **Effect Text:** Deal 3 damage to an adjacent unit. If it damages **Health**, **Restore** 2 **Health** and shuffle 1x Vampire Bite into their deck. **Passive:** Take double Holy damage while this is in your deck or discard pile.
 ---
 
 ## 49. Call for Kobolds
@@ -396,7 +396,7 @@
 - **AP Cost:** 5
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Destroy** an adjacent wall. Gain +5 AP next turn.
+- **Effect Text:** Choose an adjacent wall to **Destroy**, then gain +5 AP next turn.
 ---
 
 ## 51. Renewed Inspiration
@@ -418,7 +418,7 @@
 - **Targeting:** 2d20 ft radius
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** For each other unit in the **Radius**: View the top 3 cards of their deck, then the next 3 cards (viewed cards go to the bottom). Choose up to 3 cards across both sets to **Destroy**.
+- **Effect Text:** For each other unit in the **Radius**: view the top 3 cards of their deck, then the next 3 cards (viewed cards go to the bottom). Choose up to 3 cards across both sets to **Destroy**.
 ---
 
 ## 54. Summon Magic Wall
@@ -455,7 +455,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +4 **Max Health**. **Restore** 3 Health.
+- **Effect Text:** Gain +4 **Max Health**. **Restore** 3 **Health**.
 ---
 
 ## 59. Lesser Heal
@@ -463,7 +463,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target or yourself. **Restore** 1d4+1 Health.
+- **Effect Text:** Choose a target or yourself. **Restore** 1d4+1 **Health**.
 ---
 
 ## 60. Transform Wall
@@ -500,7 +500,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Gain +3 **Max Health** and **Restore** 3 Health. Check **Max Health**. 16-20: **Draft** Class 1. 21-25: **Draft** Class 2. 26-30: **Draft** Class 3. 31+: Win the game.
+- **Effect Text:** Gain +3 **Max Health** and **Restore** 3 **Health**. Check **Max Health**: 16-20: **Draft** Class 1; 21-25: **Draft** Class 2; 26-30: **Draft** Class 3; 31+: Win the game.
 ---
 
 ## 64. Four-Leaf Clover
@@ -521,7 +521,7 @@
 - **AP Cost:** 5
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Restore** to **Max Health**. Remove all negative status effects.
+- **Effect Text:** **Restore** to **Max Health** and remove all negative status effects.
 ---
 
 ## 67. Smite
@@ -538,7 +538,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** **Choose One:** Deal 3 damage to a target; or **Restore** 3 Health to a target or yourself.
+- **Effect Text:** **Choose One:** Deal 3 damage to a target; or **Restore** 3 **Health** to a target or yourself.
 ---
 
 ## 69. Shoot Arrow
@@ -547,7 +547,7 @@
 - **Targeting:** 2d20 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, play that card's effect on top (poison counts for the card).
+- **Effect Text:** Choose a target. Deal 1d6 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, apply that card's effect as well (Poison damage counts for the card).
 ---
 
 ## 70. Summon Faerie
