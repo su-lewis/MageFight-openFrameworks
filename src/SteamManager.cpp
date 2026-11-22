@@ -14,31 +14,31 @@ uint64_t S_CALLTYPE SteamAPI_ISteamUser_GetSteamID(intptr_t instancePtr);
 
 uint32_t S_CALLTYPE SteamAPI_ISteamUser_GetAuthSessionTicket(intptr_t instancePtr, void * pTicket, int cbMaxTicket, uint32_t * pcbTicket, void * pIdentityRemote);
 void S_CALLTYPE SteamAPI_ISteamUser_CancelAuthTicket(intptr_t instancePtr, uint32_t hAuthTicket);
-void S_CALLTYPE SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, CSteamID steamID);
+void S_CALLTYPE SteamAPI_ISteamUser_EndAuthSession(intptr_t instancePtr, uint64_t steamID);
 
 uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_CreateLobby(intptr_t instancePtr, int eLobbyType, int cMaxMembers);
-void S_CALLTYPE SteamAPI_ISteamMatchmaking_LeaveLobby(intptr_t instancePtr, CSteamID steamIDLobby);
-CSteamID S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyOwner(intptr_t instancePtr, CSteamID steamIDLobby);
-bool S_CALLTYPE SteamAPI_ISteamMatchmaking_SetLobbyData(intptr_t instancePtr, CSteamID steamIDLobby, const char * pchKey, const char * pchValue);
-const char * S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, CSteamID steamIDLobby, const char * pchKey);
-uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_JoinLobby(intptr_t instancePtr, CSteamID steamIDLobby);
+void S_CALLTYPE SteamAPI_ISteamMatchmaking_LeaveLobby(intptr_t instancePtr, uint64_t steamIDLobby);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyOwner(intptr_t instancePtr, uint64_t steamIDLobby);
+bool S_CALLTYPE SteamAPI_ISteamMatchmaking_SetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey, const char * pchValue);
+const char * S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyData(intptr_t instancePtr, uint64_t steamIDLobby, const char * pchKey);
+uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_JoinLobby(intptr_t instancePtr, uint64_t steamIDLobby);
 void S_CALLTYPE SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter(intptr_t instancePtr, int cMaxResults);
 void S_CALLTYPE SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(intptr_t instancePtr, const char * pchKeyToMatch, const char * pchValueToMatch, int eComparisonType);
 void S_CALLTYPE SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter(intptr_t instancePtr, int eLobbyDistanceFilter);
 uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_RequestLobbyList(intptr_t instancePtr);
 uint64_t S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyByIndex(intptr_t instancePtr, int iLobby);
-int S_CALLTYPE SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, CSteamID steamIDLobby);
-int S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit(intptr_t instancePtr, CSteamID steamIDLobby);
+int S_CALLTYPE SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(intptr_t instancePtr, uint64_t steamIDLobby);
+int S_CALLTYPE SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit(intptr_t instancePtr, uint64_t steamIDLobby);
 
 const char * S_CALLTYPE SteamAPI_ISteamFriends_GetPersonaName(intptr_t instancePtr);
-const char * S_CALLTYPE SteamAPI_ISteamFriends_GetFriendPersonaName(intptr_t instancePtr, CSteamID steamIDFriend);
-int S_CALLTYPE SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, CSteamID steamIDFriend);
-int S_CALLTYPE SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, CSteamID steamIDFriend);
-int S_CALLTYPE SteamAPI_ISteamFriends_GetLargeFriendAvatar(intptr_t instancePtr, CSteamID steamIDFriend);
-void S_CALLTYPE SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(intptr_t instancePtr, CSteamID steamIDLobby);
+const char * S_CALLTYPE SteamAPI_ISteamFriends_GetFriendPersonaName(intptr_t instancePtr, uint64_t steamIDFriend);
+int S_CALLTYPE SteamAPI_ISteamFriends_GetSmallFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
+int S_CALLTYPE SteamAPI_ISteamFriends_GetMediumFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
+int S_CALLTYPE SteamAPI_ISteamFriends_GetLargeFriendAvatar(intptr_t instancePtr, uint64_t steamIDFriend);
+void S_CALLTYPE SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(intptr_t instancePtr, uint64_t steamIDLobby);
 bool S_CALLTYPE SteamAPI_ISteamFriends_SetRichPresence(intptr_t instancePtr, const char * pchKey, const char * pchValue);
 
-uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_RequestUserStats(intptr_t instancePtr, CSteamID steamIDUser);
+uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_RequestUserStats(intptr_t instancePtr, uint64_t steamIDUser);
 uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_FindLeaderboard(intptr_t instancePtr, const char * pchLeaderboardName);
 uint64_t S_CALLTYPE SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(intptr_t instancePtr, uint64_t hSteamLeaderboard, int eLeaderboardDataRequest, int nRangeStart, int nRangeEnd);
 bool S_CALLTYPE SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(intptr_t instancePtr, uint64_t hSteamLeaderboardEntries, int index, void * pLeaderboardEntry, int32_t * pDetails, int cDetailsMax);
@@ -139,7 +139,7 @@ void SteamManager::setup() {
 		}
 
 		if (SteamUserStats()) {
-			SteamAPI_ISteamUserStats_RequestUserStats((intptr_t)SteamUserStats(), m_LocalID);
+			SteamAPI_ISteamUserStats_RequestUserStats((intptr_t)SteamUserStats(), m_LocalID.ConvertToUint64());
 		}
 		loadLocalProgressionBackup();
 
@@ -248,7 +248,7 @@ void SteamManager::update() {
 		if (ofGetElapsedTimef() - lastReconnectTime > 2.0f) {
 			lastReconnectTime = ofGetElapsedTimef();
 			if (SteamMatchmaking()) {
-				CSteamID owner = SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID);
+				CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 				if (owner.IsValid() && SteamNetworkingSockets()) {
 					SteamNetworkingIdentity identity;
 					memset(&identity, 0, sizeof(identity)); // <--- CRITICAL PADDING FIX
@@ -341,7 +341,7 @@ void SteamManager::leaveLobby() {
 	}
 	closeConnection();
 	if (m_LobbyID.IsValid()) {
-		SteamAPI_ISteamMatchmaking_LeaveLobby((intptr_t)SteamMatchmaking(), m_LobbyID);
+		SteamAPI_ISteamMatchmaking_LeaveLobby((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64());
 		m_LobbyID = CSteamID();
 	}
 	m_bIsHost = false;
@@ -393,7 +393,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 
 	if (!m_bIsHost && m_hConnection == k_HSteamNetConnection_Invalid) {
 		if (m_LobbyID.IsValid() && SteamMatchmaking()) {
-			CSteamID owner = SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID);
+			CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 			if (owner.IsValid()) {
 				SteamNetworkingIdentity identity;
 				memset(&identity, 0, sizeof(identity));
@@ -437,7 +437,7 @@ std::string SteamManager::getLocalPlayerName() const {
 
 std::string SteamManager::getOpponentName() const {
 	if (!m_bInitialized || !SteamFriends() || !m_OpponentID.IsValid()) return "Opponent";
-	const char * name = SteamAPI_ISteamFriends_GetFriendPersonaName((intptr_t)SteamFriends(), m_OpponentID);
+	const char * name = SteamAPI_ISteamFriends_GetFriendPersonaName((intptr_t)SteamFriends(), m_OpponentID.ConvertToUint64());
 	return name ? std::string(name) : "Opponent";
 }
 
@@ -449,12 +449,13 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 	if (!id.IsValid() || id.ConvertToUint64() == 0) return false;
 
 	int imageId = 0;
+	uint64_t steamId64 = id.ConvertToUint64();
 	if (size <= 32)
-		imageId = SteamAPI_ISteamFriends_GetSmallFriendAvatar((intptr_t)SteamFriends(), id);
+		imageId = SteamAPI_ISteamFriends_GetSmallFriendAvatar((intptr_t)SteamFriends(), steamId64);
 	else if (size <= 64)
-		imageId = SteamAPI_ISteamFriends_GetMediumFriendAvatar((intptr_t)SteamFriends(), id);
+		imageId = SteamAPI_ISteamFriends_GetMediumFriendAvatar((intptr_t)SteamFriends(), steamId64);
 	else
-		imageId = SteamAPI_ISteamFriends_GetLargeFriendAvatar((intptr_t)SteamFriends(), id);
+		imageId = SteamAPI_ISteamFriends_GetLargeFriendAvatar((intptr_t)SteamFriends(), steamId64);
 
 	if (imageId <= 0) return false;
 	uint32_t width = 0, height = 0;
@@ -472,10 +473,9 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 
 void SteamManager::openFriendOverlay() {
 	if (m_bInitialized && m_LobbyID.IsValid() && SteamFriends()) {
-		SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog((intptr_t)SteamFriends(), m_LobbyID);
+		SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog((intptr_t)SteamFriends(), m_LobbyID.ConvertToUint64());
 	}
 }
-
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	if (!pCallback || bIOFailure || pCallback->m_eResult != k_EResultOK) {
 		m_bIsHost = false;
@@ -496,8 +496,8 @@ void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	std::string lobbyName = getLocalPlayerName() + "'s Game";
 	snprintf(nameBuffer, sizeof(nameBuffer), "%s", lobbyName.c_str());
 
-	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID, "name", nameBuffer);
-	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID, "MageFightLobby", "Active");
+	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "name", nameBuffer);
+	SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "MageFightLobby", "Active");
 
 	if (SteamNetworkingSockets()) {
 		m_hListenSocket = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P((intptr_t)SteamNetworkingSockets(), 0, 0, nullptr);
@@ -518,7 +518,7 @@ void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback, bool bIOFailure) {
 	}
 
 	if (!SteamMatchmaking() || !SteamNetworkingSockets()) return;
-	CSteamID owner = SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID);
+	CSteamID owner((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 	if (owner == m_LocalID) {
 		m_bIsHost = true;
 	} else {
@@ -620,12 +620,12 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 
 void SteamManager::setMatchStarted() {
 	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid() && m_LobbyID.ConvertToUint64() != 0) {
-		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID, "match_started", "1");
+		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started", "1");
 	}
 }
 bool SteamManager::isMatchStarted() const {
 	if (!m_bInitialized || !SteamMatchmaking() || !m_LobbyID.IsValid() || m_LobbyID.ConvertToUint64() == 0) return false;
-	const char * val = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID, "match_started");
+	const char * val = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started");
 	if (!val) return false;
 	return std::string(val) == "1";
 }
@@ -633,12 +633,12 @@ void SteamManager::setLobbySeed(uint32_t seed) {
 	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid() && m_LobbyID.ConvertToUint64() != 0) {
 		static char seedBuffer[64];
 		snprintf(seedBuffer, sizeof(seedBuffer), "%u", seed);
-		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID, "seed", seedBuffer);
+		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed", seedBuffer);
 	}
 }
 uint32_t SteamManager::getLobbySeed() const {
 	if (!m_bInitialized || !SteamMatchmaking() || !m_LobbyID.IsValid() || m_LobbyID.ConvertToUint64() == 0) return 0;
-	const char * v = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID, "seed");
+	const char * v = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "seed");
 	if (!v || strlen(v) == 0) return 0;
 	try {
 		return (uint32_t)std::stoul(std::string(v));
@@ -670,10 +670,10 @@ void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailur
 		CSteamID lobbyID((uint64)SteamAPI_ISteamMatchmaking_GetLobbyByIndex((intptr_t)SteamMatchmaking(), i));
 		LobbyInfo info;
 		info.lobbyID = lobbyID;
-		const char * name = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), lobbyID, "name");
+		const char * name = SteamAPI_ISteamMatchmaking_GetLobbyData((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64(), "name");
 		info.name = (name && name[0]) ? name : "Mage Fight Match";
-		info.numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), lobbyID);
-		info.maxPlayers = SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit((intptr_t)SteamMatchmaking(), lobbyID);
+		info.numPlayers = SteamAPI_ISteamMatchmaking_GetNumLobbyMembers((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
+		info.maxPlayers = SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
 		if (info.maxPlayers <= 0) info.maxPlayers = 4;
 		currentLobbies.push_back(info);
 	}
@@ -681,7 +681,7 @@ void SteamManager::OnLobbyMatchList(LobbyMatchList_t * pCallback, bool bIOFailur
 std::vector<SteamManager::LobbyInfo> SteamManager::getLobbyList() { return currentLobbies; }
 void SteamManager::joinLobbyByID(CSteamID lobbyID) {
 	if (!SteamMatchmaking()) return;
-	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID);
+	SteamAPI_ISteamMatchmaking_JoinLobby((intptr_t)SteamMatchmaking(), lobbyID.ConvertToUint64());
 }
 void SteamManager::fetchLeaderboard() {
 	if (!SteamUserStats()) return;
@@ -704,7 +704,7 @@ void SteamManager::OnLeaderboardScoresDownloaded(LeaderboardScoresDownloaded_t *
 		LeaderboardEntry entry;
 		entry.rank = leaderboardEntry.m_nGlobalRank;
 		entry.score = leaderboardEntry.m_nScore;
-		const char * name = SteamAPI_ISteamFriends_GetFriendPersonaName((intptr_t)SteamFriends(), CSteamID(leaderboardEntry.m_steamIDUser));
+		const char * name = SteamAPI_ISteamFriends_GetFriendPersonaName((intptr_t)SteamFriends(), leaderboardEntry.m_steamIDUser.ConvertToUint64());
 		entry.name = name ? name : "Unknown";
 		currentLeaderboard.push_back(entry);
 	}
@@ -885,7 +885,7 @@ void SteamManager::becomeHost() {
 }
 CSteamID SteamManager::getLobbyOwner() const {
 	if (!m_bInitialized || !m_LobbyID.IsValid() || !SteamMatchmaking()) return CSteamID();
-	return SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID);
+	return CSteamID((uint64)SteamAPI_ISteamMatchmaking_GetLobbyOwner((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64()));
 }
 
 bool SteamManager::isLocalLobbyOwner() const {

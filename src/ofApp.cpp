@@ -993,18 +993,13 @@ static std::string makeSavePath(const std::string & p);
 static void persistCrashReason(const std::string & tag, const std::string & reason) {
 	try {
 		std::string path = makeSavePath("startmatch_crash.log");
-#ifdef _WIN32
-		if (const char * tempDir = std::getenv("TEMP")) {
-			path = std::string(tempDir) + "\\MageFight_startmatch_crash.log";
-		}
-#endif
 		std::ofstream f(path, std::ios::app);
-		if (!f.is_open()) return;
-		std::string timeStr = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
-		f << "[" << timeStr << "] [" << tag << "] " << reason << "\n";
-		f.flush();
-		f.close();
-		ofLogNotice("CrashLog") << "Wrote crash reason to " << path;
+		if (f.is_open()) {
+			std::string timeStr = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
+			f << "[" << timeStr << "] [" << tag << "] " << reason << "\n";
+			f.flush();
+			f.close();
+		}
 	} catch (...) {
 		ofLogWarning("CrashLog") << "Failed to persist crash reason.";
 	}
