@@ -35,14 +35,14 @@ jobs:
         New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\msys64" | Out-Null
         7z x "$env:RUNNER_TEMP\msys64-mingw64.tar.7z" "-o$env:RUNNER_TEMP" -y
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & "C:\Program Files\Git\usr\bin\tar.exe" -xf "$env:RUNNER_TEMP\msys64.tar" -C "$env:RUNNER_TEMP\msys64"
+        & "C:\Program Files\Git\usr\bin\tar.exe" --force-local -xf "$env:RUNNER_TEMP\msys64.tar" -C "$env:RUNNER_TEMP\msys64"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Remove-Item "$env:RUNNER_TEMP\msys64-mingw64.tar.7z", "$env:RUNNER_TEMP\msys64.tar"
 
         New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\openFrameworks" | Out-Null
         7z x "$env:RUNNER_TEMP\openFrameworks-0.12.0-mingw64.tar.7z" "-o$env:RUNNER_TEMP" -y
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & "C:\Program Files\Git\usr\bin\tar.exe" -xf "$env:RUNNER_TEMP\of.tar" -C "$env:GITHUB_WORKSPACE\openFrameworks"
+        & "C:\Program Files\Git\usr\bin\tar.exe" --force-local -xf "$env:RUNNER_TEMP\of.tar" -C "$env:GITHUB_WORKSPACE\openFrameworks"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Remove-Item "$env:RUNNER_TEMP\openFrameworks-0.12.0-mingw64.tar.7z", "$env:RUNNER_TEMP\of.tar"
 

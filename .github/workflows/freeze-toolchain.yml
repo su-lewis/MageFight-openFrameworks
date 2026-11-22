@@ -137,13 +137,13 @@ jobs:
         $ErrorActionPreference = "Stop"
         $msysPath = "${{ steps.msys2.outputs.msys2-location }}"
 
-        & "C:\Program Files\Git\usr\bin\tar.exe" -cf "$env:RUNNER_TEMP\msys64.tar" -C $msysPath .
+        & "C:\Program Files\Git\usr\bin\tar.exe" --force-local -cf "$env:RUNNER_TEMP\msys64.tar" -C $msysPath .
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         7z a -mx=5 -mmt=on "$env:RUNNER_TEMP\msys64-mingw64.tar.7z" "$env:RUNNER_TEMP\msys64.tar"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Remove-Item "$env:RUNNER_TEMP\msys64.tar"
 
-        & "C:\Program Files\Git\usr\bin\tar.exe" -cf "$env:RUNNER_TEMP\of.tar" -C "$env:GITHUB_WORKSPACE\openFrameworks" .
+        & "C:\Program Files\Git\usr\bin\tar.exe" --force-local -cf "$env:RUNNER_TEMP\of.tar" -C "$env:GITHUB_WORKSPACE\openFrameworks" .
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         7z a -mx=5 -mmt=on "$env:RUNNER_TEMP\openFrameworks-0.12.0-mingw64.tar.7z" "$env:RUNNER_TEMP\of.tar"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

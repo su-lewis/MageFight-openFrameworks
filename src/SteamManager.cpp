@@ -307,10 +307,11 @@ void SteamManager::update() {
 
 void SteamManager::cleanup() {
 	leaveLobby();
-	if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
+	if (m_hListenSocket != k_HSteamListenSocket_Invalid && SteamNetworkingSockets()) {
 		SteamAPI_ISteamNetworkingSockets_CloseListenSocket((intptr_t)SteamNetworkingSockets(), m_hListenSocket);
 		m_hListenSocket = k_HSteamListenSocket_Invalid;
 	}
+	m_hListenSocket = k_HSteamListenSocket_Invalid;
 }
 
 void SteamManager::shutdownAPI() {
@@ -360,24 +361,24 @@ void SteamManager::closeConnection() {
 		return;
 	}
 
-	if (m_hConnection != k_HSteamNetConnection_Invalid) {
-		SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), m_hConnection, 0, "Closing", true);
-		m_hConnection = k_HSteamNetConnection_Invalid;
+	if (SteamNetworkingSockets()) {
+		if (m_hConnection != k_HSteamNetConnection_Invalid) {
+			SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), m_hConnection, 0, "Closing", true);
+		}
+		for (auto conn : g_activeClientConnections)
+			SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), conn, 0, "Closing", true);
+		for (auto conn : g_spectatorConnections)
+			SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), conn, 0, "Closing", true);
+		if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
+			SteamAPI_ISteamNetworkingSockets_CloseListenSocket((intptr_t)SteamNetworkingSockets(), m_hListenSocket);
+		}
 	}
 
-	for (auto conn : g_activeClientConnections)
-		SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), conn, 0, "Closing", true);
-	for (auto conn : g_spectatorConnections)
-		SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), conn, 0, "Closing", true);
-
+	m_hConnection = k_HSteamNetConnection_Invalid;
+	m_hListenSocket = k_HSteamListenSocket_Invalid;
 	g_activeClientConnections.clear();
 	g_spectatorConnections.clear();
 	g_isSpectator = false;
-
-	if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
-		SteamAPI_ISteamNetworkingSockets_CloseListenSocket((intptr_t)SteamNetworkingSockets(), m_hListenSocket);
-		m_hListenSocket = k_HSteamListenSocket_Invalid;
-	}
 	m_OpponentID = CSteamID();
 	while (!packetQueue.empty())
 		packetQueue.pop();
@@ -468,7 +469,7 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 	if (!SteamAPI_ISteamUtils_GetImageRGBA((intptr_t)SteamUtils(), imageId, pixels.getData(), (int)(width * height * 4))) return false;
 
 	outImage.setFromPixels(pixels);
-	return true;
+	return outImage.isAllocated();
 }
 
 void SteamManager::openFriendOverlay() {
@@ -876,7 +877,9 @@ void SteamManager::becomeHost() {
 	m_bIsHost = true;
 	g_isHostingLobby = true;
 	if (m_hConnection != k_HSteamNetConnection_Invalid) {
-		SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), m_hConnection, 0, nullptr, false);
+		if (SteamNetworkingSockets()) {
+			SteamAPI_ISteamNetworkingSockets_CloseConnection((intptr_t)SteamNetworkingSockets(), m_hConnection, 0, nullptr, false);
+		}
 		m_hConnection = k_HSteamNetConnection_Invalid;
 	}
 	if (m_hListenSocket == k_HSteamListenSocket_Invalid && SteamNetworkingSockets()) {

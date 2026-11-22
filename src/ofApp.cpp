@@ -4596,7 +4596,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 
 	// Set the per-card `playedThisTurn` flag on the specific instance and move it to the limbo played pile.
 	bool movedToDiscard = false;
-	bool shouldDiscard = (playedCard.type != CARD_FORM_OF_TORTOISE && playedCard.type != CARD_FORM_OF_GHOST);
+	bool shouldDiscard = (playedCard.transformForm == FORM_NONE);
 
 	// Case A: card still in hand at handIndex — mark it, push to limbo, then erase from hand
 	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
@@ -7933,7 +7933,9 @@ void ofApp::update() {
 					persistCrashReason("update", "After getAvatarImage local");
 				}
 				if (!opponentAvatarReady && steamManager.hasOpponent() && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0) {
+					persistCrashReason("update", "Before getAvatarImage opponent");
 					opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
+					persistCrashReason("update", "After getAvatarImage opponent");
 				}
 			}
 		}
@@ -8244,7 +8246,21 @@ void ofApp::update() {
 
 	case STATE_INITIATIVE_ROLL:
 		// Ensure camera matrices, viewports, and visual coordinates update during the roll
+		if (isMultiplayer) {
+			static bool s_loggedInitUpdate = false;
+			if (!s_loggedInitUpdate) {
+				s_loggedInitUpdate = true;
+				persistCrashReason("update", "Before prepareGameVisualState (INITIATIVE_ROLL)");
+			}
+		}
 		prepareGameVisualState();
+		if (isMultiplayer) {
+			static bool s_loggedInitUpdateDone = false;
+			if (!s_loggedInitUpdateDone) {
+				s_loggedInitUpdateDone = true;
+				persistCrashReason("update", "After prepareGameVisualState (INITIATIVE_ROLL)");
+			}
+		}
 		break;
 
 	// --- DRAFTING STATE ---
@@ -8348,10 +8364,12 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 		currentState = STATE_DRAFTING;
 	}
 
+	persistCrashReason("Draft", "Entered beginInitiativeDrafting winnerIndex=" + std::to_string(winnerIndex));
 	resetDraftPhaseTimerWindow();
 	ofLogNotice("Draft") << "beginInitiativeDrafting called: winnerIndex=" << winnerIndex << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage;
 	// Both host and clients generate deterministic draft options locally.
 	generateDraftOptions(1);
+	persistCrashReason("Draft", "Finished beginInitiativeDrafting");
 	// Host no longer needs to send PKT_DRAFT_STATE here; the command stream
 	// (CMD_DRAFT_ACTION / CMD_ACCEPT_DRAFT) is authoritative and keeps peers
 	// in sync. Legacy packets are ignored by the client-side handler.
@@ -8514,8 +8532,24 @@ void ofApp::draw() {
 		case STATE_DRAFTING:
 		case STATE_PAUSED:
 		case STATE_SAVE_BROWSER:
+			if (isMultiplayer && currentState == STATE_INITIATIVE_ROLL) {
+				static bool s_loggedDrawGame = false;
+				if (!s_loggedDrawGame) {
+					s_loggedDrawGame = true;
+					persistCrashReason("draw", "Before drawGame (INITIATIVE_ROLL)");
+				}
+			}
 			drawGame();
-			if (currentState == STATE_INITIATIVE_ROLL || (currentState == STATE_PAUSED && pausedFromState == STATE_INITIATIVE_ROLL)) drawInitiativeRoll();
+			if (currentState == STATE_INITIATIVE_ROLL || (currentState == STATE_PAUSED && pausedFromState == STATE_INITIATIVE_ROLL)) {
+				if (isMultiplayer) {
+					static bool s_loggedDrawInit = false;
+					if (!s_loggedDrawInit) {
+						s_loggedDrawInit = true;
+						persistCrashReason("draw", "Before drawInitiativeRoll");
+					}
+				}
+				drawInitiativeRoll();
+			}
 			if ((currentState == STATE_DRAFTING || (currentState == STATE_PAUSED && pausedFromState == STATE_DRAFTING)) && !draftOptions.empty()) drawDraftScreen();
 			if (currentState == STATE_PAUSED) drawPause = true;
 			if (currentState == STATE_SAVE_BROWSER) drawSaveBrowser();
@@ -17379,9 +17413,9 @@ void ofApp::drawGame() {
 		ofDrawRectangle(avatarX, avatarY, avatarSize, avatarSize); // Non-rounded avatar
 
 		ofSetColor(255);
-		if (isLocal && localAvatarReady) {
+		if (isLocal && localAvatarReady && localAvatarImage.isAllocated()) {
 			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
-		} else if (!isLocal && opponentAvatarReady) {
+		} else if (!isLocal && opponentAvatarReady && opponentAvatarImage.isAllocated()) {
 			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
 		} else {
 			// Initial fallback
@@ -18737,10 +18771,10 @@ void ofApp::drawGame() {
 			isLocalTurn = (players[currentPlayerIndex].playerID == myLocalPlayerID);
 		}
 
-		if (isLocalTurn && localAvatarReady) {
+		if (isLocalTurn && localAvatarReady && localAvatarImage.isAllocated()) {
 			ofSetColor(255);
 			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
-		} else if (!isLocalTurn && opponentAvatarReady) {
+		} else if (!isLocalTurn && opponentAvatarReady && opponentAvatarImage.isAllocated()) {
 			ofSetColor(255);
 			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
 		}
@@ -25645,7 +25679,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		}
 	}
 	// 2. Board-Targeted Spells (Melee, Line of Sight, Pierce, Walls, etc.)
-	else if (card.targeting != TARGET_SELF && card.targeting != TARGET_NONE) {
+	else if (card.targeting != TARGET_SELF && card.targeting != TARGET_NONE && card.transformForm == FORM_NONE) {
 		interactingCardIndex = cardIndex;
 		interactingCardType = card.type;
 		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, cardIndex, card.type);
@@ -34634,7 +34668,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		|| playedCard.createsWall || playedCard.createsMagicWall || playedCard.stealsTopCard
 		|| playedCard.nextTurnD10AP || playedCard.nextTurnAPFromUndead || playedCard.extraDrawNextTurn > 0
 		|| playedCard.draftClassOnPlay > 0 || playedCard.drawByUtilityRoll || playedCard.extraTurnsByUtilityRoll
-		|| playedCard.summonKind > 0);
+		|| playedCard.summonKind > 0 || playedCard.transformForm != FORM_NONE || playedCard.shuffleCardCount > 0);
 
 	// Pure-heal full-HP check
 	if (hasHeal && !hasDamage && !hasStatus && !hasDraw && !hasAPGain && !hasStatGains && !hasSpecial) {
@@ -42384,11 +42418,14 @@ void ofApp::cleanupGame() {
 	}
 
 	currentPlayerIndex = -1;
+	globalTurnCounter = 0;
 	currentTurnOwnerID = -1;
 	currentTurnHadMeaningfulAction = false;
 	currentTurnTimeoutProcessed = false;
 	afkStrikeCounts = { 0, 0, 0, 0 };
 	reconnectForfeitStartTime = -1.0f;
+	localAvatarReady = false;
+	opponentAvatarReady = false;
 	g_isGameOver = false;
 	g_drawOfferPlayerID = -1;
 	waitingForReconnect = false;
@@ -42778,20 +42815,24 @@ void ofApp::loadCardSetFromMarkdown(const std::string & mdPath, CardRuleSet & ou
 		c.createsMagicWall = (eff.find("create a magic wall") != std::string::npos);
 		c.createsWall = !c.createsMagicWall && (eff.find("create a wall") != std::string::npos);
 
-		if (eff.find("transform into a ghost") != std::string::npos) {
-			c.transformForm = FORM_GHOST;
-			int brk = 0;
-			if (!parseIntAfter(eff, "until taking ", brk)) parseIntAfter(eff, "until you take ", brk);
-			c.formBreakDamage = brk;
-			c.formHalfPhysInsteadOfImmune = (eff.find("half physical and piercing") != std::string::npos);
-		} else if (eff.find("transform into a tortoise") != std::string::npos) {
-			c.transformForm = FORM_TORTOISE;
-			int brk = 0;
-			if (!parseIntAfter(eff, "until taking ", brk)) parseIntAfter(eff, "until you take ", brk);
-			c.formBreakDamage = brk;
-			c.formSpikeDamage = 3;
-			c.formDefenseDecayPct = (eff.find("decays by 50%") != std::string::npos) ? 50 : 0;
-			c.formDoublePiercing = (eff.find("double piercing") != std::string::npos);
+		size_t tfPos = eff.find("transform into a ");
+		if (tfPos == std::string::npos) tfPos = eff.find("transform into ");
+		if (tfPos != std::string::npos) {
+			if (eff.find("ghost", tfPos) != std::string::npos) {
+				c.transformForm = FORM_GHOST;
+				int brk = 0;
+				if (!parseIntAfter(eff, "until taking ", brk)) parseIntAfter(eff, "until you take ", brk);
+				c.formBreakDamage = brk;
+				c.formHalfPhysInsteadOfImmune = (eff.find("half physical and piercing") != std::string::npos);
+			} else if (eff.find("tortoise", tfPos) != std::string::npos) {
+				c.transformForm = FORM_TORTOISE;
+				int brk = 0;
+				if (!parseIntAfter(eff, "until taking ", brk)) parseIntAfter(eff, "until you take ", brk);
+				c.formBreakDamage = brk;
+				c.formSpikeDamage = 3;
+				c.formDefenseDecayPct = (eff.find("decays by 50%") != std::string::npos) ? 50 : 0;
+				c.formDoublePiercing = (eff.find("double piercing") != std::string::npos);
+			}
 		}
 
 		if (c.transformForm != FORM_NONE || c.type == CARD_CALL_FOR_WOLVES || c.type == CARD_CALL_FOR_KOBOLDS) {
@@ -51018,7 +51059,7 @@ bool ofApp::hasValidTargetForGlow(int playerIndex, int cardIndex) {
 	}
 
 	// Self / Instant cards are always playable
-	if ((candidate.targeting == TARGET_SELF || candidate.targeting == TARGET_NONE) && candidate.type != CARD_FLAIL) {
+	if ((candidate.targeting == TARGET_SELF || candidate.targeting == TARGET_NONE || candidate.transformForm != FORM_NONE) && candidate.type != CARD_FLAIL) {
 		return true;
 	}
 
