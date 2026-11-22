@@ -1,0 +1,129 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-11-22 09:51:59
+End Reason: Victory
+Seed: 1976332344
+Turns: 0
+Winner ID: 1
+
+--- PLAYERS ---
+Player 0: Player 1
+Player 1: Player 2
+
+--- EVENT LOG ---
+[09:45:03] --- MATCH STARTED ---
+[09:45:29] Turn 0: Player 2's turn
+[09:45:37] Player 2 played Hasten targeting (12,0)
+[09:45:39] Player 2 moved to (12,4)
+[09:45:42] Debug: Added all 70 cards to hand
+[09:45:44] Player 2 played Summon Faerie targeting (12,3)
+[09:45:44] Player 2 summoned unit kind 7 at (12,3)
+[09:45:46] Player 2 moved to (12,5)
+[09:45:49] Player 2 played Summon Kobold King targeting (12,4)
+[09:45:49] Player 2 summoned unit kind 5 at (12,4)
+[09:45:50] Player 2 moved to (11,5)
+[09:45:53] Player 2 played Shoot Arrow targeting (12,4)
+[09:46:09] Player 2 played Full Restore targeting (11,5)
+[09:46:12] Player 2 moved to (12,4)
+[09:46:14] Player 2 played Smite targeting (12,3)
+[09:46:16] Player 2 played Sprint targeting (12,4)
+[09:46:19] Player 2 played Four-Leaf Clover targeting (12,4)
+[09:46:30] Player 2 played Dark Shield targeting (12,4)
+[09:46:36] Player 2 played Magic Bolt targeting (4,8)
+[09:46:45] Player 2 played Summon Wall targeting (12,3)
+[09:46:47] Player 2 moved to (8,5)
+[09:46:51] Player 2 played Summon Hellhound targeting (9,5)
+[09:46:51] Player 2 summoned unit kind 3 at (9,5)
+[09:46:52] Player 2 played Consume Health Potion targeting (8,5)
+[09:46:54] Player 2 played Flail targeting (8,5)
+[09:47:01] Player 2 played Drain Punch targeting (9,5)
+[09:47:04] Player 2 played Necromancer's Blessing targeting (8,5)
+[09:47:06] Player 2 played Call for Wolves targeting (8,5)
+[09:47:06] Player 2 summoned unit kind 2 at (9,5)
+[09:47:12] Unlimited time enabled (turn timer disabled).
+[09:47:12] Turn timer enabled.
+[09:47:14] Player 2 played Call for Wolves targeting (8,5)
+[09:47:14] Player 2 summoned unit kind 2 at (8,4)
+[09:47:16] Player 2 summoned unit kind 2 at (8,6)
+[09:47:18] Player 2 moved to (7,5)
+[09:47:18] Player 2 moved to (7,6)
+[09:47:21] Player 2 moved to (7,5)
+[09:47:22] Player 2 played Study targeting (7,5)
+[09:47:26] Player 2 moved to (8,5)
+[09:47:30] Player 2 played Time Vortex targeting (8,5)
+[09:47:34] Player 2 played Death targeting (8,4)
+[09:47:46] Player 2 moved to (7,5)
+[09:47:48] Player 2 played Summon Demon targeting (8,5)
+[09:47:48] Player 2 summoned unit kind 4 at (8,5)
+[09:47:51] Player 2 played Master Fist targeting (8,5)
+[09:47:51] Player 2 had top card 'Flail' destroyed
+[09:47:55] Player 2 played Chain Lightning targeting (8,6)
+[09:48:05] Unlimited time enabled (turn timer disabled).
+[09:48:05] Turn timer enabled.
+[09:48:10] Player 2 played Summon Golem targeting (7,6)
+[09:48:10] Player 2 summoned unit kind 8 at (7,6)
+[09:48:27] Player 2 played Add Poison targeting (7,5)
+[09:48:29] Player 2 played Call for Kobolds targeting (7,5)
+[09:48:31] Player 2 played Consume Health Flagon targeting (7,5)
+[09:48:36] Player 2 played Fortify targeting (6,5)
+[09:48:45] Player 2 played Replicate targeting (7,5)
+[09:48:52] Player 2 played Heal targeting (7,5)
+[09:48:59] Player 2 played Flame Hit targeting (8,5)
+[09:49:01] Player 2 played Shield Bash targeting (8,5)
+[09:49:04] Player 2 played Hasten targeting (7,5)
+[09:49:07] Player 2 played Spark of Genius targeting (7,5)
+[09:49:07] Player 2 drew 6 card(s)
+[09:49:11] Unlimited time enabled (turn timer disabled).
+[09:49:11] Turn timer enabled.
+[09:49:13] Player 2 played Rock Crush targeting (6,5)
+[09:49:15] Player 2 played Amnesia targeting (7,6)
+[09:49:31] Player 2 played Vampire Bite targeting (8,5)
+[09:49:35] Player 2 played Strengthen Elements targeting (7,5)
+[09:49:36] Player 2 played Call for Kobolds targeting (7,5)
+[09:49:37] Player 2 summoned unit kind 1 at (8,5)
+[09:49:39] Player 2 played Form of Tortoise targeting (7,5)
+[09:49:54] Player 2 played Demolition targeting (7,4)
+[09:49:55] Player 2 played Teleport targeting (7,5)
+[09:50:02] Player 2 played Fireball targeting (8,5)
+[09:50:07] Player 2 played Raise Dead targeting (7,4)
+[09:50:07] Player 2 summoned unit kind 9 at (7,4)
+[09:50:09] Player 2 played Psionic Wave targeting (7,5)
+[09:50:15] Player 2 played Form of Ghost targeting (7,5)
+[09:50:17] Player 2 moved to (6,5)
+[09:50:17] Player 2 moved to (7,5)
+[09:50:19] Player 2 moved to (6,5)
+[09:50:19] Player 2 moved to (7,5)
+[09:50:20] Player 2 moved to (8,5)
+[09:50:20] Player 2 moved to (7,5)
+[09:50:22] Player 2 played Earthquake targeting (7,5)
+[09:50:31] Player 2 moved to (7,6)
+[09:50:33] Player 2 played Summon Magic Wall targeting (8,6)
+[09:50:36] Player 2 played Constitution Boon targeting (7,6)
+[09:50:38] Unlimited time enabled (turn timer disabled).
+[09:50:39] Turn timer enabled.
+[09:50:43] Player 2 played Hand Block targeting (7,6)
+[09:50:46] Player 2 moved to (7,7)
+[09:50:55] Player 2 played Blocking Boon targeting (7,7)
+[09:51:02] Player 2 played Sprint targeting (7,7)
+[09:51:03] Player 2 played Study targeting (7,7)
+[09:51:06] Player 2 played Lesser Heal targeting (7,7)
+[09:51:17] Player 2 played Magic Blast targeting (3,8)
+[09:51:20] Player 1 chose: Take 5 Damage
+[09:51:22] Player 2 played Rock Crush targeting (7,7)
+[09:51:26] Player 2 played Rock Crush targeting (7,7)
+[09:51:55] Player 2 moved to (5,8)
+[09:51:56] Player 2 moved to (4,8)
+[09:51:57] Player 2 played Stab targeting (3,8)
+[09:51:59] Player 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 30
+  Minions Spawned: 0
+  Total Healing: 0
+Player 1 Stats:
+  Max Dmg/Turn: 0
+  Cards Played: 29
+  Minions Spawned: 10
+  Total Healing: 18
+=====================

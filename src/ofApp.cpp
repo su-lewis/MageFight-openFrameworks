@@ -31650,11 +31650,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	case EffectOpType::APPLY_TELEPORT: {
 		// Read authoritative teleport range from blackboard[0] and enter targeting mode
 		interactionDiceRoll = currentEffectSequence.blackboard[0];
-		// Ensure centralized targeting state
-		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, CARD_TELEPORT);
-		ofLogNotice("Teleport") << "Rolled: " << interactionDiceRoll << "ft. Choose destination. CardIdx=" << interactingCardIndex;
+		// Ensure centralized targeting state (card was already removed from hand, so pass -1)
+		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_TELEPORT);
+		ofLogNotice("Teleport") << "Rolled: " << interactionDiceRoll << "ft. Choose destination.";
 		// Compute valid highlights for teleport destinations
-		calculateTargetHighlights(interactingCardIndex);
+		calculateTargetHighlights(-1);
 		opComplete = true;
 		break;
 	}
@@ -34009,6 +34009,14 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		gridY = players[hoveredUnitIndex].y;
 	}
 
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
+		int resolvedX = gridX, resolvedY = gridY;
+		if (findNearestTargetableTile(gridX, gridY, resolvedX, resolvedY)) {
+			gridX = resolvedX;
+			gridY = resolvedY;
+		}
+	}
+
 	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 		handleCardTargetClick(gridX, gridY);
@@ -34477,8 +34485,10 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		}
 	}
 
-	if (playedCard.targeting != TARGET_NONE && playedCard.type != CARD_TELEPORT && playedCard.type != CARD_PSIONIC_WAVE) {
-		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, playedCard.numDice, playedCard.diceSides);
+	if ((playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE || playedCard.targeting == TARGET_ANY_TILE)
+		&& playedCard.type != CARD_TELEPORT && playedCard.type != CARD_PSIONIC_WAVE) {
+		int rangeDiceNum = playedCard.rangeDiceNum;
+		int rangeDiceSides = playedCard.rangeDiceSides;
 		if ((rangeDiceNum > 0 && rangeDiceSides > 0) || playedCard.targeting == TARGET_LINE_OF_SIGHT_TILE) {
 			float maxRangeFeet = (rangeDiceNum > 0 && rangeDiceSides > 0) ? (float)(rangeDiceNum * rangeDiceSides) : 9999.0f;
 			if (playedCard.type == CARD_MAGIC_BOLT) {
@@ -34542,7 +34552,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
 
 	// Pre-play legality gates (abort cleanly before Stage A runs)
-	if (playedCard.destroysTargetWall) {
+	if (playedCard.destroysTargetWall && playedCard.targeting != TARGET_ADJACENT_UNIT_OR_WALL) {
 		int wallUnitIdx = -1;
 		for (size_t i = 0; i < players.size(); ++i) {
 			if (players[i].x == targetX && players[i].y == targetY && players[i].isWallUnit && players[i].health > 0) {
@@ -34904,7 +34914,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	// =========================================================================
 	switch (playedCard.type) {
 	case CARD_TELEPORT: {
-		interactingCardIndex = cardIndex;
+		interactingCardIndex = -1;
 		interactingCardType = playedCard.type;
 		auto [rNum, rSides] = getCardRangeDice(playedCard, 3, 6);
 		std::vector<int> rawRange;

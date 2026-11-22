@@ -30,6 +30,7 @@ jobs:
           mingw-w64-x86_64-gdb
           mingw-w64-x86_64-pkgconf
           mingw-w64-x86_64-wget
+          mingw-w64-x86_64-glfw
           mingw-w64-x86_64-zeromq
           mingw-w64-x86_64-cppzmq
           unzip
@@ -47,7 +48,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: ${{ runner.os }}-of-0.12.0-core-v8
+        key: ${{ runner.os }}-of-0.12.0-core-v9
 
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
@@ -63,7 +64,6 @@ jobs:
         sed -i -E 's/[^[:space:]]*libusb[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*poco[^[:space:]]*//gI' install_dependencies.sh
         sed -i -E 's/[^[:space:]]*tools[^[:space:]]*//gI' install_dependencies.sh
-        sed -i -E 's/[^[:space:]]*glfw[^[:space:]]*//gI' install_dependencies.sh
 
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
