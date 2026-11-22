@@ -554,7 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. Adjacent fallen allies other than **Faeries** resurrect, clear all status effects, and recover 25% of their **Max Health** per point rolled on a 1d4.
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. When an adjacent ally other than a **Faerie** dies it resurrects with 25% of their **Max Health** * 1d4, and clears all status effects.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5

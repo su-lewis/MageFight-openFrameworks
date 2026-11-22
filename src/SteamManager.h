@@ -62,6 +62,7 @@ public:
 	std::string getOpponentName() const;
 	CSteamID getOpponentSteamID() const;
 	CSteamID getLocalSteamID() const;
+	CSteamID getLobbyID() const { return m_LobbyID; }
 	bool getAvatarImage(const CSteamID & id, ofImage & outImage, int size = 64) const;
 
 	// Connection Flags
@@ -81,7 +82,6 @@ public:
 	void fetchLeaderboard();
 	std::vector<LeaderboardEntry> getLeaderboardEntries();
 	void becomeHost();
-	CSteamID getLobbyID() const { return m_LobbyID; }
 	CSteamID getLobbyOwner() const;
 	bool isLocalLobbyOwner() const;
 

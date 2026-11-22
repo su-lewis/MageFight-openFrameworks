@@ -1,0 +1,310 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-11-21 23:51:21
+End Reason: Victory
+Seed: 2189603174
+Turns: 21
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[23:39:54] --- MATCH STARTED ---
+[23:40:15] Turn 0: Bot 1's turn
+[23:40:16] Bot 1 moved to (12,1)
+[23:40:17] Bot 1 moved to (12,2)
+[23:40:18] Bot 1 moved to (12,3)
+[23:40:19] Bot 1 moved to (11,3)
+[23:40:21] Turn 1: Player's turn
+[23:40:25] Player played Raise Dead targeting (1,8)
+[23:40:26] Player summoned unit kind 9 at (1,8)
+[23:40:27] Player moved to (0,5)
+[23:40:27] Turn 1: Bot 1's turn
+[23:40:29] Bot 1 moved to (10,3)
+[23:40:30] Bot 1 moved to (9,3)
+[23:40:31] Bot 1 moved to (8,3)
+[23:40:32] Bot 1 moved to (8,4)
+[23:40:35] Bot 1 moved to (8,5)
+[23:40:35] Turn 2: Player's turn
+[23:40:57] Player moved to (3,8)
+[23:40:57] Turn 2: Player's turn
+[23:41:02] Player moved to (0,4)
+[23:41:12] Player moved to (4,3)
+[23:41:15] Turn 2: Bot 1's turn
+[23:41:17] Bot 1 moved to (7,5)
+[23:41:18] Bot 1 moved to (7,6)
+[23:41:18] Bot 1 moved to (7,7)
+[23:41:19] Bot 1 moved to (6,7)
+[23:41:22] Turn 3: Player's turn
+[23:41:26] Player moved to (6,8)
+[23:41:28] Player played Punch targeting (6,7)
+[23:41:29] Turn 3: Player's turn
+[23:41:32] Player moved to (4,4)
+[23:41:42] Player moved to (5,5)
+[23:41:42] Turn 3: Bot 1's turn
+[23:41:44] Bot 1 played Master Fist targeting (6,8)
+[23:41:46] Bot 1 moved to (7,7)
+[23:41:46] Bot 1 moved to (7,8)
+[23:41:47] Bot 1 moved to (8,8)
+[23:41:50] Bot 1 moved to (9,8)
+[23:41:51] Turn 4: Player's turn
+[23:41:54] Player moved to (7,6)
+[23:41:54] Turn 4: Bot 1's turn
+[23:41:56] Bot 1 played Summon Assistant targeting (8,8)
+[23:41:56] Bot 1 summoned unit kind 6 at (8,8)
+[23:41:57] Bot 1 played Lesser Heal targeting (8,8)
+[23:41:58] Bot 1 moved to (10,8)
+[23:41:58] Bot 1 played Lesser Heal targeting (10,8)
+[23:42:00] Turn 5: Player's turn
+[23:42:03] Player moved to (9,6)
+[23:42:05] Player played Summon Assistant targeting (8,6)
+[23:42:05] Player summoned unit kind 6 at (8,6)
+[23:42:09] Player moved to (11,5)
+[23:42:12] Player moved to (12,5)
+[23:42:13] Turn 5: Bot 1's turn
+[23:42:15] Bot 1 moved to (9,8)
+[23:42:16] Bot 1 played Hand Block targeting (9,8)
+[23:42:17] Turn 5: Bot 1's turn
+[23:42:19] Bot 1 moved to (11,8)
+[23:42:19] Bot 1 moved to (12,8)
+[23:42:22] Bot 1 moved to (12,7)
+[23:42:23] Bot 1 moved to (12,6)
+[23:42:24] Bot 1 played Mind Theft targeting (12,5)
+[23:42:24] Player had top card 'Dispel' stolen
+[23:42:24] Turn 6: Player's turn
+[23:42:48] Player moved to (9,5)
+[23:42:49] Turn 6: Player's turn
+[23:42:53] Player played Smite targeting (12,6)
+[23:42:56] Turn 6: Bot 1's turn
+[23:42:58] Bot 1 played Hand Block targeting (9,8)
+[23:42:58] Turn 6: Bot 1's turn
+[23:43:00] Bot 1 played Master Fist targeting (12,5)
+[23:43:01] Bot 1 moved to (12,7)
+[23:43:02] Bot 1 moved to (12,8)
+[23:43:02] Bot 1 moved to (11,8)
+[23:43:03] Bot 1 moved to (11,7)
+[23:43:04] Turn 7: Player's turn
+[23:43:06] Player moved to (11,5)
+[23:43:07] Turn 7: Player's turn
+[23:43:13] Player played Summon Hellhound targeting (12,6)
+[23:43:13] Player summoned unit kind 3 at (12,6)
+[23:43:17] Player moved to (12,4)
+[23:43:20] Turn 7: Bot 1's turn
+[23:43:22] Bot 1 played Hand Block targeting (9,8)
+[23:43:23] Turn 7: Bot 1's turn
+[23:43:25] Bot 1 played Chain Lightning targeting (11,5)
+[23:43:32] Bot 1 moved to (11,6)
+[23:43:32] Bot 1 moved to (11,5)
+[23:43:33] Turn 8: Player's turn
+[23:43:43] Player played Slash targeting (11,6)
+[23:43:44] Turn 8: Player's turn
+[23:44:03] Player played Raise Dead targeting (12,5)
+[23:44:03] Player summoned unit kind 9 at (12,5)
+[23:44:04] Turn 8: Bot 1's turn
+[23:44:06] Bot 1 moved to (8,8)
+[23:44:07] Bot 1 played Hand Block targeting (8,8)
+[23:44:08] Turn 8: Bot 1's turn
+[23:44:10] Bot 1 played Fireball targeting (12,5)
+[23:44:14] Bot 1 played Dispel targeting (11,5)
+[23:44:15] Bot 1 moved to (10,5)
+[23:44:15] Bot 1 played Dispel targeting (10,5)
+[23:44:16] Bot 1 moved to (9,5)
+[23:44:17] Bot 1 played Dispel targeting (9,5)
+[23:44:17] Bot 1 moved to (8,5)
+[23:44:18] Bot 1 played Dispel targeting (8,5)
+[23:44:19] Bot 1 moved to (8,4)
+[23:44:20] Bot 1 moved to (8,3)
+[23:44:20] Turn 9: Player's turn
+[23:44:28] Player moved to (9,5)
+[23:44:29] Turn 9: Player's turn
+[23:44:39] Player played Sprint targeting (12,4)
+[23:44:42] Player moved to (11,3)
+[23:44:43] Turn 9: Bot 1's turn
+[23:44:45] Bot 1 played Hand Block targeting (8,8)
+[23:44:46] Bot 1 played Hand Block targeting (8,8)
+[23:44:46] Turn 9: Bot 1's turn
+[23:44:48] Bot 1 moved to (7,3)
+[23:44:49] Bot 1 moved to (7,2)
+[23:44:50] Bot 1 moved to (7,1)
+[23:44:51] Bot 1 moved to (6,1)
+[23:44:53] Bot 1 moved to (5,1)
+[23:44:54] Bot 1 moved to (5,0)
+[23:44:55] Turn 10: Player's turn
+[23:45:03] Player played Dark Shield targeting (9,5)
+[23:45:04] Turn 10: Player's turn
+[23:45:11] Player moved to (8,0)
+[23:45:15] Player moved to (7,0)
+[23:45:15] Turn 10: Bot 1's turn
+[23:45:17] Bot 1 played Hand Block targeting (8,8)
+[23:45:18] Turn 10: Bot 1's turn
+[23:45:20] Bot 1 played Lesser Heal targeting (5,0)
+[23:45:21] Bot 1 played Chain Lightning targeting (6,0)
+[23:45:28] Bot 1 moved to (4,0)
+[23:45:31] Turn 11: Player's turn
+[23:45:42] Player moved to (8,2)
+[23:45:43] Turn 11: Player's turn
+[23:45:49] Player moved to (6,1)
+[23:45:49] Turn 11: Bot 1's turn
+[23:45:51] Turn 11: Bot 1's turn
+[23:45:55] Bot 1 played Fireball targeting (6,1)
+[23:45:59] Bot 1 moved to (3,0)
+[23:45:59] Bot 1 moved to (2,0)
+[23:46:00] Bot 1 moved to (1,0)
+[23:46:01] Bot 1 moved to (0,0)
+[23:46:04] Bot 1 moved to (0,1)
+[23:46:05] Turn 12: Player's turn
+[23:46:16] Player moved to (7,5)
+[23:46:17] Turn 12: Player's turn
+[23:46:31] Player played Sprint targeting (6,1)
+[23:46:33] Player moved to (4,4)
+[23:46:35] Turn 12: Bot 1's turn
+[23:46:37] Turn 12: Bot 1's turn
+[23:46:41] Bot 1 played Sprint targeting (0,1)
+[23:46:41] Bot 1 moved to (0,2)
+[23:46:42] Bot 1 moved to (0,3)
+[23:46:43] Bot 1 moved to (0,4)
+[23:46:44] Bot 1 moved to (0,5)
+[23:46:44] Bot 1 moved to (1,5)
+[23:46:47] Bot 1 moved to (2,5)
+[23:46:48] Bot 1 moved to (3,5)
+[23:46:49] Bot 1 moved to (4,5)
+[23:46:49] Turn 13: Player's turn
+[23:46:56] Player moved to (6,6)
+[23:46:57] Player played Fireball targeting (4,5)
+[23:47:01] Turn 13: Player's turn
+[23:47:10] Player played Consume Health Potion targeting (4,4)
+[23:47:11] Player moved to (4,3)
+[23:47:12] Turn 13: Bot 1's turn
+[23:47:14] Turn 13: Bot 1's turn
+[23:47:16] Bot 1 moved to (4,6)
+[23:47:16] Bot 1 moved to (5,6)
+[23:47:17] Bot 1 played Master Fist targeting (6,6)
+[23:47:18] Bot 1 played Dispel targeting (5,6)
+[23:47:19] Bot 1 moved to (5,5)
+[23:47:20] Bot 1 moved to (4,5)
+[23:47:21] Turn 14: Player's turn
+[23:47:24] Player moved to (6,2)
+[23:47:26] Turn 14: Bot 1's turn
+[23:47:28] Bot 1 moved to (7,8)
+[23:47:29] Bot 1 played Hand Block targeting (7,8)
+[23:47:30] Turn 14: Bot 1's turn
+[23:47:32] Bot 1 played Summon Assistant targeting (4,4)
+[23:47:32] Bot 1 summoned unit kind 6 at (4,4)
+[23:47:32] Bot 1 played Double Handed targeting (4,4)
+[23:47:33] Bot 1 moved to (5,5)
+[23:47:34] Bot 1 moved to (5,6)
+[23:47:35] Turn 15: Player's turn
+[23:47:40] Player played Heal targeting (6,2)
+[23:47:43] Player moved to (7,2)
+[23:47:44] Turn 15: Bot 1's turn
+[23:47:46] Bot 1 moved to (8,8)
+[23:47:47] Bot 1 played Hand Block targeting (8,8)
+[23:47:47] Turn 15: Bot 1's turn
+[23:47:49] Bot 1 moved to (4,5)
+[23:47:50] Bot 1 played Hand Block targeting (4,5)
+[23:47:51] Turn 15: Bot 1's turn
+[23:47:53] Bot 1 played Sprint targeting (5,6)
+[23:47:53] Bot 1 moved to (5,5)
+[23:47:54] Turn 16: Player's turn
+[23:47:58] Player played Consume Health Potion targeting (7,2)
+[23:47:59] Player played Sprint targeting (7,2)
+[23:48:01] Player moved to (8,6)
+[23:48:03] Turn 16: Bot 1's turn
+[23:48:05] Bot 1 played Hand Block targeting (8,8)
+[23:48:05] Turn 16: Bot 1's turn
+[23:48:07] Bot 1 played Punch targeting (5,5)
+[23:48:08] Turn 16: Bot 1's turn
+[23:48:10] Bot 1 played Chain Lightning targeting (7,6)
+[23:48:15] Bot 1 moved to (5,6)
+[23:48:16] Bot 1 moved to (6,6)
+[23:48:17] Bot 1 moved to (7,6)
+[23:48:18] Turn 17: Player's turn
+[23:48:29] Turn 17: Bot 1's turn
+[23:48:31] Bot 1 played Hand Block targeting (8,8)
+[23:48:32] Turn 17: Bot 1's turn
+[23:48:34] Bot 1 played Hand Block targeting (4,5)
+[23:48:35] Turn 17: Bot 1's turn
+[23:48:37] Bot 1 played Sprint targeting (7,6)
+[23:48:37] Bot 1 played Dispel targeting (7,6)
+[23:48:38] Bot 1 moved to (7,7)
+[23:48:39] Bot 1 played Dispel targeting (7,7)
+[23:48:39] Bot 1 moved to (7,8)
+[23:48:40] Bot 1 played Dispel targeting (7,8)
+[23:48:41] Bot 1 moved to (6,8)
+[23:48:41] Bot 1 played Dispel targeting (6,8)
+[23:48:42] Bot 1 moved to (6,7)
+[23:48:43] Bot 1 played Dispel targeting (6,7)
+[23:48:43] Bot 1 moved to (6,6)
+[23:48:44] Bot 1 played Dispel targeting (6,6)
+[23:48:45] Bot 1 moved to (7,6)
+[23:48:46] Bot 1 played Dispel targeting (7,6)
+[23:48:46] Bot 1 moved to (7,7)
+[23:48:47] Bot 1 played Dispel targeting (7,7)
+[23:48:48] Bot 1 moved to (7,8)
+[23:48:48] Bot 1 played Dispel targeting (7,8)
+[23:48:49] Bot 1 moved to (6,8)
+[23:48:50] Bot 1 moved to (6,7)
+[23:48:51] Turn 18: Player's turn
+[23:48:55] Player played Raise Dead targeting (7,6)
+[23:48:56] Player summoned unit kind 9 at (7,6)
+[23:48:59] Turn 18: Bot 1's turn
+[23:49:01] Bot 1 moved to (9,8)
+[23:49:02] Bot 1 played Hand Block targeting (9,8)
+[23:49:02] Turn 18: Bot 1's turn
+[23:49:04] Bot 1 moved to (4,4)
+[23:49:05] Bot 1 played Hand Block targeting (4,4)
+[23:49:06] Turn 18: Bot 1's turn
+[23:49:08] Bot 1 played Fireball targeting (7,6)
+[23:49:12] Bot 1 moved to (6,6)
+[23:49:13] Bot 1 moved to (7,6)
+[23:49:14] Bot 1 moved to (7,7)
+[23:49:14] Turn 19: Player's turn
+[23:49:24] Player played Raise Dead targeting (7,6)
+[23:49:25] Player summoned unit kind 9 at (7,6)
+[23:49:33] Turn 19: Bot 1's turn
+[23:49:35] Bot 1 moved to (10,8)
+[23:49:36] Bot 1 played Hand Block targeting (10,8)
+[23:49:36] Turn 19: Bot 1's turn
+[23:49:38] Bot 1 played Hand Block targeting (4,4)
+[23:49:39] Turn 19: Bot 1's turn
+[23:49:41] Bot 1 moved to (7,8)
+[23:49:42] Bot 1 moved to (8,8)
+[23:49:43] Bot 1 moved to (9,8)
+[23:49:43] Bot 1 moved to (8,8)
+[23:49:44] Bot 1 moved to (7,8)
+[23:49:45] Bot 1 moved to (7,7)
+[23:49:46] Turn 20: Player's turn
+[23:50:30] Turn 20: Player's turn
+[23:50:57] Player played Add Poison targeting (8,6)
+[23:50:59] Turn 20: Bot 1's turn
+[23:51:01] Bot 1 played Hand Block targeting (10,8)
+[23:51:02] Turn 20: Bot 1's turn
+[23:51:04] Bot 1 moved to (4,3)
+[23:51:05] Bot 1 played Hand Block targeting (4,3)
+[23:51:05] Turn 20: Bot 1's turn
+[23:51:07] Bot 1 played Master Fist targeting (7,6)
+[23:51:08] Bot 1 played Sprint targeting (7,7)
+[23:51:09] Bot 1 moved to (7,6)
+[23:51:10] Bot 1 moved to (6,6)
+[23:51:11] Bot 1 moved to (5,6)
+[23:51:11] Bot 1 moved to (5,5)
+[23:51:12] Bot 1 moved to (4,5)
+[23:51:13] Bot 1 moved to (4,6)
+[23:51:14] Turn 21: Player's turn
+[23:51:18] Player moved to (5,6)
+[23:51:20] Player played Vampire Bite targeting (4,6)
+[23:51:21] Bot 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 6
+  Cards Played: 19
+  Minions Spawned: 6
+  Total Healing: 12
+Player 1 Stats:
+  Max Dmg/Turn: 10
+  Cards Played: 55
+  Minions Spawned: 2
+  Total Healing: 8
+=====================

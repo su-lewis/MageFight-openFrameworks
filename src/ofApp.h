@@ -205,9 +205,18 @@ struct MinionTemplate {
 	int flatHP = 1;
 	int hpDiceNum = 0;
 	int hpDiceSides = 0;
+	int hpFlatBonus = 0;
 	int apDiceNum = 1;
 	int apDiceSides = 6;
+	int apFlatBonus = 0;
 	bool hasRegen = false;
+	int hpPerKoboldBase = 1;
+	int hpPerKoboldMult = 1;
+	int endTurnSummonerBlock = 0;
+	bool faerieSingleUse = false;
+	int faerieReviveMaxHP = 0;
+	int faerieReviveDamage = 0;
+	bool faerieDiesOnRevive = false;
 	std::vector<std::pair<std::string, int>> deckRecipe;
 };
 struct Card {
@@ -240,25 +249,77 @@ struct Card {
 	bool extraTurnsByUtilityRoll = false;
 	bool summonHPPerKobold = false;
 	bool isAoe = false;
+	int freeKickTurns = 0;
+	int applyStatusOnHealthDamage = 0;
+	bool isHandRelated = false;
+	bool forcesDraft = false;
+	bool isChooseOne = false;
 	bool hasRadius = false;
 	int summonFlatHP = 0;
+	int summonFlatHPBonus = 0;
+	int summonAPDiceNum = 0;
+	int summonAPDiceSides = 0;
+	int summonAPFlatBonus = 0;
+	int koboldKingBaseHP = 1;
+	int koboldKingPerKoboldHP = 1;
+	int endTurnSummonerBlock = 0;
 	int extraDrawNextTurn = 0;
-	int freeKickTurns = 0;
+	int nextBasicAttackDiscount = 0;
 	int draftClassOnPlay = 0;
 	int luckPerSkeleton = 0;
-	int applyStatusOnHealthDamage = 0;
+	int necroFlatLuckIfSkeleton = 0;
+	int necroBuffTurns = 0;
+	int necroSkeletonExtraDmg = 0;
+	bool necroSharesLuck = false;
 	bool canTargetSelf = false;
 	bool isCleave = false;
 	bool isLinearPierce = false;
 	bool isAoeBurst = false;
-	bool isHandRelated = false;
+	bool opensMenuOnPlay = false;
+	bool opensMenuAfterTarget = false;
 	bool destroysTopDeckCard = false;
 	bool stealsTopDeckCard = false;
 	bool grantsExtraTurn = false;
-	bool forcesDraft = false;
 	int draftTierToGive = 0;
 	bool checksMaxHealthForWin = false;
-	bool isChooseOne = false;
+	int extraAPDiceNextTurnNum = 0;
+	int extraAPDiceNextTurnSides = 0;
+	bool replacesAPWithUndeadDice = true;
+	int undeadAPDieSides = 6;
+	int undeadAPMaxDice = 0;
+	bool strengthenFirstOnly = false;
+	int strengthenCopyCost = -1;
+	int addPoisonTurns = 1;
+	int addPoisonFlatDmg = 0;
+	int addPoisonDiceNum = 1;
+	int addPoisonDiceSides = 6;
+	bool blockingBoonSingleRoll = false;
+	int blockingBoonC1Min = 10;
+	int blockingBoonC1Max = 15;
+	int blockingBoonC2Min = 16;
+	int blockingBoonC2Max = 19;
+	int blockingBoonC3Min = 20;
+	bool shockChecksAnyElectric = false;
+	bool shockChecksLastTurn = false;
+	bool golemChecksLastTurn = false;
+	int amnesiaTopCount = 0;
+	int amnesiaMaxPick = 0;
+	bool psionicTwoSetPick = false;
+	int psionicSetSize = 3;
+	int psionicMaxPick = 3;
+	int aoeSurroundingFixedDamage = -1;
+	int masterFistBasePerCard = 2;
+	bool masterFistCountsAllZones = false;
+	bool shootArrowPlaysTopCard = false;
+	int deathCheckDiceNum = 1;
+	int deathCheckDiceSides = 20;
+	int dispelBarrierDiceNum = 1;
+	int dispelBarrierDiceSides = 20;
+	bool formDoublePiercing = false;
+	bool faerieSingleUse = false;
+	int faerieReviveMaxHP = 0;
+	int faerieReviveDamage = 0;
+	bool faerieDiesOnRevive = false;
 
 	// --- Synergy Triggers ---
 	// e.g., if card requires/triggers off "Shock", "Flame Hit", "Add Poison"
@@ -274,6 +335,7 @@ struct Card {
 	int formSpikeDamage = 0;
 	std::string shuffleCardName = "";
 	int shuffleCardCount = 0;
+	bool shuffleOnDraft = false;
 	int aoeFixedDamage = 0;
 	DamageType aoeDamageType = DAMAGE_PHYSICAL;
 
@@ -539,6 +601,7 @@ struct DiceRoll {
 	int sides = 6;
 	int result = 0;
 	int rawResult = 0;
+	int flatBonus = 0;
 	bool isFinishedVisual = false;
 	float startTime = 0;
 	glm::quat finalQuat;
@@ -800,6 +863,7 @@ struct VisualEvent {
 	int diceNum = 0;
 	int diceSides = 6;
 	int diceResult = 0;
+	int diceFlatBonus = 0;
 	int dicePurpose = 0;
 	std::string diceLabel;
 	std::vector<int> diceRawResults;
@@ -903,6 +967,9 @@ struct PlayedCardAnimation {
 struct RemovedCardAnimation {
 	Card card;
 	glm::vec2 startPos;
+	glm::vec2 flyStartPos = glm::vec2(-1.0f, -1.0f);
+	float flyStartScale = 0.35f;
+	float flyDuration = 0.28f;
 	float startTime;
 	float burnDelay = 2.0f;
 	float currentScale;
@@ -1020,7 +1087,41 @@ struct Player {
 	std::string originalModelType = "";
 	int fireHeadsCount = 0;
 	bool paralysisNoBaseAPThisTurn = false;
+	bool paralysisHalfAPThisTurn = false;
 	int addPoisonTurnsRemaining = 0;
+	int addPoisonFlatDmg = 0;
+	int addPoisonDiceNum = 1;
+	int addPoisonDiceSides = 6;
+	int extraAPDiceNum = 0;
+	int extraAPDiceSides = 0;
+	int undeadAPDieSides = 6;
+	int undeadAPMaxDice = 0;
+	bool undeadAPReplacesBase = true;
+	bool strengthenElementsUsedThisTurn = false;
+	bool strengthenFirstOnly = false;
+	int strengthenCopyCost = -1;
+	int nextBasicAttackDiscount = 0;
+	int necroSkeletonBuffTurns = 0;
+	int necroSkeletonExtraDmg = 0;
+	bool necroSharesLuck = false;
+	int minionBonusDamage = 0;
+	bool electricDamageDealtThisTurn = false;
+	bool electricDamageDealtLastTurn = false;
+	bool fireDamageDealtThisTurn = false;
+	bool fireDamageDealtLastTurn = false;
+	bool rockCrushPlayedLastTurn = false;
+	bool tortoiseDoublePiercing = false;
+	int minionAPDiceNum = 1;
+	int minionAPDiceSides = 6;
+	int minionAPFlatBonus = 0;
+	int endTurnSummonerBlock = 0;
+	int koboldKingBaseHP = 1;
+	int koboldKingPerKoboldHP = 1;
+	bool faerieSingleUse = false;
+	bool faerieUsedRevive = false;
+	int faerieReviveMaxHP = 0;
+	int faerieReviveDamage = 0;
+	bool faerieDiesOnRevive = false;
 	std::vector<CardType> cardsPlayedLastTurn;
 
 	Card ghostFormCard;
@@ -1399,7 +1500,7 @@ private:
 	int computePassiveLuck(int playerIndex);
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category = "");
 	void queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor color, float duration = 1.2f);
-	void queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose = 0, int ownerIndex = -1, float duration = 1.5f, const std::string & rollLabel = "");
+	void queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose = 0, int ownerIndex = -1, float duration = 1.5f, const std::string & rollLabel = "", int flatBonus = 0);
 	void queueVisualTracer(glm::vec3 start, glm::vec3 end, ofColor color = ofColor::white, float duration = 1.2f);
 	void queueVisualDelay(float seconds);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
@@ -1617,7 +1718,10 @@ private:
 		glm::vec2 endPos;
 		bool finished = false;
 		int ownerIndex = -1;
+		float startScale = 1.0f;
 		float endScale = 1.0f;
+		float startW = 0.0f;
+		float startH = 0.0f;
 	};
 
 	std::vector<DraftPickedMove> activeDraftPickedMoves;
@@ -1903,6 +2007,10 @@ private:
 	bool firstKoboldSummoned[4] = { false, false, false, false };
 
 	std::vector<int> amnesiaOfferedDeckIndices;
+	bool amnesiaIsDraftStyle = false;
+	float amnesiaRevealStartTime = 0.0f;
+	float psionicRevealStartTime = 0.0f;
+	ofRectangle getUnitDeckScreenRect(int unitIndex) const;
 
 	int psionicWaveSetStage = 0;
 	int psionicWaveCurrentTargetIdx = -1;
@@ -2377,6 +2485,7 @@ private:
 	void handleCardTargetClick(int gridX, int gridY);
 	void handleCardMenuClick(const std::string & buttonId);
 	void drawActiveCardInteractionUI();
+	bool canCancelCurrentCardInteraction() const;
 	void cancelAllTargeting();
 	void cancelMagicHand();
 

@@ -1,0 +1,213 @@
+=== MATCH SUMMARY ===
+Timestamp: 2026-11-22 00:24:59
+End Reason: Victory
+Seed: 1186597280
+Turns: 21
+Winner ID: 0
+
+--- PLAYERS ---
+Player 0: Player
+Player 1: Bot 1
+
+--- EVENT LOG ---
+[00:17:50] --- MATCH STARTED ---
+[00:18:13] Turn 1: Player's turn
+[00:18:17] Player moved to (0,4)
+[00:18:22] Turn 1: Bot 1's turn
+[00:18:24] Bot 1 played Hasten targeting (12,0)
+[00:18:24] Bot 1 moved to (12,1)
+[00:18:25] Bot 1 moved to (12,2)
+[00:18:26] Bot 1 moved to (12,3)
+[00:18:27] Turn 2: Player's turn
+[00:18:32] Player moved to (0,3)
+[00:18:32] Turn 2: Bot 1's turn
+[00:18:35] Bot 1 moved to (11,3)
+[00:18:38] Bot 1 moved to (10,3)
+[00:18:39] Bot 1 moved to (9,3)
+[00:18:39] Bot 1 moved to (8,3)
+[00:18:40] Bot 1 moved to (8,4)
+[00:18:43] Bot 1 moved to (8,5)
+[00:18:44] Bot 1 moved to (9,5)
+[00:18:44] Turn 3: Player's turn
+[00:19:05] Player played Hasten targeting (0,3)
+[00:19:06] Player moved to (4,4)
+[00:19:14] Player moved to (5,6)
+[00:19:15] Turn 3: Bot 1's turn
+[00:19:17] Bot 1 moved to (10,5)
+[00:19:18] Bot 1 moved to (11,5)
+[00:19:21] Bot 1 moved to (12,5)
+[00:19:22] Turn 4: Player's turn
+[00:19:26] Player played Strengthen Elements targeting (5,6)
+[00:19:26] Player played Consume Health Potion targeting (5,6)
+[00:19:28] Player moved to (6,7)
+[00:19:32] Player moved to (7,6)
+[00:19:32] Turn 4: Bot 1's turn
+[00:19:34] Bot 1 moved to (12,4)
+[00:19:37] Bot 1 moved to (12,5)
+[00:19:38] Bot 1 moved to (12,6)
+[00:19:38] Bot 1 moved to (12,7)
+[00:19:39] Turn 5: Player's turn
+[00:19:45] Player played Strengthen Elements targeting (7,6)
+[00:19:48] Player moved to (7,8)
+[00:19:48] Turn 5: Bot 1's turn
+[00:19:50] Bot 1 moved to (12,8)
+[00:19:53] Bot 1 moved to (11,8)
+[00:19:54] Bot 1 moved to (10,8)
+[00:19:54] Bot 1 moved to (9,8)
+[00:19:55] Turn 6: Player's turn
+[00:19:58] Player played Chain Lightning targeting (9,8)
+[00:20:05] Player played Chain Lightning targeting (9,8)
+[00:20:11] Turn 6: Bot 1's turn
+[00:20:13] Bot 1 moved to (8,8)
+[00:20:15] Bot 1 played Drain Punch targeting (7,8)
+[00:20:16] Turn 7: Player's turn
+[00:20:21] Player played Mind Theft targeting (8,8)
+[00:20:21] Bot 1 had top card 'Shock' stolen
+[00:20:27] Player moved to (4,8)
+[00:20:30] Player moved to (6,8)
+[00:20:31] Turn 7: Bot 1's turn
+[00:20:33] Bot 1 played Stab targeting (6,8)
+[00:20:34] Bot 1 moved to (7,8)
+[00:20:35] Bot 1 moved to (7,7)
+[00:20:36] Turn 8: Player's turn
+[00:20:40] Player played Consume Health Potion targeting (6,8)
+[00:20:41] Player moved to (6,7)
+[00:20:41] Player played Shock targeting (7,7)
+[00:20:44] Player moved to (4,5)
+[00:20:45] Turn 8: Bot 1's turn
+[00:20:47] Bot 1 played Summon Assistant targeting (7,6)
+[00:20:47] Bot 1 summoned unit kind 6 at (7,6)
+[00:20:48] Bot 1 played Hasten targeting (7,7)
+[00:20:50] Bot 1 moved to (6,7)
+[00:20:50] Bot 1 moved to (6,6)
+[00:20:51] Turn 9: Player's turn
+[00:20:54] Player played Hasten targeting (4,5)
+[00:20:56] Player moved to (7,7)
+[00:20:58] Player played Shock targeting (7,6)
+[00:21:08] Turn 9: Bot 1's turn
+[00:21:11] Bot 1 played Fortify targeting (6,5)
+[00:21:12] Bot 1 moved to (7,6)
+[00:21:13] Bot 1 played Master Fist targeting (7,7)
+[00:21:13] Bot 1 moved to (7,5)
+[00:21:14] Bot 1 moved to (8,5)
+[00:21:15] Bot 1 moved to (8,4)
+[00:21:16] Bot 1 moved to (8,3)
+[00:21:16] Turn 10: Player's turn
+[00:21:27] Player played Consume Health Potion targeting (7,7)
+[00:21:30] Player moved to (4,3)
+[00:21:32] Turn 10: Bot 1's turn
+[00:21:34] Bot 1 moved to (7,3)
+[00:21:35] Bot 1 moved to (7,2)
+[00:21:35] Bot 1 moved to (6,2)
+[00:21:36] Bot 1 moved to (6,1)
+[00:21:39] Bot 1 moved to (6,0)
+[00:21:40] Bot 1 moved to (7,0)
+[00:21:40] Turn 11: Player's turn
+[00:21:45] Player played Strengthen Elements targeting (4,3)
+[00:21:47] Player played Chain Lightning targeting (7,0)
+[00:21:54] Player played Chain Lightning targeting (6,1)
+[00:22:03] Player moved to (2,3)
+[00:22:04] Turn 11: Bot 1's turn
+[00:22:06] Bot 1 played Hasten targeting (7,0)
+[00:22:07] Bot 1 moved to (8,0)
+[00:22:09] Bot 1 played Fortify targeting (8,1)
+[00:22:10] Bot 1 moved to (7,0)
+[00:22:11] Turn 12: Player's turn
+[00:22:14] Player played Hasten targeting (2,3)
+[00:22:15] Player moved to (0,0)
+[00:22:18] Player moved to (2,0)
+[00:22:18] Turn 12: Bot 1's turn
+[00:22:21] Bot 1 played Amnesia targeting (7,0)
+[00:22:22] Bot 1 played Dispel targeting (7,0)
+[00:22:23] Bot 1 moved to (8,0)
+[00:22:24] Bot 1 played Dispel targeting (8,0)
+[00:22:24] Bot 1 moved to (9,0)
+[00:22:25] Bot 1 played Dispel targeting (9,0)
+[00:22:26] Bot 1 moved to (10,0)
+[00:22:27] Bot 1 played Dispel targeting (10,0)
+[00:22:27] Bot 1 moved to (11,0)
+[00:22:28] Bot 1 played Dispel targeting (11,0)
+[00:22:29] Bot 1 moved to (11,1)
+[00:22:30] Bot 1 moved to (11,2)
+[00:22:30] Turn 13: Player's turn
+[00:22:43] Turn 13: Bot 1's turn
+[00:22:45] Bot 1 moved to (11,1)
+[00:22:46] Bot 1 moved to (12,1)
+[00:22:46] Bot 1 moved to (11,1)
+[00:22:47] Bot 1 moved to (11,2)
+[00:22:48] Bot 1 moved to (11,1)
+[00:22:49] Bot 1 moved to (12,1)
+[00:22:50] Turn 14: Player's turn
+[00:22:53] Player moved to (4,0)
+[00:22:58] Player moved to (5,3)
+[00:23:17] Turn 14: Bot 1's turn
+[00:23:19] Bot 1 played Summon Assistant targeting (12,0)
+[00:23:19] Bot 1 summoned unit kind 6 at (12,0)
+[00:23:20] Bot 1 played Stab targeting (12,0)
+[00:23:21] Turn 15: Player's turn
+[00:23:28] Player played Hasten targeting (5,3)
+[00:23:29] Player moved to (3,5)
+[00:23:30] Turn 15: Bot 1's turn
+[00:23:32] Bot 1 played Dispel targeting (12,1)
+[00:23:33] Bot 1 moved to (12,2)
+[00:23:34] Bot 1 played Dispel targeting (12,2)
+[00:23:34] Bot 1 moved to (12,3)
+[00:23:35] Bot 1 played Dispel targeting (12,3)
+[00:23:36] Bot 1 moved to (11,3)
+[00:23:37] Bot 1 played Dispel targeting (11,3)
+[00:23:37] Bot 1 moved to (10,3)
+[00:23:38] Bot 1 played Dispel targeting (10,3)
+[00:23:39] Bot 1 moved to (9,3)
+[00:23:40] Bot 1 moved to (8,3)
+[00:23:40] Turn 16: Player's turn
+[00:23:50] Player played Summon Wall targeting (4,5)
+[00:23:51] Player moved to (1,5)
+[00:23:55] Player moved to (4,6)
+[00:23:56] Turn 16: Bot 1's turn
+[00:23:58] Bot 1 played Summon Assistant targeting (8,2)
+[00:23:58] Bot 1 summoned unit kind 6 at (8,2)
+[00:23:58] Bot 1 played Stab targeting (8,2)
+[00:24:00] Turn 17: Player's turn
+[00:24:04] Player played Demolition targeting (4,7)
+[00:24:05] Turn 17: Bot 1's turn
+[00:24:07] Bot 1 played Amnesia targeting (8,3)
+[00:24:08] Bot 1 moved to (7,3)
+[00:24:09] Turn 18: Player's turn
+[00:24:19] Player played Strengthen Elements targeting (4,6)
+[00:24:20] Player moved to (5,5)
+[00:24:20] Turn 18: Bot 1's turn
+[00:24:22] Bot 1 played Fortify targeting (6,3)
+[00:24:23] Bot 1 moved to (7,2)
+[00:24:24] Bot 1 moved to (6,2)
+[00:24:25] Bot 1 moved to (5,2)
+[00:24:26] Turn 19: Player's turn
+[00:24:33] Player played Consume Health Potion targeting (5,5)
+[00:24:34] Player moved to (7,5)
+[00:24:35] Turn 19: Bot 1's turn
+[00:24:37] Bot 1 played Hasten targeting (5,2)
+[00:24:38] Bot 1 moved to (5,3)
+[00:24:38] Bot 1 moved to (4,3)
+[00:24:39] Bot 1 moved to (4,4)
+[00:24:40] Turn 20: Player's turn
+[00:24:43] Player played Hasten targeting (7,5)
+[00:24:44] Player moved to (7,3)
+[00:24:46] Turn 20: Bot 1's turn
+[00:24:49] Bot 1 moved to (5,3)
+[00:24:50] Bot 1 moved to (7,1)
+[00:24:51] Bot 1 played Stab targeting (7,3)
+[00:24:52] Turn 21: Player's turn
+[00:24:57] Player played Chain Lightning targeting (7,1)
+[00:24:59] Bot 1 has been ELIMINATED!
+
+--- STATS ---
+Player 0 Stats:
+  Max Dmg/Turn: 8
+  Cards Played: 23
+  Minions Spawned: 0
+  Total Healing: 8
+Player 1 Stats:
+  Max Dmg/Turn: 6
+  Cards Played: 28
+  Minions Spawned: 3
+  Total Healing: 2
+=====================
