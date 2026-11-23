@@ -5,9 +5,10 @@ Golem -
 Kobold -
 Assistant
 Wizard
-SpellBook - CraftPix
-BookBackgroundGrimoire - heosphorus
-HealthBar - silasgamedev
+Spell Book - CraftPix
+Book Background Grimoire - heosphorus
+Health Bar Assets- silasgamedev
+Main Menu Background Art Assets- dark-dun
 
 Card Art Curation - ComplexGame
 Game Music - Peace out Pat
