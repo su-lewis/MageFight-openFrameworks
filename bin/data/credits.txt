@@ -3,7 +3,12 @@ Hellhound -
 Faerie - 
 Golem - 
 Kobold -
+Assistant
+Wizard
 SpellBook - CraftPix
+BookBackgroundGrimoire - heosphorus
+HealthBar - silasgamedev
+
 Card Art Curation - ComplexGame
 Game Music - Peace out Pat
 Everything else - Me

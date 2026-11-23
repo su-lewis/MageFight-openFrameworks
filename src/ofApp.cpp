@@ -137,6 +137,12 @@ static BookAnimation s_animTurnLeft;
 static ofImage s_bookmarksImg; // <--- Changed back to ofImage
 static ofImage s_mainMenuBg;
 static bool s_mainMenuBgLoaded = false;
+static ofImage s_grimoireImg;
+static bool s_grimoireImgLoaded = false;
+static ofImage s_mainMenuTitleImg;
+static bool s_mainMenuTitleImgLoaded = false;
+static float s_pileViewRowStep = 0.0f;
+static float s_pileViewMaxScroll = 0.0f;
 
 // 115x160 Card Backing Frame & Book UI Tracking
 static ofImage s_cardBackgroundImg;
@@ -361,6 +367,116 @@ static void loadMainMenuBg() {
 		}
 	}
 	ofLogWarning("UI") << "Could not find UI/MainMenu.png";
+}
+
+static void loadGrimoireImg() {
+	if (s_grimoireImgLoaded && s_grimoireImg.isAllocated()) return;
+	std::vector<std::string> paths = {
+		"UI/Grimoire1.png",
+		"UI/Grimoire1.PNG",
+		"data/UI/Grimoire1.png",
+		"bin/data/UI/Grimoire1.png"
+	};
+	for (const auto & p : paths) {
+		if (ofFile(p).exists() && s_grimoireImg.load(p)) {
+			s_grimoireImg.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			s_grimoireImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			ofLogNotice("UI") << "Loaded Grimoire1 from: " << p << " (" << s_grimoireImg.getWidth() << "x" << s_grimoireImg.getHeight() << ")";
+			s_grimoireImgLoaded = true;
+			return;
+		}
+	}
+	ofLogWarning("UI") << "Could not find UI/Grimoire1.png";
+}
+
+static void loadMainMenuTitleImg() {
+	if (s_mainMenuTitleImgLoaded && s_mainMenuTitleImg.isAllocated()) return;
+	std::vector<std::string> paths = {
+		"UI/MageFIghtTitle.png",
+		"UI/MageFIghtTitle.PNG",
+		"UI/MageFightTitle.png",
+		"UI/MageFightTitle.PNG",
+		"data/UI/MageFIghtTitle.png",
+		"bin/data/UI/MageFIghtTitle.png"
+	};
+	for (const auto & p : paths) {
+		if (ofFile(p).exists() && s_mainMenuTitleImg.load(p)) {
+			s_mainMenuTitleImg.setImageType(OF_IMAGE_COLOR_ALPHA);
+
+			// Bake a ~2 screen-pixel black outline around visible pixels
+			const int borderSrcPx = 10;
+			const ofPixels & src = s_mainMenuTitleImg.getPixels();
+			int sw = (int)src.getWidth();
+			int sh = (int)src.getHeight();
+			int dw = sw + borderSrcPx * 2;
+			int dh = sh + borderSrcPx * 2;
+
+			std::vector<float> dist(dw * dh, 9999.0f);
+			for (int y = 0; y < sh; ++y) {
+				for (int x = 0; x < sw; ++x) {
+					if (src.getColor(x, y).a > 40) {
+						dist[(y + borderSrcPx) * dw + (x + borderSrcPx)] = 0.0f;
+					}
+				}
+			}
+
+			for (int y = 0; y < dh; ++y) {
+				for (int x = 0; x < dw; ++x) {
+					int idx = y * dw + x;
+					if (dist[idx] > 0.0f) {
+						if (x > 0) dist[idx] = std::min(dist[idx], dist[idx - 1] + 1.0f);
+						if (y > 0) dist[idx] = std::min(dist[idx], dist[idx - dw] + 1.0f);
+						if (x > 0 && y > 0) dist[idx] = std::min(dist[idx], dist[idx - dw - 1] + 1.414f);
+						if (x < dw - 1 && y > 0) dist[idx] = std::min(dist[idx], dist[idx - dw + 1] + 1.414f);
+					}
+				}
+			}
+			for (int y = dh - 1; y >= 0; --y) {
+				for (int x = dw - 1; x >= 0; --x) {
+					int idx = y * dw + x;
+					if (dist[idx] > 0.0f) {
+						if (x < dw - 1) dist[idx] = std::min(dist[idx], dist[idx + 1] + 1.0f);
+						if (y < dh - 1) dist[idx] = std::min(dist[idx], dist[idx + dw] + 1.0f);
+						if (x < dw - 1 && y < dh - 1) dist[idx] = std::min(dist[idx], dist[idx + dw + 1] + 1.414f);
+						if (x > 0 && y < dh - 1) dist[idx] = std::min(dist[idx], dist[idx + dw - 1] + 1.414f);
+					}
+				}
+			}
+
+			ofPixels dst;
+			dst.allocate(dw, dh, OF_PIXELS_RGBA);
+			for (int y = 0; y < dh; ++y) {
+				for (int x = 0; x < dw; ++x) {
+					float d = dist[y * dw + x];
+					bool inBorder = (d <= (float)borderSrcPx);
+
+					int sx = x - borderSrcPx;
+					int sy = y - borderSrcPx;
+					ofColor fg(0, 0, 0, 0);
+					if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) {
+						fg = src.getColor(sx, sy);
+					}
+
+					if (!inBorder || fg.a == 255) {
+						dst.setColor(x, y, fg);
+					} else if (fg.a == 0) {
+						dst.setColor(x, y, ofColor(0, 0, 0, 255));
+					} else {
+						float aF = fg.a / 255.0f;
+						dst.setColor(x, y, ofColor((unsigned char)(fg.r * aF), (unsigned char)(fg.g * aF), (unsigned char)(fg.b * aF), 255));
+					}
+				}
+			}
+
+			s_mainMenuTitleImg.setFromPixels(dst);
+			s_mainMenuTitleImg.getTexture().setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+			s_mainMenuTitleImg.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+			ofLogNotice("UI") << "Loaded MageFIghtTitle from: " << p << " (" << dw << "x" << dh << ")";
+			s_mainMenuTitleImgLoaded = true;
+			return;
+		}
+	}
+	ofLogWarning("UI") << "Could not find UI/MageFIghtTitle.png";
 }
 
 // Clickable Bookmark Hitboxes (Invisible)
@@ -6155,6 +6271,8 @@ void ofApp::setup() {
 	// FIX: Skip ALL graphical, model, and audio loading in headless mode to save massive memory!
 	if (!headless) {
 		loadMainMenuBg();
+		loadGrimoireImg();
+		loadMainMenuTitleImg();
 		loadCardBackgroundImg();
 		loadMinionBackgroundImg();
 		loadHealthSprites();
@@ -10221,6 +10339,19 @@ void ofApp::draw2DMenuBackground() {
 	s_bookDrawW = targetW;
 	s_bookDrawH = targetH;
 
+	// 1b. Render Grimoire1 tightly underneath the visible open book
+	if (!s_grimoireImg.isAllocated()) {
+		loadGrimoireImg();
+	}
+	if (s_grimoireImg.isAllocated()) {
+		float grimW = std::round(targetW * 0.95f);
+		float grimH = std::round(targetH * 0.70f);
+		float grimX = std::round(bookX + (targetW - grimW) * 0.5f);
+		float grimY = std::round(bookY + (targetH * 0.675f) - (grimH * 0.5f));
+		ofSetColor(255, 255, 255, 255);
+		s_grimoireImg.draw(grimX, grimY, grimW, grimH);
+	}
+
 	// 2. Render Animated Book
 	if (s_bookState == BOOK_CLOSED) {
 		s_animOpen.currentFrame = 0;
@@ -10373,28 +10504,50 @@ void ofApp::drawMainMenu() {
 	int mx = ofGetMouseX();
 	int my = ofGetMouseY();
 
-	float titleX = pa.leftPage.getCenter().x;
-	float titleY = pa.leftPage.y + 40.0f;
-	drawPixelTextCentered(uiFont, "MAGEFIGHT", titleX, titleY, 2.0f, ink);
-	ofSetColor(ink);
-	ofDrawLine(titleX - 120.0f, titleY + 16.0f, titleX + 120.0f, titleY + 16.0f);
+	if (!s_mainMenuTitleImg.isAllocated()) {
+		loadMainMenuTitleImg();
+	}
 
-	float leftX = pa.leftPage.x + 16.0f;
-	float leftW = pa.leftPage.width - 32.0f;
-	float btnH = 50.0f;
-	float btnGap = 10.0f;
-	float curY = titleY + 38.0f;
+	// Left Page: Full-page Title Image
+	if (s_mainMenuTitleImg.isAllocated()) {
+		float imgW = s_mainMenuTitleImg.getWidth();
+		float imgH = s_mainMenuTitleImg.getHeight();
+		float padX = 8.0f;
+		float padY = 4.0f;
+		float maxW = std::max(40.0f, pa.leftPage.width - padX * 2.0f);
+		float maxH = std::max(40.0f, pa.leftPage.height - padY * 2.0f);
 
-	mainMenuOnlineButton.set(leftX, curY, leftW, btnH);
-	curY += (btnH + btnGap);
-	mainMenuSingleplayerButton.set(leftX, curY, leftW, btnH);
-	curY += (btnH + btnGap);
-	mainMenuEncyclopediaButton.set(leftX, curY, leftW, btnH);
-	curY += (btnH + btnGap);
-	mainMenuSettingsButton.set(leftX, curY, leftW, btnH);
-	curY += (btnH + btnGap);
-	mainMenuQuitButton.set(leftX, curY, leftW, btnH);
+		float titleScale = std::min(maxW / std::max(1.0f, imgW), maxH / std::max(1.0f, imgH));
+		float drawTitleW = std::round(imgW * titleScale);
+		float drawTitleH = std::round(imgH * titleScale);
+		float drawTitleX = std::round(pa.leftPage.getCenter().x - drawTitleW * 0.5f);
+		float drawTitleY = std::round(pa.leftPage.getCenter().y - drawTitleH * 0.5f);
 
+		ofSetColor(255, 255, 255, 255);
+		s_mainMenuTitleImg.draw(drawTitleX, drawTitleY, drawTitleW, drawTitleH);
+	} else {
+		drawPixelTextCentered(uiFont, "MAGEFIGHT", pa.leftPage.getCenter().x, pa.leftPage.getCenter().y, 2.0f, ink);
+	}
+
+	// Right Page: Navigation Buttons (centered vertically)
+	float rightX = pa.rightPage.x + 16.0f;
+	float rightW = pa.rightPage.width - 32.0f;
+	float btnH = std::clamp(pa.rightPage.height * 0.115f, 40.0f, 58.0f);
+	float btnGap = std::clamp(pa.rightPage.height * 0.025f, 10.0f, 16.0f);
+	float buttonsTotalH = (5.0f * btnH) + (4.0f * btnGap);
+	float curY = std::round(pa.rightPage.getCenter().y - (buttonsTotalH * 0.5f));
+
+	mainMenuOnlineButton.set(rightX, curY, rightW, btnH);
+	curY += (btnH + btnGap);
+	mainMenuSingleplayerButton.set(rightX, curY, rightW, btnH);
+	curY += (btnH + btnGap);
+	mainMenuEncyclopediaButton.set(rightX, curY, rightW, btnH);
+	curY += (btnH + btnGap);
+	mainMenuSettingsButton.set(rightX, curY, rightW, btnH);
+	curY += (btnH + btnGap);
+	mainMenuQuitButton.set(rightX, curY, rightW, btnH);
+
+	float btnTextScale = std::clamp(btnH / 46.0f, 0.90f, 1.20f);
 	auto drawBookButton = [&](ofRectangle & r, const std::string & label, const char * btnId) {
 		bool hov = r.inside(mx, my);
 		if (hov) g_hoveredButtonId = btnId;
@@ -10407,7 +10560,7 @@ void ofApp::drawMainMenu() {
 		ofDrawRectRounded(r, 6.0f);
 		ofFill();
 
-		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, 1.15f, ink);
+		drawPixelTextCentered(uiFont, label, r.getCenter().x, r.getCenter().y, btnTextScale, ink);
 	};
 
 	drawBookButton(mainMenuOnlineButton, "Online", "mm_online");
@@ -10415,22 +10568,6 @@ void ofApp::drawMainMenu() {
 	drawBookButton(mainMenuEncyclopediaButton, "Rules & Cards", "mm_ency");
 	drawBookButton(mainMenuSettingsButton, "Settings", "mm_settings");
 	drawBookButton(mainMenuQuitButton, "Quit Game", "mm_quit");
-
-	// Right Page: Welcome
-	float rightX = pa.rightPage.x + 16.0f;
-	float rightW = pa.rightPage.width - 32.0f;
-	float rY = pa.rightPage.y + 40.0f;
-
-	drawBookSectionUnderline(uiFont, "WELCOME", rightX, rY, kBookHeaderScale, kBookBodyScale, 140.0f, ink);
-
-	const char * welcomeText = "Welcome to MageFight.\n\n"
-							   "Select a mode from the page or click the bookmark tabs along the right edge of the grimoire.\n\n"
-							   "Draft your deck, manage Action Points, roll the dice, and vanquish rival mages in tactical arena duels.";
-	auto lines = wrapTextScaled(uiFont, welcomeText, rightW - 12.0f, kBookBodyScale);
-	for (const auto & l : lines) {
-		drawPixelTextBaseline(uiFont, l, rightX, rY, kBookBodyScale, ink);
-		rY += 24.0f;
-	}
 }
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
@@ -12903,9 +13040,8 @@ void ofApp::prepareGameVisualState() {
 				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
 				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
 				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
-				float uiScale = getUIScaleFromHeight(ofGetHeight());
-				float normalCardW = kCardPixelWidth * 0.45f * uiScale;
-				anim.endScale = std::max(0.05f, targetRect.getWidth() / std::max(1.0f, normalCardW));
+				float handBaseW = kCardPixelWidth * 0.50f * ((float)ofGetHeight() / 1080.0f) * g_settingsUIScale;
+				anim.endScale = std::clamp(targetRect.getWidth() / std::max(1.0f, handBaseW), 0.10f, 1.0f);
 			}
 			float elapsed = ofGetElapsedTimef() - anim.startTime;
 			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
@@ -19132,19 +19268,14 @@ void ofApp::drawGame() {
 		}
 
 		if (!cardsToShowInView.empty()) {
-			// Scale the padding and title heights to prevent layout breaks on different resolutions
-			float panelPadding = 20.0f * uiScale;
-			float titleHeight = 40.0f * uiScale;
+			float panelPadding = 16.0f * uiScale;
+			float titleHeight = 36.0f * uiScale;
+			float viewportPadY = 10.0f * uiScale;
+			float headerH = panelPadding + titleHeight;
 
-			// Baseline card sizes are pre-scaled at max resolution
 			float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale;
 			float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
-
-			// Set maximum panel height limits
-			float maxPanelHeight = ofGetHeight() * 0.85f; // Increased panel height limit
-			float contentHeightLimit = maxPanelHeight - titleHeight - (2.0f * panelPadding);
-
-			float viewCardScale = 0.90f; // Scale factor for details preview
+			float viewCardScale = 0.90f;
 			float availableWidth = ofGetWidth() * 0.70f;
 
 			float viewCardWidth = baseCardWidthScaled * viewCardScale;
@@ -19155,14 +19286,25 @@ void ofApp::drawGame() {
 			gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShowInView.size());
 			if (gridWidthInCards <= 0) gridWidthInCards = 1;
 
-			int gridHeightInCards = ceil((float)cardsToShowInView.size() / gridWidthInCards);
+			int gridHeightInCards = (int)ceil((float)cardsToShowInView.size() / gridWidthInCards);
+			int visibleRows = std::min(2, gridHeightInCards);
+
+			// Ensure up to 2 full rows fit cleanly inside 90% screen height with no clipping
+			float maxPanelHeight = ofGetHeight() * 0.90f;
+			float maxContentHeight = std::max(80.0f, maxPanelHeight - headerH - panelPadding - (2.0f * viewportPadY));
+			float neededCardH = (visibleRows == 2) ? ((maxContentHeight - padding) * 0.5f) : maxContentHeight;
+			if (viewCardHeight > neededCardH) {
+				float shrink = neededCardH / viewCardHeight;
+				viewCardHeight *= shrink;
+				viewCardWidth *= shrink;
+			}
+
+			float rowStep = viewCardHeight + padding;
 			float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
-			float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+			float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding) + (2.0f * viewportPadY);
+			float visibleContentHeight = (visibleRows * viewCardHeight) + ((visibleRows - 1) * padding) + (2.0f * viewportPadY);
+			float panelHeight = visibleContentHeight + headerH + panelPadding;
 
-			float visibleContentHeight = std::min(totalContentHeight, contentHeightLimit);
-			float panelHeight = visibleContentHeight + titleHeight + (2.0f * panelPadding);
-
-			// 3. Intelligently position the panel relative to scaled anchors
 			float startX;
 			bool viewingLocal = false;
 			if (currentPileViewPlayerIndex >= 0 && currentPileViewPlayerIndex < (int)players.size()) {
@@ -19173,36 +19315,22 @@ void ofApp::drawGame() {
 			} else {
 				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2.0f * panelPadding);
 			}
-			float startY = (ofGetHeight() - panelHeight) / 2.0f;
+			float startY = std::round((ofGetHeight() - panelHeight) / 2.0f);
 
 			pileViewRect.set(startX, startY, totalContentWidth + (2.0f * panelPadding), panelHeight);
-
-			// 5. Draw the panel and fixed header
-			float headerH = panelPadding + titleHeight;
 			float cardStartY = startY + headerH;
 
 			ofSetColor(16, 16, 20, 235);
 			ofDrawRectRounded(pileViewRect, 15 * uiScale);
 
-			// Calculate and clamp scroll boundaries first so clipping matches content bounds
-			float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
+			// Clamp strictly to whole-row bounds
+			int maxRowScroll = std::max(0, gridHeightInCards - visibleRows);
+			float maxScroll = (float)maxRowScroll * rowStep;
+			s_pileViewRowStep = rowStep;
+			s_pileViewMaxScroll = maxScroll;
 			pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
 
-			// Strict Scissor Test placed BEFORE drawing cards so they are clipped underneath the header
-			ofPushStyle();
-			float sfX = (float)ofGetViewportWidth() / std::max(1.0f, (float)ofGetWidth());
-			float sfY = (float)ofGetViewportHeight() / std::max(1.0f, (float)ofGetHeight());
-			int scX = (int)std::floor(startX * sfX);
-			int scW = (int)std::ceil(pileViewRect.width * sfX);
-			// Scissor height spans exactly from cardStartY down to the bottom padding
-			int scY = (int)std::floor((ofGetHeight() - (cardStartY + visibleContentHeight)) * sfY);
-			int scH = (int)std::ceil(visibleContentHeight * sfY);
-			glEnable(GL_SCISSOR_TEST);
-			glScissor(scX, scY, scW, scH);
-			glDisable(GL_SCISSOR_TEST);
-			safePopStyle();
-
-			// Dedicated fixed header rendered on top so scrolling cards never overlap it
+			// Dedicated fixed header
 			ofSetColor(28, 28, 36, 255);
 			ofDrawRectRounded(startX, startY, pileViewRect.width, headerH, 15 * uiScale);
 			ofDrawRectangle(startX, startY + headerH * 0.5f, pileViewRect.width, headerH * 0.5f);
@@ -19219,17 +19347,27 @@ void ofApp::drawGame() {
 			SafeDrawText(uiFont, fullTitle, 0, 0);
 			ofPopMatrix();
 
+			// Enable Scissor Test strictly for the card viewport & fades
+			ofPushStyle();
+			float sfX = (float)ofGetViewportWidth() / std::max(1.0f, (float)ofGetWidth());
+			float sfY = (float)ofGetViewportHeight() / std::max(1.0f, (float)ofGetHeight());
+			int scX = (int)std::floor(startX * sfX);
+			int scW = (int)std::ceil(pileViewRect.width * sfX);
+			int scY = (int)std::floor((ofGetHeight() - (cardStartY + visibleContentHeight)) * sfY);
+			int scTop = (int)std::ceil((ofGetHeight() - cardStartY) * sfY);
+			int scH = std::max(1, scTop - scY);
+			glEnable(GL_SCISSOR_TEST);
+			glScissor(scX, scY, scW, scH);
+
 			for (size_t i = 0; i < cardsToShowInView.size(); ++i) {
 				int row = i / gridWidthInCards;
 				int col = i % gridWidthInCards;
 				float drawX = startX + panelPadding + col * (viewCardWidth + padding);
-				float drawY = cardStartY + row * (viewCardHeight + padding) - pileViewScrollOffset;
+				float drawY = cardStartY + viewportPadY + row * rowStep - pileViewScrollOffset;
 
-				// Cull offscreen card instances inside viewport
 				if (drawY + viewCardHeight >= cardStartY && drawY <= cardStartY + visibleContentHeight) {
 					const Card & card = cardsToShowInView[i];
 
-					// FOG OF WAR: If inspecting an opponent unit, cards you haven't seen are face-down!
 					bool isKnown = true;
 					if (g_modifierFogOfWar && currentPileViewPlayerIndex >= 0 && currentPileViewPlayerIndex < (int)players.size()) {
 						Player & vPlayer = players[currentPileViewPlayerIndex];
@@ -19250,9 +19388,9 @@ void ofApp::drawGame() {
 				}
 			}
 
-			// Black edge fade on top and bottom of scroll viewport
+			// Subtle, more transparent edge fade on top and bottom of scroll viewport
 			{
-				float fadeH = std::min(36.0f * uiScale, visibleContentHeight * 0.22f);
+				float fadeH = std::min(22.0f * uiScale, visibleContentHeight * 0.10f);
 				float fadeX = startX + panelPadding;
 				float fadeW = totalContentWidth;
 
@@ -19283,7 +19421,7 @@ void ofApp::drawGame() {
 					safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 				}
 
-				ofColor solidEdge(10, 10, 14, 240);
+				ofColor solidEdge(10, 10, 14, 130);
 				ofColor clearEdge(10, 10, 14, 0);
 
 				if (pileViewScrollOffset > 0.5f) {
@@ -19301,7 +19439,6 @@ void ofApp::drawGame() {
 			glDisable(GL_SCISSOR_TEST);
 			safePopStyle();
 
-			// Draw scrollbar
 			if (maxScroll > 0.0f) {
 				float scrollBarHeight = visibleContentHeight * (visibleContentHeight / totalContentHeight);
 				scrollBarHeight = std::max(28.0f * uiScale, scrollBarHeight);
@@ -19362,8 +19499,8 @@ void ofApp::drawGame() {
 	}
 
 	// --- Draw Discard Animations (hand -> discard, visual only) ---
-	float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
-	float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale * getHandCardVisualBoost(ofGetHeight());
+	float animCardBaseWidth = kCardPixelWidth * 0.50f * ((float)ofGetHeight() / 1080.0f) * g_settingsUIScale;
+	float animCardBaseHeight = kCardPixelHeight * 0.50f * ((float)ofGetHeight() / 1080.0f) * g_settingsUIScale;
 	for (const auto & anim : activeDiscardCardAnimations) {
 		ofPushStyle();
 		ofSetColor(255, anim.currentAlpha);
@@ -19917,6 +20054,7 @@ cursor_check_done:;
 				hoveredPileType = newHoveredPileType;
 				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
+				pileViewScrollOffset = 0.0f;
 				// If we're currently in the drafting modal, immediately show the pile view
 				// because the main update loop may be effectively paused for draft UI.
 				if (currentState == STATE_DRAFTING) {
@@ -20319,6 +20457,7 @@ cursor_check_done:;
 				hoveredPileType = newHoveredPileType;
 				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
+				pileViewScrollOffset = 0.0f;
 			}
 			currentCursor = CURSOR_CLICK;
 		} else {
@@ -23666,15 +23805,12 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 
 	// Handle pile view hover panel scrolling (Intercepts zoom even on temporary hover)
 	if (isHoveringPile || isShowingPileView) {
-		float uiScale = getUIScaleFromHeight(ofGetHeight());
-		float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
-		float viewCardScale = 0.90f;
-		float viewCardHeight = baseCardHeightScaled * viewCardScale;
-		float padding = (15.0f * uiScale) * viewCardScale;
-
-		// Scroll precisely by 1 card row step per wheel notch
-		float rowStep = viewCardHeight + padding;
-		pileViewScrollOffset -= scrollY * rowStep;
+		if (s_pileViewMaxScroll <= 0.0f || s_pileViewRowStep <= 0.0f) {
+			pileViewScrollOffset = 0.0f;
+			return;
+		}
+		int dir = (scrollY > 0.0f) ? -1 : ((scrollY < 0.0f) ? 1 : 0);
+		pileViewScrollOffset = std::clamp(pileViewScrollOffset + (float)dir * s_pileViewRowStep, 0.0f, s_pileViewMaxScroll);
 		return;
 	}
 
@@ -45617,11 +45753,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	string viewTitle;
 	std::vector<Card> cardsToShow;
 
-	float uiScale = getUIScaleFromHeight(ofGetHeight());
-
-	// Baseline card sizes are pre-scaled
-	float baseCardWidthScaled = kCardPixelWidth * 1.1f * uiScale;
-	float baseCardHeightScaled = kCardPixelHeight * 1.1f * uiScale;
+	float uiScale = getUIScaleFromHeight((float)ofGetHeight());
 
 	if (viewMode == VIEW_DECK) {
 		viewTitle = "Deck";
@@ -45652,7 +45784,6 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		}
 	}
 
-	// Prefer human-friendly names. For minions, prefer the same numbering used in the Minion UI
 	if (viewPlayer.isMinion) {
 		int foundNumber = 0;
 		for (const auto & mui : activeMinionUIs) {
@@ -45699,29 +45830,38 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 	if (cardsToShow.empty()) {
 		isShowingPileView = false;
+		s_pileViewMaxScroll = 0.0f;
 		return;
 	}
 
-	float panelPadding = 20.0f * uiScale;
-	float titleHeight = 40.0f * uiScale;
-	float viewCardScale = 0.90f;
-	float availableWidth = ofGetWidth() * 0.70f;
+	float panelPadding = 18.0f * uiScale;
+	float titleHeight = 36.0f * uiScale;
+	float headerH = panelPadding + titleHeight;
+	float bottomMargin = 22.0f * uiScale;
 
-	float viewCardWidth = baseCardWidthScaled * viewCardScale;
-	float viewCardHeight = baseCardHeightScaled * viewCardScale;
-	float padding = (15.0f * uiScale) * viewCardScale;
+	float maxPanelHeight = (float)ofGetHeight() * 0.92f;
+	float maxContentHeight = maxPanelHeight - headerH - bottomMargin;
+	float availableWidth = (float)ofGetWidth() * 0.72f;
+	float padding = 14.0f * uiScale;
 
-	int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-	gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
+	// Sized so that 2 full rows fit comfortably within the available vertical height
+	float targetCardH = (maxContentHeight - padding - (8.0f * uiScale)) * 0.5f;
+	float viewCardHeight = std::clamp(targetCardH, 220.0f, 440.0f * uiScale);
+	float viewCardWidth = viewCardHeight / kCardAspectRatio;
+
+	int totalCards = (int)cardsToShow.size();
+	int gridWidthInCards = std::max(1, (int)std::floor((availableWidth - padding) / (viewCardWidth + padding)));
+	gridWidthInCards = std::min(gridWidthInCards, totalCards);
 	if (gridWidthInCards <= 0) gridWidthInCards = 1;
-	int gridHeightInCards = ceil((float)cardsToShow.size() / gridWidthInCards);
+
+	int gridHeightInCards = (totalCards + gridWidthInCards - 1) / gridWidthInCards;
 	float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 	float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 
-	float maxPanelHeight = ofGetHeight() * 0.85f;
-	float contentHeightLimit = maxPanelHeight - titleHeight - (2.0f * panelPadding);
-	float visibleContentHeight = std::min(totalContentHeight, contentHeightLimit);
-	float panelHeight = visibleContentHeight + titleHeight + (2.0f * panelPadding);
+	// Show exactly 1 or 2 rows at once with full breathing room
+	int visibleRows = std::min(2, gridHeightInCards);
+	float visibleContentHeight = (visibleRows * viewCardHeight) + ((visibleRows - 1) * padding) + (8.0f * uiScale);
+	float panelHeight = visibleContentHeight + headerH + bottomMargin;
 
 	float startX;
 	bool anchored = false;
@@ -45746,52 +45886,39 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		else
 			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f * uiScale - (2.0f * panelPadding);
 	}
-	float startY = (ofGetHeight() - panelHeight) / 2.0f;
+	float startY = ((float)ofGetHeight() - panelHeight) * 0.5f;
 
 	pileViewRect.set(startX, startY, totalContentWidth + (2.0f * panelPadding), panelHeight);
 
-	float headerH = panelPadding + titleHeight;
 	float cardStartY = startY + headerH;
 
-	ofSetColor(16, 16, 20, 235);
-	ofDrawRectRounded(pileViewRect, 15 * uiScale);
+	ofSetColor(16, 16, 20, 240);
+	ofDrawRectRounded(pileViewRect, 15.0f * uiScale);
 
-	ofSetColor(28, 28, 36, 245);
-	ofDrawRectRounded(startX, startY, pileViewRect.width, headerH, 15 * uiScale);
-	ofDrawRectangle(startX, startY + headerH * 0.5f, pileViewRect.width, headerH * 0.5f);
-	ofSetColor(70, 75, 90, 200);
-	ofDrawRectangle(startX + panelPadding * 0.5f, cardStartY - 2.0f * uiScale, pileViewRect.width - panelPadding, 2.0f * uiScale);
-
-	std::string fullTitle = viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)";
-	ofRectangle titleBox = uiFont.getStringBoundingBox(fullTitle, 0, 0);
-	float titleBaselineY = startY + (headerH * 0.5f) - ((titleBox.y + titleBox.height * 0.5f) * uiScale);
-	ofSetColor(ofColor::white);
-	ofPushMatrix();
-	ofTranslate(startX + panelPadding, titleBaselineY);
-	ofScale(uiScale, uiScale);
-	SafeDrawText(uiFont, fullTitle, 0, 0);
-	ofPopMatrix();
-
-	float maxScroll = std::max(0.0f, totalContentHeight - visibleContentHeight);
+	// Strict row-based scroll limits: can only scroll for the exact number of excess rows
+	float rowStep = viewCardHeight + padding;
+	float maxScroll = std::max(0.0f, (float)(gridHeightInCards - visibleRows) * rowStep);
+	s_pileViewMaxScroll = maxScroll;
+	s_pileViewRowStep = rowStep;
 	pileViewScrollOffset = std::clamp(pileViewScrollOffset, 0.0f, maxScroll);
 
 	ofPushStyle();
 	float sfX = (float)ofGetViewportWidth() / std::max(1.0f, (float)ofGetWidth());
 	float sfY = (float)ofGetViewportHeight() / std::max(1.0f, (float)ofGetHeight());
-	int scX = (int)std::floor((startX + panelPadding) * sfX);
-	int scW = (int)std::ceil(totalContentWidth * sfX);
-	int scY = (int)std::floor((ofGetHeight() - (cardStartY + visibleContentHeight)) * sfY);
+	int scX = (int)std::floor((startX + panelPadding - 4.0f * uiScale) * sfX);
+	int scW = (int)std::ceil((totalContentWidth + 8.0f * uiScale) * sfX);
+	int scY = (int)std::floor(((float)ofGetHeight() - (cardStartY + visibleContentHeight)) * sfY);
 	int scH = (int)std::ceil(visibleContentHeight * sfY);
 	glEnable(GL_SCISSOR_TEST);
 	glScissor(scX, scY, scW, scH);
 
 	for (size_t i = 0; i < cardsToShow.size(); ++i) {
-		int row = i / gridWidthInCards;
-		int col = i % gridWidthInCards;
+		int row = (int)i / gridWidthInCards;
+		int col = (int)i % gridWidthInCards;
 		float drawX = startX + panelPadding + col * (viewCardWidth + padding);
-		float drawY = cardStartY + row * (viewCardHeight + padding) - pileViewScrollOffset;
+		float drawY = cardStartY + row * rowStep - pileViewScrollOffset;
 
-		if (drawY + viewCardHeight >= cardStartY && drawY <= cardStartY + visibleContentHeight) {
+		if (drawY + viewCardHeight >= cardStartY - 2.0f && drawY <= cardStartY + visibleContentHeight + 2.0f) {
 			const Card & card = cardsToShow[i];
 			Player * pPtr = nullptr;
 			if (viewPlayerIndex >= 0 && viewPlayerIndex < (int)players.size()) pPtr = &players[viewPlayerIndex];
@@ -45799,8 +45926,9 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		}
 	}
 
+	// Softer and shorter top/bottom fade
 	{
-		float fadeH = std::min(36.0f * uiScale, visibleContentHeight * 0.22f);
+		float fadeH = std::min(16.0f * uiScale, viewCardHeight * 0.08f);
 		float fadeX = startX + panelPadding;
 		float fadeW = totalContentWidth;
 
@@ -45831,13 +45959,13 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 			safeEnableBlendMode(OF_BLENDMODE_ALPHA);
 		}
 
-		ofColor solidEdge(10, 10, 14, 240);
-		ofColor clearEdge(10, 10, 14, 0);
+		ofColor solidEdge(16, 16, 20, 110);
+		ofColor clearEdge(16, 16, 20, 0);
 
-		if (pileViewScrollOffset > 0.5f) {
+		if (pileViewScrollOffset > 4.0f) {
 			drawBlackFadeQuad(fadeX, cardStartY, fadeX + fadeW, cardStartY + fadeH, solidEdge, clearEdge);
 		}
-		if (pileViewScrollOffset < maxScroll - 0.5f) {
+		if (pileViewScrollOffset < maxScroll - 4.0f) {
 			drawBlackFadeQuad(fadeX, cardStartY + visibleContentHeight - fadeH, fadeX + fadeW, cardStartY + visibleContentHeight, clearEdge, solidEdge);
 		}
 
@@ -45849,6 +45977,24 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	glDisable(GL_SCISSOR_TEST);
 	safePopStyle();
 
+	// Fixed header
+	ofSetColor(28, 28, 36, 255);
+	ofDrawRectRounded(startX, startY, pileViewRect.width, headerH, 15.0f * uiScale);
+	ofDrawRectangle(startX, startY + headerH * 0.5f, pileViewRect.width, headerH * 0.5f);
+	ofSetColor(70, 75, 90, 200);
+	ofDrawRectangle(startX + panelPadding * 0.5f, cardStartY - 2.0f * uiScale, pileViewRect.width - panelPadding, 2.0f * uiScale);
+
+	std::string fullTitle = viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(fullTitle, 0, 0);
+	float titleBaselineY = startY + (headerH * 0.5f) - ((titleBox.y + titleBox.height * 0.5f) * uiScale);
+	ofSetColor(ofColor::white);
+	ofPushMatrix();
+	ofTranslate(startX + panelPadding, titleBaselineY);
+	ofScale(uiScale, uiScale);
+	SafeDrawText(uiFont, fullTitle, 0, 0);
+	ofPopMatrix();
+
+	// Scrollbar
 	if (maxScroll > 0.0f) {
 		float scrollBarHeight = visibleContentHeight * (visibleContentHeight / totalContentHeight);
 		scrollBarHeight = std::max(28.0f * uiScale, scrollBarHeight);
