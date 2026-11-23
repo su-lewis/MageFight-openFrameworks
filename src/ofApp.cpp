@@ -29734,6 +29734,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				}
 				if (!hasHumanOpponentInLobby) {
 					isVsAI = true;
+					// When playing only against bots in lobby, run in local simulation mode
+					// so steam disconnect watchdogs and network packet broadcasts don't crash
+					g_isSimulatedMultiplayer = true;
 				}
 				if (!headless) {
 					currentAIMode = AI_MODE_RULE_BASED;
@@ -29749,6 +29752,23 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				ofLogNotice("Network") << "Seeding gameplayRNG with seed=" << currentMapSeed;
 				gameplayRNG.seed(currentMapSeed);
 				seedVisualRng(visualRNG, currentMapSeed);
+
+				// Ensure lobby player list has valid entries before starting setup
+				if (g_lobbyPlayers.empty()) {
+					LobbyPlayer hostP;
+					hostP.playerID = 0;
+					hostP.isReady = true;
+					hostP.isBot = false;
+					hostP.name = steamManager.isConnected() ? steamManager.getLocalPlayerName() : "Player 1";
+					g_lobbyPlayers.push_back(hostP);
+
+					LobbyPlayer botP;
+					botP.playerID = 1;
+					botP.isReady = true;
+					botP.isBot = true;
+					botP.name = "Bot 1";
+					g_lobbyPlayers.push_back(botP);
+				}
 
 				// Call setupGame() which will read the lobby players and roll initiative
 				setupGame();

@@ -620,7 +620,7 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 }
 
 void SteamManager::setMatchStarted() {
-	if (m_bInitialized && SteamMatchmaking() && m_LobbyID.IsValid() && m_LobbyID.ConvertToUint64() != 0) {
+	if (m_bInitialized && SteamAPI_IsSteamRunning() && SteamMatchmaking() && m_LobbyID.IsValid() && m_LobbyID.ConvertToUint64() != 0) {
 		SteamAPI_ISteamMatchmaking_SetLobbyData((intptr_t)SteamMatchmaking(), m_LobbyID.ConvertToUint64(), "match_started", "1");
 	}
 }
