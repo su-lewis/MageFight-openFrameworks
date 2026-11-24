@@ -11363,7 +11363,7 @@ void ofApp::drawMultiplayerMenu() {
 		}
 	} else {
 		// --- LOBBY ACTIVE: EMBEDDED INSIDE RIGHT BOOK PAGE ---
-		bool isLobbyHost = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
+		bool isLobbyHost = (myLocalPlayerID == 0 || g_isHostingLobby || steamManager.isHost());
 
 		drawBookSectionUnderline(uiFont, "GAME LOBBY", rightX, rY, kBookHeaderScale, kBookBodyScale, 120.0f, ink);
 		rY -= 16.0f; // Convert first text baseline back to top-edge of row box
@@ -11420,7 +11420,7 @@ void ofApp::drawMultiplayerMenu() {
 		s_bookLobbyModFoW.set(rightX, rY, halfModW, modBtnH);
 
 		bool hovFoW = s_bookLobbyModFoW.inside(mx, my);
-		if (hovFoW && isLobbyHost) g_hoveredButtonId = "mod_fow";
+		if (hovFoW) g_hoveredButtonId = "mod_fow";
 		ofSetColor(g_modifierFogOfWar ? ofColor(30, 110, 40, 50) : (hovFoW ? ofColor(40, 30, 25, 30) : ofColor(40, 30, 25, 12)));
 		ofDrawRectRounded(s_bookLobbyModFoW, 3.0f);
 		ofNoFill();
@@ -11430,10 +11430,10 @@ void ofApp::drawMultiplayerMenu() {
 		ofFill();
 		drawPixelTextCentered(uiFont, g_modifierFogOfWar ? "FoW: ON" : "FoW: OFF", s_bookLobbyModFoW.getCenter().x, s_bookLobbyModFoW.getCenter().y, kBookBodyScale, ink);
 
-		// Custom Max HP button & stepper
+		// Custom Max HP button & stepper (both Host and Client can see arrows)
 		s_bookLobbyModCustomHp.set(rightX + halfModW + 8.0f, rY, halfModW, modBtnH);
 		bool hovHp = s_bookLobbyModCustomHp.inside(mx, my);
-		if (hovHp && isLobbyHost) g_hoveredButtonId = "mod_hp";
+		if (hovHp) g_hoveredButtonId = "mod_hp";
 		ofSetColor(g_modifierCustomMaxHP ? ofColor(30, 110, 40, 50) : (hovHp ? ofColor(40, 30, 25, 30) : ofColor(40, 30, 25, 12)));
 		ofDrawRectRounded(s_bookLobbyModCustomHp, 3.0f);
 		ofNoFill();
@@ -11444,7 +11444,7 @@ void ofApp::drawMultiplayerMenu() {
 		std::string hpStr = g_modifierCustomMaxHP ? (std::to_string(g_customStartingMaxHP) + " HP") : "HP: 15";
 		drawPixelTextCentered(uiFont, hpStr, s_bookLobbyModCustomHp.getCenter().x, s_bookLobbyModCustomHp.getCenter().y, kBookBodyScale, ink);
 
-		if (g_modifierCustomMaxHP && isLobbyHost) {
+		if (g_modifierCustomMaxHP) {
 			s_bookLobbyModHpLeft.set(s_bookLobbyModCustomHp.x + 2.0f, rY + 2.0f, 18.0f, modBtnH - 4.0f);
 			s_bookLobbyModHpRight.set(s_bookLobbyModCustomHp.getRight() - 20.0f, rY + 2.0f, 18.0f, modBtnH - 4.0f);
 			drawPixelTextCentered(uiFont, "<", s_bookLobbyModHpLeft.getCenter().x, s_bookLobbyModHpLeft.getCenter().y, kBookBodyScale, ink);
@@ -11457,7 +11457,7 @@ void ofApp::drawMultiplayerMenu() {
 
 		s_bookLobbyModExpBal.set(rightX, rY, rightW, modBtnH);
 		bool hovExpBal = s_bookLobbyModExpBal.inside(mx, my);
-		if (hovExpBal && isLobbyHost) g_hoveredButtonId = "mod_exp_bal";
+		if (hovExpBal) g_hoveredButtonId = "mod_exp_bal";
 		ofSetColor(g_modifierExperimentalBalancing ? ofColor(30, 110, 40, 50) : (hovExpBal ? ofColor(40, 30, 25, 30) : ofColor(40, 30, 25, 12)));
 		ofDrawRectRounded(s_bookLobbyModExpBal, 3.0f);
 		ofNoFill();
@@ -11518,32 +11518,49 @@ void ofApp::drawMultiplayerMenu() {
 
 		float halfActionW = (rightW - 10.0f) * 0.5f;
 
-		s_bookLobbyLeaveBtn.set(rightX, actionBtnY, halfActionW, actionBtnH);
-		bool hovLeave = s_bookLobbyLeaveBtn.inside(mx, my);
-		if (hovLeave) g_hoveredButtonId = "lobby_leave";
-
-		ofSetColor(hovLeave ? ofColor(140, 40, 40, 40) : ofColor(40, 30, 25, 20));
-		ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
-		ofNoFill();
-		ofSetLineWidth(1.5f);
-		ofSetColor(ink);
-		ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
-		ofFill();
-		drawPixelTextCentered(uiFont, "Leave", s_bookLobbyLeaveBtn.getCenter().x, s_bookLobbyLeaveBtn.getCenter().y, kBookBodyScale, ink);
-
 		if (isLobbyHost) {
 			s_bookLobbyReadyBtn.set(0, 0, 0, 0);
 
+			float btnSpacing = 6.0f;
+			float btnW3 = (rightW - (btnSpacing * 2.0f)) / 3.0f;
+
+			// 1. Leave Button (Host)
+			s_bookLobbyLeaveBtn.set(rightX, actionBtnY, btnW3, actionBtnH);
+			bool hovLeave = s_bookLobbyLeaveBtn.inside(mx, my);
+			if (hovLeave) g_hoveredButtonId = "lobby_leave";
+			ofSetColor(hovLeave ? ofColor(140, 40, 40, 40) : ofColor(40, 30, 25, 20));
+			ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
+			ofNoFill();
+			ofSetLineWidth(1.5f);
+			ofSetColor(ink);
+			ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
+			ofFill();
+			drawPixelTextCentered(uiFont, "Leave", s_bookLobbyLeaveBtn.getCenter().x, s_bookLobbyLeaveBtn.getCenter().y, kBookBodyScale, ink);
+
+			// 2. Force Start Button (Active if 2+ players are present, even if not readied up)
+			bool canForceStart = (g_lobbyPlayers.size() >= 2);
+			s_bookLobbyForceStartBtn.set(rightX + btnW3 + btnSpacing, actionBtnY, btnW3, actionBtnH);
+			bool hovForce = s_bookLobbyForceStartBtn.inside(mx, my);
+			if (hovForce && canForceStart) g_hoveredButtonId = "lobby_force_start";
+			ofSetColor(canForceStart ? (hovForce ? ofColor(160, 110, 30, 60) : ofColor(160, 110, 30, 35)) : ofColor(40, 30, 25, 12));
+			ofDrawRectRounded(s_bookLobbyForceStartBtn, 4.0f);
+			ofNoFill();
+			ofSetLineWidth(1.5f);
+			ofSetColor(ink, canForceStart ? 255 : 100);
+			ofDrawRectRounded(s_bookLobbyForceStartBtn, 4.0f);
+			ofFill();
+			drawPixelTextCentered(uiFont, "Force Start", s_bookLobbyForceStartBtn.getCenter().x, s_bookLobbyForceStartBtn.getCenter().y, kBookBodyScale, canForceStart ? ink : ofColor(120, 115, 110));
+
+			// 3. Start Game Button (Active when all other players are ready)
 			bool allReady = (g_lobbyPlayers.size() > 1);
 			for (const auto & lp : g_lobbyPlayers) {
 				if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 			}
 			bool canStart = allReady && (g_lobbyPlayers.size() >= 2);
 
-			s_bookLobbyStartBtn.set(rightX + halfActionW + 10.0f, actionBtnY, halfActionW, actionBtnH);
+			s_bookLobbyStartBtn.set(rightX + (btnW3 + btnSpacing) * 2.0f, actionBtnY, btnW3, actionBtnH);
 			bool hovStart = s_bookLobbyStartBtn.inside(mx, my);
 			if (hovStart && canStart) g_hoveredButtonId = "lobby_start";
-
 			ofSetColor(canStart ? (hovStart ? ofColor(30, 120, 40, 60) : ofColor(30, 120, 40, 35)) : ofColor(40, 30, 25, 12));
 			ofDrawRectRounded(s_bookLobbyStartBtn, 4.0f);
 			ofNoFill();
@@ -11553,8 +11570,23 @@ void ofApp::drawMultiplayerMenu() {
 			ofFill();
 			drawPixelTextCentered(uiFont, "Start Game", s_bookLobbyStartBtn.getCenter().x, s_bookLobbyStartBtn.getCenter().y, kBookBodyScale, canStart ? ink : ofColor(120, 115, 110));
 		} else {
+			s_bookLobbyForceStartBtn.set(0, 0, 0, 0);
 			s_bookLobbyStartBtn.set(0, 0, 0, 0);
 
+			// 1. Leave Button (Client)
+			s_bookLobbyLeaveBtn.set(rightX, actionBtnY, halfActionW, actionBtnH);
+			bool hovLeave = s_bookLobbyLeaveBtn.inside(mx, my);
+			if (hovLeave) g_hoveredButtonId = "lobby_leave";
+			ofSetColor(hovLeave ? ofColor(140, 40, 40, 40) : ofColor(40, 30, 25, 20));
+			ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
+			ofNoFill();
+			ofSetLineWidth(1.5f);
+			ofSetColor(ink);
+			ofDrawRectRounded(s_bookLobbyLeaveBtn, 4.0f);
+			ofFill();
+			drawPixelTextCentered(uiFont, "Leave", s_bookLobbyLeaveBtn.getCenter().x, s_bookLobbyLeaveBtn.getCenter().y, kBookBodyScale, ink);
+
+			// 2. Ready / Unready Button (Client)
 			bool iAmReady = false;
 			for (const auto & lp : g_lobbyPlayers) {
 				if ((int)lp.playerID == myLocalPlayerID) iAmReady = lp.isReady;
@@ -11563,7 +11595,6 @@ void ofApp::drawMultiplayerMenu() {
 			s_bookLobbyReadyBtn.set(rightX + halfActionW + 10.0f, actionBtnY, halfActionW, actionBtnH);
 			bool hovReady = s_bookLobbyReadyBtn.inside(mx, my);
 			if (hovReady) g_hoveredButtonId = "lobby_ready";
-
 			ofSetColor(iAmReady ? ofColor(30, 120, 40, 45) : (hovReady ? ofColor(40, 30, 25, 35) : ofColor(40, 30, 25, 18)));
 			ofDrawRectRounded(s_bookLobbyReadyBtn, 4.0f);
 			ofNoFill();
@@ -20886,6 +20917,25 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				// 1. In-Book Lobby Controls (Right Page)
 				if (g_inLobby) {
+					bool isHostUser = (myLocalPlayerID == 0 || g_isHostingLobby || steamManager.isHost());
+
+					auto sendLobbyChatRequest = [&](const std::string & text) {
+						ChatMessagePacket syncPkt = {};
+						syncPkt.type = PKT_CHAT_MESSAGE;
+						syncPkt.playerID = myLocalPlayerID;
+						strncpy(syncPkt.message, text.c_str(), sizeof(syncPkt.message) - 1);
+						syncPkt.message[sizeof(syncPkt.message) - 1] = '\0';
+						steamManager.sendPacket(&syncPkt, sizeof(syncPkt));
+
+						ChatMessage msg;
+						msg.playerName = getPlayerNameByID(myLocalPlayerID);
+						msg.message = text;
+						msg.timestamp = ofGetElapsedTimef();
+						chatHistory.push_back(msg);
+						if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) chatHistory.erase(chatHistory.begin());
+						lastChatInteractionTime = ofGetElapsedTimef();
+					};
+
 					// Leave Lobby
 					if (s_bookLobbyLeaveBtn.inside(x, y)) {
 						clickedUI = true;
@@ -20913,36 +20963,52 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return;
 					}
 
-					bool isHostUser = (myLocalPlayerID == 0 || isHost() || g_isHostingLobby);
-
-					// Toggle Fog of War
-					if (isHostUser && s_bookLobbyModFoW.inside(x, y)) {
+					// Toggle Fog of War (Host changes; Client sends chat request)
+					if (s_bookLobbyModFoW.inside(x, y)) {
 						clickedUI = true;
-						g_modifierFogOfWar = !g_modifierFogOfWar;
-						broadcastLobbyState(steamManager);
-						return;
-					}
-
-					// Toggle Custom Max HP
-					if (isHostUser && s_bookLobbyModCustomHp.inside(x, y)) {
-						clickedUI = true;
-						if (s_bookLobbyModHpLeft.inside(x, y)) {
-							g_customStartingMaxHP = std::max(1, g_customStartingMaxHP - 1);
-						} else if (s_bookLobbyModHpRight.inside(x, y)) {
-							g_customStartingMaxHP = std::min(99, g_customStartingMaxHP + 1);
+						if (isHostUser) {
+							g_modifierFogOfWar = !g_modifierFogOfWar;
+							broadcastLobbyState(steamManager);
 						} else {
-							g_modifierCustomMaxHP = !g_modifierCustomMaxHP;
+							sendLobbyChatRequest("Requested Fog of War: " + std::string(!g_modifierFogOfWar ? "ON" : "OFF"));
 						}
-						broadcastLobbyState(steamManager);
 						return;
 					}
 
-					// Toggle Experimental Balancing
-					if (isHostUser && s_bookLobbyModExpBal.inside(x, y)) {
+					// Custom Max HP (Host changes; Client sends chat request)
+					if (s_bookLobbyModCustomHp.inside(x, y)) {
 						clickedUI = true;
-						g_modifierExperimentalBalancing = !g_modifierExperimentalBalancing;
-						applyActiveCardSet(g_modifierExperimentalBalancing);
-						broadcastLobbyState(steamManager);
+						if (isHostUser) {
+							if (s_bookLobbyModHpLeft.inside(x, y)) {
+								g_customStartingMaxHP = std::max(1, g_customStartingMaxHP - 1);
+							} else if (s_bookLobbyModHpRight.inside(x, y)) {
+								g_customStartingMaxHP = std::min(99, g_customStartingMaxHP + 1);
+							} else {
+								g_modifierCustomMaxHP = !g_modifierCustomMaxHP;
+							}
+							broadcastLobbyState(steamManager);
+						} else {
+							if (s_bookLobbyModHpLeft.inside(x, y)) {
+								sendLobbyChatRequest("Requested Starting HP: " + std::to_string(std::max(1, g_customStartingMaxHP - 1)));
+							} else if (s_bookLobbyModHpRight.inside(x, y)) {
+								sendLobbyChatRequest("Requested Starting HP: " + std::to_string(std::min(99, g_customStartingMaxHP + 1)));
+							} else {
+								sendLobbyChatRequest("Requested Custom Starting HP: " + std::string(!g_modifierCustomMaxHP ? "ON" : "OFF"));
+							}
+						}
+						return;
+					}
+
+					// Toggle Experimental Balancing (Host changes; Client sends chat request)
+					if (s_bookLobbyModExpBal.inside(x, y)) {
+						clickedUI = true;
+						if (isHostUser) {
+							g_modifierExperimentalBalancing = !g_modifierExperimentalBalancing;
+							applyActiveCardSet(g_modifierExperimentalBalancing);
+							broadcastLobbyState(steamManager);
+						} else {
+							sendLobbyChatRequest("Requested Experimental Balancing: " + std::string(!g_modifierExperimentalBalancing ? "ON" : "OFF"));
+						}
 						return;
 					}
 
@@ -20983,7 +21049,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								return;
 							} else if ((int)lp.playerID == myLocalPlayerID) {
 								lp.isReady = !lp.isReady;
-								if (isHost()) {
+								if (steamManager.isHost()) {
 									broadcastLobbyState(steamManager);
 								} else {
 									ClientReadyPacket cr = {};
@@ -20997,8 +21063,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 					}
 
-					// Start Game (Host only)
-					if (isHostUser && s_bookLobbyStartBtn.inside(x, y)) {
+					// Start Game & Force Start (Host only)
+					if (isHostUser && (s_bookLobbyStartBtn.inside(x, y) || s_bookLobbyForceStartBtn.inside(x, y))) {
 						clickedUI = true;
 
 						bool startAlreadyQueued = false;
@@ -21011,13 +21077,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (startAlreadyQueued) return;
 
 						sanitizeLobbyPlayersForMatchStart();
+						bool isForce = s_bookLobbyForceStartBtn.inside(x, y);
 						bool allReady = (g_lobbyPlayers.size() > 1);
 						bool hasRemoteHuman = false;
 						for (const auto & lp : g_lobbyPlayers) {
 							if (!lp.isReady && (int)lp.playerID != myLocalPlayerID) allReady = false;
 							if (!lp.isBot && (int)lp.playerID != myLocalPlayerID) hasRemoteHuman = true;
 						}
-						if (allReady && g_lobbyPlayers.size() >= 2) {
+
+						bool canTrigger = (g_lobbyPlayers.size() >= 2) && (isForce || allReady);
+						if (canTrigger) {
 							if (!hasRemoteHuman && !steamManager.isHost()) {
 								steamManager.becomeHost();
 							}
@@ -21038,7 +21107,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 							strncpy(startCmd.stringData, "StartMatch", sizeof(startCmd.stringData) - 1);
 							startCmd.stringData[sizeof(startCmd.stringData) - 1] = '\0';
 
-							// Defer execution out of the GLFW mousePressed callback onto the next update()->simulationTick()
 							startCmd.seq = ++watchdogClientActionCounter;
 							startCmd.commandId = nextCommandId++;
 							if (!g_isSimulatedMultiplayer && steamManager.isHost()) {
@@ -46571,7 +46639,7 @@ void ofApp::processNetworkPackets() {
 			// --- CLIENT READY TOGGLE IN LOBBY ---
 			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
 				ClientReadyPacket * cr = (ClientReadyPacket *)header;
-				if (isHost()) {
+				if (steamManager.isHost()) {
 					uint32_t senderID = cr->playerID;
 					for (auto & lp : g_lobbyPlayers) {
 						if (lp.playerID == senderID) {
@@ -46611,7 +46679,7 @@ void ofApp::processNetworkPackets() {
 						if (pkt->playerID == 1) player1SteamName = newName;
 
 						// Host must immediately broadcast the lobby state so all players receive the new name
-						if (isHost()) {
+						if (steamManager.isHost()) {
 							broadcastLobbyState(steamManager);
 						}
 					}
@@ -46619,7 +46687,7 @@ void ofApp::processNetworkPackets() {
 				}
 
 				// Re-broadcast if Host received from Client
-				if (isHost() && header->playerID != myLocalPlayerID) {
+				if (steamManager.isHost() && header->playerID != myLocalPlayerID) {
 					steamManager.sendPacket(buffer.data(), buffer.size());
 				}
 
