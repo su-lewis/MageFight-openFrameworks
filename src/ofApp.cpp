@@ -17312,6 +17312,10 @@ void ofApp::drawGame() {
 	};
 
 	// --- POST PROCESSING & 2D UI DRAWING ---
+	static bool s_loggedDrawGameSections = false;
+	bool logThisDraw = isMultiplayer && (currentState == STATE_INITIATIVE_ROLL) && !s_loggedDrawGameSections;
+	if (logThisDraw) persistCrashReason("drawGame", "1. Before world render");
+
 	const bool usePost = ((enableWorldPostProcess && worldPostShaderLoaded) || (enableC64Shader && c64ShaderLoaded) || (enablePixelArt && pixelArtShaderLoaded));
 
 	if (g_isSecondPass) {
@@ -17445,6 +17449,7 @@ void ofApp::drawGame() {
 	// 4. Re-enable Alpha for UI
 	safeEnableAlphaBlending();
 
+	if (logThisDraw) persistCrashReason("drawGame", "2. Before drawMinionManagerUI");
 	drawMinionManagerUI();
 
 	// Unified scale: dynamically adapts to screen height and the 50%-150% UI scale setting
@@ -17646,8 +17651,11 @@ void ofApp::drawGame() {
 	std::string myName = getPlayerNameByID(myLocalPlayerID);
 	std::string oppName = getPlayerNameByID(g_viewedOpponentID);
 
+	if (logThisDraw) persistCrashReason("drawGame", "3. Before drawProfile P0");
 	drawProfile(p0_profileX, profileY, profileW, profileH, myLocalPlayerID, myName, p0Active, p0Elo);
+	if (logThisDraw) persistCrashReason("drawGame", "4. Before drawProfile P1");
 	drawProfile(p1_profileX, profileY, profileW, profileH, g_viewedOpponentID, oppName, p1Active, p1Elo);
+	if (logThisDraw) persistCrashReason("drawGame", "5. After drawProfile");
 
 	// --- DRAW OPPONENT SELECTOR TABS (VERTICAL STACK TO THE LEFT OF ENEMY DECK/DISCARD) ---
 	opponentViewTabs.clear();
@@ -18904,6 +18912,7 @@ void ofApp::drawGame() {
 		// Draw text once
 		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, textFill, buttonTextScale);
 	} else if (currentState != STATE_DRAFTING) {
+		if (logThisDraw) persistCrashReason("drawGame", "6. Before Turn Indicator Banner");
 		// Opponent Turn Indicator Banner (Hidden entirely during drafting)
 		ofSetColor(60, 60, 80, 200);
 		ofDrawRectRounded(endTurnButtonRect, 10.0f * scale);
@@ -19620,6 +19629,10 @@ void ofApp::drawGame() {
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
 
 	// THE REST OF THE UI (Chat, Menus, Tooltips, Text) HAS BEEN MOVED TO THE CRISP OVERLAY PASS IN ofApp::draw()
+	if (logThisDraw) {
+		persistCrashReason("drawGame", "7. Finished drawGame");
+		s_loggedDrawGameSections = true;
+	}
 } // End of drawGame()
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
