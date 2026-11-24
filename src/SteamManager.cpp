@@ -445,10 +445,28 @@ std::string SteamManager::getOpponentName() const {
 CSteamID SteamManager::getOpponentSteamID() const { return m_OpponentID; }
 CSteamID SteamManager::getLocalSteamID() const { return m_LocalID; }
 
+static void logAvatarStep(const std::string & msg) {
+	try {
+		std::string dataPath = ofToDataPath("", true);
+		for (char & c : dataPath) {
+			if (c == '\\') c = '/';
+		}
+		if (!dataPath.empty() && dataPath.back() == '/') dataPath.pop_back();
+		size_t lastSlash = dataPath.find_last_of('/');
+		if (lastSlash != std::string::npos) dataPath = dataPath.substr(0, lastSlash);
+		std::ofstream f(dataPath + "/startmatch_crash.log", std::ios::app);
+		if (f.is_open()) {
+			f << "[getAvatarImage] " << msg << "\n";
+			f.flush();
+		}
+	} catch (...) { }
+}
+
 bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int size) const {
 	if (!m_bInitialized || !SteamAPI_IsSteamRunning() || !SteamFriends() || !SteamUtils()) return false;
 	if (!id.IsValid() || id.ConvertToUint64() == 0) return false;
 
+	logAvatarStep("1. Calling GetFriendAvatar");
 	int imageId = 0;
 	uint64_t steamId64 = id.ConvertToUint64();
 	if (size <= 32)
@@ -458,15 +476,18 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 	else
 		imageId = SteamAPI_ISteamFriends_GetLargeFriendAvatar((intptr_t)SteamFriends(), steamId64);
 
+	logAvatarStep("2. imageId=" + std::to_string(imageId));
 	if (imageId <= 0) return false;
 	uint32_t width = 0, height = 0;
 
 	if (!SteamAPI_ISteamUtils_GetImageSize((intptr_t)SteamUtils(), imageId, &width, &height)) return false;
+	logAvatarStep("3. size=" + std::to_string(width) + "x" + std::to_string(height));
 	if (width == 0 || height == 0 || width > 4096 || height > 4096) return false;
 
 	ofPixels pixels;
 	pixels.allocate(width, height, OF_PIXELS_RGBA);
 	if (!SteamAPI_ISteamUtils_GetImageRGBA((intptr_t)SteamUtils(), imageId, pixels.getData(), (int)(width * height * 4))) return false;
+	logAvatarStep("4. Got RGBA pixels, updating outImage");
 
 	outImage.clear();
 	outImage.setUseTexture(true);
@@ -474,6 +495,7 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 	if (outImage.isAllocated() && !outImage.getTexture().isAllocated()) {
 		outImage.update();
 	}
+	logAvatarStep("5. Done outImage");
 	return outImage.isAllocated() && outImage.getTexture().isAllocated();
 }
 

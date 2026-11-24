@@ -1,8 +1,8 @@
 #pragma once
+#include "ofMain.h"
 #pragma pack(push, 1)
 #include "NetworkData.h"
 #pragma pack(pop)
-#include "ofMain.h"
 #pragma pack(push, 8)
 #include "steam/steam_api.h"
 #pragma pack(pop)
