@@ -468,8 +468,13 @@ bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int s
 	pixels.allocate(width, height, OF_PIXELS_RGBA);
 	if (!SteamAPI_ISteamUtils_GetImageRGBA((intptr_t)SteamUtils(), imageId, pixels.getData(), (int)(width * height * 4))) return false;
 
+	outImage.clear();
+	outImage.setUseTexture(true);
 	outImage.setFromPixels(pixels);
-	return outImage.isAllocated();
+	if (outImage.isAllocated() && !outImage.getTexture().isAllocated()) {
+		outImage.update();
+	}
+	return outImage.isAllocated() && outImage.getTexture().isAllocated();
 }
 
 void SteamManager::openFriendOverlay() {

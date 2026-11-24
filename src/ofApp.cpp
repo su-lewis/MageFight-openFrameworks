@@ -17551,6 +17551,7 @@ void ofApp::drawGame() {
 
 	auto drawProfile = [&](float x, float y, float w, float h, int playerID, string name, bool isActive, int elo) {
 		bool isLocal = (playerID == myLocalPlayerID);
+		if (logThisDraw) persistCrashReason("drawProfile", std::string("enter isLocal=") + (isLocal ? "1" : "0") + " elo=" + std::to_string(elo));
 
 		ofSetColor(20, 20, 25, 210);
 		ofDrawRectangle(x, y, w, h); // Non-rounded
@@ -17563,10 +17564,11 @@ void ofApp::drawGame() {
 		p.setFilled(false);
 		p.setStrokeWidth((isActive && currentState == STATE_GAMEPLAY ? 3.0f : 2.0f) * scale);
 		p.setStrokeColor(strokeColor);
+		if (logThisDraw) persistCrashReason("drawProfile", "before p.draw()");
 		p.draw();
 
 		float borderPadding = 3.0f * scale;
-		float avatarSize = h - (borderPadding * 2.0f);
+		float avatarSize = std::max(1.0f, h - (borderPadding * 2.0f));
 		float avatarX = isLocal ? (x + borderPadding) : (x + w - avatarSize - borderPadding);
 		float avatarY = y + borderPadding;
 
@@ -17574,10 +17576,14 @@ void ofApp::drawGame() {
 		ofDrawRectangle(avatarX, avatarY, avatarSize, avatarSize); // Non-rounded avatar
 
 		ofSetColor(255);
-		if (isLocal && localAvatarReady && localAvatarImage.isAllocated()) {
+		if (isLocal && localAvatarReady && localAvatarImage.isAllocated() && localAvatarImage.getTexture().isAllocated()) {
+			if (logThisDraw) persistCrashReason("drawProfile", "before localAvatarImage.draw");
 			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
-		} else if (!isLocal && opponentAvatarReady && opponentAvatarImage.isAllocated()) {
+			if (logThisDraw) persistCrashReason("drawProfile", "after localAvatarImage.draw");
+		} else if (!isLocal && opponentAvatarReady && opponentAvatarImage.isAllocated() && opponentAvatarImage.getTexture().isAllocated()) {
+			if (logThisDraw) persistCrashReason("drawProfile", "before opponentAvatarImage.draw");
 			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+			if (logThisDraw) persistCrashReason("drawProfile", "after opponentAvatarImage.draw");
 		} else {
 			// Initial fallback
 			string init = "";
@@ -17593,11 +17599,12 @@ void ofApp::drawGame() {
 
 		// Text
 		float textX = isLocal ? (avatarX + avatarSize + 12.0f * scale) : (x + 12.0f * scale);
-		float textW = w - avatarSize - 24.0f * scale;
+		float textW = std::max(10.0f, w - avatarSize - 24.0f * scale);
 
 		if (name.empty()) name = isLocal ? "Player 1" : "Bot";
 
 		if (elo >= 0) {
+			if (logThisDraw) persistCrashReason("drawProfile", "before getMageRank / getLocalLevel");
 			auto rank = getMageRank(elo);
 			int playerLevel = isLocal ? steamManager.getLocalLevel() : 1;
 			std::string rankStr = "Lv." + std::to_string(playerLevel) + " " + rank.first + " (" + std::to_string(elo) + ")";
@@ -17612,6 +17619,7 @@ void ofApp::drawGame() {
 				}
 			}
 
+			if (logThisDraw) persistCrashReason("drawProfile", "before name drawPixelTextCentered");
 			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
 			float fontS = 1.0f;
 			if (nameBox.width > 0.0f && nameBox.width * fontS > textW) fontS = textW / nameBox.width;
@@ -17622,9 +17630,11 @@ void ofApp::drawGame() {
 			float nx = textX + (nameBox.x + nameBox.width * 0.5f) * qFontS;
 			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
 
+			if (logThisDraw) persistCrashReason("drawProfile", "before rankStr drawPixelTextCentered");
 			ofRectangle rankBox = uiFont.getStringBoundingBox(rankStr, 0, 0);
 			float rFontS = 0.75f;
-			if (rankBox.width * rFontS > textW) rFontS = textW / rankBox.width;
+			if (rankBox.width > 0.0f && rankBox.width * rFontS > textW) rFontS = textW / rankBox.width;
+			rFontS = std::clamp(rFontS, 0.35f, 1.0f);
 
 			float qRFontS = std::max(0.5f, std::round(rFontS * 2.0f) / 2.0f);
 			float rnx = textX + (rankBox.x + rankBox.width * 0.5f) * qRFontS;
@@ -17634,15 +17644,18 @@ void ofApp::drawGame() {
 				drawPixelTextCentered(uiFont, h2hStr, x + w / 2.0f, y + h + 16.0f * scale, 0.6f, ofColor(200));
 			}
 		} else {
+			if (logThisDraw) persistCrashReason("drawProfile", "before else name drawPixelTextCentered");
 			ofRectangle nameBox = uiFont.getStringBoundingBox(name, 0, 0);
 			float fontS = 1.0f;
-			if (nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+			if (nameBox.width > 0.0f && nameBox.width * fontS > textW) fontS = textW / nameBox.width;
+			fontS = std::clamp(fontS, 0.4f, 1.2f);
 
 			float qFontS = std::max(0.5f, std::round(fontS * 2.0f) / 2.0f);
 			float ny = y + h / 2.0f;
 			float nx = textX + (nameBox.x + nameBox.width * 0.5f) * qFontS;
 			drawPixelTextCentered(uiFont, name, nx, ny, fontS, ofColor::white);
 		}
+		if (logThisDraw) persistCrashReason("drawProfile", "exit drawProfile");
 	};
 
 	int p0Elo = isMultiplayer ? myElo : -1;
