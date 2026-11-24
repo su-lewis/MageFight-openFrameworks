@@ -8041,7 +8041,10 @@ void ofApp::update() {
 	// Cache Steam avatars for turn indicator (THROTTLED to prevent massive FPS drops!)
 	if (isMultiplayer && steamManager.isConnected()) {
 		static float lastAvatarFetchTimeUpdate = 0.0f;
-		if (!localAvatarReady || (!opponentAvatarReady && steamManager.hasOpponent() && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0)) {
+		bool checkOpponentAvatar = !g_isSimulatedMultiplayer && !opponentAvatarReady && steamManager.hasOpponent()
+			&& steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0;
+
+		if (!localAvatarReady || checkOpponentAvatar) {
 			if (ofGetElapsedTimef() - lastAvatarFetchTimeUpdate > 2.0f) {
 				lastAvatarFetchTimeUpdate = ofGetElapsedTimef();
 
@@ -8050,7 +8053,8 @@ void ofApp::update() {
 					localAvatarReady = steamManager.getAvatarImage(steamManager.getLocalSteamID(), localAvatarImage, 64);
 					persistCrashReason("update", "After getAvatarImage local");
 				}
-				if (!opponentAvatarReady && steamManager.hasOpponent() && steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0) {
+				if (!g_isSimulatedMultiplayer && !opponentAvatarReady && steamManager.hasOpponent()
+					&& steamManager.getOpponentSteamID().IsValid() && steamManager.getOpponentSteamID().ConvertToUint64() != 0) {
 					persistCrashReason("update", "Before getAvatarImage opponent");
 					opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
 					persistCrashReason("update", "After getAvatarImage opponent");
@@ -8059,7 +8063,15 @@ void ofApp::update() {
 		}
 	}
 
-	processNetworkPackets();
+	if (g_isSimulatedMultiplayer) {
+		while (!steamManager.packetQueue.empty()) {
+			steamManager.packetQueue.pop();
+		}
+	} else {
+		persistCrashReason("update", "Before processNetworkPackets");
+		processNetworkPackets();
+		persistCrashReason("update", "After processNetworkPackets");
+	}
 
 	// Update active tracers: expire and clear highlights when done
 	{
@@ -8155,27 +8167,33 @@ void ofApp::update() {
 			if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
 
 			// Automatically advance to the next track when the current one finishes!
-			if (!g_gameMusic.isPlaying()) {
+			if (!g_gameMusic.isPlaying() && !s_ambienceTracks.empty()) {
 				if (s_ambiencePlaylist.empty()) {
 					for (size_t i = 0; i < s_ambienceTracks.size(); i++) {
-						s_ambiencePlaylist.push_back(i);
+						s_ambiencePlaylist.push_back((int)i);
 					}
-					std::mt19937 g((uint32_t)ofGetSystemTimeMillis() ^ (uint32_t)(ofRandom(0, 1) * 0xFFFFFFFF));
-
-					// CRITICAL FIX: Do not use std::shuffle on MinGW arrays
+					std::mt19937 g((uint32_t)ofGetSystemTimeMicros() ^ (uint32_t)ofGetFrameNum());
 					robust_deterministic_shuffle(s_ambiencePlaylist, g);
 				}
 
 				int nextTrack = s_ambiencePlaylist.back();
 				s_ambiencePlaylist.pop_back();
 
-				g_gameMusic.load(s_ambienceTracks[nextTrack]);
-				g_gameMusic.setLoop(false); // When it finishes, this loop will automatically play the next track!
-				g_gameMusic.setMultiPlay(false);
-				g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				g_gameMusic.play();
-
-				ofLogNotice("Audio") << "Now playing track: " << s_ambienceTracks[nextTrack];
+				if (nextTrack >= 0 && nextTrack < (int)s_ambienceTracks.size() && ofFile(s_ambienceTracks[nextTrack]).exists()) {
+					persistCrashReason("update", "Before g_gameMusic load/play: " + s_ambienceTracks[nextTrack]);
+					if (g_gameMusic.load(s_ambienceTracks[nextTrack]) && g_gameMusic.isLoaded()) {
+						g_gameMusic.setLoop(false);
+						g_gameMusic.setMultiPlay(false);
+						g_gameMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+						g_gameMusic.play();
+						ofLogNotice("Audio") << "Now playing track: " << s_ambienceTracks[nextTrack];
+					} else {
+						ofLogWarning("Audio") << "Failed to load track: " << s_ambienceTracks[nextTrack];
+					}
+					persistCrashReason("update", "After g_gameMusic load/play");
+				} else {
+					ofLogWarning("Audio") << "Missing track file: " << s_ambienceTracks[nextTrack];
+				}
 			}
 		}
 	}
@@ -8203,7 +8221,7 @@ void ofApp::update() {
 	} else if (g_isConnectingToLobby) {
 		currentPresence = "Entering the Dungeon...";
 	} else if (isMultiplayer && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL)) {
-		currentPresence = "1v1 Mage Duel";
+		currentPresence = g_isSimulatedMultiplayer ? "Battling the AI" : "1v1 Mage Duel";
 	} else if (!isMultiplayer && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL)) {
 		if (isVsAI)
 			currentPresence = "Battling the AI";
@@ -8217,10 +8235,12 @@ void ofApp::update() {
 		currentPresence = "Preparing a solo run...";
 	}
 
-	// Only send the packet to Steam if the status actually changed!
-	if (currentPresence != lastPresence) {
+	// Only send the packet to Steam if connected and the status actually changed!
+	if (steamManager.isConnected() && currentPresence != lastPresence) {
 		lastPresence = currentPresence;
+		persistCrashReason("update", "Before updateRichPresence: " + currentPresence);
 		steamManager.updateRichPresence(currentPresence);
+		persistCrashReason("update", "After updateRichPresence");
 	}
 	// ---------------------------
 

@@ -746,7 +746,7 @@ int SteamManager::checkLeaverBuster() {
 }
 void SteamManager::updateRichPresence(const std::string & presenceText) {
 	if (!m_bInitialized || !SteamAPI_IsSteamRunning() || !SteamFriends()) return;
-	static char presenceBuffer[256];
+	char presenceBuffer[256] = { 0 };
 	snprintf(presenceBuffer, sizeof(presenceBuffer), "%s", presenceText.c_str());
 	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "status", presenceBuffer);
 	SteamAPI_ISteamFriends_SetRichPresence((intptr_t)SteamFriends(), "steam_display", "#Status");
