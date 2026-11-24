@@ -28,6 +28,8 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         $ErrorActionPreference = "Stop"
+        $tarExe = "C:\Program Files\Git\usr\bin\tar.exe"
+        $cygpathExe = "C:\Program Files\Git\usr\bin\cygpath.exe"
 
         gh release download toolchain-mingw64-v1 -R "${{ github.repository }}" -p "msys64-mingw64.tar.7z" -p "openFrameworks-0.12.0-mingw64.tar.7z" -D "$env:RUNNER_TEMP"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -35,15 +37,23 @@ jobs:
         New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\msys64" | Out-Null
         7z x "$env:RUNNER_TEMP\msys64-mingw64.tar.7z" "-o$env:RUNNER_TEMP" -y
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & "C:\Program Files\Git\usr\bin\tar.exe" --force-local -xf "$env:RUNNER_TEMP\msys64.tar" -C "$env:RUNNER_TEMP\msys64"
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $msysTarPosix = (& $cygpathExe -u "$env:RUNNER_TEMP\msys64.tar").Trim()
+        Push-Location "$env:RUNNER_TEMP\msys64"
+        & $tarExe -xf $msysTarPosix
+        $tarExit = $LASTEXITCODE
+        Pop-Location
+        if ($tarExit -ne 0) { exit $tarExit }
         Remove-Item "$env:RUNNER_TEMP\msys64-mingw64.tar.7z", "$env:RUNNER_TEMP\msys64.tar"
 
         New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\openFrameworks" | Out-Null
         7z x "$env:RUNNER_TEMP\openFrameworks-0.12.0-mingw64.tar.7z" "-o$env:RUNNER_TEMP" -y
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & "C:\Program Files\Git\usr\bin\tar.exe" --force-local -xf "$env:RUNNER_TEMP\of.tar" -C "$env:GITHUB_WORKSPACE\openFrameworks"
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $ofTarPosix = (& $cygpathExe -u "$env:RUNNER_TEMP\of.tar").Trim()
+        Push-Location "$env:GITHUB_WORKSPACE\openFrameworks"
+        & $tarExe -xf $ofTarPosix
+        $tarExit = $LASTEXITCODE
+        Pop-Location
+        if ($tarExit -ne 0) { exit $tarExit }
         Remove-Item "$env:RUNNER_TEMP\openFrameworks-0.12.0-mingw64.tar.7z", "$env:RUNNER_TEMP\of.tar"
 
         $wrapDir = "$env:RUNNER_TEMP\msys2-wrap"
