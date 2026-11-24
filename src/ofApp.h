@@ -1403,7 +1403,7 @@ public:
 	bool hasAssistantRerollAvailable(int playerIndex, int atX, int atY);
 
 	std::string turnStartBackupSnapshot;
-	uint32_t lastReceivedSeqByPlayer[2] = { 0, 0 };
+	uint32_t lastReceivedSeqByPlayer[4] = { 0, 0, 0, 0 };
 
 	ofImage localAvatarImage;
 	ofImage opponentAvatarImage;
@@ -1635,7 +1635,7 @@ private:
 
 	ofRectangle draftAcceptButtonRect;
 
-	int initiativeRolls[2] = { 0, 0 };
+	int initiativeRolls[4] = { 0, 0, 0, 0 };
 	bool isInitiativeRolling = false;
 	int initiativeTimerFrames = 0;
 	bool inSimulationTick = false;
@@ -1673,7 +1673,7 @@ private:
 
 	uint32_t watchdogClientActionCounter = 0;
 	uint32_t draftClientActionCounter = 0;
-	uint32_t lastProcessedActionID[2] = { 0, 0 };
+	uint32_t lastProcessedActionID[4] = { 0, 0, 0, 0 };
 
 	int lastLoggedDraftOptionsCount = -1;
 	float lastDraftDrawLogTime = 0.0f;
