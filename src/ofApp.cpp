@@ -9488,41 +9488,55 @@ void ofApp::draw() {
 								lines.push_back({ "Max Health:", "+1", ofColor(50, 220, 90) });
 							} else if (entry.card.type == CARD_FOUR_LEAF_CLOVER) {
 								lines.push_back({ "Luck:", "+1", ofColor(50, 220, 90) });
+								if (entry.card.extraDrawNextTurn > 0) lines.push_back({ "Draw:", "+1 Next Turn", ofColor::magenta });
 							} else if (entry.card.type == CARD_NECROMANCER_S_BLESSING) {
-								lines.push_back({ "Luck:", "+1 per Skeleton", ofColor(50, 220, 90) });
-							} else if (entry.card.type == CARD_CONSUME_HEALTH_POTION) {
-								lines.push_back({ "Max Health:", "+1 Max HP", ofColor(50, 220, 90) });
-							} else if (entry.card.type == CARD_CONSUME_HEALTH_FLAGON) {
-								lines.push_back({ "Max Health:", "+3 Max HP", ofColor(50, 220, 90) });
-								lines.push_back({ "Healed:", "+1 HP", ofColor(50, 220, 90) });
+								if (entry.card.necroBuffTurns > 0) {
+									lines.push_back({ "Buff:", "Skeletons +" + ofToString(entry.card.necroSkeletonExtraDmg) + " Dmg (" + ofToString(entry.card.necroBuffTurns) + " Turns)", ofColor(50, 220, 90) });
+								} else {
+									lines.push_back({ "Luck:", "+1 per Skeleton", ofColor(50, 220, 90) });
+								}
+							} else if (entry.card.type == CARD_CONSUME_HEALTH_POTION || entry.card.type == CARD_CONSUME_HEALTH_FLAGON) {
+								if (entry.card.maxHealthGain > 0) lines.push_back({ "Max Health:", "+" + ofToString(entry.card.maxHealthGain) + " Max HP", ofColor(50, 220, 90) });
+								if (entry.card.baseHeal > 0 || entry.card.healAmount > 0) lines.push_back({ "Healed:", "+" + ofToString(entry.card.baseHeal > 0 ? entry.card.baseHeal : entry.card.healAmount) + " HP", ofColor(50, 220, 90) });
 							} else if (entry.card.type == CARD_FULL_RESTORE) {
 								lines.push_back({ "Restored:", "Max Health", ofColor(50, 220, 90) });
 								lines.push_back({ "Purged:", "All Debuffs", ofColor::cyan });
 							} else if (entry.card.type == CARD_SPRINT) {
-								lines.push_back({ "AP Gain:", "+2 AP Now, +2 Next Turn", ofColor::cyan });
-								lines.push_back({ "Bonus:", "Kick costs 0 AP", ofColor::gold });
+								std::string apText = "+" + ofToString(entry.card.apGain) + " AP Now";
+								if (entry.card.apGainNextTurn > 0) apText += ", +" + ofToString(entry.card.apGainNextTurn) + " Next Turn";
+								lines.push_back({ "AP Gain:", apText, ofColor::cyan });
+								if (entry.card.freeKickTurns > 0) lines.push_back({ "Bonus:", "Kick costs 0 AP", ofColor::gold });
+								if (entry.card.nextBasicAttackDiscount > 0) lines.push_back({ "Bonus:", "Basic Attack -1 AP", ofColor::gold });
 							} else if (entry.card.type == CARD_HASTEN) {
-								lines.push_back({ "Next Turn:", "1d10 AP Roll", ofColor::cyan });
-								lines.push_back({ "Draw:", "+1 Extra Card", ofColor::magenta });
+								if (entry.card.extraAPDiceNextTurnNum > 0) {
+									lines.push_back({ "Next Turn:", "+" + ofToString(entry.card.extraAPDiceNextTurnNum) + "d" + ofToString(entry.card.extraAPDiceNextTurnSides) + " AP Roll", ofColor::cyan });
+								} else {
+									lines.push_back({ "Next Turn:", "1d10 AP Roll", ofColor::cyan });
+								}
+								if (entry.card.extraDrawNextTurn > 0) lines.push_back({ "Draw:", "+1 Extra Card", ofColor::magenta });
 							} else if (entry.card.type == CARD_STUDY) {
 								lines.push_back({ "Draft:", "Class 2 Card", ofColor::gold });
 								lines.push_back({ "Draw:", "+1 Extra Card Next Turn", ofColor::magenta });
 							} else if (entry.card.type == CARD_DEMOLITION) {
 								lines.push_back({ "Destroyed:", "Adjacent Wall", ofColor::red });
-								lines.push_back({ "AP Gain:", "+6 AP Next Turn", ofColor::cyan });
-							} else if (entry.card.type == CARD_SHOCK) {
-								lines.push_back({ "AP Gain:", "+2 AP Next Turn", ofColor::cyan });
-							} else if (entry.card.type == CARD_CHAIN_LIGHTNING) {
-								lines.push_back({ "AP Gain:", "+3 AP Next Turn", ofColor::cyan });
+								lines.push_back({ "AP Gain:", "+" + ofToString(entry.card.apGainNextTurn) + " AP Next Turn", ofColor::cyan });
+							} else if (entry.card.type == CARD_SHOCK || entry.card.type == CARD_CHAIN_LIGHTNING) {
+								lines.push_back({ "AP Gain:", "+" + ofToString(entry.card.apGainNextTurn) + " AP Next Turn", ofColor::cyan });
 							} else if (entry.card.type == CARD_TIME_VORTEX) {
 								lines.push_back({ "Turns:", "+" + ofToString(entry.utilityRoll > 0 ? entry.utilityRoll : 1) + " Extra Turns", ofColor::magenta });
 							} else if (entry.card.type == CARD_FORM_OF_TORTOISE) {
-								lines.push_back({ "Transformed:", "Tortoise (5 HP)", ofColor::green });
-								lines.push_back({ "Stats:", "+5 Max HP, Restore 5", ofColor(50, 220, 90) });
+								int brk = entry.card.formBreakDamage > 0 ? entry.card.formBreakDamage : 5;
+								lines.push_back({ "Transformed:", "Tortoise (" + ofToString(brk) + " HP)", ofColor::green });
+								std::string statStr = "";
+								if (entry.card.maxHealthGain > 0) statStr += "+" + ofToString(entry.card.maxHealthGain) + " Max HP, ";
+								statStr += "Restore " + ofToString(entry.card.baseHeal > 0 ? entry.card.baseHeal : entry.card.healAmount);
+								lines.push_back({ "Stats:", statStr, ofColor(50, 220, 90) });
 								lines.push_back({ "Spikes:", "3 Dmg on Heal/Def", ofColor::orange });
+								if (entry.card.formDoublePiercing) lines.push_back({ "Weakness:", "2x Piercing Dmg", ofColor::red });
 							} else if (entry.card.type == CARD_FORM_OF_GHOST) {
-								lines.push_back({ "Transformed:", "Ghost (4 HP)", ofColor(220, 220, 220) }); // Light Light Grey
-								lines.push_back({ "Passive:", "Immune Phys/Pierce", ofColor::cyan });
+								int brk = entry.card.formBreakDamage > 0 ? entry.card.formBreakDamage : 4;
+								lines.push_back({ "Transformed:", "Ghost (" + ofToString(brk) + " HP)", ofColor(220, 220, 220) });
+								lines.push_back({ "Passive:", entry.card.formHalfPhysInsteadOfImmune ? "1/2 Phys/Pierce Dmg" : "Immune Phys/Pierce", ofColor::cyan });
 								lines.push_back({ "Trait:", "Phase through walls", ofColor::magenta });
 							}
 
@@ -26564,11 +26578,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			networkPending.draftQueue.push_back((currentPlayerIndex << 16) | 1);
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C1", ofColor::cyan);
 		} else {
+			const Card * trainCard = findCardByName("Train");
+			int apVal = (trainCard && trainCard->apGainNextTurn > 0) ? trainCard->apGainNextTurn : 3;
 			EffectOp apOp = {};
 			apOp.type = EffectOpType::MODIFY_STAT;
 			apOp.data.modifyStat.targetIndex = currentPlayerIndex;
 			apOp.data.modifyStat.statType = 11; // Next Turn AP
-			apOp.data.modifyStat.delta = 3;
+			apOp.data.modifyStat.delta = apVal;
 			apOp.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(apOp);
 		}
@@ -26621,13 +26637,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			}
 
 			if (magicHandPushedUnitIndex != -1) {
+				const Card * gmhCard = findCardByName("Giant Magic Hand");
+				int gmhN = (gmhCard && gmhCard->damageDiceNum > 0) ? gmhCard->damageDiceNum : 2;
+				int gmhS = (gmhCard && gmhCard->damageDiceSides > 0) ? gmhCard->damageDiceSides : 4;
 				std::vector<int> rawDmg;
-				int dmgRoll = resolveDiceRollDetailed(2, 4, rawDmg);
+				int dmgRoll = resolveDiceRollDetailed(gmhN, gmhS, rawDmg);
 				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				dmgRoll = applyLuckToDiceRoll(dmgRoll, 2, 4, luckBonus);
+				dmgRoll = applyLuckToDiceRoll(dmgRoll, gmhN, gmhS, luckBonus);
 				currentEffectSequence.blackboard[0] = dmgRoll;
 
-				queueVisualDiceRoll(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+				queueVisualDiceRoll(gridToWorld(players[magicHandPushedUnitIndex].x, players[magicHandPushedUnitIndex].y) + glm::vec3(0, 1.0f, 0), gmhN, gmhS, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 
 				EffectOp wait = {};
 				wait.type = EffectOpType::WAIT_VISUAL;
@@ -26746,19 +26765,23 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 
+			const Card * bolCard = findCardByName("Burst of Light");
+			int dmgVal = (bolCard && bolCard->baseDamage > 0) ? bolCard->baseDamage : 3;
+			int healVal = (bolCard && (bolCard->baseHeal > 0 || bolCard->healAmount > 0)) ? (bolCard->baseHeal > 0 ? bolCard->baseHeal : bolCard->healAmount) : 3;
+
 			if (interactionMenuChoice == "damage") {
 				EffectOp dmgOp = {};
 				dmgOp.type = EffectOpType::DAMAGE;
 				dmgOp.data.damage.targetIndex = interactionTargetIndex;
 				dmgOp.data.damage.damageType = DAMAGE_HOLY;
-				dmgOp.data.damage.fixedDamage = 3;
+				dmgOp.data.damage.fixedDamage = dmgVal;
 				dmgOp.data.damage.damageFromSlot = -1;
 				queueEffect(dmgOp);
 			} else {
 				EffectOp healOp = {};
 				healOp.type = EffectOpType::HEAL;
 				healOp.data.heal.targetIndex = interactionTargetIndex;
-				healOp.data.heal.amount = 3;
+				healOp.data.heal.amount = healVal;
 				healOp.data.heal.amountFromSlot = -1;
 				queueEffect(healOp);
 			}
@@ -29229,7 +29252,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		// Allow menu types that are not tied to a specific card index
-		if (menuType != MENU_GHOST_RELOCATE && menuType != MENU_MAGIC_HAND_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST && menuType != CARD_BLOCKING_BOON && menuType != CARD_PSIONIC_WAVE) {
+		if (menuType != MENU_GHOST_RELOCATE && menuType != MENU_MAGIC_HAND_RELOCATE && menuType != CARD_TELEPORT && menuType != CARD_MAGIC_BLAST && menuType != CARD_BLOCKING_BOON && menuType != CARD_PSIONIC_WAVE && menuType != CARD_AMNESIA) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
 
@@ -36101,7 +36124,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		vr.type = EffectOpType::APPLY_VAMPIRE_BITE_RESOLVE;
 		vr.data.vampireResolve.targetIndex = resolvedTargetIndex;
 		vr.data.vampireResolve.preHP = hpBefore;
-		vr.data.vampireResolve.healAmount = 2;
+		vr.data.vampireResolve.healAmount = (playedCard.baseHeal > 0 ? playedCard.baseHeal : (playedCard.healAmount > 0 ? playedCard.healAmount : 2));
 		vr.data.vampireResolve.addCardType = (int)CARD_VAMPIRE_BITE;
 		queueEffect(vr);
 		playedSuccessfully = true;
