@@ -2220,14 +2220,15 @@ static void drawCardFaceDynamic(ofImage & sheet, const ofTrueTypeFont & font, co
 			}
 		} else if (card.type == CARD_CONSTITUTION_BOON) {
 			int base = g_modifierCustomMaxHP ? g_customStartingMaxHP : 15;
+			int step = g_modifierExperimentalBalancing ? 7 : 5;
 			std::string prefix = (card.maxHealthGain > 0 && card.baseHeal > 0)
 				? ("Gain +" + ofToString(card.maxHealthGain) + " **Max Health** and **Restore** " + ofToString(card.baseHeal) + " Health. ")
 				: "";
 			cardEffect = prefix + "Check **Max Health**. "
-				+ ofToString(base + 1) + "-" + ofToString(base + 5) + ": **Draft** Class 1. "
-				+ ofToString(base + 6) + "-" + ofToString(base + 10) + ": **Draft** Class 2. "
-				+ ofToString(base + 11) + "-" + ofToString(base + 15) + ": **Draft** Class 3. "
-				+ ofToString(base + 16) + "+: Win the game.";
+				+ ofToString(base + 1) + "-" + ofToString(base + step) + ": **Draft** Class 1. "
+				+ ofToString(base + step + 1) + "-" + ofToString(base + step * 2) + ": **Draft** Class 2. "
+				+ ofToString(base + step * 2 + 1) + "-" + ofToString(base + step * 3) + ": **Draft** Class 3. "
+				+ ofToString(base + step * 3 + 1) + "+: Win the game.";
 		}
 
 		ofColor nameColor = ofColor(255, 255, 255, (int)(255 * textBurnAlpha));
@@ -13907,15 +13908,43 @@ void ofApp::updateGameLogic() {
 							if (cType == CARD_RENEWED_INSPIRATION) {
 								cmd.commandType = CMD_RENEWED_INSPIRATION;
 								cmd.params[0] = currentPlayerIndex;
-								cmd.params[1] = 0; // Select 0 cards on timeout
+								cmd.params[1] = (int)renewedSelectedHandIndices.size();
 								cmd.params[2] = cIdx;
+								uint32_t maskLow = 0, maskHigh = 0;
+								for (int idx : renewedSelectedHandIndices) {
+									if (idx >= 0 && idx < 32)
+										maskLow |= (1U << idx);
+									else if (idx >= 32 && idx < 64)
+										maskHigh |= (1U << (idx - 32));
+								}
+								cmd.params[4] = (int)maskLow;
+								cmd.params[5] = (int)maskHigh;
+							} else if (cType == CARD_AMNESIA) {
+								cmd.commandType = CMD_MENU_CHOICE;
+								cmd.params[0] = (int)CARD_AMNESIA;
+								cmd.params[1] = amnesiaTargetPlayerIndex;
+								cmd.params[2] = 1; // Timeout auto-pick (keeps current selections + fills random)
+								cmd.params[3] = cIdx;
+								uint32_t maskLow = 0, maskHigh = 0;
+								for (int idx : amnesiaSelectedIndices) {
+									if (idx >= 0 && idx < 32)
+										maskLow |= (1U << idx);
+									else if (idx >= 32 && idx < 64)
+										maskHigh |= (1U << (idx - 32));
+								}
+								cmd.params[4] = (int)maskLow;
+								cmd.params[5] = (int)maskHigh;
 							} else if (cType == CARD_PSIONIC_WAVE) {
 								cmd.commandType = CMD_MENU_CHOICE;
 								cmd.params[0] = (int)CARD_PSIONIC_WAVE;
 								cmd.params[1] = psionicWaveCurrentTargetIdx;
-								cmd.params[2] = 3;
+								cmd.params[2] = 1; // Timeout auto-pick (keeps current selections + fills random)
 								cmd.params[3] = -1;
-								cmd.params[4] = 0; // Destroy 0 cards, return all to bottom
+								uint32_t mask = 0;
+								for (int idx : psionicWaveSelectedIndices) {
+									if (idx >= 0 && idx < 32) mask |= (1U << idx);
+								}
+								cmd.params[4] = (int)mask;
 							} else {
 								cmd.commandType = CMD_MENU_CHOICE;
 								cmd.params[0] = cType;
@@ -24800,6 +24829,7 @@ void ofApp::startNewTurn() {
 		writeLockstepTrace(steamManager.isHost(), globalTurnCounter, "--- START NEW TURN --- Unit: " + std::to_string(currentPlayerIndex) + " | Starting Checksum: " + std::to_string(calculateChecksum()));
 	}
 
+	g_pendingShellSpikes = 0;
 	cancelAllTargeting();
 	resetCardState();
 	activeCardDisplays.clear();
@@ -27932,7 +27962,7 @@ void ofApp::processCommandQueue() {
 			}
 			if (cmdType == CMD_PSEUDO_ACTION) {
 				std::string actionName = cmd.stringData;
-				if (actionName != "Forfeit" && actionName != "Desync" && actionName != "ToggleUnlimitedAP" && actionName != "ToggleUnlimitedTime" && actionName != "StartMatch") {
+				if (actionName != "Forfeit" && actionName != "Desync" && actionName != "ToggleUnlimitedAP" && actionName != "ToggleUnlimitedTime" && actionName != "StartMatch" && actionName != "SyncRI") {
 					break; // PAUSE THE QUEUE
 				}
 			}
@@ -28976,18 +29006,32 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			uint32_t maskHigh = (uint32_t)cmd.params[5];
 
 			if (choice == 1 && amnesiaTargetPlayerIndex != -1 && numCardsToRemove > 0) {
-				// AFK TIMEOUT AUTO-RESOLVE: The Turn Timer forces choice=1. We must randomly select the required cards!
+				// AFK TIMEOUT AUTO-RESOLVE: Keep any already-selected cards, then fill remaining picks randomly
 				Player & target = players[amnesiaTargetPlayerIndex];
-				int limit = std::min(numCardsToRemove, (int)target.deck.size());
-				maskLow = 0;
-				maskHigh = 0;
-				for (int idx = 0; idx < limit; ++idx) {
-					if (idx < 32)
-						maskLow |= (1U << idx);
-					else if (idx < 64)
-						maskHigh |= (1U << (idx - 32));
+				int poolSize = amnesiaDeckCopy.empty() ? (int)target.deck.size() : (int)amnesiaDeckCopy.size();
+				int limit = std::min(numCardsToRemove, poolSize);
+
+				std::vector<int> available;
+				int selectedCount = 0;
+				for (int i = 0; i < poolSize && i < 64; ++i) {
+					bool isSet = (i < 32) ? ((maskLow & (1U << i)) != 0) : ((maskHigh & (1U << (i - 32))) != 0);
+					if (isSet)
+						selectedCount++;
+					else
+						available.push_back(i);
 				}
-				// Morph this into an Accept command so the sequence continues!
+
+				while (selectedCount < limit && !available.empty()) {
+					int rPos = getGameRandom(0, (int)available.size() - 1);
+					int pick = available[rPos];
+					available.erase(available.begin() + rPos);
+					if (pick < 32)
+						maskLow |= (1U << pick);
+					else
+						maskHigh |= (1U << (pick - 32));
+					selectedCount++;
+				}
+
 				choice = 3;
 			}
 
@@ -29092,6 +29136,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 						ofLogNotice("Amnesia") << "Removed " << removed << " cards from player " << target.playerID;
 					}
 
+					amnesiaDeckCopy.clear();
+					amnesiaSelectedIndices.clear();
+					amnesiaCardRects.clear();
+					amnesiaOfferedDeckIndices.clear();
+					amnesiaTargetPlayerIndex = -1;
+					numCardsToRemove = 0;
+
 					// Finalize the card play via central outcome flow (AP deductions / effects handled there)
 					resetCardState();
 					currentCardOutcome.cardType = static_cast<CardType>(menuType);
@@ -29115,6 +29166,26 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				Player & tgt = players[tIdx];
 				std::vector<Card> allOffered = psionicWaveSet1;
 				allOffered.insert(allOffered.end(), psionicWaveSet2.begin(), psionicWaveSet2.end());
+
+				if (choice == 1) { // Timeout auto-pick: keep current selections + randomly fill up to psionicWavePicksRemaining
+					int limit = std::min(psionicWavePicksRemaining, (int)allOffered.size());
+					std::vector<int> available;
+					int selectedCount = 0;
+					for (int i = 0; i < (int)allOffered.size() && i < 32; ++i) {
+						if (mask & (1U << i))
+							selectedCount++;
+						else
+							available.push_back(i);
+					}
+					while (selectedCount < limit && !available.empty()) {
+						int rPos = getGameRandom(0, (int)available.size() - 1);
+						int pick = available[rPos];
+						available.erase(available.begin() + rPos);
+						mask |= (1U << pick);
+						selectedCount++;
+					}
+				}
+
 				int destroyedCount = 0;
 				for (size_t i = 0; i < allOffered.size(); ++i) {
 					ofRectangle dRect = getUnitDeckScreenRect(tIdx);
@@ -30364,6 +30435,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "Shell Spike") {
+			if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING || interactingCardType != CARD_FORM_OF_TORTOISE) {
+				break;
+			}
 			int targetIdx = -1;
 			if (targetX != -1 && targetY != -1) {
 				for (size_t i = 0; i < players.size(); i++) {
@@ -30518,13 +30592,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
-		// Resolve played-card index robustly after removals
+		// Resolve played-card index robustly after removals (preferring non-copied original)
 		if (shiftedRiIndex < 0 || shiftedRiIndex >= (int)p.hand.size()
 			|| p.hand[shiftedRiIndex].type != CARD_RENEWED_INSPIRATION) {
 			int fallback = -1;
 			for (int i = 0; i < (int)p.hand.size(); ++i) {
 				if (p.hand[i].type == CARD_RENEWED_INSPIRATION) {
-					if (havePlayedCard && p.hand[i].value == playedCard.value) {
+					if (!p.hand[i].isCopied) {
 						fallback = i;
 						break;
 					}
@@ -31681,8 +31755,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			int dmg = currentEffectSequence.blackboard[1];
+			int dN = currentEffectSequence.blackboard[8] > 0 ? currentEffectSequence.blackboard[8] : 1;
+			int dS = currentEffectSequence.blackboard[9] > 0 ? currentEffectSequence.blackboard[9] : 6;
+			int dFlat = currentEffectSequence.blackboard[10];
 			std::vector<int> rawDmg = { currentEffectSequence.blackboard[3] };
-			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawDmg, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+			queueVisualDiceRoll(gridToWorld(impactTile.x, impactTile.y) + glm::vec3(0, 1.0f, 0), dN, dS, rawDmg, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f, "", dFlat);
 
 			int bonus = currentEffectSequence.blackboard[2];
 			if (bonus > 0) {
@@ -35317,12 +35394,15 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			}
 			queueFloatingTextVisual(gridToWorld(targetX, targetY), "Destroyed!", ofColor::red);
 		} else if (hitUnit) {
+			int dN = playedCard.damageDiceNum > 0 ? playedCard.damageDiceNum : 2;
+			int dS = playedCard.damageDiceSides > 0 ? playedCard.damageDiceSides : 4;
+			int dFlat = playedCard.baseDamage;
 			std::vector<int> rawDmg;
-			int dmgRoll = resolveDiceRollDetailed(2, 10, rawDmg);
-			int totalDmg = applyLuckToDiceRoll(dmgRoll, 2, 10, luckBonus);
+			int dmgRoll = resolveDiceRollDetailed(dN, dS, rawDmg);
+			int totalDmg = applyLuckToDiceRoll(dmgRoll, dN, dS, luckBonus) + dFlat;
 
 			currentEffectSequence.blackboard[0] = totalDmg;
-			queueVisualDiceRoll(gridToWorld(players[unitIdx].x, players[unitIdx].y) + glm::vec3(0, 1.0f, 0), 2, 10, rawDmg, totalDmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[unitIdx].x, players[unitIdx].y) + glm::vec3(0, 1.0f, 0), dN, dS, rawDmg, totalDmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f, "", dFlat);
 
 			EffectOp wait = {};
 			wait.type = EffectOpType::WAIT_VISUAL;
@@ -35746,15 +35826,16 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	case CARD_CONSTITUTION_BOON: {
 		int mh = currentPlayer.maxHealth + playedCard.maxHealthGain;
 		int baseHP = g_modifierCustomMaxHP ? g_customStartingMaxHP : 15;
+		int step = g_modifierExperimentalBalancing ? 7 : 5;
 		int tier = 0;
-		if (mh >= baseHP + 1 && mh <= baseHP + 5)
+		if (mh >= baseHP + 1 && mh <= baseHP + step)
 			tier = 1;
-		else if (mh >= baseHP + 6 && mh <= baseHP + 10)
+		else if (mh >= baseHP + step + 1 && mh <= baseHP + step * 2)
 			tier = 2;
-		else if (mh >= baseHP + 11 && mh <= baseHP + 15)
+		else if (mh >= baseHP + step * 2 + 1 && mh <= baseHP + step * 3)
 			tier = 3;
 
-		if (mh >= baseHP + 16) {
+		if (mh >= baseHP + step * 3 + 1) {
 			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
 			g_isGameOver = true;
 			g_winnerID = currentPlayer.playerID;
@@ -36135,16 +36216,22 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		rem.currentAlpha = 255.0f;
 		activeRemovedCardAnimations.push_back(rem);
 
-		auto [rN, rS] = getCardRangeDice(playedCard, 2, 20);
+		auto [rN, rS] = getCardRangeDice(playedCard, 2, 10);
 		std::vector<int> rawRange, rawDmg;
 		int rangeRoll = applyLuckToDiceRoll(resolveDiceRollDetailed(rN, rS, rawRange), rN, rS, luckBonus);
 		currentEffectSequence.blackboard[0] = rangeRoll;
 		currentEffectSequence.blackboard[5] = rawRange.size() > 0 ? rawRange[0] : 1;
 		currentEffectSequence.blackboard[6] = rawRange.size() > 1 ? rawRange[1] : 1;
 
-		int dmg = applyLuckToDiceRoll(resolveDiceRollDetailed(1, 6, rawDmg), 1, 6, luckBonus);
+		int dN = playedCard.damageDiceNum > 0 ? playedCard.damageDiceNum : 2;
+		int dS = playedCard.damageDiceSides > 0 ? playedCard.damageDiceSides : 4;
+		int dFlat = playedCard.baseDamage;
+		int dmg = applyLuckToDiceRoll(resolveDiceRollDetailed(dN, dS, rawDmg), dN, dS, luckBonus) + dFlat;
 		currentEffectSequence.blackboard[1] = dmg;
 		currentEffectSequence.blackboard[3] = rawDmg.empty() ? 1 : rawDmg[0];
+		currentEffectSequence.blackboard[8] = dN;
+		currentEffectSequence.blackboard[9] = dS;
+		currentEffectSequence.blackboard[10] = dFlat;
 
 		currentEffectSequence.blackboard[7] = playedCard.shootArrowPlaysTopCard ? 1 : 0;
 		int bonus = 0;
@@ -40543,7 +40630,7 @@ void ofApp::tryTriggerShellSpike() {
 	bool hasAdjacentUnit = false;
 
 	for (const auto & p : players) {
-		if (p.x < 0) continue; // Dead
+		if (p.x < 0 || p.health <= 0) continue; // Dead or dying
 		if (&p == &currentPlayer) continue; // Self
 
 		// Check adjacency (strictly orthogonal)

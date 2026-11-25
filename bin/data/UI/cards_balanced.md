@@ -99,7 +99,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Choose One:** Deal 2d10 damage to an adjacent unit; or **Destroy** an adjacent wall.
+- **Effect Text:** **Choose One:** Deal 2d4+5 damage to an adjacent unit; or **Destroy** an adjacent wall.
 ---
 
 ## 14. Dispel
@@ -141,11 +141,11 @@
 
 ## 19. Ethereal Jolt
 - **Damage type:** Magic
-- **AP Cost:** 6
+- **AP Cost:** 5
 - **Targeting:** 2d10 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 6 damage. If it damages **Health**, apply **Paralysis**. Can target through walls.
+- **Effect Text:** Choose a target. Deal 5 damage. If it damages **Health**, apply **Paralysis**. Can target through walls.
 ---
 
 ## 20. Flame Hit
@@ -161,7 +161,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target or yourself. **Restore** 1d6+2 **Health**.
+- **Effect Text:** Choose a target or yourself. **Restore** 2d4+2 **Health**.
 ---
 
 ## 22. Raise Dead
@@ -463,7 +463,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target or yourself. **Restore** 1d4+1 **Health**.
+- **Effect Text:** Choose a target or yourself. **Restore** 1d4 **Health**.
 ---
 
 ## 60. Transform Wall
@@ -500,7 +500,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Gain +3 **Max Health** and **Restore** 3 **Health**. Check **Max Health**: 16-20: **Draft** Class 1; 21-25: **Draft** Class 2; 26-30: **Draft** Class 3; 31+: Win the game.
+- **Effect Text:** Gain +3 **Max Health** and **Restore** 3 **Health**. Check **Max Health**: 16-22: **Draft** Class 1; 23-29: **Draft** Class 2; 30-36: **Draft** Class 3; 37+: Win the game.
 ---
 
 ## 64. Four-Leaf Clover
@@ -544,10 +544,10 @@
 ## 69. Shoot Arrow
 - **Damage type:** Piercing
 - **AP Cost:** 3
-- **Targeting:** 2d20 ft
+- **Targeting:** 2d10 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, apply that card's effect as well (Poison damage counts for the card).
+- **Effect Text:** Choose a target. Deal 2d4+2 damage and **Destroy** your top card. If it was Shock, Flame Hit, or Add Poison, apply that card's effect as well (Poison damage counts for the card).
 ---
 
 ## 70. Summon Faerie
