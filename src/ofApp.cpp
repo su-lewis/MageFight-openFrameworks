@@ -27870,9 +27870,35 @@ void ofApp::processCommandQueue() {
 			}
 		}
 
-		// If we are waiting for a menu choice or target, allow the answering command to pass through immediately
+		const uint64_t key = (uint64_t(cmd.playerID) << 32) | uint64_t(cmd.commandId);
+
+		// Pop already-executed / echoed optimistic commands BEFORE checking blocking states so menus & End Turn cannot deadlock behind them
+		if (skippedOptimisticCommands.find(key) != skippedOptimisticCommands.end()) {
+			commandQueue.erase(commandQueue.begin());
+			queuedCommandKeys.erase(key);
+			ofLogNotice("Lockstep") << "Skipping execution of optimistic InputCommand (already applied locally): id=" << cmd.commandId;
+			skippedOptimisticCommands.erase(key);
+			executedCommandKeys.insert(key);
+
+			if (cmd.commandId < 0x7FFFFFFF && cmd.commandId > lastProcessedCommandId) {
+				lastProcessedCommandId = cmd.commandId;
+			}
+			continue;
+		}
+
+		if (executedCommandKeys.find(key) != executedCommandKeys.end()) {
+			commandQueue.erase(commandQueue.begin());
+			queuedCommandKeys.erase(key);
+			ofLogNotice("Lockstep") << "Skipping duplicate execution of InputCommand: id=" << cmd.commandId << " player=" << cmd.playerID;
+			continue;
+		}
+
+		// If we are waiting for a menu choice or target, allow the answering command to pass through once effects finish
 		if (isInteractiveMenuCommand) {
 			isStateBlocking = false;
+			if (isProcessingEffect) {
+				break; // Wait for APPLY_AMNESIA / APPLY_MAGIC_BLAST_MENU to finish opening the menu
+			}
 		}
 
 		bool animatingBlocksQueue = isPlayerAnimating && !(currentState == STATE_DRAFTING && isInGameDraft);
@@ -27913,28 +27939,7 @@ void ofApp::processCommandQueue() {
 		}
 
 		commandQueue.erase(commandQueue.begin());
-
-		const uint64_t key = (uint64_t(cmd.playerID) << 32) | uint64_t(cmd.commandId);
 		queuedCommandKeys.erase(key);
-
-		if (executedCommandKeys.find(key) != executedCommandKeys.end()) {
-			ofLogNotice("Lockstep") << "Skipping duplicate execution of InputCommand: id=" << cmd.commandId << " player=" << cmd.playerID;
-			continue;
-		}
-
-		// CRITICAL FIX: Skip execution but UPDATE SEQUENCE for optimistic commands!
-		if (skippedOptimisticCommands.find(key) != skippedOptimisticCommands.end()) {
-			ofLogNotice("Lockstep") << "Skipping execution of optimistic InputCommand (already applied locally): id=" << cmd.commandId;
-			skippedOptimisticCommands.erase(key);
-			executedCommandKeys.insert(key); // Mark as executed for future duplicates
-
-			if (cmd.commandId < 0x7FFFFFFF) {
-				if (cmd.commandId > lastProcessedCommandId) {
-					lastProcessedCommandId = cmd.commandId;
-				}
-			}
-			continue;
-		}
 
 		bool prevExecuting = isExecutingLockstepCommand;
 		isExecutingLockstepCommand = true;
