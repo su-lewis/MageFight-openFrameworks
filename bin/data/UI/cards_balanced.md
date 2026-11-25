@@ -91,7 +91,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Electric-dealing card this or last turn and this damages **Health**, apply **Paralysis**.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you played another Shock this or last turn and this damages **Health**, apply **Paralysis**.
 ---
 
 ## 13. Rock Crush
@@ -178,7 +178,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you dealt Electric damage this or last turn, replace its attacks with 3x Shock. If you dealt Fire damage, replace its attacks with 1x Fireball and 2x Flame Hit. If you played Rock Crush, add 2x Rock Crush.
+- **Effect Text:** **Summon** a **Golem** in an adjacent empty tile. If you dealt Electric damage this or last turn, replace its attacks with 3x Shock, if Fire damage: 1x Fireball and 2x Flame Hit, if Rock Crush, add 2x Rock Crush.
 - **Deck:** 3x Bash, 2x Hand Block
 - **AP:** 2+1d4
 - **HP:** 3+1d6
@@ -231,7 +231,7 @@
 - **AP Cost:** 6
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Wolf** in an adjacent empty tile. Flip a coin; if Heads, **Summon** another. **Passive:** Take double Piercing damage while this is in your deck or discard pile.
+- **Effect Text:** **Summon** a **Wolf** in an adjacent empty tile. Flip a coin; if Heads, **Summon** another (minion-summoned Wolves replace **Call for Wolves** with **Hand Block**). **Passive:** Take double Piercing damage while this is in your deck or discard pile. 
 - **Deck:** 3x Slash, 1x Call for Wolves
 - **AP:** 2d4
 - **HP:** 3
@@ -241,7 +241,7 @@
 - **AP Cost:** 3
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** If you have a friendly **Skeleton**, gain +1 **Luck**. For the next 2 turns, friendly **Skeletons** share your **Luck** and deal +2 extra damage on each attack. On Drafting, shuffle 1x Raise Dead into your deck.
+- **Effect Text:** On Drafting, shuffle 1x Raise Dead into your deck. If you have a friendly **Skeleton**, gain +1 **Luck**. For the next 2 turns, friendly **Skeletons** share your **Luck** and deal +2 extra damage on each attack.
 ---
 
 ## 32. Time Vortex
@@ -291,7 +291,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 2d10: if higher than their **Health**, **Destroy** them; if equal or lower, apply **Sleep** (Heads 1 : Tails 2).
+- **Effect Text:** Choose a target. If already **Sleeping**, **Execute** them. Otherwise, roll 2d10: if higher than their **Health**, **Destroy** them; if equal or lower, apply **Sleep** (Heads 2 : Tails 1).
 ---
 
 ## 38. Summon Demon
@@ -386,7 +386,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4. **Summon** that many **Kobolds** in adjacent empty tiles. 
+- **Effect Text:** Roll 1d4. **Summon** that many **Kobolds** in adjacent empty tiles (minion-summoned **Kobolds** replace **Call for Kobolds** with **Hand Block**).
 - **Deck:** 1x Punch, 2x Hand Block, 1x Call for Kobolds
 - **AP:** 1d4
 - **HP:** 1
@@ -554,7 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. When an adjacent ally other than a **Faerie** dies, it resurrects with up to 5 HP (not exceeding its **Max Health**) and clears all status effects, and the **Faerie** takes 3 Physical damage.
+- **Effect Text:** **Summon** a **Faerie** in an adjacent empty tile. It has **Regeneration**. When an adjacent ally other than a **Faerie** dies, it resurrects with up to 5 Max Health, clears all status effects, and the **Faerie** takes 3 Physical damage.
 - **Deck:** 2x Dispel, 2x Lesser Heal, 1x Magic Blast
 - **AP:** 1d4
 - **HP:** 5

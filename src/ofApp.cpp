@@ -5582,13 +5582,24 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 		}
 		for (const auto & entry : mtIt->second.deckRecipe) {
 			if (const Card * tmpl = findCardByName(entry.first)) {
+				const Card * cardToAdd = tmpl;
 				if (g_modifierExperimentalBalancing && summonedByMinion) {
 					if ((summonKind == 1 && tmpl->type == CARD_CALL_FOR_KOBOLDS) || (summonKind == 2 && tmpl->type == CARD_CALL_FOR_WOLVES)) {
-						continue;
+						cardToAdd = findCardByName("Hand Block");
+						if (!cardToAdd) {
+							for (const auto & c : allCards) {
+								if (c.type == CARD_HAND_BLOCK) {
+									cardToAdd = &c;
+									break;
+								}
+							}
+						}
 					}
 				}
-				for (int k = 0; k < entry.second; ++k)
-					minion.deck.push_back(*tmpl);
+				if (cardToAdd) {
+					for (int k = 0; k < entry.second; ++k)
+						minion.deck.push_back(*cardToAdd);
+				}
 			}
 		}
 	}
@@ -31781,9 +31792,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 						trackShock.data.modifyStat.deltaFromSlot = -1;
 						queueEffect(trackShock);
 
+						bool playedShockLastTurn = std::find(players[currentPlayerIndex].cardsPlayedLastTurn.begin(), players[currentPlayerIndex].cardsPlayedLastTurn.end(), CARD_SHOCK) != players[currentPlayerIndex].cardsPlayedLastTurn.end();
 						bool shockCond = topTmpl && topTmpl->shockChecksAnyElectric
 							? (players[currentPlayerIndex].electricDamageDealtThisTurn || (topTmpl->shockChecksLastTurn && players[currentPlayerIndex].electricDamageDealtLastTurn))
-							: (players[currentPlayerIndex].shocksPlayedThisTurn >= 1);
+							: (players[currentPlayerIndex].shocksPlayedThisTurn >= 1 || (topTmpl && topTmpl->shockChecksLastTurn && playedShockLastTurn));
 						if (shockCond) {
 							EffectOp paraRes = {};
 							paraRes.type = EffectOpType::APPLY_FIRE_HIT_RESOLVE;
@@ -35339,9 +35351,10 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			trackShock.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(trackShock);
 
+			bool playedShockLastTurn = std::find(currentPlayer.cardsPlayedLastTurn.begin(), currentPlayer.cardsPlayedLastTurn.end(), CARD_SHOCK) != currentPlayer.cardsPlayedLastTurn.end();
 			bool elecCondition = playedCard.shockChecksAnyElectric
 				? (currentPlayer.electricDamageDealtThisTurn || (playedCard.shockChecksLastTurn && currentPlayer.electricDamageDealtLastTurn))
-				: (currentPlayer.shocksPlayedThisTurn + 1 >= 2);
+				: (currentPlayer.shocksPlayedThisTurn >= 1 || (playedCard.shockChecksLastTurn && playedShockLastTurn));
 			if (elecCondition) {
 				int targetArmor = players[resolvedTargetIndex].barrier + players[resolvedTargetIndex].ward;
 				if (totalDamage > targetArmor) {
@@ -36124,7 +36137,17 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		int sN = playedCard.utilityDiceNum > 0 ? playedCard.utilityDiceNum : 1;
 		int sS = playedCard.utilityDiceSides > 0 ? playedCard.utilityDiceSides : 6;
 		int rawSleepRoll = resolveDiceRollDetailed(sN, sS, rawSleep);
-		int sleepVal = (sS == 2) ? (rawSleepRoll == 2 ? 1 : 2) : rawSleepRoll; // Heads (2) = 1 turn, Tails (1) = 2 turns
+		int headsTurns = 2;
+		int tailsTurns = 1;
+		auto itRec = g_cardTemplateRecords.find(normalizeCardKey(playedCard.name));
+		if (itRec != g_cardTemplateRecords.end()) {
+			std::string effLower = toLowerCopy(stripBoldTags(itRec->second.effectText));
+			if (effLower.find("heads 1") != std::string::npos && effLower.find("tails 2") != std::string::npos) {
+				headsTurns = 1;
+				tailsTurns = 2;
+			}
+		}
+		int sleepVal = (sS == 2) ? (rawSleepRoll == 2 ? headsTurns : tailsTurns) : rawSleepRoll;
 		currentEffectSequence.blackboard[1] = sleepVal;
 		queueVisualDiceRoll(visPos, sN, sS, rawSleep, rawSleepRoll, (sS == 2) ? PURPOSE_COIN_FLIP : PURPOSE_SLEEP_DURATION, currentPlayerIndex, sS == 2 ? 0.8f : 1.0f);
 
@@ -43181,7 +43204,20 @@ void ofApp::loadCardSetFromMarkdown(const std::string & mdPath, CardRuleSet & ou
 		c.summonHPPerKobold = (eff.find("number of kobolds") != std::string::npos);
 		if (c.summonHPPerKobold) {
 			c.koboldKingBaseHP = (c.summonFlatHP > 0) ? c.summonFlatHP : 1;
-			c.koboldKingPerKoboldHP = (eff.find("× 2") != std::string::npos || eff.find("x 2") != std::string::npos || eff.find("* 2") != std::string::npos) ? 2 : 1;
+			bool isDouble = (eff.find("\xC3\x97 2") != std::string::npos
+				|| eff.find("\xC3\x97"
+							"2")
+					!= std::string::npos
+				|| eff.find("\xD7 2") != std::string::npos
+				|| eff.find("\xD7"
+							"2")
+					!= std::string::npos
+				|| eff.find("x 2") != std::string::npos
+				|| eff.find("x2") != std::string::npos
+				|| eff.find("* 2") != std::string::npos
+				|| eff.find("*2") != std::string::npos
+				|| eff.find("twice") != std::string::npos);
+			c.koboldKingPerKoboldHP = isDouble ? 2 : 1;
 		}
 		if (eff.find("summoner gains +") != std::string::npos && eff.find("block at end of wall's turn") != std::string::npos) {
 			int blk = 0;
@@ -43302,6 +43338,9 @@ void ofApp::loadCardSetFromMarkdown(const std::string & mdPath, CardRuleSet & ou
 		if (eff.find("electric-dealing card this or last turn") != std::string::npos) {
 			c.shockChecksAnyElectric = true;
 			c.shockChecksLastTurn = true;
+		} else if (eff.find("another shock this or last turn") != std::string::npos || eff.find("shock this or last turn") != std::string::npos) {
+			c.shockChecksAnyElectric = false;
+			c.shockChecksLastTurn = true;
 		}
 		c.golemChecksLastTurn = (c.summonKind == 8 && eff.find("this or last turn") != std::string::npos);
 		if (eff.find("friendly skeletons share your luck") != std::string::npos) {
@@ -43341,7 +43380,7 @@ void ofApp::loadCardSetFromMarkdown(const std::string & mdPath, CardRuleSet & ou
 		int uN = 0, uS = 0, uF = 0;
 		size_t sleepPos = eff.find("sleep for ");
 		size_t rollPos = eff.find("roll ");
-		if (eff.find("sleep") != std::string::npos && eff.find("heads 1") != std::string::npos && eff.find("tails 2") != std::string::npos) {
+		if (eff.find("sleep") != std::string::npos && eff.find("heads") != std::string::npos && eff.find("tails") != std::string::npos) {
 			c.utilityDiceCount = 1;
 			c.utilityDieType = 2;
 		} else if (sleepPos != std::string::npos && parseDiceFrom(eff, sleepPos, uN, uS, uF)) {
@@ -51242,7 +51281,7 @@ CardGlowState ofApp::getCardGlowState(int playerIndex, int cardIndex) {
 		isCombo = true;
 	}
 	// 5. Shock 2nd-cast paralysis combo
-	else if (card.type == CARD_SHOCK && p.shocksPlayedThisTurn >= 1) {
+	else if (card.type == CARD_SHOCK && (p.shocksPlayedThisTurn >= 1 || (card.shockChecksLastTurn && std::find(p.cardsPlayedLastTurn.begin(), p.cardsPlayedLastTurn.end(), CARD_SHOCK) != p.cardsPlayedLastTurn.end()))) {
 		isCombo = true;
 	}
 	// 6. Raise Dead when corpse present in graveyard
