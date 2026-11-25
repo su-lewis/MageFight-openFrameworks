@@ -30208,23 +30208,18 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			int dist = abs(targetX - koboldPlacementSourceX) + abs(targetY - koboldPlacementSourceY);
 			if (dist != 1) break;
-			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-			// Immediately mark tile occupied on the board so subsequent checks and highlight calculations know it's taken
-			board[targetX][targetY].hasPlayer = true;
+			bool tileOccupied = false;
+			for (const auto & p : players) {
+				if (p.x == targetX && p.y == targetY && p.health > 0) {
+					tileOccupied = true;
+					break;
+				}
+			}
+			if (board[targetX][targetY].hasWall || tileOccupied) break;
 
-			if (!isProcessingEffect) beginEffectSequence();
-			EffectOp spawnOp = {};
-			spawnOp.type = EffectOpType::SPAWN_UNIT;
-			spawnOp.data.spawnUnit.toX = targetX;
-			spawnOp.data.spawnUnit.toY = targetY;
-			spawnOp.data.spawnUnit.summonKind = 1; // KOBOLD
-			spawnOp.data.spawnUnit.ownerPlayerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-			spawnOp.data.spawnUnit.maxHealth = 1;
-			spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
-			spawnOp.data.spawnUnit.ap = 0;
-			spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
-			queueEffect(spawnOp);
+			int ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			spawnMinionDeterministically(1, targetX, targetY, ownerID, 1, 0, players[currentPlayerIndex].playerID);
 
 			koboldsRemainingToPlace--;
 			koboldSummonCount++;
@@ -30236,7 +30231,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				int nx = koboldPlacementSourceX + (int)d.x;
 				int ny = koboldPlacementSourceY + (int)d.y;
 				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-					if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+					bool occ = false;
+					for (const auto & p : players) {
+						if (p.x == nx && p.y == ny && p.health > 0) {
+							occ = true;
+							break;
+						}
+					}
+					if (!board[nx][ny].hasWall && !occ) avail++;
 				}
 			}
 
@@ -30273,22 +30275,19 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
 			int dist = abs(targetX - wolfPlacementSourceX) + abs(targetY - wolfPlacementSourceY);
 			if (dist != 1) break;
-			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-			board[targetX][targetY].hasPlayer = true;
+			bool tileOccupied = false;
+			for (const auto & p : players) {
+				if (p.x == targetX && p.y == targetY && p.health > 0) {
+					tileOccupied = true;
+					break;
+				}
+			}
+			if (board[targetX][targetY].hasWall || tileOccupied) break;
 
-			if (!isProcessingEffect) beginEffectSequence();
-			EffectOp spawnOp = {};
-			spawnOp.type = EffectOpType::SPAWN_UNIT;
-			spawnOp.data.spawnUnit.toX = targetX;
-			spawnOp.data.spawnUnit.toY = targetY;
-			spawnOp.data.spawnUnit.summonKind = 2; // WOLF
-			spawnOp.data.spawnUnit.ownerPlayerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-			spawnOp.data.spawnUnit.maxHealth = minionTemplates.count(2) ? minionTemplates[2].flatHP : 4;
-			spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
-			spawnOp.data.spawnUnit.ap = 0;
-			spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
-			queueEffect(spawnOp);
+			int ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			int wolfHP = minionTemplates.count(2) ? minionTemplates[2].flatHP : 4;
+			spawnMinionDeterministically(2, targetX, targetY, ownerID, wolfHP, 0, players[currentPlayerIndex].playerID);
 
 			wolfSummonCount++;
 
@@ -36944,7 +36943,12 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 	if (shouldShowRangedPreview) {
 		auto [rangeNum, rangeSides] = getCardRangeDice(card, card.numDice, card.diceSides);
-		float maxRangeFeet = (rangeNum > 0 && rangeSides > 0) ? (float)(rangeNum * rangeSides) : 9999.0f;
+		float maxRangeFeet = 9999.0f;
+		if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_DEATH) {
+			maxRangeFeet = 9999.0f;
+		} else if (rangeNum > 0 && rangeSides > 0) {
+			maxRangeFeet = (float)(rangeNum * rangeSides);
+		}
 		float maxAoeFeet = (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) ? (float)(card.aoeRadiusDiceNum * card.aoeRadiusDiceSides) : 0.0f;
 
 		for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -37085,8 +37089,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 
 					if (info.reason == VALID) {
-						// FIX: Magic Bolt is now included in the ground-targeting UI checker
-						if (card.type == CARD_MAGIC_BOLT || card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
+						if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) {
+							bool isWoundedUnit = false;
+							for (const auto & p : players) {
+								if (p.x == tx && p.y == ty && p.health > 0 && p.health < p.maxHealth) {
+									isWoundedUnit = true;
+									break;
+								}
+							}
+							if (isWoundedUnit) valid = true;
+						} else if (card.type == CARD_MAGIC_BOLT || card.type == CARD_MAGIC_BLAST || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_BURST_OF_LIGHT) {
 							if (info.isTargetable) valid = true;
 						} else if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							valid = true;
