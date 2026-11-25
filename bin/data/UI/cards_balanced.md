@@ -248,7 +248,7 @@
 - **AP Cost:** 8
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Roll 1d4. Take that many extra turns.
+- **Effect Text:** Roll 1d4 and take that many extra turns.
 ---
 
 ## 33. Master Fist

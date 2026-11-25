@@ -30739,10 +30739,16 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 		auto path = getLineOfSightPath(rayStart, rayEnd);
 		glm::ivec2 lastTile = { (int)cTile.x, (int)cTile.y };
+		bool hasFirstStep = false;
 
 		for (const auto & step : path) {
 			glm::ivec2 currentStep((int)step.x, (int)step.y);
 			if (currentStep.x == (int)cTile.x && currentStep.y == (int)cTile.y) continue;
+
+			if (!hasFirstStep) {
+				lastTile = currentStep; // Minimum: at least 1 tile away from caster along trajectory
+				hasFirstStep = true;
+			}
 
 			// Stop at the farthest tile the rolled range can reach
 			if (getRequiredRollForDistance(cTile, currentStep) > rangeRoll) {
@@ -30865,6 +30871,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
+					if ((int)i == currentPlayerIndex) continue; // Primary hit of ranged spell can never target caster
 					targetIdx = (int)i;
 					break;
 				}
@@ -31306,6 +31313,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
+					if ((int)i == currentPlayerIndex) continue; // Direct primary hit cannot be self
 					targetIdx = (int)i;
 					break;
 				}
@@ -31548,6 +31556,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
 				int pidx = aoeTargets[idx];
 				bool isCenterTile = (players[pidx].x == impactTile.x && players[pidx].y == impactTile.y);
+
+				// Center primary target cannot be self (surrounding secondary tiles can still hit self)
+				if (isCenterTile && pidx == currentPlayerIndex) continue;
+
 				int tileDmg = (isCenterTile || outerFixed <= 0) ? dmg : outerFixed;
 
 				int preSlot = 8 + (int)(idx % 6);
@@ -31636,6 +31648,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == impactTile.x && players[i].y == impactTile.y && players[i].health > 0) {
+					if ((int)i == currentPlayerIndex) continue; // Arrow direct hit cannot be self
 					targetIdx = (int)i;
 					break;
 				}
