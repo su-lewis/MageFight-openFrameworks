@@ -25381,10 +25381,9 @@ void ofApp::startNewTurn() {
 
 void ofApp::requestStartNewTurn() {
 	// Always defer the turn start until the end of the current simulation tick.
-	// This ensures that the Host and Client process the exact same sequence of
-	// updateGameLogic() passes between consecutive turn skips, preventing
-	// turnStartDeferred flags and checksums from fracturing.
-	pendingStartNewTurnRequests += 1;
+	// Idempotent: multiple turn-end triggers in the same cycle (e.g., skipTurn
+	// statType 99 + activePlayerDied cleanup) must only advance one turn.
+	pendingStartNewTurnRequests = 1;
 }
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
@@ -28218,6 +28217,7 @@ void ofApp::simulationTick() {
 											// Revive unit in-place
 											dying.health = hp;
 											dying.onFire = false;
+											dying.fireHeadsCount = 0;
 											dying.isPoisoned = false;
 											dying.isParalyzed = false;
 											dying.sleepTurnsRemaining = 0;
@@ -28548,19 +28548,20 @@ void ofApp::simulationTick() {
 
 				if (players.empty()) {
 					currentPlayerIndex = -1;
-				} else {
-					if (currentPlayerIndex == idx) {
-						currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
-					} else if (currentPlayerIndex > idx) {
-						currentPlayerIndex -= 1;
-					}
+				} else if (currentPlayerIndex > idx) {
+					currentPlayerIndex -= 1;
 				}
+			}
+
+			if (!activePlayerDied && !players.empty() && currentPlayerIndex >= (int)players.size()) {
+				currentPlayerIndex = (int)players.size() - 1;
 			}
 
 			if (activePlayerDied && !players.empty()) {
 				g_activePlayerDiedThisTurn = true;
 				if (currentPlayerIndex >= (int)players.size()) {
 					currentPlayerIndex = 0;
+					globalTurnCounter++;
 				}
 				requestStartNewTurn();
 			}
@@ -33691,6 +33692,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					}
 					break;
 				case STATUS_ON_FIRE:
+					if (!target.onFire) {
+						target.fireHeadsCount = 0;
+					}
 					target.onFire = true;
 					// Record who applied the fire for kill credit
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -33753,6 +33757,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_ON_FIRE:
 					target.onFire = false;
+					target.fireHeadsCount = 0;
 					ofLogNotice("Status") << "REMOVE_STATUS: STATUS_ON_FIRE removed from idx=" << tidx << " playerID=" << target.playerID;
 					break;
 				case STATUS_TORTOISE_FORM:
