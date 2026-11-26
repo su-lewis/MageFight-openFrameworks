@@ -298,7 +298,7 @@
 - **AP Cost:** 8
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** **Summon** a **Demon** in an adjacent empty tile. Takes double Holy damage. The unit that kills it **Drafts** a Class 3. 
+- **Effect Text:** **Summon** a **Demon** in an adjacent empty tile. Takes double Holy damage and draws 3 cards. The unit that kills it **Drafts** a Class 3. 
 - **Deck:** 2x Flail, 2x Fireball, 3x Dark Shield, 1x Raise Dead, 1x Mind Theft, 1x Ethereal Jolt
 - **AP:** 3d4
 - **HP:** 2d6+3
