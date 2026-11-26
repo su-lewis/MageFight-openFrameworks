@@ -339,7 +339,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain +2 **Max Health**. **Restore** 2 **Health**.
+- **Effect Text:** Gain +2 **Max Health**. **Restore** 1 **Health**.
 ---
 
 ## 44. Add Poison
@@ -455,7 +455,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +4 **Max Health**. **Restore** 3 **Health**.
+- **Effect Text:** Gain +3 **Max Health**. **Restore** 2 **Health**.
 ---
 
 ## 59. Lesser Heal
