@@ -5,20 +5,20 @@ import shutil
 import subprocess
 import time
 
-EXE_PATH = "./bin/MageFight"  # On Windows use "bin\\MageFight.exe"
+EXE_PATH = "bin\\MageFight.exe" if os.name == "nt" else "./bin/MageFight"
 NUM_WORKERS = 14              # 14 parallel threads on 9800X3D
 SELFPLAY_SECONDS = 35
 ARENA_WORKERS = 14
-ARENA_GAMES_PER_WORKER = 15   # 140 Arena games total (halves gauntlet runtime)
+ARENA_GAMES_PER_WORKER = 15   # 210 Arena games total (14 workers x 15 games)
 PROMOTE_THRESHOLD = 50.8
-HISTORY_KEEP = 4              # Keep buffer fresh so new strategies aren't drowned out
-INPUT_DIM = 398
+HISTORY_KEEP = 3              # Keep recent spatial replay window fresh
+INPUT_DIM = 5504              # 13*9*42 (4914) + 590 global features
 CHAMPION = "bin/data/Config/ai_value_net.bin"
 CANDIDATE = "bin/data/Config/ai_value_net_candidate.bin"
 
 
 def get_annealed_heuristic_weight(gen: int) -> float:
-    # Gen 1-3:  1.00 (guide while network learns basics)
+    # Gen 1-3:  1.00 (guide while spatial net learns basics)
     # Gen 4-10: Decays smoothly 1.00 -> 0.20
     # Gen 11+:  Decays 0.20 -> 0.00
     if gen <= 3:
@@ -46,9 +46,9 @@ def run_generation(gen: int):
 
     # Archive previous worker files into rolling history
     os.makedirs("bin/data/Config", exist_ok=True)
-    worker_files = sorted(glob.glob("bin/data/Config/selfplay_data_[0-9]*.bin"))
+    worker_files = sorted(glob.glob("bin/data/Config/selfplay_spatial_[0-9]*.bin"))
     if worker_files:
-        hist_name = f"bin/data/Config/selfplay_data_hist_{int(time.time())}.bin"
+        hist_name = f"bin/data/Config/selfplay_spatial_hist_{int(time.time())}.bin"
         with open(hist_name, "wb") as hf:
             for wf in worker_files:
                 with open(wf, "rb") as f:
@@ -58,7 +58,7 @@ def run_generation(gen: int):
                 os.remove(wf)
             except OSError:
                 pass
-    hist_files = sorted(glob.glob("bin/data/Config/selfplay_data_hist_*.bin"))
+    hist_files = sorted(glob.glob("bin/data/Config/selfplay_spatial_hist_*.bin"))
     for stale in hist_files[:-HISTORY_KEEP]:
         try:
             os.remove(stale)
@@ -96,19 +96,20 @@ def run_generation(gen: int):
                 print(f"Warning: Worker {idx} exited early with code {rc}")
         cleanup_procs(procs)
 
-    data_files = glob.glob("bin/data/Config/selfplay_data*.bin")
+    data_files = glob.glob("bin/data/Config/selfplay_spatial*.bin")
     total_bytes = sum(os.path.getsize(f) for f in data_files)
     stride_bytes = INPUT_DIM * 4 + 4
     total_samples = total_bytes // stride_bytes
-    print(f"[{time.strftime('%H:%M:%S')}] Harvested ~{total_samples} training samples across {len(data_files)} buffer files.")
+    print(f"[{time.strftime('%H:%M:%S')}] Harvested ~{total_samples} spatial samples across {len(data_files)} buffer files.")
 
     if total_samples < 100:
         print("Warning: Too few samples harvested in this window. Skipping training for this cycle.")
         return
 
     # 2. Train candidate Value Network
-    print(f"[{time.strftime('%H:%M:%S')}] Training PyTorch neural network...")
-    train_res = subprocess.run(["python3", "train_value_net.py"])
+    print(f"[{time.strftime('%H:%M:%S')}] Training PyTorch spatial neural network...")
+    py_exe = "python" if os.name == "nt" else "python3"
+    train_res = subprocess.run([py_exe, "train_value_net.py"])
     if train_res.returncode != 0 or not os.path.exists(CANDIDATE):
         print("Training failed or produced no candidate weights.")
         return
