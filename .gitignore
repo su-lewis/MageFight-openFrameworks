@@ -1,11 +1,17 @@
 # Ignore autosave and manual save JSON files
 data/Saves/autosave*.json
 data/Saves/manual_save*.json
+bin/data/Saves/autosave*.json
+bin/data/Saves/manual_save*.json
+Saves/autosave*.json
 
 # Local bin and editor files
 bin/run.sh
+.vscode/
 .vscode/*.code-workspace
-.vscode/.history/# General
+.vscode/.history/
+
+# General
 .DS_Store
 
 # Compiled Object Files (Prevents your PC and Laptop from fighting)
@@ -26,13 +32,6 @@ bin/steam_launch_log.txt
 # Local Game Settings (Keeps your PC and Laptop configs separate)
 bin/data/Config/settings.json
 
-# Autosaves (user-specific, not checked in)
-bin/data/Saves/autosave*.json
-bin/data/Saves/manual_save*.json
-
-# Local VS Code Paths
-.vscode/
-
 # Code::Blocks & Visual Studio Junk
 *.cbp
 *.depend
@@ -51,8 +50,9 @@ Release/
 *.VC.db
 *.VC.opendb
 *.aps
-Saves/autosave*.json
-bin/data/Config/settings.json
-bin/data/Config/selfplay_data*.bin
-bin/data/Config/selfplay_data_hist_*.binbin/data/Config/*.bin
+
+# Ignore all binaries in bin/data/Config/ except champion_gen_87.bin and higher
 bin/data/Config/*.bin
+!bin/data/Config/champion_gen_8[7-9].bin
+!bin/data/Config/champion_gen_9[0-9].bin
+!bin/data/Config/champion_gen_[1-9][0-9][0-9]*.bin
