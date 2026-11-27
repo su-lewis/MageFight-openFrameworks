@@ -6185,16 +6185,16 @@ static constexpr uint32_t kLegacyNetMagic = 0x4D46564EU; // "MFVN"
 
 static constexpr int kGridW = BOARD_WIDTH; // 13
 static constexpr int kGridH = BOARD_HEIGHT; // 9
-static constexpr int kGridChannels = 42;
-static constexpr int kGridFlatDim = kGridW * kGridH * kGridChannels; // 4914
-static constexpr int kGlobalDim = 590;
-static constexpr int kValueNetInputDim = kGridFlatDim + kGlobalDim; // 5504
+static constexpr int kGridChannels = 48;
+static constexpr int kGridFlatDim = kGridW * kGridH * kGridChannels; // 5616
+static constexpr int kGlobalDim = 947;
+static constexpr int kValueNetInputDim = kGridFlatDim + kGlobalDim; // 6563
 
-static constexpr int kConvCh = 32;
+static constexpr int kConvCh = 16;
 static constexpr int kReduceCh = 4;
-static constexpr int kMlpInDim = (kGridW * kGridH * kReduceCh) + (kConvCh * 2) + kGlobalDim; // 468 + 64 + 590 = 1122
-static constexpr int kFc1Dim = 192;
-static constexpr int kFc2Dim = 96;
+static constexpr int kMlpInDim = (kGridW * kGridH * kReduceCh) + (kConvCh * 2) + kGlobalDim; // 468 + 32 + 947 = 1447
+static constexpr int kFc1Dim = 128;
+static constexpr int kFc2Dim = 64;
 static constexpr uint32_t kValueNetMagic = 0x4D465356U; // "MFSV"
 
 struct ValueNetwork {
@@ -6210,7 +6210,8 @@ struct ValueNetwork {
 	const float *d2_w = nullptr, *d2_b = nullptr, *ln_d2_w = nullptr, *ln_d2_b = nullptr;
 	const float *leg_out_w = nullptr, *leg_out_b = nullptr;
 
-	// Spatial MFSV (13x9x42 Conv2D + 590 global) pointers
+	// Spatial MFSV (13x9x48 -> 16ch Stem+ResNet + 946 global) pointers
+	const float *proj_w = nullptr, *proj_b = nullptr, *ln_proj_w = nullptr, *ln_proj_b = nullptr;
 	const float *conv1_w = nullptr, *conv1_b = nullptr, *ln1_w = nullptr, *ln1_b = nullptr;
 	const float *conv2_w = nullptr, *conv2_b = nullptr, *ln2_w = nullptr, *ln2_b = nullptr;
 	const float *conv_red_w = nullptr, *conv_red_b = nullptr;
@@ -6245,13 +6246,15 @@ struct ValueNetwork {
 			size_t floatCount = (fileSize - headerSize) / sizeof(float);
 			ifs.seekg(headerSize, std::ios::beg);
 
-			const size_t expectedFloats = (size_t)kLegacyHidden1 * kLegacyInputDim + 3 * kLegacyHidden1
-				+ 2 * ((size_t)kLegacyHidden1 * kLegacyHidden1 + 3 * kLegacyHidden1)
-				+ (size_t)kLegacyHidden2 * kLegacyHidden1 + 3 * kLegacyHidden2
-				+ (size_t)kLegacyHidden3 * kLegacyHidden2 + 3 * kLegacyHidden3
-				+ kLegacyHidden3 + 1;
+			const size_t expectedFloats = (size_t)h1 * inDim + h1 + 2 * h1
+				+ (size_t)h1 * h1 + h1 + 2 * h1
+				+ (size_t)h1 * h1 + h1 + 2 * h1
+				+ (size_t)h2 * h1 + h2 + 2 * h2
+				+ (size_t)h3 * h2 + h3 + 2 * h3
+				+ h3 + 1;
 
 			if (floatCount != expectedFloats) {
+				ofLogWarning("ValueNet") << "Legacy weight count mismatch in " << path << " (" << floatCount << " vs " << expectedFloats << ")";
 				loaded = false;
 				return false;
 			}
@@ -6270,32 +6273,32 @@ struct ValueNetwork {
 				return p;
 			};
 
-			in_w = getPtr(kLegacyHidden1 * kLegacyInputDim);
-			in_b = getPtr(kLegacyHidden1);
-			ln_in_w = getPtr(kLegacyHidden1);
-			ln_in_b = getPtr(kLegacyHidden1);
-			r1_1_w = getPtr(kLegacyHidden1 * kLegacyHidden1);
-			r1_1_b = getPtr(kLegacyHidden1);
-			ln_r1_1_w = getPtr(kLegacyHidden1);
-			ln_r1_1_b = getPtr(kLegacyHidden1);
-			r1_2_w = getPtr(kLegacyHidden1 * kLegacyHidden1);
-			r1_2_b = getPtr(kLegacyHidden1);
-			ln_r1_2_w = getPtr(kLegacyHidden1);
-			ln_r1_2_b = getPtr(kLegacyHidden1);
-			d1_w = getPtr(kLegacyHidden2 * kLegacyHidden1);
-			d1_b = getPtr(kLegacyHidden2);
-			ln_d1_w = getPtr(kLegacyHidden2);
-			ln_d1_b = getPtr(kLegacyHidden2);
-			d2_w = getPtr(kLegacyHidden3 * kLegacyHidden2);
-			d2_b = getPtr(kLegacyHidden3);
-			ln_d2_w = getPtr(kLegacyHidden3);
-			ln_d2_b = getPtr(kLegacyHidden3);
-			leg_out_w = getPtr(kLegacyHidden3);
+			in_w = getPtr((size_t)h1 * inDim);
+			in_b = getPtr(h1);
+			ln_in_w = getPtr(h1);
+			ln_in_b = getPtr(h1);
+			r1_1_w = getPtr((size_t)h1 * h1);
+			r1_1_b = getPtr(h1);
+			ln_r1_1_w = getPtr(h1);
+			ln_r1_1_b = getPtr(h1);
+			r1_2_w = getPtr((size_t)h1 * h1);
+			r1_2_b = getPtr(h1);
+			ln_r1_2_w = getPtr(h1);
+			ln_r1_2_b = getPtr(h1);
+			d1_w = getPtr((size_t)h2 * h1);
+			d1_b = getPtr(h2);
+			ln_d1_w = getPtr(h2);
+			ln_d1_b = getPtr(h2);
+			d2_w = getPtr((size_t)h3 * h2);
+			d2_b = getPtr(h3);
+			ln_d2_w = getPtr(h3);
+			ln_d2_b = getPtr(h3);
+			leg_out_w = getPtr(h3);
 			leg_out_b = getPtr(1);
 
 			isLegacy = true;
 			loaded = true;
-			ofLogNotice("ValueNet") << "Loaded legacy 256-128-64 Champion Value Network from " << path;
+			ofLogNotice("ValueNet") << "Loaded legacy 256-128-64 Value Network from " << path;
 			return true;
 		}
 
@@ -6328,7 +6331,13 @@ struct ValueNetwork {
 		size_t floatCount = (fileSize - headerSize) / sizeof(float);
 		ifs.seekg(headerSize, std::ios::beg);
 
-		const size_t expectedFloats = (size_t)kConvCh * 9 * kGridChannels + kConvCh + 2 * kConvCh + (size_t)kConvCh * 9 * kConvCh + kConvCh + 2 * kConvCh + (size_t)kReduceCh * kConvCh + kReduceCh + (size_t)kFc1Dim * kMlpInDim + kFc1Dim + 2 * kFc1Dim + (size_t)kFc2Dim * kFc1Dim + kFc2Dim + 2 * kFc2Dim + kFc2Dim + 1;
+		const size_t expectedFloats = (size_t)kConvCh * kGridChannels + kConvCh + 2 * kConvCh
+			+ (size_t)kConvCh * 9 * kConvCh + kConvCh + 2 * kConvCh
+			+ (size_t)kConvCh * 9 * kConvCh + kConvCh + 2 * kConvCh
+			+ (size_t)kReduceCh * kConvCh + kReduceCh
+			+ (size_t)kFc1Dim * kMlpInDim + kFc1Dim + 2 * kFc1Dim
+			+ (size_t)kFc2Dim * kFc1Dim + kFc2Dim + 2 * kFc2Dim
+			+ kFc2Dim + 1;
 
 		if (floatCount != expectedFloats) {
 			ofLogWarning("ValueNet") << "Weight count mismatch in " << path << " (" << floatCount << " vs " << expectedFloats << ")";
@@ -6350,7 +6359,11 @@ struct ValueNetwork {
 			return p;
 		};
 
-		conv1_w = getPtr((size_t)kConvCh * 9 * kGridChannels);
+		proj_w = getPtr((size_t)kConvCh * kGridChannels);
+		proj_b = getPtr(kConvCh);
+		ln_proj_w = getPtr(kConvCh);
+		ln_proj_b = getPtr(kConvCh);
+		conv1_w = getPtr((size_t)kConvCh * 9 * kConvCh);
 		conv1_b = getPtr(kConvCh);
 		ln1_w = getPtr(kConvCh);
 		ln1_b = getPtr(kConvCh);
@@ -6500,29 +6513,59 @@ struct ValueNetwork {
 		return std::tanh(out);
 	}
 
+	static void conv1x1NHWC(const float * in, int inC, const float * w, const float * b, float * out, int outC) {
+		const int numTiles = kGridW * kGridH;
+		for (int p = 0; p < numTiles; ++p) {
+			const float * src = &in[p * inC];
+			float * dst = &out[p * outC];
+			for (int oc = 0; oc < outC; ++oc) {
+				float sum = b[oc];
+				const float * wRow = &w[oc * inC];
+				for (int ic = 0; ic < inC; ++ic) {
+					sum += wRow[ic] * src[ic];
+				}
+				dst[oc] = sum;
+			}
+		}
+	}
+
 	float evaluate(const std::array<float, kValueNetInputDim> & x) const {
 		if (!loaded || isLegacy) return 0.0f;
 
+		alignas(32) float h0[kGridW * kGridH * kConvCh];
 		alignas(32) float h1[kGridW * kGridH * kConvCh];
-		alignas(32) float h2[kGridW * kGridH * kConvCh];
 		alignas(32) float mlpIn[kMlpInDim];
 		alignas(32) float f1[kFc1Dim];
 		alignas(32) float f2[kFc2Dim];
 
 		const int numTiles = kGridW * kGridH;
 
-		conv2d3x3NHWC(x.data(), kGridChannels, conv1_w, conv1_b, h1, kConvCh);
+		// 1. 1x1 Stem (42 -> 16) -> LN -> ReLU
+		conv1x1NHWC(x.data(), kGridChannels, proj_w, proj_b, h0, kConvCh);
 		for (int p = 0; p < numTiles; ++p) {
-			float * px = &h1[p * kConvCh];
-			applyLayerNormInline(px, ln1_w, ln1_b, kConvCh);
+			float * px = &h0[p * kConvCh];
+			applyLayerNormInline(px, ln_proj_w, ln_proj_b, kConvCh);
 			for (int c = 0; c < kConvCh; ++c) {
 				if (px[c] < 0.0f) px[c] = 0.0f;
 			}
 		}
 
-		conv2d3x3NHWC(h1, kConvCh, conv2_w, conv2_b, h2, kConvCh);
+		// 2. Conv1 (3x3, 16 -> 16) -> LN -> Residual(+h0) -> ReLU
+		conv2d3x3NHWC(h0, kConvCh, conv1_w, conv1_b, h1, kConvCh);
 		for (int p = 0; p < numTiles; ++p) {
-			float * px = &h2[p * kConvCh];
+			float * px = &h1[p * kConvCh];
+			const float * res = &h0[p * kConvCh];
+			applyLayerNormInline(px, ln1_w, ln1_b, kConvCh);
+			for (int c = 0; c < kConvCh; ++c) {
+				float val = px[c] + res[c];
+				px[c] = (val > 0.0f) ? val : 0.0f;
+			}
+		}
+
+		// 3. Conv2 (3x3, 16 -> 16) -> LN -> Residual(+h1) -> ReLU
+		conv2d3x3NHWC(h1, kConvCh, conv2_w, conv2_b, h0, kConvCh);
+		for (int p = 0; p < numTiles; ++p) {
+			float * px = &h0[p * kConvCh];
 			const float * res = &h1[p * kConvCh];
 			applyLayerNormInline(px, ln2_w, ln2_b, kConvCh);
 			for (int c = 0; c < kConvCh; ++c) {
@@ -6531,19 +6574,13 @@ struct ValueNetwork {
 			}
 		}
 
-		for (int p = 0; p < numTiles; ++p) {
-			const float * src = &h2[p * kConvCh];
-			float * dst = &mlpIn[p * kReduceCh];
-			for (int rc = 0; rc < kReduceCh; ++rc) {
-				float sum = conv_red_b[rc];
-				const float * wRow = &conv_red_w[rc * kConvCh];
-				for (int ic = 0; ic < kConvCh; ++ic) {
-					sum += wRow[ic] * src[ic];
-				}
-				dst[rc] = (sum > 0.0f) ? sum : 0.0f;
-			}
+		// 4. 1x1 Spatial Reduction (16 -> 4) -> ReLU into mlpIn[0..467]
+		conv1x1NHWC(h0, kConvCh, conv_red_w, conv_red_b, mlpIn, kReduceCh);
+		for (int i = 0; i < numTiles * kReduceCh; ++i) {
+			if (mlpIn[i] < 0.0f) mlpIn[i] = 0.0f;
 		}
 
+		// 5. Global Mean + Max Pool across 13x9 tiles into mlpIn[468..499]
 		float * meanPtr = &mlpIn[numTiles * kReduceCh];
 		float * maxPtr = meanPtr + kConvCh;
 		for (int c = 0; c < kConvCh; ++c) {
@@ -6551,7 +6588,7 @@ struct ValueNetwork {
 			maxPtr[c] = -1e9f;
 		}
 		for (int p = 0; p < numTiles; ++p) {
-			const float * px = &h2[p * kConvCh];
+			const float * px = &h0[p * kConvCh];
 			for (int c = 0; c < kConvCh; ++c) {
 				meanPtr[c] += px[c];
 				if (px[c] > maxPtr[c]) maxPtr[c] = px[c];
@@ -6562,8 +6599,10 @@ struct ValueNetwork {
 			meanPtr[c] *= invTiles;
 		}
 
+		// 6. Concat Global Vector into mlpIn[500..1089]
 		std::memcpy(maxPtr + kConvCh, x.data() + kGridFlatDim, kGlobalDim * sizeof(float));
 
+		// 7. FC1 (1090 -> 128) -> LN -> ReLU
 		for (int i = 0; i < kFc1Dim; ++i) {
 			float sum = fc1_b[i];
 			const float * row = &fc1_w[(size_t)i * kMlpInDim];
@@ -6575,6 +6614,7 @@ struct ValueNetwork {
 		for (int i = 0; i < kFc1Dim; ++i)
 			if (f1[i] < 0.0f) f1[i] = 0.0f;
 
+		// 8. FC2 (128 -> 64) -> LN -> ReLU
 		for (int i = 0; i < kFc2Dim; ++i) {
 			float sum = fc2_b[i];
 			const float * row = &fc2_w[(size_t)i * kFc1Dim];
@@ -6586,6 +6626,7 @@ struct ValueNetwork {
 		for (int i = 0; i < kFc2Dim; ++i)
 			if (f2[i] < 0.0f) f2[i] = 0.0f;
 
+		// 9. Output -> tanh
 		float out = out_b[0];
 		for (int j = 0; j < kFc2Dim; ++j)
 			out += out_w[j] * f2[j];
@@ -7001,6 +7042,77 @@ static void extractLegacy434Features(const SimState & st, int perspectiveOwnerID
 	writeZoneHist(enWiz, enWiz ? enWiz->hand : emptyCards, g_modifierFogOfWar);
 	writeRestHist(enWiz, g_modifierFogOfWar);
 }
+// =============================================================================
+// PROBABILITY & FUTURE RESHUFFLE FORECASTING ENGINE
+// =============================================================================
+struct DrawForecast {
+	float probTurn1 = 0.0f;
+	float probTurn2 = 0.0f;
+	float probTurn3 = 0.0f;
+	int copiesInDeck = 0;
+	int copiesInDiscard = 0;
+	int turnsUntilReshuffle = 99;
+};
+
+static DrawForecast calculateCardDrawOdds(const Player & p, CardType targetCard, int drawsPerTurn = 2, const std::set<std::string> * seenFilter = nullptr) {
+	DrawForecast df;
+	if (p.isDemon) drawsPerTurn = 3;
+
+	for (const auto & c : p.deck) {
+		if (seenFilter && seenFilter->count(c.name) == 0) continue;
+		if (c.type == targetCard) df.copiesInDeck++;
+	}
+	for (const auto & c : p.discardPile) {
+		if (seenFilter && seenFilter->count(c.name) == 0) continue;
+		if (c.type == targetCard) df.copiesInDiscard++;
+	}
+	for (const auto & c : p.playedCardsPile) {
+		if (seenFilter && seenFilter->count(c.name) == 0) continue;
+		if (c.type == targetCard) df.copiesInDiscard++;
+	}
+
+	int deckSize = (int)p.deck.size();
+	int discardSize = (int)p.discardPile.size() + (int)p.playedCardsPile.size();
+	int totalCards = deckSize + discardSize;
+	if (totalCards <= 0) return df;
+
+	df.turnsUntilReshuffle = (deckSize > 0) ? ((deckSize + drawsPerTurn - 1) / drawsPerTurn) : 0;
+
+	auto getProbInNDraws = [&](int draws) -> float {
+		if (draws <= 0) return 0.0f;
+		if (df.copiesInDeck == 0 && df.copiesInDiscard == 0) return 0.0f;
+
+		if (draws <= deckSize) {
+			if (df.copiesInDeck == 0) return 0.0f;
+			if (draws >= deckSize) return 1.0f;
+			float probMiss = 1.0f;
+			for (int i = 0; i < draws; ++i) {
+				probMiss *= (float)(deckSize - df.copiesInDeck - i) / (float)(deckSize - i);
+			}
+			return std::clamp(1.0f - probMiss, 0.0f, 1.0f);
+		}
+
+		if (df.copiesInDeck > 0) return 1.0f;
+
+		int remainingDraws = draws - deckSize;
+		int newDeckSize = discardSize;
+		int newCopies = df.copiesInDiscard;
+		if (newDeckSize <= 0 || newCopies <= 0) return 0.0f;
+		if (remainingDraws >= newDeckSize) return 1.0f;
+
+		float probMissAfter = 1.0f;
+		for (int i = 0; i < remainingDraws; ++i) {
+			probMissAfter *= (float)(newDeckSize - newCopies - i) / (float)(newDeckSize - i);
+		}
+		return std::clamp(1.0f - probMissAfter, 0.0f, 1.0f);
+	};
+
+	df.probTurn1 = getProbInNDraws(drawsPerTurn * 1);
+	df.probTurn2 = getProbInNDraws(drawsPerTurn * 2);
+	df.probTurn3 = getProbInNDraws(drawsPerTurn * 3);
+
+	return df;
+}
 
 static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, const bool visibleTiles[BOARD_WIDTH][BOARD_HEIGHT], std::array<float, kValueNetInputDim> & out) {
 	out.fill(0.0f);
@@ -7031,11 +7143,10 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	bool enVisible = (enWiz && (!g_modifierFogOfWar || visibleTiles[enWiz->x][enWiz->y]));
 
 	// =========================================================================
-	// PART 1: FULL 2D SPATIAL BOARD TENSOR (13 x 9 x 42 = 4914 floats)
+	// PART 1: FULL 2D SPATIAL BOARD TENSOR (13 x 9 x 48 = 5616 floats)
 	// =========================================================================
 	bool hasKnownUnit[BOARD_WIDTH][BOARD_HEIGHT] = {};
 
-	// Terrain & Fog Visibility (ch 0, 1, 6, 36)
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
 			bool vis = (!g_modifierFogOfWar || visibleTiles[x][y]);
@@ -7054,7 +7165,6 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 		}
 	}
 
-	// Keys (ch 3, 4, 5)
 	int goldKeys = 0, silverKeys = 0, bronzeKeys = 0;
 	for (const auto & k : st.floatingKeys) {
 		if (k.set == 1) {
@@ -7069,7 +7179,16 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 		}
 	}
 
-	// Units, Species, HP, ALL 5 Defences, Statuses, Auras, & Card Counts (ch 7..37, 40, 41)
+	// Channel 42: Recent Graveyard corpses (valid for Raise Dead)
+	for (const auto & g : st.graveyard) {
+		if (g.turnDied >= st.globalTurnCounter - 1 && !g.deck.empty()) {
+			if (!g_modifierFogOfWar || visibleTiles[g.x][g.y]) {
+				setGrid(g.x, g.y, 42, 1.0f);
+			}
+		}
+	}
+
+	const int totalUnits = std::max(1, (int)st.players.size());
 	for (size_t i = 0; i < st.players.size(); ++i) {
 		const Player & p = st.players[i];
 		if (p.health <= 0 || p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) continue;
@@ -7091,7 +7210,25 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 		if (p.isHellhound) addGrid(p.x, p.y, 15, 1.0f);
 		if (p.isDemon) addGrid(p.x, p.y, 16, 1.0f);
 		if (p.isSkeleton) addGrid(p.x, p.y, 17, 1.0f);
-		if (p.isGolem) addGrid(p.x, p.y, 18, 1.0f);
+		if (p.isGolem) {
+			addGrid(p.x, p.y, 18, 1.0f);
+			// Channel 43: Golem element variant inferred from its cards
+			float gVar = 0.25f;
+			auto checkGolemZone = [&](const std::vector<Card> & z) {
+				for (const auto & c : z) {
+					if (c.type == CARD_SHOCK)
+						gVar = 1.0f;
+					else if (c.type == CARD_FIREBALL || c.type == CARD_FLAME_HIT)
+						gVar = 0.75f;
+					else if (c.type == CARD_ROCK_CRUSH)
+						gVar = 0.50f;
+				}
+			};
+			checkGolemZone(p.deck);
+			checkGolemZone(p.hand);
+			checkGolemZone(p.discardPile);
+			setGrid(p.x, p.y, 43, gVar);
+		}
 		if (p.isAssistant) {
 			addGrid(p.x, p.y, 19, 1.0f);
 			if (isMine) {
@@ -7129,9 +7266,18 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 		int uTotalCards = (int)(p.deck.size() + p.hand.size() + p.discardPile.size() + p.playedCardsPile.size());
 		addGrid(p.x, p.y, 40, std::min(1.5f, (float)uTotalCards / 15.0f));
 		addGrid(p.x, p.y, 41, std::min(1.5f, (float)p.deck.size() / 15.0f));
+
+		if (p.hasRegeneration) setGrid(p.x, p.y, 44, 1.0f);
+		if ((p.isFaerie && p.faerieUsedRevive) || (p.isAssistant && p.assistantRerollUsedThisTurn)) {
+			setGrid(p.x, p.y, 45, 1.0f);
+		}
+		if (p.minionBonusDamage > 0) addGrid(p.x, p.y, 46, (float)p.minionBonusDamage / 5.0f);
+
+		int curIdx = std::max(0, st.currentPlayerIndex);
+		int stepsAway = ((int)i - curIdx + totalUnits) % totalUnits;
+		setGrid(p.x, p.y, 47, 1.0f - ((float)stepsAway / (float)totalUnits));
 	}
 
-	// Empty Walkable Tiles (ch 2) & Fast Wizard LOS Maps (ch 38, 39)
 	auto fastTileLos = [&](int cx, int cy, int tx, int ty) -> bool {
 		if (cx == tx && cy == ty) return true;
 		if (st.board[tx][ty].hasWall) return false;
@@ -7181,7 +7327,8 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	}
 
 	// =========================================================================
-	// PART 2: GLOBAL & CARD VECTOR (590 floats at out[4914 .. 5503])
+	// PART 2: GLOBAL & FULL-INFO CARD VECTOR (947 floats at out[5616 .. 6562])
+	// Slots 0..589 match the 5504-dim champion verbatim; 590..946 are appended.
 	// =========================================================================
 	int idx = kGridFlatDim;
 
@@ -7196,13 +7343,21 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 
 	bool centerKeyWalled = st.board[6][3].hasWall && st.board[6][5].hasWall && st.board[5][4].hasWall && st.board[7][4].hasWall;
 	int unitsRemainingToAct = 0;
+	int friendlyUnitsRemaining = 0;
+	int enemyUnitsRemaining = 0;
 	if (st.currentPlayerIndex >= 0) {
 		for (int ui = st.currentPlayerIndex + 1; ui < (int)st.players.size(); ++ui) {
-			if (st.players[ui].health > 0) unitsRemainingToAct++;
+			if (st.players[ui].health <= 0) continue;
+			unitsRemainingToAct++;
+			int own = st.players[ui].isMinion ? st.players[ui].ownerID : st.players[ui].playerID;
+			if (own == perspectiveOwnerID)
+				friendlyUnitsRemaining++;
+			else if (!g_modifierFogOfWar || visibleTiles[st.players[ui].x][st.players[ui].y])
+				enemyUnitsRemaining++;
 		}
 	}
 
-	// 1. Global / Tactical (10 floats)
+	// 1. Original Global / Tactical (10 floats -> global 0..9)
 	out[idx++] = std::min(1.0f, (float)st.globalTurnCounter / 60.0f);
 	out[idx++] = std::min(1.0f, (float)st.currentAP / 12.0f);
 	out[idx++] = (activeOwner == perspectiveOwnerID) ? 1.0f : 0.0f;
@@ -7214,7 +7369,7 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	out[idx++] = std::min(1.0f, (float)unitsRemainingToAct / 10.0f);
 	out[idx++] = centerKeyWalled ? 1.0f : 0.0f;
 
-	// 2. Wizard States (24 + 24 = 48 floats)
+	// 2. Original Wizard States (24 + 24 = 48 floats -> global 10..57)
 	auto writeWizStats = [&](const Player * w, bool visible) {
 		if (!w || !visible) {
 			idx += 24;
@@ -7248,7 +7403,7 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	writeWizStats(myWiz, true);
 	writeWizStats(enWiz, enVisible);
 
-	// 2B. Combo & Action History Turn Flags (4 + 4 = 8 floats)
+	// 2B. Original Combo Flags (4 + 4 = 8 floats -> global 58..65)
 	auto writeComboFlags = [&](const Player * w, bool visible) {
 		if (!w || !visible) {
 			idx += 4;
@@ -7262,7 +7417,7 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	writeComboFlags(myWiz, true);
 	writeComboFlags(enWiz, enVisible);
 
-	// 3. Card Zone Counts & Minion Summaries (6 + 14 + 14 = 34 floats)
+	// 3. Original Card Zone Counts & Minion Summaries (6 + 14 + 14 = 34 floats -> global 66..99)
 	int myTotalCards = 0, myHand = 0, myDeck = 0;
 	int enTotalCards = 0, enHand = 0, enDeck = 0;
 	if (myWiz) {
@@ -7343,7 +7498,7 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	writeMinionSummary(myM);
 	writeMinionSummary(enM);
 
-	// 4. Separated Card Histograms: Hand, Deck, Discard+Played for both Wizards + Active Minion Hand (7 * 70 = 490 floats)
+	// 4. Original 7 Card Histograms (7 * 70 = 490 floats -> global 100..589)
 	auto writeZoneHist = [&](const Player * w, const std::vector<Card> & z, bool onlySeen) {
 		if (w) {
 			for (const auto & c : z) {
@@ -7377,8 +7532,131 @@ static void extractCompactFeatures(const SimState & st, int perspectiveOwnerID, 
 	writeZoneHist(enWiz, enWiz ? enWiz->deck : emptyCards, g_modifierFogOfWar);
 	writeDiscardPlayedHist(enWiz, g_modifierFogOfWar);
 
-	bool encodeActorMinionHand = (activeActor && actorIsMinion && activeOwner == perspectiveOwnerID);
-	writeZoneHist(encodeActorMinionHand ? activeActor : nullptr, encodeActorMinionHand ? activeActor->hand : emptyCards, false);
+	bool encodeActorMinionHand = (activeActor && actorIsMinion && (activeOwner == perspectiveOwnerID || !g_modifierFogOfWar));
+	writeZoneHist(encodeActorMinionHand ? activeActor : nullptr, encodeActorMinionHand ? activeActor->hand : emptyCards, encodeActorMinionHand && activeOwner != perspectiveOwnerID && g_modifierFogOfWar);
+
+	// 5. Appended Full-Info Features (357 floats -> global 590..946)
+	out[idx++] = std::min(1.0f, (float)friendlyUnitsRemaining / 10.0f);
+	out[idx++] = std::min(1.0f, (float)enemyUnitsRemaining / 10.0f);
+	out[idx++] = g_modifierFogOfWar ? 1.0f : 0.0f;
+	out[idx++] = g_modifierExperimentalBalancing ? 1.0f : 0.0f;
+	out[idx++] = std::min(1.0f, (float)st.graveyard.size() / 10.0f);
+
+	auto computeSimPassiveLuck = [&](const Player * w) -> int {
+		if (!w) return 0;
+		int l = 0;
+		for (const auto & c : w->deck) {
+			if (c.type == CARD_FOUR_LEAF_CLOVER) l++;
+		}
+		for (const auto & p : st.players) {
+			if (p.isAssistant && p.health > 0 && p.directSummonerID == w->playerID) {
+				if (std::abs(p.x - w->x) + std::abs(p.y - w->y) <= 1) l++;
+			}
+		}
+		return l;
+	};
+
+	auto writeWizStatsExtra = [&](const Player * w, bool visible) {
+		if (!w || !visible) {
+			idx += 14;
+			return;
+		}
+		out[idx++] = (float)computeSimPassiveLuck(w) / 5.0f;
+		out[idx++] = w->hasRegeneration ? 1.0f : 0.0f;
+		out[idx++] = w->hasDrawnThisTurn ? 1.0f : 0.0f;
+		out[idx++] = std::min(1.0f, (float)w->bonusTurns / 3.0f);
+		out[idx++] = (w->defenseCycle > st.globalTurnCounter) ? std::min(1.0f, (float)(w->defenseCycle - st.globalTurnCounter) / 2.0f) : 0.0f;
+		out[idx++] = (float)w->poisonReduction / 6.0f;
+		out[idx++] = (float)w->paralysisHeadsCount / 2.0f;
+		out[idx++] = (float)w->fireHeadsCount / 2.0f;
+		out[idx++] = (float)w->tortoiseDamageTaken / 5.0f;
+		out[idx++] = (float)w->ghostDamageTaken / 4.0f;
+		out[idx++] = (float)w->storedDarkShieldDice / 4.0f;
+		out[idx++] = w->nextBasicAttackDiscount > 0 ? 1.0f : 0.0f;
+		out[idx++] = std::min(1.0f, (float)w->extraAPDiceNum / 2.0f);
+		out[idx++] = (float)w->necroSkeletonExtraDmg / 5.0f;
+	};
+	writeWizStatsExtra(myWiz, true);
+	writeWizStatsExtra(enWiz, enVisible);
+
+	out[idx++] = myWiz ? std::min(1.0f, (float)((myDeck + 1) / 2) / 10.0f) : 0.0f;
+	out[idx++] = enWiz ? std::min(1.0f, (float)((enDeck + 1) / 2) / 10.0f) : 0.0f;
+
+	static const CardType trackedSpells[6] = {
+		CARD_FIREBALL, CARD_DEATH, CARD_MAGIC_BOLT, CARD_CHAIN_LIGHTNING, CARD_AMNESIA, CARD_FULL_RESTORE
+	};
+	if (myWiz) {
+		for (int s = 0; s < 6; ++s) {
+			DrawForecast df = calculateCardDrawOdds(*myWiz, trackedSpells[s], 2, nullptr);
+			out[idx++] = df.probTurn1;
+			out[idx++] = df.probTurn2;
+			out[idx++] = df.probTurn3;
+		}
+	} else {
+		for (int s = 0; s < 18; ++s)
+			out[idx++] = 0.0f;
+	}
+	if (enWiz) {
+		const std::set<std::string> * seenFilter = nullptr;
+		auto itSeen = g_seenOpponentCards.find(enWiz->playerID);
+		if (g_modifierFogOfWar) {
+			static const std::set<std::string> emptySeen;
+			seenFilter = (itSeen != g_seenOpponentCards.end()) ? &itSeen->second : &emptySeen;
+		}
+		for (int s = 0; s < 6; ++s) {
+			DrawForecast df = calculateCardDrawOdds(*enWiz, trackedSpells[s], 2, seenFilter);
+			out[idx++] = df.probTurn1;
+			out[idx++] = df.probTurn2;
+			out[idx++] = df.probTurn3;
+		}
+	} else {
+		for (int s = 0; s < 18; ++s)
+			out[idx++] = 0.0f;
+	}
+
+	if (activeActor && (activeOwner == perspectiveOwnerID || !g_modifierFogOfWar || visibleTiles[activeActor->x][activeActor->y])) {
+		int aDef = activeActor->block + activeActor->ward + activeActor->fortification + activeActor->barrier + activeActor->holyBlock;
+		out[idx++] = (float)activeActor->health / 30.0f;
+		out[idx++] = (float)activeActor->maxHealth / 30.0f;
+		out[idx++] = (float)aDef / 15.0f;
+		out[idx++] = (float)activeActor->deck.size() / 15.0f;
+		out[idx++] = (float)(activeActor->discardPile.size() + activeActor->playedCardsPile.size()) / 15.0f;
+		out[idx++] = activeActor->hasDrawnThisTurn ? 1.0f : 0.0f;
+	} else {
+		for (int k = 0; k < 6; ++k)
+			out[idx++] = 0.0f;
+	}
+
+	auto writeAllMinionsHist = [&](bool friendly, bool discardZone) {
+		for (const auto & p : st.players) {
+			if (!p.isMinion || p.health <= 0) continue;
+			if (friendly && p.ownerID != perspectiveOwnerID) continue;
+			if (!friendly && p.ownerID == perspectiveOwnerID) continue;
+			if (!friendly && g_modifierFogOfWar && g_seenOpponentMinionIDs.count(p.playerID) == 0 && !visibleTiles[p.x][p.y]) continue;
+
+			bool onlySeen = (!friendly && g_modifierFogOfWar);
+			auto addCards = [&](const std::vector<Card> & z) {
+				for (const auto & c : z) {
+					if (onlySeen && g_seenOpponentCards[p.playerID].count(c.name) == 0) continue;
+					int cid = (int)c.type - 1;
+					if (cid >= 0 && cid < 70) out[idx + cid] += 0.25f;
+				}
+			};
+			if (discardZone) {
+				addCards(p.discardPile);
+				addCards(p.playedCardsPile);
+			} else {
+				addCards(p.deck);
+				if (friendly || !g_modifierFogOfWar) addCards(p.hand);
+			}
+		}
+		idx += 70;
+	};
+
+	writeAllMinionsHist(true, false);
+	writeAllMinionsHist(true, true);
+	writeAllMinionsHist(false, false);
+	writeAllMinionsHist(false, true);
 }
 
 float ValueNetwork::evaluateState(const SimState & st, int perspectiveOwnerID, const bool visibleTiles[BOARD_WIDTH][BOARD_HEIGHT]) const {
@@ -7415,15 +7693,13 @@ static void flushSelfPlayEpisode(int winnerID) {
 	std::filesystem::create_directories(std::filesystem::path(outPath).parent_path());
 	std::ofstream ofs(outPath, std::ios::binary | std::ios::app);
 	if (ofs.is_open()) {
-		const size_t total = s_selfPlayBuffer.size();
-		const size_t stride = (winnerID == 2) ? 3 : 1; // Subsample draws so they don't dominate
-		for (size_t i = 0; i < total; i += stride) {
+		const size_t stride = (winnerID == 2) ? 4 : 1;
+		for (size_t i = 0; i < s_selfPlayBuffer.size(); i += stride) {
 			const auto & s = s_selfPlayBuffer[i];
-			float label = -0.35f; // Penalize stalling into a stalemate draw
+			// Draws are punished (-0.35) so bots actively try to win instead of stalling
+			float label = -0.35f;
 			if (winnerID != 2) {
-				float z = (s.ownerID == winnerID) ? 1.0f : -1.0f;
-				float stepsToEnd = (float)(total - 1 - i);
-				label = z * (0.30f + 0.70f * std::pow(0.993f, stepsToEnd));
+				label = (s.ownerID == winnerID) ? 1.0f : -1.0f;
 			}
 			ofs.write(reinterpret_cast<const char *>(s.features.data()), sizeof(float) * kValueNetInputDim);
 			ofs.write(reinterpret_cast<const char *>(&label), sizeof(float));
@@ -9074,18 +9350,15 @@ void ofApp::update() {
 				std::exit(candWinPct >= 54.0f ? 0 : 1);
 			}
 		}
-		float finalReward = -10.0f; // Default to loss penalty for the active perspective
+		float finalReward = -1.0f; // Loss
 
-		if (g_winnerID != 2) { // If the game did not end in a draw/tie
-			// Resolve the owner ID of the active unit on the final step
+		if (g_winnerID != 2) {
 			int activeID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-
-			// If the active player matches the winning ID, award them the victory bonus!
 			if (activeID == g_winnerID) {
-				finalReward = 10.0f;
+				finalReward = 1.0f; // Win
 			}
 		} else {
-			finalReward = 0.0f; // Ties get exactly 0.0
+			finalReward = 0.0f; // Draw
 		}
 
 		// Send final state to Python so it learns from the win/loss
@@ -29498,17 +29771,9 @@ void ofApp::simulationTick() {
 			bool wallBroken = (wallCount < s_minWalls);
 			if (wallBroken) s_minWalls = wallCount;
 
-			long long progressSig = (hpSum << 28) ^ (wizCards << 12) ^ ((long long)floatingKeyInstances.size() << 6) ^ s_minWalls;
-
-			if (progressSig == s_lastProgressSig && !wallBroken) {
-				s_noProgressRounds++;
-			} else {
-				s_lastProgressSig = progressSig;
-				s_noProgressRounds = 0;
-			}
-			if (s_noProgressRounds >= 25 || globalTurnCounter >= 150) {
+			if (globalTurnCounter >= 55) {
 				g_isGameOver = true;
-				g_winnerID = 2; // Break infinite headless stalemate as a Draw
+				g_winnerID = 2; // Stalemate = Draw
 				return;
 			}
 		}
@@ -43502,46 +43767,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	int applied = applyDamageWithMitigations(target, calculatedDamage, type, attackerIndex);
 	glm::vec3 targetPos = gridToWorld(target.x, target.y);
 
-	if (applied > 0) {
-		// --- AI REWARD SHAPING (POINTS) ---
-		// Consolidates rewards to prevent double-accumulation, and supports status damage (attackerIndex == -1)
-		if (headless && isAIvsAI) {
-			// The AI ID is the owner of the currently active unit (whose turn it is)
-			int aiID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-
-			// Figure out who the true attacker is (accounting for direct casts and start-of-turn status damage)
-			int attackerOwner = -1;
-			if (attackerIndex >= 0 && attackerIndex < (int)players.size()) {
-				attackerOwner = players[attackerIndex].isMinion ? players[attackerIndex].ownerID : players[attackerIndex].playerID;
-			} else {
-				int applierID = -1;
-				if (type == DAMAGE_FIRE)
-					applierID = target.fireApplierPlayerID;
-				else if (type == DAMAGE_POISON)
-					applierID = target.poisonApplierPlayerID;
-				if (applierID != -1) {
-					int aIdx = findPlayerIndexByID(applierID);
-					if (aIdx >= 0 && aIdx < (int)players.size()) {
-						attackerOwner = players[aIdx].isMinion ? players[aIdx].ownerID : players[aIdx].playerID;
-					}
-				}
-			}
-
-			int victimOwner = target.isMinion ? target.ownerID : target.playerID;
-
-			if (attackerOwner != -1) {
-				if (attackerOwner == aiID && victimOwner != aiID) {
-					// The AI successfully hurt the enemy! Give it +0.2 points per damage dealt.
-					cumulativeReward += (applied * 0.2f);
-				} else if (victimOwner == aiID && attackerOwner != aiID) {
-					// The AI got hurt! Penalize it -0.2 points per damage taken.
-					cumulativeReward -= (applied * 0.2f);
-				}
-			}
-		}
-		// ----------------------------------
-
-	} else {
+	if (applied <= 0) {
 		queueFloatingTextVisual(targetPos, "-0" + typeLabel, ofColor::gray);
 	}
 
@@ -50468,83 +50694,43 @@ static const ValueNetwork * getActiveValueNetForOwner(int aiOwnerID) {
 	}
 	return (aiOwnerID == s_candArenaOwner) ? &g_valueNetCandidate : &g_valueNet;
 }
-static float simOpponentCounterTurnPenalty(const SimState & st, int myOwnerID, int oppOwnerID, const bool visibleTiles[BOARD_WIDTH][BOARD_HEIGHT]) {
-	const Player * myWiz = nullptr;
-	const Player * enWiz = nullptr;
-	for (const auto & p : st.players) {
-		if (p.health <= 0 || p.isMinion) continue;
-		if (p.playerID == myOwnerID) myWiz = &p;
-		if (p.playerID == oppOwnerID) enWiz = &p;
-	}
-	if (!myWiz || !enWiz) return 0.0f;
-	if (g_modifierFogOfWar && !visibleTiles[enWiz->x][enWiz->y]) return 0.0f;
+// =============================================================================
+// PROBABILITY & FUTURE RESHUFFLE FORECASTING ENGINE
+// =============================================================================
 
-	int myEffHP = myWiz->health + myWiz->block + myWiz->ward + myWiz->fortification + myWiz->barrier + myWiz->holyBlock;
-
-	float maxCounterDmg = 0.0f;
-
-	// Estimate opponent's primary damage spell
-	float oppBestSpellDmg = 4.0f;
-	float oppSpellRangeFt = 30.0f;
-	for (const auto & c : enWiz->deck) {
-		float d = (float)(c.baseDamage + c.damageDiceNum * (c.damageDiceSides + 1) / 2);
-		if (d > oppBestSpellDmg) oppBestSpellDmg = d;
-		float r = (float)(c.rangeDiceNum * c.rangeDiceSides);
-		if (r > oppSpellRangeFt) oppSpellRangeFt = r;
+// Returns the complete starting deck recipe for any minion species
+static std::vector<CardType> getMinionStandardDeck(int summonKind) {
+	switch (summonKind) {
+	case 1: // Kobold
+		return { CARD_PUNCH, CARD_HAND_BLOCK, CARD_HAND_BLOCK, CARD_CALL_FOR_KOBOLDS };
+	case 2: // Wolf
+		return { CARD_SLASH, CARD_SLASH, CARD_SLASH, CARD_CALL_FOR_WOLVES };
+	case 3: // Hellhound
+		return { CARD_SLASH, CARD_FLAME_HIT, CARD_FIREBALL, CARD_DARK_SHIELD };
+	case 4: // Demon
+		return { CARD_DEATH, CARD_FLAIL, CARD_FIREBALL, CARD_DARK_SHIELD };
+	case 5: // Kobold King
+		return { CARD_SLASH, CARD_SLASH, CARD_STAB, CARD_STAB, CARD_FULL_RESTORE, CARD_FULL_RESTORE };
+	case 6: // Assistant
+		return { CARD_LESSER_HEAL, CARD_HAND_BLOCK, CARD_HAND_BLOCK, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+	case 7: // Faerie
+		return { CARD_DISPEL, CARD_DISPEL, CARD_LESSER_HEAL, CARD_LESSER_HEAL, CARD_MAGIC_BLAST };
+	case 8: // Golem (Default Rock)
+		return { CARD_ROCK_CRUSH, CARD_ROCK_CRUSH, CARD_BASH, CARD_BASH, CARD_BASH, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+	case 9: // Skeleton
+		return { CARD_PUNCH, CARD_PUNCH, CARD_HAND_BLOCK, CARD_HAND_BLOCK };
+	case 10: // Wall Unit
+	case 11: // Magic Wall Unit
+		return { CARD_FORTIFY, CARD_FORTIFY, CARD_MAGIC_BLAST, CARD_MAGIC_BLAST, CARD_SUMMON_MAGIC_WALL };
+	default:
+		return {};
 	}
-	for (const auto & c : enWiz->hand) {
-		float d = (float)(c.baseDamage + c.damageDiceNum * (c.damageDiceSides + 1) / 2);
-		if (d > oppBestSpellDmg) oppBestSpellDmg = d;
-	}
-
-	// 1. Direct line of sight from enemy wizard
-	if (simIsLosClear(st, enWiz->x, enWiz->y, myWiz->x, myWiz->y, false)) {
-		float dFt = simDistFeet(enWiz->x, enWiz->y, myWiz->x, myWiz->y);
-		if (dFt <= oppSpellRangeFt) {
-			maxCounterDmg = std::max(maxCounterDmg, oppBestSpellDmg);
-		}
-	}
-
-	// 2. Enemy wizard 2-tile peek move around corners
-	if (maxCounterDmg == 0.0f) {
-		const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
-		for (int d = 0; d < 4; ++d) {
-			int px = enWiz->x + dx[d], py = enWiz->y + dy[d];
-			if (px < 0 || px >= BOARD_WIDTH || py < 0 || py >= BOARD_HEIGHT) continue;
-			if (st.board[px][py].hasWall || st.board[px][py].hasPlayer) continue;
-			if (simIsLosClear(st, px, py, myWiz->x, myWiz->y, false)) {
-				maxCounterDmg = std::max(maxCounterDmg, oppBestSpellDmg * 0.85f);
-				break;
-			}
-		}
-	}
-
-	// 3. Enemy minions in melee or closing distance
-	for (const auto & p : st.players) {
-		if (p.health <= 0 || !p.isMinion || p.ownerID != oppOwnerID) continue;
-		if (p.isWallUnit) continue;
-		int d = std::abs(p.x - myWiz->x) + std::abs(p.y - myWiz->y);
-		if (d == 1) {
-			maxCounterDmg += 5.0f; // In melee contact right now
-		} else if (d <= 3) {
-			maxCounterDmg += 2.5f; // Threatening advance
-		}
-	}
-
-	// Punish lethal exposures heavily (stops walking into lethal)
-	if (maxCounterDmg >= (float)myEffHP) {
-		return 3500.0f;
-	}
-	return maxCounterDmg * 24.0f;
 }
 static float simEvaluateState(const SimState & st, int aiOwnerID, int actorIdx, const float threatMap[BOARD_WIDTH][BOARD_HEIGHT], const glm::ivec2 & bestKey, const bool visibleTiles[BOARD_WIDTH][BOARD_HEIGHT]) {
 	float score = 0.0f;
-	int myWizardHP = 0, myWizardMaxHP = 15, myWizardDef = 0;
-	int enemyWizardHP = 0, enemyWizardDef = 0;
+	int myWizardHP = 0, enemyWizardHP = 0;
 	int myWizardCards = 0, enemyWizardCards = 0;
 	bool myWizardAlive = false, enemyWizardAlive = false;
-	int mySkels = 0;
-	int myWizX = -1, myWizY = -1, enWizX = -1, enWizY = -1;
 
 	for (const auto & p : st.players) {
 		if (p.health <= 0) continue;
@@ -50556,143 +50742,53 @@ static float simEvaluateState(const SimState & st, int aiOwnerID, int actorIdx, 
 			if (!p.isMinion) {
 				myWizardAlive = true;
 				myWizardHP = p.health;
-				myWizardMaxHP = std::max(1, p.maxHealth);
-				myWizardDef = def;
 				myWizardCards = totalCards;
-				myWizX = p.x;
-				myWizY = p.y;
-				score += p.health * 32.0f + p.maxHealth * 10.0f;
-				score += p.luck * 22.0f + p.nextTurnAPBonus * 14.0f;
-				if (p.nextTurnExtraDraw) score += 20.0f;
-				if (p.nextTurnD10AP) score += 16.0f;
-				if (p.replicateQueued) score += 30.0f;
-				if (p.inTortoiseForm) score += 55.0f;
-				if (p.inGhostForm) score += 40.0f;
-				if (p.strengthenElementsTurnsRemaining > 0) score += 20.0f;
-				if (p.onFire) score -= 35.0f;
-				if (p.isPoisoned) score -= 28.0f;
-				if (p.isParalyzed) score -= 32.0f;
-				if (p.sleepTurnsRemaining > 0) score -= 30.0f;
+				// Health and Defenses are purely positive assets
+				score += (float)p.health * 30.0f + (float)def * 12.0f;
 			} else {
-				if (p.isSkeleton) mySkels++;
-				float mVal = 38.0f + p.health * 11.0f;
-				if (p.isAssistant)
-					mVal = 70.0f;
-				else if (p.isFaerie)
-					mVal = 65.0f;
-				else if (p.isDemon)
-					mVal = 110.0f + p.health * 8.0f;
-				else if (p.isHellhound)
-					mVal = 75.0f + p.health * 10.0f;
-				score += mVal;
+				score += 35.0f + (float)p.health * 10.0f;
 			}
 		} else {
 			if (g_modifierFogOfWar && !visibleTiles[p.x][p.y]) continue;
 			if (!p.isMinion) {
 				enemyWizardAlive = true;
 				enemyWizardHP = p.health;
-				enemyWizardDef = def;
 				enemyWizardCards = totalCards;
-				enWizX = p.x;
-				enWizY = p.y;
-				score -= p.health * 36.0f;
-				score -= def * 12.0f;
-				if (p.onFire) score += 32.0f;
-				if (p.isPoisoned) score += 26.0f;
-				if (p.isParalyzed) score += 30.0f;
-				if (p.sleepTurnsRemaining > 0) score += 25.0f;
+				score -= (float)p.health * 30.0f + (float)def * 12.0f;
 			} else {
-				float eVal = 35.0f + p.health * 10.0f;
-				if (p.isAssistant || p.isFaerie) eVal += 35.0f;
-				score -= eVal;
+				score -= 30.0f + (float)p.health * 10.0f;
 			}
 		}
 	}
 
+	// Terminal win/loss/draw outcomes
+	if (!enemyWizardAlive && !myWizardAlive) return 0.0f;
 	if (!enemyWizardAlive) return 100000.0f;
 	if (!myWizardAlive) return -100000.0f;
+	if (enemyWizardCards == 0 && myWizardCards == 0) return 0.0f;
 	if (enemyWizardCards == 0 && myWizardCards > 0) return 90000.0f;
 	if (myWizardCards == 0 && enemyWizardCards > 0) return -90000.0f;
 
-	if (enemyWizardCards <= 3)
-		score += 180.0f;
-	if (myWizardCards <= 2) score -= 250.0f;
+	// Reward picking up keys
+	int keysRemaining = (int)st.floatingKeys.size();
+	score -= (float)keysRemaining * 120.0f;
 
-	// Key pickups & active unit end-of-turn safety
-	if (actorIdx >= 0 && actorIdx < (int)st.players.size()) {
-		const Player & actor = st.players[actorIdx];
-		float danger = threatMap[actor.x][actor.y];
-		int effHP = actor.health + actor.block + actor.barrier + actor.ward + actor.holyBlock + actor.fortification;
-
-		if (!actor.isMinion) {
-			score += myWizardDef * (danger > 0.0f ? 14.0f : 4.0f);
-			if (danger >= effHP && effHP <= 8)
-				score -= 450.0f;
-			else
-				score -= danger * (actor.health <= 7 ? 16.0f : 5.0f);
-		} else {
-			if (danger >= effHP)
-				score -= 90.0f;
-			else
-				score -= danger * 4.0f;
-		}
-
-		// Reward picking up keys (key count shrinks in SimState when stepped on)
-		int keysRemaining = (int)st.floatingKeys.size();
-		score -= keysRemaining * 160.0f;
-
-		if (bestKey.x >= 0 && !actor.isMinion) {
-			int distKey = std::abs(actor.x - bestKey.x) + std::abs(actor.y - bestKey.y);
-			score -= distKey * 14.0f;
-		}
-
-		if (enWizX >= 0 && !actor.isMinion) {
-			int wDist = std::abs(actor.x - enWizX) + std::abs(actor.y - enWizY);
-			score -= (float)wDist * 8.0f;
-		} else if (actor.isMinion) {
-			if (actor.isAssistant || actor.isFaerie) {
-				if (myWizX >= 0) {
-					int sDist = std::abs(actor.x - myWizX) + std::abs(actor.y - myWizY);
-					score -= (float)sDist * 8.0f;
-				}
-			} else if (!actor.isWallUnit && enWizX >= 0) {
-				int mDist = std::abs(actor.x - enWizX) + std::abs(actor.y - enWizY);
-				score -= (float)mDist * 6.0f;
-			}
-		}
-
-		// Slight penalty for sitting on unused Poison coat at end of turn
-		if (actor.nextAttackAddPoison) score -= 12.0f;
-
-		// Reward ending at exactly 0 AP next to an unused Assistant (free reroll)
-		if (st.currentAP == 0) {
-			for (const auto & p : st.players) {
-				if (p.isAssistant && p.health > 0 && p.directSummonerID == actor.playerID && !p.assistantRerollUsedThisTurn) {
-					if (std::abs(p.x - actor.x) + std::abs(p.y - actor.y) <= 1) {
-						score += 55.0f;
-						break;
-					}
-				}
-			}
-		}
-	}
-
-	// Adversarial 2-ply counter-attack penalty: penalize leaving our wizard exposed to enemy retaliations
-	int enemyOwner = (aiOwnerID == 1) ? 0 : 1;
-	float counterPenalty = simOpponentCounterTurnPenalty(st, aiOwnerID, enemyOwner, visibleTiles);
-	score -= counterPenalty;
-
+	// Clean Value Network fusion: the neural net decides positioning, fear, and trades!
 	float hWeight = getAIHeuristicWeight();
 	const ValueNetwork * activeNet = getActiveValueNetForOwner(aiOwnerID);
 
 	if (activeNet->loaded && g_aiDifficulty >= 1) {
 		float v = activeNet->evaluateState(st, aiOwnerID, visibleTiles);
-
-		float netMultiplier = (g_aiDifficulty == 2) ? (1000.0f + 2500.0f * (1.0f - hWeight)) : (600.0f + 1200.0f * (1.0f - hWeight));
+		// As hWeight -> 0.0, the neural net takes 100% authority
+		float netMultiplier = (g_aiDifficulty == 2) ? (1500.0f + 2500.0f * (1.0f - hWeight)) : (800.0f + 1200.0f * (1.0f - hWeight));
 		score = (score * hWeight) + (v * netMultiplier);
 	}
-	(void)myWizardMaxHP;
-	(void)mySkels;
+
+	(void)threatMap;
+	(void)bestKey;
+	(void)actorIdx;
+	(void)myWizardHP;
+	(void)enemyWizardHP;
 	return score;
 }
 
@@ -51221,8 +51317,8 @@ ofApp::AITurnPlan ofApp::findBestTurnPlan(int actorIdx) {
 	std::vector<SearchNode> beam;
 	beam.push_back(rootNode);
 
-	int BEAM_WIDTH = headless ? 10 : 14;
-	int MAX_DEPTH = headless ? 6 : 7;
+	int BEAM_WIDTH = headless ? 8 : 14;
+	int MAX_DEPTH = headless ? 5 : 7;
 	if (g_aiDifficulty == 0) { // Easy: shallow 1-step lookahead
 		BEAM_WIDTH = 4;
 		MAX_DEPTH = 1;
@@ -51461,7 +51557,7 @@ ofApp::AITurnPlan ofApp::findBestTurnPlan(int actorIdx) {
 							child.state.currentAP = savedAP;
 						}
 						if (depth == 0 && std::getenv("MAGEFIGHT_SELFPLAY") != nullptr && std::getenv("MAGEFIGHT_ARENA") == nullptr) {
-							std::uniform_real_distribution<float> jitter(-20.0f, 20.0f);
+							std::uniform_real_distribution<float> jitter(-120.0f, 120.0f);
 							float j = jitter(s_aiExploreRng);
 							child.score += j;
 							eotScore += j;
@@ -51487,51 +51583,42 @@ ofApp::AITurnPlan ofApp::findBestTurnPlan(int actorIdx) {
 						int d = distGrid[x][y];
 						if (d <= 0 || d > st.currentAP) continue;
 
-						float tilePriority = 0.0f;
-						if (!pureRLMoves || depth > 0) {
-							tilePriority = -threatMap[x][y] * 2.0f - (float)d * 0.25f;
-							for (const auto & k : st.floatingKeys) {
-								if (k.pos.x == x && k.pos.y == y) tilePriority += 300.0f;
-							}
-							if (bestKey.x >= 0) {
-								int dNow = std::abs(me.x - bestKey.x) + std::abs(me.y - bestKey.y);
-								int dNext = std::abs(x - bestKey.x) + std::abs(y - bestKey.y);
-								tilePriority += (float)(dNow - dNext) * 35.0f;
-							}
-							for (const auto & p : st.players) {
-								int pOwner = p.isMinion ? p.ownerID : p.playerID;
-								if (pOwner != activeOwner && p.health > 0) {
-									if (g_modifierFogOfWar && !aiVisible[p.x][p.y]) continue;
-									if (!me.isAssistant && !me.isFaerie && !p.isWallUnit) {
-										int eNow = std::abs(me.x - p.x) + std::abs(me.y - p.y);
-										int eNext = std::abs(x - p.x) + std::abs(y - p.y);
-										float weight = p.isMinion ? 8.0f : 20.0f;
-										tilePriority += (float)(eNow - eNext) * weight;
-									}
-									if (std::abs(x - p.x) + std::abs(y - p.y) == 1)
-										tilePriority += 55.0f;
-									else if (simIsLosClear(st, x, y, p.x, p.y, false))
-										tilePriority += 35.0f;
+						float tilePriority = -threatMap[x][y] * 2.0f - (float)d * 0.25f;
+						for (const auto & k : st.floatingKeys) {
+							if (k.pos.x == x && k.pos.y == y) tilePriority += 300.0f;
+						}
+						if (bestKey.x >= 0) {
+							int dNow = std::abs(me.x - bestKey.x) + std::abs(me.y - bestKey.y);
+							int dNext = std::abs(x - bestKey.x) + std::abs(y - bestKey.y);
+							tilePriority += (float)(dNow - dNext) * 35.0f;
+						}
+						for (const auto & p : st.players) {
+							int pOwner = p.isMinion ? p.ownerID : p.playerID;
+							if (pOwner != activeOwner && p.health > 0) {
+								if (g_modifierFogOfWar && !aiVisible[p.x][p.y]) continue;
+								if (!me.isAssistant && !me.isFaerie && !p.isWallUnit) {
+									int eNow = std::abs(me.x - p.x) + std::abs(me.y - p.y);
+									int eNext = std::abs(x - p.x) + std::abs(y - p.y);
+									float weight = p.isMinion ? 8.0f : 20.0f;
+									tilePriority += (float)(eNow - eNext) * weight;
 								}
+								if (std::abs(x - p.x) + std::abs(y - p.y) == 1)
+									tilePriority += 55.0f;
+								else if (simIsLosClear(st, x, y, p.x, p.y, false))
+									tilePriority += 35.0f;
 							}
 						}
 						moveCandidates.push_back({ tilePriority, { x, y } });
 					}
 				}
 
-				if (!pureRLMoves && depth == 0) {
-					std::sort(moveCandidates.begin(), moveCandidates.end(), [](const auto & a, const auto & b) {
-						return a.first > b.first;
-					});
-				} else if (depth > 0 && moveCandidates.size() > 10) {
-					std::sort(moveCandidates.begin(), moveCandidates.end(), [](const auto & a, const auto & b) {
-						return a.first > b.first;
-					});
-				}
+				std::sort(moveCandidates.begin(), moveCandidates.end(), [](const auto & a, const auto & b) {
+					return a.first > b.first;
+				});
 
 				int maxMovesToBranch = (depth == 0 && pureRLMoves)
-					? std::min(16, (int)moveCandidates.size())
-					: std::min(10, (int)moveCandidates.size());
+					? std::min(32, (int)moveCandidates.size())
+					: std::min(8, (int)moveCandidates.size());
 				for (int m = 0; m < maxMovesToBranch; ++m) {
 					glm::ivec2 dst = moveCandidates[m].second;
 					AIActionStep step;
@@ -51550,8 +51637,8 @@ ofApp::AITurnPlan ofApp::findBestTurnPlan(int actorIdx) {
 						child.plan.steps.push_back(step);
 						child.plan.endTile = dst;
 						child.score = simEvaluateState(child.state, activeOwner, child.state.currentPlayerIndex, threatMap, bestKey, aiVisible);
-						if (std::getenv("MAGEFIGHT_SELFPLAY") != nullptr && std::getenv("MAGEFIGHT_ARENA") == nullptr) {
-							std::uniform_real_distribution<float> jitter(-20.0f, 20.0f);
+						if (depth == 0 && std::getenv("MAGEFIGHT_SELFPLAY") != nullptr && std::getenv("MAGEFIGHT_ARENA") == nullptr) {
+							std::uniform_real_distribution<float> jitter(-120.0f, 120.0f);
 							child.score += jitter(s_aiExploreRng);
 						}
 						child.plan.finalScore = child.score;
@@ -51585,9 +51672,137 @@ ofApp::AITurnPlan ofApp::findBestTurnPlan(int actorIdx) {
 		beam = std::move(uniqueBeam);
 	}
 
+	// =========================================================================
+	// PURE ZERO-KNOWLEDGE 2-PLY MINIMAX (Evaluated purely by the Value Network)
+	// =========================================================================
+	const ValueNetwork * activeNet = getActiveValueNetForOwner(activeOwner);
+	if (g_aiDifficulty >= 2 && beam.size() > 1 && activeNet && activeNet->loaded) {
+		float bestMinimaxScore = -999999.0f;
+		int bestCandidateIdx = 0;
+
+		int candidatesToTest = std::min(4, (int)beam.size());
+		for (int c = 0; c < candidatesToTest; ++c) {
+			SimState postMyTurn = beam[c].state;
+
+			int nextEnemyIdx = -1;
+			for (size_t pi = 0; pi < postMyTurn.players.size(); ++pi) {
+				const auto & p = postMyTurn.players[pi];
+				int pOwner = p.isMinion ? p.ownerID : p.playerID;
+				if (pOwner != activeOwner && p.health > 0) {
+					nextEnemyIdx = (int)pi;
+					break;
+				}
+			}
+
+			if (nextEnemyIdx >= 0) {
+				postMyTurn.currentPlayerIndex = nextEnemyIdx;
+				Player & opp = postMyTurn.players[nextEnemyIdx];
+
+				int oppExpectedAP = opp.isMinion ? 3 : 4;
+				if (opp.isDemon) oppExpectedAP = 10;
+				postMyTurn.currentAP = oppExpectedAP + opp.nextTurnAPBonus;
+
+				float worstScoreForUs = beam[c].plan.finalScore;
+
+				// 1. Opponent simulates their legal card plays against our units
+				for (int ci = 0; ci < (int)opp.hand.size(); ++ci) {
+					const Card & oppCard = opp.hand[ci];
+					int cost = getEffectiveCardCostForPlayer(opp, oppCard);
+					if (cost > postMyTurn.currentAP) continue;
+
+					for (const auto & ally : postMyTurn.players) {
+						if (ally.health <= 0) continue;
+						int allyOwner = ally.isMinion ? ally.ownerID : ally.playerID;
+						if (allyOwner != activeOwner) continue;
+
+						AIActionStep oppStep;
+						oppStep.type = AIActionStep::STEP_PLAY_CARD;
+						oppStep.cardIdx = ci;
+						oppStep.tx = ally.x;
+						oppStep.ty = ally.y;
+						oppStep.apCost = cost;
+						oppStep.label = oppCard.name;
+
+						SimState simOppState = postMyTurn;
+						int estD = 0;
+						if (simApplyStep(simOppState, oppStep, this, enemyOwner, estD)) {
+							float scoreAfterOppMove = activeNet->evaluateState(simOppState, activeOwner, aiVisible);
+							if (scoreAfterOppMove < worstScoreForUs) {
+								worstScoreForUs = scoreAfterOppMove;
+							}
+						}
+					}
+				}
+
+				// 2. Opponent simulates movement toward our wizard
+				int oppDistGrid[BOARD_WIDTH][BOARD_HEIGHT];
+				simComputeReachableDist(postMyTurn, opp.x, opp.y, opp.inGhostForm, oppDistGrid);
+
+				const Player * myWiz = nullptr;
+				for (const auto & p : postMyTurn.players) {
+					if (!p.isMinion && p.playerID == activeOwner && p.health > 0) {
+						myWiz = &p;
+						break;
+					}
+				}
+
+				if (myWiz) {
+					const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+					for (int d = 0; d < 4; ++d) {
+						int nx = myWiz->x + dx[d], ny = myWiz->y + dy[d];
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							if (oppDistGrid[nx][ny] <= postMyTurn.currentAP && !postMyTurn.board[nx][ny].hasWall && !postMyTurn.board[nx][ny].hasPlayer) {
+								AIActionStep oppMove;
+								oppMove.type = AIActionStep::STEP_MOVE;
+								oppMove.cardIdx = -1;
+								oppMove.tx = nx;
+								oppMove.ty = ny;
+								oppMove.apCost = oppDistGrid[nx][ny];
+								oppMove.label = "Move";
+
+								SimState simOppMoveState = postMyTurn;
+								int estD = 0;
+								if (simApplyStep(simOppMoveState, oppMove, this, enemyOwner, estD)) {
+									float scoreAfterMove = activeNet->evaluateState(simOppMoveState, activeOwner, aiVisible);
+									if (scoreAfterMove < worstScoreForUs) {
+										worstScoreForUs = scoreAfterMove;
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// Add an initiative bonus for plans that deal damage to break defensive standoffs
+				float proactiveScore = worstScoreForUs + ((float)beam[c].plan.expectedDamage * 12.0f);
+				if (proactiveScore > bestMinimaxScore) {
+					bestMinimaxScore = proactiveScore;
+					bestCandidateIdx = c;
+				}
+			} // closes if (nextEnemyIdx >= 0)
+		} // closes for (int c = 0; c < candidatesToTest; ++c)
+
+		bestPlan = beam[bestCandidateIdx].plan;
+	} // closes if (g_aiDifficulty >= 2 ...)
+
+	// 8% Evolutionary Exploration in self-play: pick 2nd-best plan to explore novel strategies
+	if (std::getenv("MAGEFIGHT_SELFPLAY") != nullptr && std::getenv("MAGEFIGHT_ARENA") == nullptr) {
+		std::uniform_real_distribution<float> exploreRoll(0.0f, 1.0f);
+		if (beam.size() > 1 && exploreRoll(s_aiExploreRng) < 0.08f) {
+			int altIdx = 1;
+			if (!bestPlan.steps.empty() && !beam[0].plan.steps.empty()) {
+				if (bestPlan.steps.front().tx == beam[0].plan.steps.front().tx && bestPlan.steps.front().ty == beam[0].plan.steps.front().ty && bestPlan.steps.front().cardIdx == beam[0].plan.steps.front().cardIdx) {
+					altIdx = 1;
+				} else {
+					altIdx = 0;
+				}
+			}
+			bestPlan = beam[altIdx].plan;
+		}
+	}
+
 	return bestPlan;
 }
-
 // =============================================================================
 // MAIN TACTICAL AI DECISION ENGINE
 // =============================================================================
@@ -53397,6 +53612,23 @@ float ofApp::evaluateDraftCardScore(const Card & card, int classTier, int drafti
 		if (card.type == CARD_TIME_VORTEX && hasHugeAPGenerator()) score = 11500.0f; // Rank 5
 
 		if (countMyCopies(card.type) >= maxCopies) score -= 50.0f;
+
+		float hWeight = getAIHeuristicWeight();
+		const ValueNetwork * activeNet = getActiveValueNetForOwner(activeOwnerID);
+		if (activeNet->loaded && g_aiDifficulty >= 1) {
+			SimState draftSnap;
+			draftSnap.captureFrom(board, players, floatingKeyInstances, graveyard, draftingPlayerIdx, currentAP, globalTurnCounter);
+			if (draftingPlayerIdx >= 0 && draftingPlayerIdx < (int)draftSnap.players.size()) {
+				draftSnap.players[draftingPlayerIdx].deck.push_back(card);
+			}
+			bool allVis[BOARD_WIDTH][BOARD_HEIGHT];
+			for (int vx = 0; vx < BOARD_WIDTH; ++vx)
+				for (int vy = 0; vy < BOARD_HEIGHT; ++vy)
+					allVis[vx][vy] = true;
+			float netBias = (g_aiDifficulty == 2) ? (1500.0f + 4500.0f * (1.0f - hWeight)) : 1200.0f;
+			score = (score * hWeight) + (activeNet->evaluateState(draftSnap, activeOwnerID, allVis) * netBias);
+		}
+
 		if (std::getenv("MAGEFIGHT_SELFPLAY") != nullptr && std::getenv("MAGEFIGHT_ARENA") == nullptr) {
 			std::uniform_real_distribution<float> draftNoise(-1800.0f, 1800.0f);
 			score += draftNoise(s_aiExploreRng);

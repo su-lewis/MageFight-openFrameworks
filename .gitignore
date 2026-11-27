@@ -55,3 +55,4 @@ Saves/autosave*.json
 bin/data/Config/settings.json
 bin/data/Config/selfplay_data*.bin
 bin/data/Config/selfplay_data_hist_*.binbin/data/Config/*.bin
+bin/data/Config/*.bin
