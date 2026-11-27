@@ -1180,6 +1180,61 @@ struct Particle {
 //                                      MAIN APPLICATION CLASS
 // =================================================================================================
 
+struct FloatingKey {
+	glm::ivec2 pos;
+	int set;
+};
+
+struct SimState {
+	Tile board[BOARD_WIDTH][BOARD_HEIGHT];
+	std::deque<Player> players;
+	std::vector<FloatingKey> floatingKeys;
+	std::vector<DeathMarker> graveyard;
+	int currentPlayerIndex = 0;
+	int currentAP = 0;
+	int globalTurnCounter = 0;
+
+	void captureFrom(const Tile srcBoard[BOARD_WIDTH][BOARD_HEIGHT],
+		const std::deque<Player> & srcPlayers,
+		const std::vector<FloatingKey> & srcKeys,
+		const std::vector<DeathMarker> & srcGraveyard,
+		int srcPlayerIdx,
+		int srcAP,
+		int srcTurn) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				board[x][y] = srcBoard[x][y];
+			}
+		}
+		players = srcPlayers;
+		floatingKeys = srcKeys;
+		graveyard = srcGraveyard;
+		currentPlayerIndex = srcPlayerIdx;
+		currentAP = srcAP;
+		globalTurnCounter = srcTurn;
+	}
+
+	void restoreTo(Tile dstBoard[BOARD_WIDTH][BOARD_HEIGHT],
+		std::deque<Player> & dstPlayers,
+		std::vector<FloatingKey> & dstKeys,
+		std::vector<DeathMarker> & dstGraveyard,
+		int & dstPlayerIdx,
+		int & dstAP,
+		int & dstTurn) const {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				dstBoard[x][y] = board[x][y];
+			}
+		}
+		dstPlayers = players;
+		dstKeys = floatingKeys;
+		dstGraveyard = graveyard;
+		dstPlayerIdx = currentPlayerIndex;
+		dstAP = currentAP;
+		dstTurn = globalTurnCounter;
+	}
+};
+
 class ofApp : public ofBaseApp {
 
 public:
@@ -1994,10 +2049,6 @@ private:
 	int keyAnimTileX = BOARD_WIDTH / 2;
 	int keyAnimTileY = BOARD_HEIGHT / 2;
 
-	struct FloatingKey {
-		glm::ivec2 pos;
-		int set;
-	};
 	std::vector<FloatingKey> floatingKeyInstances;
 	float keyRenderScale = 0.75f;
 

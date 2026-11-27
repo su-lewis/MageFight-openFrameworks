@@ -1,15 +1,20 @@
-3D Unit Models:
+Original Concept & Ruleset by ComplexGame
+Card Art Curation - ComplexGame
+Music - Peace out Pat
+
+Unit Models:
 Hellhound - 
 Faerie - 
 Golem - 
 Kobold -
 Assistant
 Wizard
+
 Spell Book - CraftPix
 Book Background Grimoire - heosphorus
 Health Bar Assets- silasgamedev
 Main Menu Background Art Assets- dark-dun
 
-Card Art Curation - ComplexGame
-Game Music - Peace out Pat
+
+
 Everything else - Me
